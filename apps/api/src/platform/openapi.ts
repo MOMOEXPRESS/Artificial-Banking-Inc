@@ -170,6 +170,14 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
       },
       "/v1/agent/escrow/{id}": { get: stub(["agent"], "Get escrow status", "agentBearer") },
       "/v1/guardian/setup": { get: stub(["guardian"], "Environment / custody setup hints", "guardianBearer") },
+      "/v1/guardian/settings": {
+        get: stub(["guardian"], "Org settings JSON", "guardianBearer"),
+        patch: stub(["guardian"], "Merge org settings", "guardianBearer"),
+      },
+      "/v1/guardian/audit/export": { get: stub(["guardian"], "Audit export JSON or CSV", "guardianBearer") },
+      "/v1/guardian/compliance": { get: stub(["guardian"], "Compliance screener status", "guardianBearer") },
+      "/v1/guardian/observability": { get: stub(["guardian"], "Observability sink status", "guardianBearer") },
+      "/v1/guardian/merchants/{id}": { delete: stub(["guardian"], "Delete merchant", "guardianBearer") },
       "/v1/guardian/wallets": { get: stub(["guardian"], "Multi-wallet registry (org/dept/agent/shared)", "guardianBearer") },
       "/v1/guardian/wallets/move": { post: stub(["guardian"], "Unified treasury move (HITL above threshold)", "guardianBearer") },
       "/v1/guardian/departments": {

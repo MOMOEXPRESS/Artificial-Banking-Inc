@@ -323,6 +323,27 @@ export class AbiGuardianClient extends AbiHttpClient {
     return this.request<{ rails: unknown[] }>("/v1/guardian/payments/rails");
   }
 
+  getSettings() {
+    return this.request<{ settings: Record<string, unknown> }>("/v1/guardian/settings");
+  }
+
+  patchSettings(settings: Record<string, unknown>) {
+    return this.request<{ ok: boolean }>("/v1/guardian/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ settings }),
+    });
+  }
+
+  exportAudit(limit = 500) {
+    return this.request<{ decisions: unknown[]; freezes: unknown[] }>(
+      `/v1/guardian/audit/export?limit=${limit}`,
+    );
+  }
+
+  getCompliance() {
+    return this.request<{ screener: string }>("/v1/guardian/compliance");
+  }
+
   listMerchants() {
     return this.request<{ merchants: unknown[] }>("/v1/guardian/merchants");
   }

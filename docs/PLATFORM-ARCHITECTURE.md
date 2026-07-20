@@ -89,6 +89,112 @@ extension points that let each pillar grow without a rewrite.
 
 ---
 
+## Observability pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| Metrics / burn / anomalies / economics | DONE | `/metrics`, `/burn`, `/anomalies`, `/economics`, Insights |
+| Decision activity | DONE | `/activity` + audit export |
+| ObservabilitySink | DONE | Console JSON sink at boot; `setObservabilitySink` |
+| Sink status | DONE | `GET /v1/guardian/observability` |
+| Vendor ledger | DONE | `/vendors` |
+| OTel/Prometheus backends | DEFERRED | Plug via sink interface |
+
+---
+
+## Security pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| Roles owner / approver / viewer | DONE | Viewer read-only GET |
+| Freezes + audit | DONE | Freeze routes + `/freezes` + audit export |
+| Idempotency + rate limit | DONE | Middleware on API |
+| Webhook SSRF guard | DONE | `webhook-url.ts` |
+| Audit export JSON/CSV | DONE | `GET /v1/guardian/audit/export` |
+| Key hashing at rest | DEFERRED | A13 — behind store |
+
+---
+
+## AI Features pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| Deterministic ask / chat | DONE | `/ask`, `/chat`, Insights |
+| FactRephraser hook | DONE | `presentAnswer` + optional echo rephraser |
+| Never interprets money intents | DONE | Structured tools only |
+| LLM policy authoring | DEFERRED | Explicit non-goal |
+
+---
+
+## Developer Platform pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| REST + OpenAPI | DONE | `GET /v1/openapi.json` (expanded stubs) |
+| TS SDK agent + guardian | DONE | `@policyvault/sdk` |
+| MCP agent tools | DONE | `apps/mcp-server` |
+| Signed webhooks | DONE | HMAC deliveries + retries |
+| Multi-language SDKs | DEFERRED | Generate from OpenAPI later |
+
+---
+
+## Enterprise pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| Multi-guardian + quorum | DONE | Guardians invite + `/quorum` |
+| Org isolation | DONE | Every query scoped by org |
+| Org settings JSON | DONE | `GET/PATCH /v1/guardian/settings` |
+| Viewer role | DONE | Read-only guardian |
+| SSO / SCIM | DEFERRED | Flags in `OrgSettings` only |
+
+---
+
+## Ecosystem pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| Vendor allowlists + ledger | DONE | Policy lists + `/vendors` |
+| Merchant directory | DONE | `GET/POST/DELETE /v1/guardian/merchants` |
+| Cross-org marketplace | DEFERRED | Explicit non-goal |
+
+---
+
+## Notifications pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| In-app chat | DONE | Default notifier → Chat |
+| Telegram | DONE | Optional polling |
+| Webhook fan-out | DONE | `registerNotifier("webhook")` |
+| Email / Slack slots | DONE | Registered log handlers (swap for SMTP/Slack API) |
+| Discord / push / SMS | DEFERRED | Typed channels ready |
+
+---
+
+## Automation pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| IF/THEN on policy | DONE | amount / merchant / budget / balance_below |
+| Actions notify / approve / deny / freeze | DONE | Side-effects on intent path |
+| Console editor | DONE | Policy → Automation |
+| Visual builder | DEFERRED | After production versioning |
+
+---
+
+## Compliance pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| Screen on pay + escrow_lock | DONE | `screenDestination` in executeIntent |
+| Env denylist | DONE | `ABI_COMPLIANCE_DENYLIST` |
+| CompositeScreener | DONE | Multi-provider composition |
+| Status API | DONE | `GET /v1/guardian/compliance` |
+| Full KYC/AML vendors | DEFERRED | Interface is enough for COMPLETE |
+
+---
+
 ## Money spine (do not break)
 
 ```
@@ -122,15 +228,15 @@ aspirational Postgres schema — swap behind `store`, do not dual-write.
 | 2 | **AI Agent Management** | Roster, detail, archive, freeze audit, rotate/revoke keys, session keys (`pv_sess_`), groups, ownership, per-agent analytics, Console → Agents | `AgentIdentity` + `AgentProfileHints`; `agent-routes.ts`; `AbiGuardianClient` |
 | 3 | **Financial Policies** | Caps, lists, HITL (+ categories), cooldown, quiet hours, quorum, automation editor, versions/restore, templates, history simulator | `policy-routes.ts`; `PolicyTemplate` / `matchedAutomationRules`; Console → Policy |
 | 4 | **Payments** | USDC pay + x402, escrow, invoices, subscriptions, schedule/batch one-shots, rail registry, Console → Payments | `PaymentRail`; `payment-routes.ts`; custody DevLocal / CDP stub |
-| 5 | **Observability** | Metrics, insights, vendor/burn/anomaly analytics | Pure `analytics.ts` / `insights.ts`; `ObservabilitySink` |
-| 6 | **Security** | Roles (owner/approver/**viewer read**), freezes, idempotency, rate limit, webhook SSRF | Viewer GET path; key hashing deferred behind `store` |
-| 7 | **AI Features** | Deterministic ask + chat | `FactRephraser` over facts — never interprets money intents |
-| 8 | **Developer Platform** | REST, webhooks, TS SDK, MCP, expanded OpenAPI | `GET /v1/openapi.json`; languages mirror OpenAPI |
-| 9 | **Enterprise** | Multi-guardian, quorum, org isolation | `OrgRow.settings` JSON for SSO/plan flags |
-| 10 | **Ecosystem** | Vendor allowlists + ledger; **merchant directory** | `MerchantRecord` / `/v1/guardian/merchants` |
-| 11 | **Notifications** | In-app chat + Telegram | `registerNotifier(channel)` — email/slack/… slots typed |
-| 12 | **Automation** | IF/THEN on policy; notify + freeze side-effects | `balance_below` via injected `walletBalanceMicro` |
-| 13 | **Compliance** | Screen on pay + escrow_lock; env denylist | `ComplianceScreener` + `CompositeScreener` |
+| 5 | **Observability** | Complete — analytics + Console JSON sink + status API | `ObservabilitySink` |
+| 6 | **Security** | Complete — roles/freezes/audit export JSON|CSV | Viewer GET; key hash deferred |
+| 7 | **AI Features** | Complete — ask/chat + FactRephraser hook | `presentAnswer` |
+| 8 | **Developer Platform** | Complete — REST/OpenAPI/SDK/MCP/webhooks | OpenAPI generators later |
+| 9 | **Enterprise** | Complete — guardians/quorum/`GET|PATCH /settings` | `OrgSettings` JSON |
+| 10 | **Ecosystem** | Complete — merchants CRUD + vendor ledger | `MerchantRecord` |
+| 11 | **Notifications** | Complete — in-app/Telegram/webhook + email/slack slots | `registerNotifier` |
+| 12 | **Automation** | Complete — IF/THEN + Console editor | `matchedAutomationRules` |
+| 13 | **Compliance** | Complete — screen + `/compliance` status | `CompositeScreener` |
 
 ---
 

@@ -41,13 +41,14 @@ import {
 } from "./store.js";
 import { startTelegramPolling, telegramEnabled, registerTelegramNotifier } from "./telegram.js";
 import { notify, registerInAppNotifier, registerNotifier } from "./platform/notifier.js";
-import { presentAnswer } from "./platform/ai.js";
-import { recordObs } from "./platform/observability.js";
+import { presentAnswer, setFactRephraser } from "./platform/ai.js";
+import { recordObs, setObservabilitySink } from "./platform/observability.js";
 import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./webhook-url.js";
 import { registerAgentRoutes } from "./agent-routes.js";
 import { registerPaymentRoutes } from "./payment-routes.js";
+import { registerPlatformRoutes } from "./platform-routes.js";
 import { registerPolicyRoutes } from "./policy-routes.js";
 import { registerTreasuryRoutes } from "./treasury-routes.js";
 
@@ -60,6 +61,44 @@ const STARTED_AT = Date.now();
 
 registerInAppNotifier();
 registerTelegramNotifier();
+
+/** Structured JSON observability sink — swap for Prometheus/OTel via setObservabilitySink. */
+setObservabilitySink({
+  record(event) {
+    if (process.env.ABI_OBS_SILENT === "1") return;
+    console.log(JSON.stringify({ type: "abi.obs", ...event }));
+  },
+});
+
+/** Email / Slack slots — log until SMTP/webhook credentials are configured. */
+registerNotifier("email", (payload) => {
+  const orgId =
+    payload.kind === "approval.pending"
+      ? payload.approval.orgId
+      : "orgId" in payload
+        ? payload.orgId
+        : undefined;
+  console.log(JSON.stringify({ type: "abi.notify.email", kind: payload.kind, orgId }));
+});
+registerNotifier("slack", (payload) => {
+  const orgId =
+    payload.kind === "approval.pending"
+      ? payload.approval.orgId
+      : "orgId" in payload
+        ? payload.orgId
+        : undefined;
+  console.log(JSON.stringify({ type: "abi.notify.slack", kind: payload.kind, orgId }));
+});
+
+/** Optional phrasing layer — identity rephraser keeps facts intact by default. */
+if (process.env.ABI_FACT_REPHRASER === "echo") {
+  setFactRephraser({
+    name: "echo",
+    async rewrite({ facts }) {
+      return facts;
+    },
+  });
+}
 
 /** Webhook channel — fans notify payloads into the existing signed delivery path. */
 registerNotifier("webhook", (payload) => {
@@ -233,6 +272,7 @@ registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
 registerAgentRoutes(app, { guardianRoute });
 registerPolicyRoutes(app, { guardianRoute });
 registerPaymentRoutes(app, { guardianRoute });
+registerPlatformRoutes(app, { guardianRoute });
 
 /** Wrap an async route handler so rejections become clean HTTP errors. */
 function asyncRoute(

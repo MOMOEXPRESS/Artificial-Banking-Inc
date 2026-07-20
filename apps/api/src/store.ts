@@ -1246,6 +1246,13 @@ export const store = {
     );
   },
 
+  deleteMerchant(orgId: string, merchantIdOrKey: string): boolean {
+    const info = db
+      .prepare("DELETE FROM merchants WHERE org_id = ? AND (id = ? OR key = ?)")
+      .run(orgId, merchantIdOrKey, merchantIdOrKey.toLowerCase());
+    return info.changes > 0;
+  },
+
   // -------------------------------------------------------------- treasury
   listAssets(orgId: string): AssetRecord[] {
     return (
