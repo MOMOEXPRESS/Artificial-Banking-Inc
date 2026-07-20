@@ -22,7 +22,8 @@ import { InsightsView } from "../../lib/analytics";
 import { ChatView } from "../../lib/chat-view";
 import { PolicyView, type Policy } from "../../lib/policy-view";
 import { SettingsView } from "../../lib/settings-view";
-import { MISSIONS, runMission, type RunStep } from "../../lib/mission";
+import { MISSIONS, runMission, missionsForMode, RUN_MODES, type Mission, type RunMode, type RunStep } from "../../lib/mission";
+import { PageTour } from "../../lib/page-tour";
 import {
   AIPanel,
   WorkView,
@@ -654,6 +655,7 @@ export default function Console() {
             <Skeleton />
           ) : (
             <div className="view" key={view}>
+              <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
               {view === "overview" && (
                 <Overview
                   {...shared}
@@ -1302,111 +1304,114 @@ function Overview({
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-head">
-          <div>
-            <h2>Agents</h2>
-            <div className="sub">Each agent holds its own stipend and spends only through the vault</div>
+      <div className="grid g-main fill">
+        <div className="card" style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <div className="card-head">
+            <div>
+              <h2>Agents</h2>
+              <div className="sub">Each agent holds its own stipend and spends only through the vault</div>
+            </div>
+            <div className="row">
+              <input
+                style={{ width: 160 }}
+                placeholder="New agent name"
+                value={newAgent}
+                disabled={readOnly}
+                onChange={(e) => setNewAgent(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && newAgent.trim() && void createAgent()}
+              />
+              <button className="sm" disabled={busy || readOnly || !newAgent.trim()} onClick={() => void createAgent()}>
+                <Icon name="plus" size={13} /> Create
+              </button>
+            </div>
           </div>
-          <div className="row">
-            <input
-              style={{ width: 180 }}
-              placeholder="New agent name"
-              value={newAgent}
-              onChange={(e) => setNewAgent(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && newAgent.trim() && void createAgent()}
-            />
-            <button className="sm" disabled={busy || readOnly || !newAgent.trim()} onClick={() => void createAgent()}>
-              <Icon name="plus" size={13} /> Create agent
-            </button>
+          {revealed && (
+            <div className="code" style={{ marginBottom: 14 }}>
+              <b style={{ color: "var(--text)" }}>{revealed.name}</b> API key — shown once, already
+              loaded into the Playground:
+              <div style={{ marginTop: 6, color: "var(--accent)" }}>{revealed.key}</div>
+              <button className="ghost sm" style={{ marginTop: 9 }} onClick={() => setRevealed(null)}>
+                I saved it
+              </button>
+            </div>
+          )}
+          <div className="tbl-wrap" style={{ flex: 1 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Agent</th>
+                  <th>Status</th>
+                  <th className="num">Available</th>
+                  <th className="num">Held</th>
+                  <th>Spent today</th>
+                  <th>Key</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {(org?.agents ?? []).map((a) => {
+                  const av = org?.balances.find((b) => b.kind === "agent_available" && b.agentId === a.id)?.usdc;
+                  const held = org?.balances.find((b) => b.kind === "agent_held" && b.agentId === a.id)?.usdc;
+                  const frozen = a.status === "frozen";
+                  const hasKey = session.agentKeys.some((k) => k.agentId === a.id);
+                  return (
+                    <tr key={a.id}>
+                      <td>
+                        <b style={{ fontWeight: 600 }}>{a.name}</b>{" "}
+                        <span className="faint mono" style={{ fontSize: 11 }}>
+                          {a.id.slice(0, 12)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`pill ${frozen ? "bad" : "ok"}`}>
+                          <i /> {a.status}
+                        </span>
+                      </td>
+                      <td className="num mono">{fmtUsd(av ?? "0")}</td>
+                      <td className="num mono">{fmtUsd(held ?? "0")}</td>
+                      <td style={{ minWidth: 110 }}>
+                        <BarLine value={Number(a.spent24hUsdc)} max={Number(org?.dailyMaxUsdc ?? 1)} />
+                      </td>
+                      <td>
+                        <span className={`pill ${hasKey ? "info" : "mute"}`}>
+                          {hasKey ? "ready" : "—"}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+                          <button
+                            className={`sm ${frozen ? "ghost" : "danger"}`}
+                            disabled={busy || readOnly}
+                            onClick={() => void freeze(a.id, !frozen)}
+                          >
+                            {frozen ? "Unfreeze" : "Freeze"}
+                          </button>
+                          <button
+                            className="bare sm"
+                            disabled={busy || readOnly}
+                            title="Issue a new API key — the old one stops working immediately"
+                            onClick={() => void rotateKey(a.id)}
+                          >
+                            Rotate
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
-        {revealed && (
-          <div className="code" style={{ marginBottom: 14 }}>
-            <b style={{ color: "var(--text)" }}>{revealed.name}</b> API key — shown once, already
-            loaded into the Playground:
-            <div style={{ marginTop: 6, color: "var(--accent)" }}>{revealed.key}</div>
-            <button className="ghost sm" style={{ marginTop: 9 }} onClick={() => setRevealed(null)}>
-              I saved it
-            </button>
-          </div>
-        )}
-        <div className="tbl-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Agent</th>
-                <th>Status</th>
-                <th className="num">Available</th>
-                <th className="num">Held</th>
-                <th>Spent today</th>
-                <th>Key</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {(org?.agents ?? []).map((a) => {
-                const av = org?.balances.find((b) => b.kind === "agent_available" && b.agentId === a.id)?.usdc;
-                const held = org?.balances.find((b) => b.kind === "agent_held" && b.agentId === a.id)?.usdc;
-                const frozen = a.status === "frozen";
-                const hasKey = session.agentKeys.some((k) => k.agentId === a.id);
-                return (
-                  <tr key={a.id}>
-                    <td>
-                      <b style={{ fontWeight: 600 }}>{a.name}</b>{" "}
-                      <span className="faint mono" style={{ fontSize: 11 }}>
-                        {a.id}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`pill ${frozen ? "bad" : "ok"}`}>
-                        <i /> {a.status}
-                      </span>
-                    </td>
-                    <td className="num mono">{fmtUsd(av ?? "0")}</td>
-                    <td className="num mono">{fmtUsd(held ?? "0")}</td>
-                    <td style={{ minWidth: 130 }}>
-                      <BarLine value={Number(a.spent24hUsdc)} max={Number(org?.dailyMaxUsdc ?? 1)} />
-                    </td>
-                    <td>
-                      <span className={`pill ${hasKey ? "info" : "mute"}`}>
-                        {hasKey ? "in playground" : "not stored"}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
-                        <button
-                          className={`sm ${frozen ? "ghost" : "danger"}`}
-                          disabled={busy || readOnly}
-                          onClick={() => void freeze(a.id, !frozen)}
-                        >
-                          {frozen ? "Unfreeze" : "Freeze"}
-                        </button>
-                        <button
-                          className="bare sm"
-                          disabled={busy || readOnly}
-                          title="Issue a new API key — the old one stops working immediately"
-                          onClick={() => void rotateKey(a.id)}
-                        >
-                          Rotate key
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
 
-      <div className="card">
-        <div className="card-head">
-          <div>
-            <h2>Move funds</h2>
-            <div className="sub">Treasury ↔ agents — three directions, balanced double-entry</div>
+        <div className="card" style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <div className="card-head">
+            <div>
+              <h2>Move funds</h2>
+              <div className="sub">Treasury ↔ agents · double-entry</div>
+            </div>
           </div>
-          <div className="seg">
+          <div className="seg" style={{ marginBottom: 14 }}>
             {(
               [
                 ["allocate", "Treasury → agent"],
@@ -1419,63 +1424,75 @@ function Overview({
               </button>
             ))}
           </div>
-        </div>
-        <div className="row">
-          {moveMode !== "allocate" && (
-            <select style={{ width: 180 }} value={allocFrom} onChange={(e) => setAllocFrom(e.target.value)}>
-              <option value="">From agent…</option>
-              {(org?.agents ?? []).map((a) => {
-                const bal = org?.balances.find(
-                  (b) => b.kind === "agent_available" && b.agentId === a.id,
-                )?.usdc;
-                return (
-                  <option key={a.id} value={a.id}>
-                    {a.name} ({fmtUsd(bal ?? "0")})
-                  </option>
-                );
-              })}
-            </select>
-          )}
-          {moveMode !== "reclaim" && (
-            <select style={{ width: 180 }} value={allocTo} onChange={(e) => setAllocTo(e.target.value)}>
-              <option value="">To agent…</option>
-              {(org?.agents ?? [])
-                .filter((a) => moveMode !== "transfer" || a.id !== allocFrom)
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-            </select>
-          )}
-          <input
-            style={{ width: 110 }}
-            value={allocAmt}
-            onChange={(e) => setAllocAmt(e.target.value)}
-            placeholder={moveMode === "allocate" ? "25" : "blank = all"}
-            aria-label="Amount USDC"
-          />
-          <button
-            className="sm"
-            disabled={
-              busy ||
-              readOnly ||
-              (moveMode === "allocate" && (!allocTo || !allocAmt.trim())) ||
-              (moveMode === "reclaim" && !allocFrom) ||
-              (moveMode === "transfer" && (!allocFrom || !allocTo))
-            }
-            onClick={() => void moveMoney()}
-          >
-            {moveMode === "allocate"
-              ? "Allocate"
-              : moveMode === "reclaim"
-                ? "Pull back to treasury"
-                : "Transfer between agents"}
-          </button>
-          <span className="faint" style={{ fontSize: 11.5 }}>
-            Treasury {fmtUsd(orgAvail)}
-            {moveMode !== "allocate" ? " · leave amount blank to move everything available" : ""}
-          </span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+            {moveMode !== "allocate" && (
+              <label className="field" style={{ margin: 0 }}>
+                <span className="muted" style={{ fontSize: 12 }}>From agent</span>
+                <select value={allocFrom} disabled={readOnly} onChange={(e) => setAllocFrom(e.target.value)}>
+                  <option value="">Choose…</option>
+                  {(org?.agents ?? []).map((a) => {
+                    const bal = org?.balances.find(
+                      (b) => b.kind === "agent_available" && b.agentId === a.id,
+                    )?.usdc;
+                    return (
+                      <option key={a.id} value={a.id}>
+                        {a.name} ({fmtUsd(bal ?? "0")})
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+            )}
+            {moveMode !== "reclaim" && (
+              <label className="field" style={{ margin: 0 }}>
+                <span className="muted" style={{ fontSize: 12 }}>To agent</span>
+                <select value={allocTo} disabled={readOnly} onChange={(e) => setAllocTo(e.target.value)}>
+                  <option value="">Choose…</option>
+                  {(org?.agents ?? [])
+                    .filter((a) => moveMode !== "transfer" || a.id !== allocFrom)
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            )}
+            <label className="field" style={{ margin: 0 }}>
+              <span className="muted" style={{ fontSize: 12 }}>
+                Amount USDC {moveMode !== "allocate" ? "(blank = all available)" : ""}
+              </span>
+              <input
+                value={allocAmt}
+                disabled={readOnly}
+                onChange={(e) => setAllocAmt(e.target.value)}
+                placeholder={moveMode === "allocate" ? "25" : "blank = all"}
+                aria-label="Amount USDC"
+              />
+            </label>
+            <button
+              className="sm"
+              style={{ alignSelf: "stretch" }}
+              disabled={
+                busy ||
+                readOnly ||
+                (moveMode === "allocate" && (!allocTo || !allocAmt.trim())) ||
+                (moveMode === "reclaim" && !allocFrom) ||
+                (moveMode === "transfer" && (!allocFrom || !allocTo))
+              }
+              onClick={() => void moveMoney()}
+            >
+              {moveMode === "allocate"
+                ? "Allocate stipend"
+                : moveMode === "reclaim"
+                  ? "Pull back to treasury"
+                  : "Transfer between agents"}
+            </button>
+            <p className="faint" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.55 }}>
+              Org treasury has <b className="mono">{fmtUsd(orgAvail)}</b>. For department /
+              shared wallets and on-chain deposit address, open <button className="bare" style={{ fontSize: 11.5 }} onClick={() => setView("treasury")}>Treasury</button>.
+            </p>
+          </div>
         </div>
       </div>
     </>
@@ -1510,13 +1527,17 @@ function Playground({
 }) {
   const [pasteKey, setPasteKey] = useState("");
   const [shownRaw, setShownRaw] = useState<Record<string, boolean>>({});
+  const [runMode, setRunMode] = useState<RunMode>("once");
+  const [catFilter, setCatFilter] = useState<"all" | Mission["category"]>("all");
 
   const { missionId, steps, log, running, actorId } = ms;
   const patch = (p: Partial<MissionState>) => setMission((m) => ({ ...m, ...p }));
 
-  const mission = MISSIONS.find((m) => m.id === missionId)!;
+  const mission = MISSIONS.find((m) => m.id === missionId) ?? MISSIONS[0];
   const actor = session.agentKeys.find((k) => k.agentId === actorId) ?? session.agentKeys[0];
   const peer = session.agentKeys.find((k) => k.agentId !== actor?.agentId);
+  const visibleMissions =
+    catFilter === "all" ? MISSIONS : MISSIONS.filter((m) => m.category === catFilter);
 
   useEffect(() => {
     if (!actorId && session.agentKeys[0]) patch({ actorId: session.agentKeys[0].agentId });
@@ -1530,35 +1551,48 @@ function Playground({
     cancelRef.current = false;
     setShownRaw({});
     patch({ running: true, steps: [], log: [] });
-    const runId = `run_${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
+    const queue = missionsForMode(runMode, missionId);
     try {
-      await runMission(mission, {
-        api: API,
-        agentKey: actor.key,
-        guardianKey: session.guardianKey,
-        agentId: actor.agentId,
-        agentName: actor.name,
-        runId,
-        payeeAgentId: peer?.agentId,
-        sellerUrl: SELLER,
-        emit: (steps) => setMission((m) => ({ ...m, steps })),
-        log: (line) =>
-          setMission((m) => ({
-            ...m,
-            log: [...m.log, `${new Date().toLocaleTimeString([], { hour12: false })}  ${line}`],
-          })),
-        onBlocked: () => {
-          /* the shell's approval watcher raises the alert + banner */
-        },
-        onUnblocked: (_s, outcome) =>
-          setToast(
-            outcome === "approved"
-              ? "Approved — the agent picked straight back up."
-              : `Agent was told: ${outcome}. It is replanning without that spend.`,
-            outcome === "approved" ? "ok" : "info",
-          ),
-        cancelled: () => cancelRef.current,
-      });
+      for (let qi = 0; qi < queue.length; qi++) {
+        if (cancelRef.current) break;
+        const m = queue[qi];
+        const runId = `run_${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
+        setMission((prev) => ({
+          ...prev,
+          missionId: m.id,
+          log: [
+            ...prev.log,
+            `${new Date().toLocaleTimeString([], { hour12: false })}  ▶ ${m.title} (${qi + 1}/${queue.length})`,
+          ],
+        }));
+        await runMission(m, {
+          api: API,
+          agentKey: actor.key,
+          guardianKey: session.guardianKey,
+          agentId: actor.agentId,
+          agentName: actor.name,
+          runId,
+          payeeAgentId: peer?.agentId,
+          sellerUrl: SELLER,
+          emit: (steps) => setMission((prev) => ({ ...prev, steps })),
+          log: (line) =>
+            setMission((prev) => ({
+              ...prev,
+              log: [...prev.log, `${new Date().toLocaleTimeString([], { hour12: false })}  ${line}`],
+            })),
+          onBlocked: () => {
+            /* the shell's approval watcher raises the alert + banner */
+          },
+          onUnblocked: (_s, outcome) =>
+            setToast(
+              outcome === "approved"
+                ? "Approved — the agent picked straight back up."
+                : `Agent was told: ${outcome}. It is replanning without that spend.`,
+              outcome === "approved" ? "ok" : "info",
+            ),
+          cancelled: () => cancelRef.current,
+        });
+      }
     } finally {
       setMission((m) => ({ ...m, running: false }));
     }
@@ -1742,10 +1776,33 @@ function Playground({
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
           <div className="card">
             <div className="card-head">
-              <h2>Choose a mission</h2>
+              <div>
+                <h2>Choose a mission</h2>
+                <div className="sub">{mission.persona}</div>
+              </div>
+            </div>
+            <div className="seg" style={{ marginBottom: 12, flexWrap: "wrap" }}>
+              {(
+                [
+                  ["all", "All"],
+                  ["commerce", "Commerce"],
+                  ["governance", "Governance"],
+                  ["security", "Security"],
+                  ["ops", "Ops"],
+                ] as const
+              ).map(([k, label]) => (
+                <button
+                  key={k}
+                  className={catFilter === k ? "on" : ""}
+                  disabled={running}
+                  onClick={() => setCatFilter(k)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-              {MISSIONS.map((m) => (
+              {visibleMissions.map((m) => (
                 <button
                   key={m.id}
                   className={`mission-card ${m.id === missionId ? "sel" : ""}`}
@@ -1753,7 +1810,29 @@ function Playground({
                   disabled={running}
                 >
                   <b>{m.title}</b>
-                  <p>{m.brief}</p>
+                  <p>
+                    <span className="faint" style={{ display: "block", marginBottom: 4 }}>
+                      {m.persona} · {m.category}
+                    </span>
+                    {m.brief}
+                  </p>
+                </button>
+              ))}
+            </div>
+            <div className="divider" />
+            <div className="card-head" style={{ padding: 0, marginBottom: 8 }}>
+              <h2 style={{ fontSize: 14 }}>How to run it</h2>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {RUN_MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  className={`mission-card ${runMode === mode.id ? "sel" : ""}`}
+                  disabled={running}
+                  onClick={() => setRunMode(mode.id)}
+                >
+                  <b>{mode.label}</b>
+                  <p>{mode.detail}</p>
                 </button>
               ))}
             </div>

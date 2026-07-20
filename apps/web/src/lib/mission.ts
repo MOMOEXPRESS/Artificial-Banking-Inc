@@ -45,6 +45,10 @@ export interface Mission {
   id: string;
   title: string;
   brief: string;
+  /** Buyer / operator persona this scenario models. */
+  persona: string;
+  /** Use-case bucket for the playground picker. */
+  category: "commerce" | "governance" | "security" | "ops";
   /** What the guardian gets to read at the end. */
   deliverableKind: string;
   build: () => StepDef[];
@@ -264,6 +268,35 @@ const acceptDelivery: StepDef = {
   },
 };
 
+const refundEscrow: StepDef = {
+  id: "escrow_refund",
+  title: "Reject delivery and refund escrow",
+  detail: "Work was not acceptable — funds return to the hiring agent.",
+  async run(ctx, state) {
+    if (!state.escrowId)
+      return { summary: "No escrow to refund — skipped.", output: "no escrow", softFail: true };
+    const { status, data } = await agentCall(ctx, "POST", `/v1/agent/escrow/${state.escrowId}/refund`);
+    if (status >= 400)
+      return { summary: `Refund failed: ${errMsg(data) || errCode(data)}.`, output: pretty(data), softFail: true };
+    ctx.log(`escrow ${state.escrowId} refunded`);
+    return { summary: "Escrow refunded to the payer — peer was not paid.", output: pretty(data) };
+  },
+};
+
+const listActivity: StepDef = {
+  id: "activity",
+  title: "Pull own decision activity",
+  detail: "Agent audits what policy already decided about its intents.",
+  async run(ctx) {
+    const { data } = await agentCall(ctx, "GET", "/v1/agent/activity?limit=10");
+    const n = Array.isArray(data.decisions) ? data.decisions.length : 0;
+    return {
+      summary: `Fetched ${n} recent decision(s) from the activity log.`,
+      output: pretty(data),
+    };
+  },
+};
+
 const drainAttempt = (amount: string, address: string): StepDef => ({
   id: `drain_${address.slice(0, 8)}`,
   title: `Injected instruction: send $${amount} to ${address.slice(0, 10)}…`,
@@ -318,6 +351,8 @@ export const MISSIONS: Mission[] = [
   {
     id: "brief",
     title: "Research brief (happy path)",
+    persona: "Solo founder running a research agent",
+    category: "commerce",
     brief:
       "The agent checks its budget, buys a paid data report over x402, pays a small API, hires a peer agent under escrow, then delivers. Everything should stay inside policy.",
     deliverableKind: "Competitor pricing brief",
@@ -375,6 +410,8 @@ ${state.escrowId ? `A peer agent was hired under escrow \`${state.escrowId}\` an
   {
     id: "approval",
     title: "Large purchase (needs your approval)",
+    persona: "Ops lead with HITL above $10",
+    category: "governance",
     brief:
       "The agent tries a purchase above your approval threshold. It will PARK and wait — the console alerts you. Approve or deny and watch the agent react live.",
     deliverableKind: "Purchase decision record",
@@ -407,6 +444,8 @@ Remaining agent budget: **$${state.finalBudget ?? "—"}**.
   {
     id: "redteam",
     title: "Compromised agent (red team)",
+    persona: "Security reviewer / red team",
+    category: "security",
     brief:
       "Simulates a prompt-injected agent attempting to drain the vault to an unapproved address, then hammering with retries. Every attempt should be denied with an explainable rule.",
     deliverableKind: "Security exercise report",
@@ -455,7 +494,110 @@ The compromised agent never held a private key, so no amount of prompt manipulat
 the signer. Authorisation is enforced deterministically outside the model.
 `,
   },
+  {
+    id: "escrow_refund",
+    title: "Hire then reject (escrow refund)",
+    persona: "Marketplace buyer unhappy with delivery",
+    category: "commerce",
+    brief:
+      "Agent locks escrow to hire a peer, then refunds instead of releasing — proving the refund path and that payee never receives funds.",
+    deliverableKind: "Escrow refund record",
+    build: () => [checkBudget, hirePeer("4"), refundEscrow, summarize],
+    deliverable: (state) => `# Escrow refund record
+
+Escrow \`${state.escrowId ?? "—"}\` was locked then refunded to the payer.
+
+Peer was **not** paid. Remaining budget: **$${state.finalBudget ?? "—"}**
+`,
+  },
+  {
+    id: "smoke",
+    title: "Smoke test (budget + simulate only)",
+    persona: "Engineer validating wiring",
+    category: "ops",
+    brief:
+      "No money moves. Checks budget, dry-runs an allowlisted vendor, and pulls activity — fastest confidence check after deploy.",
+    deliverableKind: "Smoke checklist",
+    build: () => [checkBudget, dryRun("1", "api.openai.com"), listActivity, summarize],
+    deliverable: (state) => `# Smoke checklist
+
+- Budget readable: **$${state.finalBudget ?? "—"}**
+- Simulate path OK
+- Activity endpoint OK
+
+No USDC left the agent wallet in this run.
+`,
+  },
+  {
+    id: "vendor_burst",
+    title: "Vendor burst (micro-payments)",
+    persona: "API-seller agent making many small calls",
+    category: "commerce",
+    brief:
+      "Several small allowlisted pay_api calls under velocity caps — useful for watching daily burn and vendor rollups in Insights.",
+    deliverableKind: "Vendor burst log",
+    build: () => [
+      checkBudget,
+      payVendor("0.50", "api.openai.com", "burst call 1"),
+      payVendor("0.50", "api.openai.com", "burst call 2"),
+      payVendor("0.75", "api.openai.com", "burst call 3"),
+      listActivity,
+      summarize,
+    ],
+    deliverable: (state) => `# Vendor burst log
+
+${costTable(state)}
+
+Denials: ${state.denials.length}. Remaining: **$${state.finalBudget ?? "—"}**
+`,
+  },
+  {
+    id: "swarm_handoff",
+    title: "Swarm handoff (hire peer)",
+    persona: "Multi-agent research desk",
+    category: "ops",
+    brief:
+      "Budget check → hire peer under escrow → release on acceptance. Models a research agent outsourcing writing to a peer in the same org.",
+    deliverableKind: "Swarm handoff memo",
+    build: () => [checkBudget, hirePeer("6"), acceptDelivery, summarize],
+    deliverable: (state) => `# Swarm handoff memo
+
+Peer hired under escrow \`${state.escrowId ?? "—"}\` and paid on acceptance.
+
+${costTable(state)}
+
+Remaining: **$${state.finalBudget ?? "—"}**
+`,
+  },
 ];
+
+/** How the playground should execute a selected mission. */
+export type RunMode = "once" | "stress" | "smoke_chain";
+
+export const RUN_MODES: { id: RunMode; label: string; detail: string }[] = [
+  { id: "once", label: "Run once", detail: "Single mission, full timeline." },
+  {
+    id: "stress",
+    label: "Stress ×3",
+    detail: "Repeat the selected mission three times back-to-back (idempotent keys rotate).",
+  },
+  {
+    id: "smoke_chain",
+    label: "Smoke chain",
+    detail: "Ignore selection — run smoke → brief → redteam in sequence.",
+  },
+];
+
+export function missionsForMode(mode: RunMode, selectedId: string): Mission[] {
+  if (mode === "smoke_chain") {
+    return ["smoke", "brief", "redteam"]
+      .map((id) => MISSIONS.find((m) => m.id === id)!)
+      .filter(Boolean);
+  }
+  const one = MISSIONS.find((m) => m.id === selectedId) ?? MISSIONS[0];
+  if (mode === "stress") return [one, one, one];
+  return [one];
+}
 
 /* ----------------------------------------------------------------- runner */
 

@@ -9,9 +9,11 @@ import {
   parseUsdcToMicro,
   type AgentIdentity,
 } from "@policyvault/common";
+import { transferAvailable } from "@policyvault/ledger";
 import type express from "express";
 import { z } from "zod";
 import { burnForecast } from "./analytics.js";
+import { id } from "./engine.js";
 import { notify } from "./platform/notifier.js";
 import { recordObs } from "./platform/observability.js";
 import { store, type OrgRow } from "./store.js";
@@ -391,6 +393,99 @@ export function registerAgentRoutes(
         assigned.push(agent.id);
       }
       res.json({ ok: true, groupId: group.id, assigned });
+    }, { ownerOnly: true }),
+  );
+
+  /** Freeze every active member of a group (desk kill-switch). */
+  app.post(
+    "/v1/guardian/agent-groups/:id/freeze",
+    guardianRoute((org, req, res) => {
+      const group = store.getAgentGroup(req.params.id);
+      if (!group || group.orgId !== org.id || group.status !== "active") {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
+      }
+      const body = z.object({ reason: z.string().default("group_freeze") }).parse(req.body ?? {});
+      const members = store
+        .listAgents(org.id)
+        .filter((a) => a.profile.groupId === group.id && a.status === "active");
+      for (const agent of members) {
+        store.setAgentStatus(agent.id, "frozen");
+        store.addFreeze(org.id, agent.id, `group:${group.id}:${body.reason}`);
+        emitEvent(org.id, "agent.frozen", { agentId: agent.id, reason: body.reason, groupId: group.id });
+      }
+      res.json({ ok: true, frozen: members.map((m) => m.id), groupId: group.id });
+    }, { ownerOnly: true }),
+  );
+
+  /** Unfreeze every frozen member of a group. */
+  app.post(
+    "/v1/guardian/agent-groups/:id/unfreeze",
+    guardianRoute((org, req, res) => {
+      const group = store.getAgentGroup(req.params.id);
+      if (!group || group.orgId !== org.id) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
+      }
+      const members = store
+        .listAgents(org.id)
+        .filter((a) => a.profile.groupId === group.id && a.status === "frozen");
+      for (const agent of members) {
+        store.setAgentStatus(agent.id, "active");
+        emitEvent(org.id, "agent.unfrozen", { agentId: agent.id, groupId: group.id });
+      }
+      res.json({ ok: true, unfrozen: members.map((m) => m.id), groupId: group.id });
+    }, { ownerOnly: true }),
+  );
+
+  /** Split an equal stipend from org treasury across all active group members. */
+  app.post(
+    "/v1/guardian/agent-groups/:id/fund",
+    guardianRoute((org, req, res) => {
+      const group = store.getAgentGroup(req.params.id);
+      if (!group || group.orgId !== org.id || group.status !== "active") {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
+      }
+      const body = z.object({ amountUsdcEach: z.string() }).parse(req.body);
+      const each = parseUsdcToMicro(body.amountUsdcEach);
+      if (each <= 0n) {
+        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "amount must be positive" } });
+      }
+      const members = store
+        .listAgents(org.id)
+        .filter((a) => a.profile.groupId === group.id && a.status !== "archived");
+      if (!members.length) {
+        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "group has no members" } });
+      }
+      const total = each * BigInt(members.length);
+      const orgAvail = store.getAccountMap(org.id).get(accountId("org", org.id))?.balanceMicro ?? 0n;
+      if (total > orgAvail) {
+        return res.status(400).json({
+          error: {
+            code: "INSUFFICIENT_STIPEND",
+            message: `Need ${formatMicroToUsdc(total)}, org has ${formatMicroToUsdc(orgAvail)}`,
+          },
+        });
+      }
+      const funded: string[] = [];
+      for (const agent of members) {
+        store.applyEntries(org.id, [
+          transferAvailable({
+            orgId: org.id,
+            journalId: id("j"),
+            fromAvailableId: accountId("org", org.id),
+            toAvailableId: accountId("agent", agent.id),
+            amountMicro: each,
+            memo: `group_fund:${group.id}`,
+          }),
+        ]);
+        funded.push(agent.id);
+      }
+      res.json({
+        ok: true,
+        groupId: group.id,
+        funded,
+        amountUsdcEach: body.amountUsdcEach,
+        totalUsdc: formatMicroToUsdc(total),
+      });
     }, { ownerOnly: true }),
   );
 

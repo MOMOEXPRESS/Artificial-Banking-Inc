@@ -538,7 +538,10 @@ export function PaymentsView({
             <div>
               <h2>Settlement rails</h2>
               <div className="sub">
-                Extension point: PaymentRail — x402 + transfer-mock wired today
+                How money actually leaves an agent wallet. <b>x402</b> is pay-per-API (HTTP 402 +
+                EIP-712). <b>transfer-mock</b> is the local USDC transfer rail for addresses /
+                non-URL destinations. Live CDP settlement plugs in behind the same PaymentRail
+                interface — you do not change agent code.
               </div>
             </div>
             <Icon name="zap" />

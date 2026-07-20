@@ -331,51 +331,98 @@ export function AgentsView({
                   </span>
                 </div>
 
-                <div className="grid g-2" style={{ marginBottom: 16 }}>
-                  <div>
-                    <div className="muted" style={{ fontSize: 12 }}>Available</div>
-                    <div className="mono" style={{ fontSize: 18 }}>{fmt(detail.availableUsdc as string)}</div>
+                <div className="grid g-2" style={{ marginBottom: 18, gap: 14 }}>
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 10,
+                      background: "var(--surface-3)",
+                    }}
+                  >
+                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
+                      Available
+                    </div>
+                    <div className="mono" style={{ fontSize: 20, fontWeight: 600 }}>
+                      {fmt(detail.availableUsdc as string)}
+                    </div>
                   </div>
-                  <div>
-                    <div className="muted" style={{ fontSize: 12 }}>Held</div>
-                    <div className="mono" style={{ fontSize: 18 }}>{fmt(detail.heldUsdc as string)}</div>
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 10,
+                      background: "var(--surface-3)",
+                    }}
+                  >
+                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
+                      Held
+                    </div>
+                    <div className="mono" style={{ fontSize: 20, fontWeight: 600 }}>
+                      {fmt(detail.heldUsdc as string)}
+                    </div>
                   </div>
-                  <div>
-                    <div className="muted" style={{ fontSize: 12 }}>24h spend</div>
-                    <div className="mono">{fmt(detail.spent24hUsdc as string)}</div>
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 10,
+                      background: "var(--surface-3)",
+                    }}
+                  >
+                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
+                      24h spend
+                    </div>
+                    <div className="mono" style={{ fontSize: 16 }}>
+                      {fmt(detail.spent24hUsdc as string)}
+                    </div>
                   </div>
-                  <div>
-                    <div className="muted" style={{ fontSize: 12 }}>Lifetime settled</div>
-                    <div className="mono">
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 10,
+                      background: "var(--surface-3)",
+                    }}
+                  >
+                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
+                      Lifetime settled
+                    </div>
+                    <div className="mono" style={{ fontSize: 16 }}>
                       {fmt((analytics?.lifetimeSettledUsdc as string) ?? "0")}
                     </div>
                   </div>
                 </div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
-                  <label className="muted" style={{ fontSize: 12 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
+                    marginBottom: 18,
+                    padding: "4px 0 8px",
+                  }}
+                >
+                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
                     Display name
-                    <input value={rename} onChange={(e) => setRename(e.target.value)} />
+                    <input value={rename} disabled={readOnly} onChange={(e) => setRename(e.target.value)} />
                   </label>
-                  <label className="muted" style={{ fontSize: 12 }}>
+                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
                     Runtime
                     <input
                       placeholder="langgraph / eliza / custom"
                       value={runtime}
+                      disabled={readOnly}
                       onChange={(e) => setRuntime(e.target.value)}
                     />
                   </label>
-                  <label className="muted" style={{ fontSize: 12 }}>
+                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
                     Tags (comma-separated)
-                    <input value={tags} onChange={(e) => setTags(e.target.value)} />
+                    <input value={tags} disabled={readOnly} onChange={(e) => setTags(e.target.value)} />
                   </label>
-                  <label className="muted" style={{ fontSize: 12 }}>
+                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
                     Owner guardian id
-                    <input value={ownerId} onChange={(e) => setOwnerId(e.target.value)} />
+                    <input value={ownerId} disabled={readOnly} onChange={(e) => setOwnerId(e.target.value)} />
                   </label>
-                  <label className="muted" style={{ fontSize: 12 }}>
+                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
                     Group
-                    <select value={assignGroup} onChange={(e) => setAssignGroup(e.target.value)}>
+                    <select value={assignGroup} disabled={readOnly} onChange={(e) => setAssignGroup(e.target.value)}>
                       <option value="">— none —</option>
                       {groups
                         .filter((g) => g.status === "active")
@@ -558,12 +605,16 @@ export function AgentsView({
           <div className="card-head">
             <div>
               <h2>Agent groups</h2>
-              <div className="sub">Swarms / desks — membership via profile.groupId</div>
+              <div className="sub">
+                Desks / swarms with real controls — freeze the whole desk, fund members equally,
+                or assign agents in bulk. Membership is stored on each agent&apos;s profile.
+              </div>
             </div>
             <div className="row" style={{ gap: 8 }}>
               <input
-                placeholder="Group name"
+                placeholder="e.g. Research Desk"
                 value={groupName}
+                disabled={readOnly}
                 onChange={(e) => setGroupName(e.target.value)}
               />
               <button
@@ -575,55 +626,185 @@ export function AgentsView({
               </button>
             </div>
           </div>
+          <div
+            className="banner info"
+            style={{ marginBottom: 14 }}
+          >
+            <span className="txt">
+              <b>Why groups exist</b>
+              <span>
+                A group is an operating unit: one kill-switch for every member, one stipend split
+                when you fund the desk, and a label for Insights / activity. Without actions it
+                would only be a tag — use Freeze desk / Fund members below.
+              </span>
+            </span>
+          </div>
           {groups.length === 0 ? (
-            <Empty icon="robot">No groups — create Research Desk or Writer Swarm.</Empty>
+            <Empty icon="robot">
+              No groups yet — create <b>Research Desk</b> or <b>Writer Swarm</b>, then assign
+              agents from a profile or with Assign here.
+            </Empty>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Status</th>
-                  <th>Members</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {groups.map((g) => (
-                  <tr key={g.id}>
-                    <td>{g.name}</td>
-                    <td>
-                      <span className={`pill ${statusTone(g.status)}`}>
-                        <i /> {g.status}
-                      </span>
-                    </td>
-                    <td>
-                      {g.members.map((m) => m.name).join(", ") || (
-                        <span className="faint">empty</span>
-                      )}
-                    </td>
-                    <td>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {groups.map((g) => {
+                const ungrouped = agents.filter(
+                  (a) => a.status !== "archived" && a.groupName !== g.name,
+                );
+                return (
+                  <div
+                    key={g.id}
+                    style={{
+                      padding: "14px 16px",
+                      borderRadius: 10,
+                      border: "1px solid var(--border)",
+                      background: "var(--surface-2)",
+                    }}
+                  >
+                    <div className="between" style={{ marginBottom: 10, gap: 10 }}>
+                      <div>
+                        <b style={{ fontSize: 14 }}>{g.name}</b>{" "}
+                        <span className={`pill ${statusTone(g.status)}`}>
+                          <i /> {g.status}
+                        </span>
+                        <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
+                          {g.members.length
+                            ? g.members.map((m) => m.name).join(", ")
+                            : "No members yet"}
+                        </div>
+                      </div>
                       {g.status === "active" && (
+                        <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                          <button
+                            className="sm danger"
+                            disabled={locked || !g.members.length}
+                            onClick={() =>
+                              void act("Freeze desk", async () => {
+                                const res = await gFetch(
+                                  `/v1/guardian/agent-groups/${g.id}/freeze`,
+                                  {
+                                    method: "POST",
+                                    body: JSON.stringify({ reason: "desk_kill_switch" }),
+                                  },
+                                );
+                                const d = await res.json();
+                                if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                                await refresh();
+                                return `Froze ${d.frozen?.length ?? 0} agent(s) in ${g.name}.`;
+                              })
+                            }
+                          >
+                            Freeze desk
+                          </button>
+                          <button
+                            className="sm ghost"
+                            disabled={locked || !g.members.length}
+                            onClick={() =>
+                              void act("Unfreeze desk", async () => {
+                                const res = await gFetch(
+                                  `/v1/guardian/agent-groups/${g.id}/unfreeze`,
+                                  { method: "POST", body: "{}" },
+                                );
+                                const d = await res.json();
+                                if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                                await refresh();
+                                return `Unfroze ${d.unfrozen?.length ?? 0} agent(s).`;
+                              })
+                            }
+                          >
+                            Unfreeze
+                          </button>
+                          <button
+                            className="sm"
+                            disabled={locked || !g.members.length}
+                            onClick={() =>
+                              void act("Fund desk", async () => {
+                                const each = window.prompt(
+                                  `USDC to give each of ${g.members.length} member(s)`,
+                                  "10",
+                                );
+                                if (!each?.trim()) return;
+                                const res = await gFetch(
+                                  `/v1/guardian/agent-groups/${g.id}/fund`,
+                                  {
+                                    method: "POST",
+                                    body: JSON.stringify({ amountUsdcEach: each.trim() }),
+                                  },
+                                );
+                                const d = await res.json();
+                                if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                                await refresh();
+                                return `Funded ${d.funded?.length ?? 0} agents · $${d.amountUsdcEach} each ($${d.totalUsdc} total).`;
+                              })
+                            }
+                          >
+                            Fund members
+                          </button>
+                          <button
+                            className="sm ghost"
+                            disabled={locked}
+                            onClick={() =>
+                              void act("Archive group", async () => {
+                                await gFetch(`/v1/guardian/agent-groups/${g.id}/archive`, {
+                                  method: "POST",
+                                });
+                                await refresh();
+                                return `${g.name} archived.`;
+                              })
+                            }
+                          >
+                            Archive
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {g.status === "active" && ungrouped.length > 0 && (
+                      <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                        <select
+                          id={`assign-${g.id}`}
+                          defaultValue=""
+                          disabled={readOnly}
+                          style={{ minWidth: 160 }}
+                        >
+                          <option value="">Assign agent…</option>
+                          {ungrouped.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name}
+                            </option>
+                          ))}
+                        </select>
                         <button
                           className="sm ghost"
                           disabled={locked}
                           onClick={() =>
-                            void act("Archive group", async () => {
-                              await gFetch(`/v1/guardian/agent-groups/${g.id}/archive`, {
-                                method: "POST",
-                              });
+                            void act("Assign to group", async () => {
+                              const el = document.getElementById(
+                                `assign-${g.id}`,
+                              ) as HTMLSelectElement | null;
+                              const agentId = el?.value;
+                              if (!agentId) throw new Error("Pick an agent first");
+                              const res = await gFetch(
+                                `/v1/guardian/agent-groups/${g.id}/assign`,
+                                {
+                                  method: "POST",
+                                  body: JSON.stringify({ agentIds: [agentId] }),
+                                },
+                              );
+                              const d = await res.json();
+                              if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                              if (el) el.value = "";
                               await refresh();
-                              return `${g.name} archived.`;
+                              return `Assigned to ${g.name}.`;
                             })
                           }
                         >
-                          Archive
+                          Assign
                         </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
