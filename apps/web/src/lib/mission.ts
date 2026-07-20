@@ -101,7 +101,7 @@ const errMsg = (d: Record<string, unknown>) => (d.error as Record<string, string
 const checkBudget: StepDef = {
   id: "budget",
   title: "Check available budget",
-  detail: "Asks PolicyVault what it can spend before planning any paid work.",
+  detail: "Asks ABI what it can spend before planning any paid work.",
   async run(ctx, state) {
     const { data } = await agentCall(ctx, "GET", "/v1/agent/budget");
     state.finalBudget = String(data.availableUsdc);
@@ -143,7 +143,7 @@ const dryRun = (amount: string, dest: string): StepDef => ({
 const buyViaX402 = (authorize: string): StepDef => ({
   id: "x402",
   title: `Buy the pricing report (authorize up to $${authorize})`,
-  detail: "Real x402 dance: seller answers 402, PolicyVault signs an EIP-712 payment, data comes back.",
+  detail: "Real x402 dance: seller answers 402, ABI signs an EIP-712 payment, data comes back.",
   async run(ctx, state) {
     const { status, data } = await agentCall(ctx, "POST", "/v1/agent/pay_api", {
       amountUsdc: authorize,
@@ -346,7 +346,7 @@ export const MISSIONS: Mission[] = [
       const dearest = rows.length ? rows.reduce((a, r) => (r.pricePerMonthUsd > a.pricePerMonthUsd ? r : a)) : null;
       return `# Competitor pricing brief
 
-**Prepared by** an autonomous agent under PolicyVault governance.
+**Prepared by** an autonomous agent under ABI governance.
 
 ## Findings
 
@@ -382,7 +382,7 @@ ${state.escrowId ? `A peer agent was hired under escrow \`${state.escrowId}\` an
     deliverable: (state) => `# Purchase decision record
 
 An agent requested a **$15.00** bulk dataset licence — above the configured approval threshold, so
-PolicyVault parked the payment and blocked the agent until a human decided.
+ABI parked the payment and blocked the agent until a human decided.
 
 ## Outcome
 

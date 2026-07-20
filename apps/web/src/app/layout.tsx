@@ -15,9 +15,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PolicyVault — Guardian Console",
+  title: "Artificial Banking Incorporated — Financial infrastructure for autonomous AI",
   description:
-    "Policy-gated treasury OS for AI agents. Budgets, approvals, escrow and a kill switch — agents spend, you govern.",
+    "Programmable AI agent wallets with policies, human approvals, Coinbase CDP custody and x402 payments — the authorization layer between AI agents and real money.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

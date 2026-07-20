@@ -1,2464 +1,548 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  BarChart,
-  BarLine,
-  Calendar,
-  Donut,
-  Empty,
-  Icon,
-  Meter,
-  Sparkline,
-  Stat,
-  fmtDate,
-  fmtTime,
-  fmtUsd,
-  relTime,
-} from "../lib/ui";
-import { InsightsView } from "../lib/analytics";
-import { PolicyView } from "../lib/policy-view";
-import { SettingsView } from "../lib/settings-view";
-import { MISSIONS, runMission, type RunStep } from "../lib/mission";
-import {
-  AIPanel,
-  InvoicesView,
-  WorkView,
-  type Invoice,
-  type InvoiceStats,
-  type Run,
-  type Summary,
-} from "../lib/views";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { ABLockup, ABMark, ABWordmark } from "../lib/brand";
+import { Icon } from "../lib/ui";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
-const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
+/**
+ * Artificial Banking Incorporated — public landing page.
+ *
+ * Sits at "/". The console lives at "/console" and is reached via the
+ * "Launch Console" CTAs. This page has no dependency on the console's live
+ * session or API polling, so it renders instantly and stays cheap.
+ */
+export default function LandingPage() {
+  return (
+    <div className="landing">
+      <TopNav />
+      <Hero />
+      <TrustStrip />
+      <Features />
+      <HowItWorks />
+      <Enterprise />
+      <CtaBand />
+      <FooterBand />
+    </div>
+  );
+}
 
-/* ==================================================================== types */
+/* ============================================================= navigation */
 
-type AgentKey = { agentId: string; name: string; key: string };
+function TopNav() {
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  return (
+    <header className={`marketing-nav ${scrolled ? "on-scroll" : ""}`}>
+      <div className="marketing-nav-inner">
+        <ABWordmark size={26} />
+        <nav className="marketing-links">
+          <a href="#features">Features</a>
+          <a href="#how">How it works</a>
+          <a href="#enterprise">Enterprise</a>
+          <a href="#docs">Docs</a>
+          <a href="#pricing">Pricing</a>
+          <a href="https://github.com/MOMOEXPRESS/Artificial-Banking-Inc" target="_blank" rel="noreferrer">
+            GitHub
+          </a>
+        </nav>
+        <div className="marketing-nav-cta">
+          <Link className="btn-ghost-line" href="/console">
+            Sign in
+          </Link>
+          <Link className="btn-primary-line" href="/console">
+            Launch console
+          </Link>
+        </div>
+      </div>
+    </header>
+  );
+}
 
-type Session = {
-  guardianKey: string;
-  orgId?: string;
-  agentKeys: AgentKey[];
-};
+/* ==================================================================== hero */
 
-type Prefs = { autoJump: boolean; sound: boolean };
+function Hero() {
+  return (
+    <section className="hero">
+      <div className="hero-halo" aria-hidden />
+      <div className="hero-inner">
+        <div className="hero-copy">
+          <span className="eyebrow">
+            <span className="dot" /> Financial infrastructure for autonomous AI
+          </span>
+          <h1>
+            Give AI agents the ability to <em>spend safely.</em>
+          </h1>
+          <p className="hero-sub">
+            Artificial Banking Incorporated is the authorization layer between
+            your AI agents and real money. Programmable wallets, spending
+            policies, human approvals and on-chain settlement — all in one
+            operating system.
+          </p>
+          <div className="hero-ctas">
+            <Link className="btn-primary" href="/console">
+              Launch console <Icon name="arrowRight" size={14} />
+            </Link>
+            <Link className="btn-ghost" href="/console?demo=1">
+              <Icon name="play" size={14} /> Live demo
+            </Link>
+          </div>
+          <div className="hero-meta">
+            <div>
+              <b>Base + USDC</b>
+              <span>on-chain settlement</span>
+            </div>
+            <div className="sep" />
+            <div>
+              <b>x402 native</b>
+              <span>machine payments</span>
+            </div>
+            <div className="sep" />
+            <div>
+              <b>Coinbase CDP</b>
+              <span>managed custody</span>
+            </div>
+          </div>
+        </div>
+        <div className="hero-visual">
+          <HeroGraphic />
+        </div>
+      </div>
+    </section>
+  );
+}
 
-type OrgView = {
-  org: { id: string; name: string; status: string };
-  agents: { id: string; name: string; status: string; spent24hUsdc: string }[];
-  dailyMaxUsdc: string;
-  balances: { id: string; kind: string; agentId?: string; usdc: string }[];
-  vaultAddress: string;
-};
+/**
+ * Abstract animated visual — orbiting hexagons around a central vault dial.
+ * Pure inline SVG so it costs nothing and scales cleanly.
+ */
+function HeroGraphic() {
+  return (
+    <div className="hero-graphic">
+      <div className="hero-graphic-frame">
+        <svg viewBox="0 0 520 520" className="orbit">
+          <defs>
+            <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="rgba(74,158,255,0.28)" />
+              <stop offset="60%" stopColor="rgba(74,158,255,0.05)" />
+              <stop offset="100%" stopColor="rgba(74,158,255,0)" />
+            </radialGradient>
+            <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#4a9eff" stopOpacity="0.6" />
+              <stop offset="100%" stopColor="#a78bfa" stopOpacity="0.15" />
+            </linearGradient>
+          </defs>
+          <circle cx="260" cy="260" r="240" fill="url(#halo)" />
+          {/* Outer dashed orbit */}
+          <circle
+            cx="260"
+            cy="260"
+            r="210"
+            fill="none"
+            stroke="url(#ring)"
+            strokeWidth="1"
+            strokeDasharray="4 8"
+            className="orbit-spin-slow"
+          />
+          {/* Middle orbit */}
+          <circle
+            cx="260"
+            cy="260"
+            r="160"
+            fill="none"
+            stroke="rgba(255,255,255,0.08)"
+            strokeWidth="1"
+            className="orbit-spin-mid"
+          />
+          {/* Inner orbit */}
+          <circle
+            cx="260"
+            cy="260"
+            r="110"
+            fill="none"
+            stroke="rgba(255,255,255,0.12)"
+            strokeWidth="1"
+            className="orbit-spin-fast"
+          />
+          {/* Orbit nodes */}
+          <g className="orbit-spin-slow" style={{ transformOrigin: "260px 260px" }}>
+            <Node cx={470} cy={260} label="agent" />
+            <Node cx={50} cy={260} label="agent" />
+          </g>
+          <g className="orbit-spin-mid" style={{ transformOrigin: "260px 260px" }}>
+            <Node cx={420} cy={160} label="wallet" />
+            <Node cx={100} cy={360} label="wallet" />
+          </g>
+          <g className="orbit-spin-fast" style={{ transformOrigin: "260px 260px" }}>
+            <Node cx={370} cy={260} label="x402" small />
+            <Node cx={150} cy={260} label="usdc" small />
+          </g>
+        </svg>
+        <div className="hero-graphic-mark">
+          <ABMark size={110} tone="#fff" />
+        </div>
+        {/* Floating status chips */}
+        <div className="chip-float chip-a">
+          <span className="pill ok">
+            <i /> allowed
+          </span>
+          <span className="mono">$1.20 · x402</span>
+        </div>
+        <div className="chip-float chip-b">
+          <span className="pill warn">
+            <i /> awaiting approval
+          </span>
+          <span className="mono">$45 · api.openai.com</span>
+        </div>
+        <div className="chip-float chip-c">
+          <span className="pill bad">
+            <i /> blocked
+          </span>
+          <span className="mono">off-allowlist</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-type Decision = {
-  intentId: string;
-  outcome: string;
-  ruleIds: string[];
-  reasons: string[];
-  tool: string;
-  amountUsdc: string;
-  destination: string;
-  at: string;
-  agentId: string;
-};
+function Node({ cx, cy, label, small }: { cx: number; cy: number; label: string; small?: boolean }) {
+  const r = small ? 8 : 14;
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={r + 6} fill="rgba(74,158,255,0.08)" />
+      <circle cx={cx} cy={cy} r={r} fill="rgba(74,158,255,0.9)" />
+      <text
+        x={cx}
+        y={cy - r - 8}
+        textAnchor="middle"
+        fill="rgba(255,255,255,0.7)"
+        fontSize="10"
+        fontFamily="var(--mono)"
+      >
+        {label}
+      </text>
+    </g>
+  );
+}
 
-type Approval = {
-  id: string;
-  intentId: string;
-  agentId: string;
-  tool: string;
-  amountUsdc: string;
-  destination: string;
-  memo?: string;
-  reasons: string[];
-  status: string;
-  createdAt: string;
-  expiresAt: string;
-  resolvedBy?: string;
-};
+function TrustStrip() {
+  return (
+    <section className="trust-strip">
+      <span>Built on</span>
+      <div className="trust-logos">
+        <TrustLogo>Coinbase CDP</TrustLogo>
+        <TrustLogo>Base</TrustLogo>
+        <TrustLogo>x402</TrustLogo>
+        <TrustLogo>USDC</TrustLogo>
+        <TrustLogo>ERC-4337</TrustLogo>
+      </div>
+    </section>
+  );
+}
 
-type Escrow = {
-  id: string;
-  payerAgentId: string;
-  payeeAgentId: string;
-  amountUsdc: string;
-  state: string;
-  jobId?: string;
-  memo?: string;
-  timeoutAt: string;
-};
+function TrustLogo({ children }: { children: React.ReactNode }) {
+  return <span className="trust-logo">{children}</span>;
+}
 
-type Policy = {
-  perTxMaxUsdc: string;
-  dailyMaxUsdc: string;
-  hitlAboveUsdc: string;
-  maxPaysPerMinute: number;
-  newCounterpartyCooldownHours: number;
-  addressAllowlist: string[];
-  domainAllowlist: string[];
-  vendorAllowlist: string[];
-  blocklist: string[];
-  hitlCategories: string[];
-};
+/* =============================================================== features */
 
-type Webhook = { id: string; url: string; createdAt: string };
-type Delivery = {
-  id: number;
-  event: string;
-  url: string;
-  status: string;
-  attempts: number;
-  lastError?: string;
-  createdAt: string;
-};
-type Journal = {
-  id: string;
-  intentId?: string;
-  memo: string;
-  createdAt: string;
-  lines: { accountId: string; deltaMicro: string }[];
-};
-type Metrics = {
-  agents: number;
-  decisions: Record<string, number>;
-  approvals: { pending: number; total: number };
-  escrows: { locked: number; total: number };
-  journals: number;
-  webhookDeliveries: number;
-  balancesUsdc: Record<string, string>;
-};
-type Setup = {
-  custody: string;
-  network: string;
-  settlement: string;
-  telegram: boolean;
-  rateLimitPerMin: number;
-  approvalTtlMinutes: number;
-};
-type Recon = { ok: boolean; accountsChecked: number; journalsReplayed: number; drift: unknown[] };
-
-type View =
-  | "overview"
-  | "playground"
-  | "work"
-  | "approvals"
-  | "insights"
-  | "invoices"
-  | "escrows"
-  | "ledger"
-  | "policy"
-  | "webhooks"
-  | "activity"
-  | "settings";
-
-const NAV: { key: View; label: string; icon: string }[] = [
-  { key: "overview", label: "Overview", icon: "home" },
-  { key: "playground", label: "Agent Playground", icon: "play" },
-  { key: "work", label: "Work & deliverables", icon: "book" },
-  { key: "approvals", label: "Approvals", icon: "check" },
-  { key: "insights", label: "Insights", icon: "spark" },
-  { key: "invoices", label: "Invoices", icon: "wallet" },
-  { key: "escrows", label: "Escrows", icon: "swap" },
-  { key: "ledger", label: "Ledger", icon: "list" },
-  { key: "policy", label: "Policy", icon: "sliders" },
-  { key: "webhooks", label: "Webhooks", icon: "zap" },
-  { key: "activity", label: "Activity", icon: "clock" },
+const FEATURES: { icon: string; title: string; body: string }[] = [
+  {
+    icon: "wallet",
+    title: "AI agent wallets",
+    body: "Every agent gets a programmable stipend account with its own balance, spend history and identity.",
+  },
+  {
+    icon: "sliders",
+    title: "Spending policies",
+    body: "Deterministic bands, allowlists, blocklists, velocity brakes, quiet hours — all edited live with a policy simulator.",
+  },
+  {
+    icon: "check",
+    title: "Human approvals",
+    body: "Any payment past your threshold parks and waits for you. Approve from the console, chat or Telegram.",
+  },
+  {
+    icon: "zap",
+    title: "Coinbase CDP integration",
+    body: "Managed custody with a professional signer — no seed phrases, no browser wallets, no missing keys.",
+  },
+  {
+    icon: "swap",
+    title: "x402 payments",
+    body: "Speak the machine-payment standard natively. Agents can pay any x402 seller under policy, on-chain.",
+  },
+  {
+    icon: "list",
+    title: "Immutable audit log",
+    body: "Every intent, denial, approval and settlement is journaled. Replayable from genesis, exportable to CSV.",
+  },
+  {
+    icon: "book",
+    title: "Organization treasury",
+    body: "A single vault funds every agent. Move money in three directions with balanced double-entry bookkeeping.",
+  },
+  {
+    icon: "clock",
+    title: "Agent budgets",
+    body: "Per-agent daily caps, running spend meters, burn-rate forecasts and hard ceilings the agent cannot cross.",
+  },
+  {
+    icon: "spark",
+    title: "Real-time analytics",
+    body: "Vendor concentration, cost-per-deliverable P&L, anomaly detection — computed from your own ledger.",
+  },
+  {
+    icon: "shield",
+    title: "Secure on-chain payments",
+    body: "EIP-712 signed transfers, per-request idempotency, kill-switch that stops in-flight intents at the engine.",
+  },
 ];
 
-type Alert = {
-  id: string;
-  kind: "approval" | "escrow" | "webhook" | "drift" | "fund";
+function Features() {
+  return (
+    <section id="features" className="section">
+      <SectionHead
+        eyebrow="Everything you need"
+        title="A financial operating system for AI agents"
+        sub="Programmable wallets and safety rails, wired straight into on-chain settlement."
+      />
+      <div className="feat-grid">
+        {FEATURES.map((f) => (
+          <article key={f.title} className="feat-card">
+            <div className="feat-icon">
+              <Icon name={f.icon} />
+            </div>
+            <h3>{f.title}</h3>
+            <p>{f.body}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* =============================================================== how it works */
+
+const STEPS = [
+  {
+    n: "01",
+    title: "Connect your organization",
+    body: "Create an org, get a guardian key, fund the vault with USDC. Coinbase CDP handles custody.",
+  },
+  {
+    n: "02",
+    title: "Create AI agents",
+    body: "Each agent gets an API key and a stipend account. Plug the key into your Python, Node or MCP runtime.",
+  },
+  {
+    n: "03",
+    title: "Assign budget & policy",
+    body: "Set daily caps, per-payment ceilings, approval thresholds and allowlists. Test edits in the simulator first.",
+  },
+  {
+    n: "04",
+    title: "Agents complete paid tasks",
+    body: "Agents call pay verbs; the policy engine authorizes, the CDP wallet signs, USDC settles on Base.",
+  },
+];
+
+function HowItWorks() {
+  return (
+    <section id="how" className="section how">
+      <SectionHead
+        eyebrow="How it works"
+        title="From zero to a paying agent in four steps"
+        sub="No smart contracts to deploy. No keys for your agents to leak. No custom infrastructure."
+      />
+      <ol className="steps-track">
+        {STEPS.map((s, i) => (
+          <li key={s.n} className="step-card">
+            <span className="step-n">{s.n}</span>
+            <h3>{s.title}</h3>
+            <p>{s.body}</p>
+            {i < STEPS.length - 1 && <span className="step-connector" aria-hidden />}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+/* =============================================================== enterprise */
+
+const ENTERPRISE_POINTS = [
+  {
+    icon: "shield",
+    title: "Spending permissions",
+    body: "Role-based access, multi-guardian quorum, and a rotating key surface for every agent.",
+  },
+  {
+    icon: "clock",
+    title: "Budgets you can defend in an audit",
+    body: "Journal-replay reconciliation runs every minute and screams the moment a cent is out of place.",
+  },
+  {
+    icon: "list",
+    title: "Complete audit trail",
+    body: "Every decision, rule fired and receipt is journaled. Export to CSV, stream over signed webhooks.",
+  },
+  {
+    icon: "check",
+    title: "Approval workflows",
+    body: "Route large spends to a person, a Telegram DM, or a chat channel — with a hard-cap always above.",
+  },
+  {
+    icon: "zap",
+    title: "Secure by default",
+    body: "The LLM proposes; a deterministic policy engine and hardware-backed signer authorize.",
+  },
+  {
+    icon: "swap",
+    title: "Autonomous payments",
+    body: "Recurring subscriptions, agent-to-agent escrow, refunds — every one still passes the same policy.",
+  },
+];
+
+function Enterprise() {
+  return (
+    <section id="enterprise" className="section enterprise">
+      <SectionHead
+        eyebrow="For teams"
+        title="Enterprise-ready guardrails from day one"
+        sub="Because the first agent-driven mistake is the last one anyone forgets."
+      />
+      <div className="ent-grid">
+        {ENTERPRISE_POINTS.map((p) => (
+          <div key={p.title} className="ent-card">
+            <div className="ent-icon">
+              <Icon name={p.icon} />
+            </div>
+            <h3>{p.title}</h3>
+            <p>{p.body}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ================================================================== CTA */
+
+function CtaBand() {
+  return (
+    <section className="cta-band">
+      <div className="cta-inner">
+        <ABLockup size={80} />
+        <h2>Ship an autonomous agent this afternoon.</h2>
+        <p>
+          The console is free while it&rsquo;s in development. Bring an OpenAI, Anthropic, or any
+          pay-per-use API — your agent starts spending under policy in minutes.
+        </p>
+        <div className="hero-ctas" style={{ justifyContent: "center" }}>
+          <Link className="btn-primary" href="/console">
+            Launch console <Icon name="arrowRight" size={14} />
+          </Link>
+          <Link className="btn-ghost" href="/console?demo=1">
+            <Icon name="play" size={14} /> Try the demo org
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* =============================================================== footer */
+
+function FooterBand() {
+  return (
+    <footer className="marketing-footer">
+      <div className="marketing-footer-inner">
+        <div className="marketing-footer-brand">
+          <ABWordmark size={28} />
+          <p>
+            The authorization layer between AI agents and real money. Programmable, auditable and
+            enterprise-safe.
+          </p>
+        </div>
+        <div className="marketing-footer-cols">
+          <FooterCol
+            title="Product"
+            links={[
+              ["Console", "/console"],
+              ["Live demo", "/console?demo=1"],
+              ["Features", "#features"],
+              ["How it works", "#how"],
+            ]}
+          />
+          <FooterCol
+            title="Company"
+            links={[
+              ["About", "#"],
+              ["Pricing", "#pricing"],
+              ["Docs", "#docs"],
+              ["GitHub", "https://github.com/MOMOEXPRESS/Artificial-Banking-Inc"],
+            ]}
+          />
+          <FooterCol
+            title="Ecosystem"
+            links={[
+              ["Coinbase CDP", "https://www.coinbase.com/developer-platform"],
+              ["x402", "https://x402.org"],
+              ["Base", "https://base.org"],
+              ["USDC", "https://www.circle.com/usdc"],
+            ]}
+          />
+        </div>
+      </div>
+      <div className="marketing-footer-legal">
+        <span>© {new Date().getFullYear()} Artificial Banking Incorporated</span>
+        <span>Not a bank. Not FDIC insured. Operators remain responsible for agent spend.</span>
+      </div>
+    </footer>
+  );
+}
+
+function FooterCol({ title, links }: { title: string; links: [string, string][] }) {
+  return (
+    <div>
+      <h4>{title}</h4>
+      <ul>
+        {links.map(([label, href]) => (
+          <li key={label}>
+            <a href={href} target={href.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
+              {label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* =============================================================== helpers */
+
+function SectionHead({
+  eyebrow,
+  title,
+  sub,
+}: {
+  eyebrow: string;
   title: string;
-  body: string;
-  tone: "warn" | "bad" | "info";
-  goto: View;
-};
-
-type MissionState = {
-  missionId: string;
-  steps: RunStep[];
-  log: string[];
-  running: boolean;
-  actorId: string;
-};
-
-/* ===================================================================== page */
-
-export default function Console() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [prefs, setPrefs] = useState<Prefs>({ autoJump: true, sound: false });
-  const [hydrated, setHydrated] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<View>("overview");
-  const [org, setOrg] = useState<OrgView | null>(null);
-  const [decisions, setDecisions] = useState<Decision[]>([]);
-  const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [escrows, setEscrows] = useState<Escrow[]>([]);
-  const [journals, setJournals] = useState<Journal[]>([]);
-  const [policy, setPolicy] = useState<Policy | null>(null);
-  const [webhooks, setWebhooks] = useState<Webhook[]>([]);
-  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [setup, setSetup] = useState<Setup | null>(null);
-  const [recon, setRecon] = useState<Recon | null>(null);
-  const [summary, setSummary] = useState<Summary | null>(null);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [invStats, setInvStats] = useState<InvoiceStats | null>(null);
-  const [runs, setRuns] = useState<Run[]>([]);
-  const [toast, setToastRaw] = useState<{ msg: string; kind: "ok" | "err" | "info" } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [connected, setConnected] = useState(true);
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [banner, setBanner] = useState<Alert | null>(null);
-  const [query, setQuery] = useState("");
-
-  // Mission state lives in the shell so a run survives navigating between
-  // views — the agent keeps working while you go approve something.
-  const [mission, setMission] = useState<MissionState>({
-    missionId: MISSIONS[0].id,
-    steps: [],
-    log: [],
-    running: false,
-    actorId: "",
-  });
-
-  const sessionRef = useRef<Session | null>(null);
-  sessionRef.current = session;
-  const prefsRef = useRef(prefs);
-  prefsRef.current = prefs;
-  const viewRef = useRef<View>(view);
-  viewRef.current = view;
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const seenApprovals = useRef<Set<string>>(new Set());
-  /** Approvals already pending at sign-in are not "new" — do not hijack the view. */
-  const firstApprovalLoad = useRef(true);
-  /** Lives in the shell so Stop still works after navigating away and back. */
-  const missionCancel = useRef(false);
-
-  const setToast = useCallback((msg: string, kind: "ok" | "err" | "info" = "info") => {
-    setToastRaw({ msg, kind });
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToastRaw(null), kind === "err" ? 11000 : 6000);
-  }, []);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("pv_session");
-      if (raw) setSession(JSON.parse(raw));
-      const p = localStorage.getItem("pv_prefs");
-      if (p) setPrefs(JSON.parse(p));
-    } catch {
-      /* ignore */
-    }
-    setHydrated(true);
-  }, []);
-
-  /** Sign in / sign out. Resets view state — use updateSession for edits. */
-  const saveSession = useCallback((s: Session | null) => {
-    setSession(s);
-    setLoading(true);
-    // Only forget seen approvals when the identity actually changes — otherwise
-    // an unrelated session edit re-raises alerts for approvals already reviewed.
-    if (s?.guardianKey !== sessionRef.current?.guardianKey) {
-      seenApprovals.current = new Set();
-      firstApprovalLoad.current = true;
-    }
-    if (s) localStorage.setItem("pv_session", JSON.stringify(s));
-    else localStorage.removeItem("pv_session");
-  }, []);
-
-  /**
-   * Merge into the existing session without tearing the UI down. Routing agent
-   * key changes through saveSession showed the loading skeleton, which
-   * unmounted the view holding the one-time API key — destroying it before it
-   * could be copied.
-   */
-  const updateSession = useCallback((patch: Partial<Session>) => {
-    setSession((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev, ...patch };
-      localStorage.setItem("pv_session", JSON.stringify(next));
-      return next;
-    });
-  }, []);
-
-  const savePrefs = useCallback((p: Prefs) => {
-    setPrefs(p);
-    localStorage.setItem("pv_prefs", JSON.stringify(p));
-  }, []);
-
-  const gFetch = useCallback(async (path: string, init?: RequestInit) => {
-    const s = sessionRef.current;
-    return fetch(`${API}${path}`, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${s?.guardianKey ?? ""}`,
-        ...(init?.headers ?? {}),
-      },
-    });
-  }, []);
-
-  /**
-   * Two-tier polling. The fast tier carries anything that drives reactivity —
-   * a parked approval must surface within seconds. The slow tier carries
-   * analytics and config, which are expensive to compute and rarely change.
-   * Refetching everything every 4s was pointless load on both ends.
-   */
-  const refreshFast = useCallback(async () => {
-    if (!sessionRef.current) return;
-    try {
-      const res = await Promise.all(
-        ["/v1/guardian/org", "/v1/guardian/approvals", "/v1/guardian/activity", "/v1/guardian/escrows"].map(
-          (p) => gFetch(p),
-        ),
-      );
-      if (res[0].status === 401) {
-        saveSession(null);
-        setToast("Guardian key rejected — signed out.", "err");
-        return;
-      }
-      const [o, ap, a, es] = await Promise.all(res.map((r) => r.json()));
-      setConnected(true);
-      setOrg(o);
-      setApprovals(ap.approvals ?? []);
-      setDecisions(a.decisions ?? []);
-      setEscrows(es.escrows ?? []);
-      setLoading(false);
-    } catch {
-      setConnected(false);
-    }
-  }, [gFetch, saveSession, setToast]);
-
-  const refreshSlow = useCallback(async () => {
-    if (!sessionRef.current) return;
-    try {
-      const res = await Promise.all(
-        [
-          "/v1/guardian/journals?limit=200",
-          "/v1/guardian/policy",
-          "/v1/guardian/webhooks",
-          "/v1/guardian/webhooks/deliveries",
-          "/v1/guardian/metrics",
-          "/v1/guardian/setup",
-          "/v1/guardian/reconcile",
-          "/v1/guardian/summary",
-          "/v1/guardian/invoices",
-          "/v1/guardian/runs",
-        ].map((p) => gFetch(p)),
-      );
-      const [jo, po, wh, de, me, st, rc, su, inv, rn] = await Promise.all(res.map((r) => r.json()));
-      setJournals(jo.journals ?? []);
-      setPolicy(po.policy ?? null);
-      setWebhooks(wh.webhooks ?? []);
-      setDeliveries(de.deliveries ?? []);
-      setMetrics(me.metrics ?? null);
-      setSetup(st.setup ?? null);
-      setRecon(rc.reconciliation ?? null);
-      setSummary(su.summary ?? null);
-      setInvoices(inv.invoices ?? []);
-      setInvStats(inv.stats ?? null);
-      setRuns(rn.runs ?? []);
-    } catch {
-      /* the fast tier owns the connection indicator */
-    }
-  }, [gFetch]);
-
-  /** After a mutation, pull both tiers so the whole console reflects it at once. */
-  const refreshAll = useCallback(async () => {
-    await Promise.all([refreshFast(), refreshSlow()]);
-  }, [refreshFast, refreshSlow]);
-
-  useEffect(() => {
-    if (!session) return;
-    void refreshAll();
-    const fast = setInterval(() => void refreshFast(), 4000);
-    const slow = setInterval(() => void refreshSlow(), 15000);
-    return () => {
-      clearInterval(fast);
-      clearInterval(slow);
-    };
-  }, [session, refreshAll, refreshFast, refreshSlow]);
-
-  const pending = useMemo(() => approvals.filter((a) => a.status === "pending"), [approvals]);
-  const agentName = useCallback(
-    (id: string) => org?.agents.find((x) => x.id === id)?.name ?? id.slice(0, 12),
-    [org],
-  );
-
-  /* ---- alerts: the system telling you what needs you, and where ---- */
-  const alerts = useMemo<Alert[]>(() => {
-    const out: Alert[] = [];
-    for (const a of pending) {
-      out.push({
-        id: `apr_${a.id}`,
-        kind: "approval",
-        tone: "warn",
-        title: `${agentName(a.agentId)} needs ${fmtUsd(a.amountUsdc)} approved`,
-        body: `${a.destination} · ${a.reasons[0] ?? "awaiting your decision"} · expires ${relTime(a.expiresAt)}`,
-        goto: "approvals",
-      });
-    }
-    for (const e of escrows.filter((x) => x.state === "locked")) {
-      const mins = (new Date(e.timeoutAt).getTime() - Date.now()) / 60000;
-      if (mins < 10) {
-        out.push({
-          id: `esc_${e.id}`,
-          kind: "escrow",
-          tone: "info",
-          title: `Escrow ${fmtUsd(e.amountUsdc)} auto-refunds ${relTime(e.timeoutAt)}`,
-          body: `${agentName(e.payerAgentId)} → ${agentName(e.payeeAgentId)} · release it if the work landed`,
-          goto: "escrows",
-        });
-      }
-    }
-    const failed = deliveries.filter((d) => d.status === "failed");
-    if (failed.length) {
-      out.push({
-        id: "wh_failed",
-        kind: "webhook",
-        tone: "bad",
-        title: `${failed.length} webhook ${failed.length === 1 ? "delivery" : "deliveries"} failed`,
-        body: failed[0].lastError?.slice(0, 90) ?? "Endpoint unreachable after 3 attempts",
-        goto: "webhooks",
-      });
-    }
-    if (recon && !recon.ok) {
-      out.push({
-        id: "drift",
-        kind: "drift",
-        tone: "bad",
-        title: "Ledger drift detected",
-        body: `${recon.drift.length} account(s) disagree with the journal replay — investigate now`,
-        goto: "ledger",
-      });
-    }
-    const broke = (org?.agents ?? []).filter((ag) => {
-      const bal = org?.balances.find((b) => b.kind === "agent_available" && b.agentId === ag.id);
-      return Number(bal?.usdc ?? 0) < 1 && ag.status === "active";
-    });
-    if (broke.length) {
-      out.push({
-        id: "fund",
-        kind: "fund",
-        tone: "info",
-        title: `${broke.length} agent${broke.length > 1 ? "s have" : " has"} no funds`,
-        body: `${broke.map((b) => b.name).join(", ")} can't pay for anything — allocate a stipend`,
-        goto: "overview",
-      });
-    }
-    return out;
-  }, [pending, escrows, deliveries, recon, org, agentName]);
-
-  /* ---- autonomous handoff: new approval → alert + optional auto-jump ---- */
-  useEffect(() => {
-    if (loading) return;
-    const fresh = pending.filter((a) => !seenApprovals.current.has(a.id));
-    pending.forEach((a) => seenApprovals.current.add(a.id));
-    // On the very first load, everything pending is pre-existing. Record it as
-    // seen but do not alert — otherwise every page refresh throws you into
-    // Approvals for decisions you already knew about.
-    if (firstApprovalLoad.current) {
-      firstApprovalLoad.current = false;
-      return;
-    }
-    if (!fresh.length) return;
-    const a = fresh[0];
-    const alert: Alert = {
-      id: `apr_${a.id}`,
-      kind: "approval",
-      tone: "warn",
-      title: `${agentName(a.agentId)} is waiting on you`,
-      body: `${fmtUsd(a.amountUsdc)} → ${a.destination} · ${a.reasons[0] ?? ""} · expires ${relTime(a.expiresAt)}`,
-      goto: "approvals",
-    };
-    setBanner(alert);
-    // Don't yank you off the Playground — it already shows inline Approve/Deny
-    // right where you're watching the agent. Jump from anywhere else.
-    if (prefsRef.current.autoJump && viewRef.current !== "approvals" && viewRef.current !== "playground") {
-      setView("approvals");
-      setToast(`Agent parked a ${fmtUsd(a.amountUsdc)} payment — jumped you to Approvals.`, "info");
-    } else if (viewRef.current === "playground") {
-      setToast(`Agent parked ${fmtUsd(a.amountUsdc)} — approve or deny it right in the timeline.`, "info");
-    }
-  }, [pending, loading, agentName, setToast]);
-
-  useEffect(() => {
-    if (banner && !pending.some((p) => `apr_${p.id}` === banner.id)) setBanner(null);
-  }, [pending, banner]);
-
-  async function act(label: string, fn: () => Promise<string | void>) {
-    setBusy(true);
-    try {
-      const msg = await fn();
-      await refreshAll();
-      if (msg) setToast(msg, "ok");
-    } catch (e) {
-      setToast(`${label} failed: ${e instanceof Error ? e.message : String(e)}`, "err");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!hydrated) return null;
-  if (!session)
-    return <Login onLogin={saveSession} setToast={setToast} toast={toast} clear={() => setToastRaw(null)} />;
-
-  const shared = { busy, act, gFetch, agentName, org, setToast, setView };
-
+  sub: string;
+}) {
   return (
-    <div className="app">
-      <nav className="rail">
-        <div className="rail-logo">PV</div>
-        {NAV.map((n) => (
-          <button
-            key={n.key}
-            className={`rail-btn ${view === n.key ? "active" : ""}`}
-            onClick={() => setView(n.key)}
-            aria-label={n.label}
-          >
-            <Icon name={n.icon} />
-            {n.key === "approvals" && pending.length > 0 && <span className="dot-badge" />}
-            {n.key === "playground" && mission.running && (
-              <span className="dot-badge" style={{ background: "var(--accent)" }} />
-            )}
-            <span className="rail-tip">
-              {n.label}
-              {n.key === "playground" && mission.running ? " · running" : ""}
-            </span>
-          </button>
-        ))}
-        <div className="rail-spacer" />
-        <button
-          className={`rail-btn ${view === "settings" ? "active" : ""}`}
-          onClick={() => setView("settings")}
-          aria-label="Settings"
-        >
-          <Icon name="gear" />
-          <span className="rail-tip">Settings</span>
-        </button>
-        <button className="rail-btn" onClick={() => saveSession(null)} aria-label="Sign out">
-          <Icon name="logout" />
-          <span className="rail-tip">Sign out</span>
-        </button>
-      </nav>
-
-      <main className="main">
-        <header className="topbar">
-          <h1>{view === "settings" ? "Settings" : NAV.find((n) => n.key === view)?.label}</h1>
-          <div className="spacer" />
-          <div className="search">
-            <Icon name="search" />
-            <input
-              placeholder="Search agents, destinations…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
-          <div className="user-chip" onClick={() => setView("settings")}>
-            <div className="avatar">{(org?.org.name ?? "PV").slice(0, 2).toUpperCase()}</div>
-            <div className="who">
-              <b>{org?.org.name ?? "Loading…"}</b>
-              <span>
-                {connected ? "Guardian · live" : "reconnecting…"}
-                {org?.org.status === "frozen" ? " · FROZEN" : ""}
-              </span>
-            </div>
-          </div>
-          <div style={{ position: "relative" }}>
-            <button className="icon-btn" onClick={() => setNotifOpen((v) => !v)} aria-label="Alerts">
-              <Icon name="bell" />
-              {alerts.length > 0 && <span className="ping" />}
-            </button>
-            {notifOpen && (
-              <div className="notif-panel">
-                <div className="notif-head">
-                  <span>Needs attention ({alerts.length})</span>
-                  <button className="bare sm" onClick={() => setNotifOpen(false)}>
-                    <Icon name="x" size={13} />
-                  </button>
-                </div>
-                {alerts.length === 0 ? (
-                  <div style={{ padding: 26, textAlign: "center", fontSize: 12.5 }} className="muted">
-                    All clear. Nothing is waiting on you.
-                  </div>
-                ) : (
-                  alerts.slice(0, 6).map((al) => (
-                    <button
-                      key={al.id}
-                      className="notif-item"
-                      onClick={() => {
-                        setView(al.goto);
-                        setNotifOpen(false);
-                      }}
-                    >
-                      <span
-                        className="ico"
-                        style={{
-                          background:
-                            al.tone === "bad" ? "var(--red-soft)" : al.tone === "warn" ? "var(--orange-soft)" : "var(--accent-soft)",
-                          color: al.tone === "bad" ? "var(--red)" : al.tone === "warn" ? "var(--orange)" : "var(--accent)",
-                        }}
-                      >
-                        <Icon name={al.kind === "approval" ? "check" : al.kind === "drift" ? "alert" : "zap"} size={15} />
-                      </span>
-                      <span className="body">
-                        <b>{al.title}</b>
-                        <span>{al.body}</span>
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        </header>
-
-        <div className="scroll">
-          {banner && view !== "approvals" && (
-            <div className="banner" style={{ marginBottom: 12 }}>
-              <span className="ico">
-                <Icon name="alert" size={16} />
-              </span>
-              <span className="txt">
-                <b>{banner.title}</b>
-                <span>{banner.body}</span>
-              </span>
-              <button className="light sm" onClick={() => setView(banner.goto)}>
-                Review now
-              </button>
-              <button className="bare sm" onClick={() => setBanner(null)}>
-                <Icon name="x" size={14} />
-              </button>
-            </div>
-          )}
-
-          {loading ? (
-            <Skeleton />
-          ) : (
-            <div className="view" key={view}>
-              {view === "overview" && (
-                <Overview
-                  {...shared}
-                  metrics={metrics}
-                  decisions={decisions}
-                  approvals={approvals}
-                  escrows={escrows}
-                  policy={policy}
-                  session={session}
-                  updateSession={updateSession}
-                  alerts={alerts}
-                  summary={summary}
-                  invStats={invStats}
-                />
-              )}
-              {view === "playground" && (
-                <Playground
-                  {...shared}
-                  session={session}
-                  updateSession={updateSession}
-                  policy={policy}
-                  pending={pending}
-                  mission={mission}
-                  setMission={setMission}
-                  cancelRef={missionCancel}
-                />
-              )}
-              {view === "work" && (
-                <WorkView runs={runs} busy={busy} act={act} gFetch={gFetch} />
-              )}
-              {view === "insights" && (
-                <InsightsView gFetch={gFetch} setView={(v) => setView(v as View)} />
-              )}
-              {view === "invoices" && (
-                <InvoicesView
-                  invoices={invoices}
-                  stats={invStats}
-                  busy={busy}
-                  act={act}
-                  gFetch={gFetch}
-                />
-              )}
-              {view === "approvals" && <Approvals {...shared} approvals={approvals} pending={pending} />}
-              {view === "escrows" && <Escrows {...shared} escrows={escrows} />}
-              {view === "ledger" && <Ledger journals={journals} metrics={metrics} recon={recon} />}
-              {view === "policy" &&
-                (policy ? <PolicyView {...shared} policy={policy} /> : <Skeleton />)}
-              {view === "webhooks" && <Webhooks {...shared} webhooks={webhooks} deliveries={deliveries} />}
-              {view === "activity" && (
-                <Activity decisions={decisions} agentName={agentName} setToast={setToast} query={query} />
-              )}
-              {view === "settings" && (
-                <SettingsView
-                  setup={setup}
-                  recon={recon}
-                  prefs={prefs}
-                  savePrefs={savePrefs}
-                  session={session}
-                  org={org}
-                  metrics={metrics}
-                  agents={org?.agents ?? []}
-                  busy={busy}
-                  act={act}
-                  gFetch={gFetch}
-                  api={API}
-                  sellerUrl={SELLER}
-                />
-              )}
-            </div>
-          )}
-        </div>
-      </main>
-
-      {toast && (
-        <div
-          className={`toast ${toast.kind === "err" ? "err" : toast.kind === "ok" ? "ok" : ""}`}
-          onClick={() => setToastRaw(null)}
-          role="status"
-        >
-          {toast.msg}
-        </div>
-      )}
+    <div className="section-head">
+      <span className="eyebrow">
+        <span className="dot" /> {eyebrow}
+      </span>
+      <h2>{title}</h2>
+      <p>{sub}</p>
     </div>
   );
 }
-
-function Skeleton() {
-  return (
-    <div className="view">
-      <div className="grid g-4">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="skeleton" style={{ height: 104 }} />
-        ))}
-      </div>
-      <div className="grid g-main fill">
-        <div className="skeleton" style={{ minHeight: 320 }} />
-        <div className="skeleton" style={{ minHeight: 320 }} />
-      </div>
-    </div>
-  );
-}
-
-/* ==================================================================== login */
-
-function Login({
-  onLogin,
-  setToast,
-  toast,
-  clear,
-}: {
-  onLogin: (s: Session) => void;
-  setToast: (m: string, k?: "ok" | "err" | "info") => void;
-  toast: { msg: string; kind: string } | null;
-  clear: () => void;
-}) {
-  const [key, setKey] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function connect() {
-    setBusy(true);
-    try {
-      const res = await fetch(`${API}/v1/guardian/org`, {
-        headers: { Authorization: `Bearer ${key.trim()}` },
-      });
-      if (!res.ok) throw new Error(`Key rejected (HTTP ${res.status})`);
-      const data = await res.json();
-      onLogin({ guardianKey: key.trim(), orgId: data.org.id, agentKeys: [] });
-    } catch (e) {
-      setToast(`Connect failed: ${String(e)}. Is the API running on ${API}?`, "err");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function bootstrap() {
-    setBusy(true);
-    try {
-      const res = await fetch(`${API}/v1/demo/bootstrap`, { method: "POST" });
-      const d = await res.json();
-      onLogin({
-        guardianKey: d.guardianKey,
-        orgId: d.orgId,
-        agentKeys: [
-          { agentId: d.researcherAgentId, name: "Researcher", key: d.agentApiKey },
-          { agentId: d.writerAgentId, name: "Writer", key: d.writerApiKey },
-        ],
-      });
-    } catch (e) {
-      setToast(`Bootstrap failed: ${String(e)}. Is the API running on ${API}?`, "err");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="login-wrap">
-      <div className="login-card">
-        <div className="brand">
-          <span className="rail-logo" style={{ margin: 0, width: 34, height: 34 }}>
-            PV
-          </span>
-          PolicyVault
-        </div>
-        <p className="login-sub">
-          The guardian console for policy-gated agent treasuries. Your agents spend at machine
-          speed — inside limits only you can change.
-        </p>
-        <ul className="login-points">
-          <li>
-            <Icon name="shield" /> Hard budgets, allowlists and a one-tap kill switch
-          </li>
-          <li>
-            <Icon name="check" /> Anything large parks and waits for your approval
-          </li>
-          <li>
-            <Icon name="swap" /> Escrowed agent-to-agent hiring over real x402 payments
-          </li>
-        </ul>
-        <div className="field">
-          <label>Guardian key</label>
-          <input
-            placeholder="pv_guardian_…"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && key.trim() && void connect()}
-          />
-        </div>
-        <button style={{ width: "100%" }} disabled={busy || !key.trim()} onClick={() => void connect()}>
-          Open console
-        </button>
-        <div className="or">or</div>
-        <button className="ghost" style={{ width: "100%" }} disabled={busy} onClick={() => void bootstrap()}>
-          Launch demo org with $100 float
-        </button>
-        <p className="faint" style={{ fontSize: 11.5, marginTop: 20, lineHeight: 1.6 }}>
-          The demo wipes the local database and seeds a fresh org with two agents and keys loaded
-          into the Playground. Not a bank. Not FDIC insured.
-        </p>
-      </div>
-      {toast && (
-        <div className={`toast ${toast.kind === "err" ? "err" : ""}`} onClick={clear}>
-          {toast.msg}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ================================================================= overview */
-
-type Shared = {
-  busy: boolean;
-  act: (label: string, fn: () => Promise<string | void>) => Promise<void>;
-  gFetch: (p: string, i?: RequestInit) => Promise<Response>;
-  agentName: (id: string) => string;
-  org: OrgView | null;
-  setToast: (m: string, k?: "ok" | "err" | "info") => void;
-  setView: (v: View) => void;
-};
-
-function Overview({
-  org,
-  metrics,
-  decisions,
-  approvals,
-  escrows,
-  policy,
-  busy,
-  act,
-  gFetch,
-  agentName,
-  setView,
-  session,
-  updateSession,
-  alerts,
-  summary,
-  invStats,
-}: Shared & {
-  metrics: Metrics | null;
-  decisions: Decision[];
-  approvals: Approval[];
-  escrows: Escrow[];
-  policy: Policy | null;
-  session: Session;
-  updateSession: (patch: Partial<Session>) => void;
-  alerts: Alert[];
-  summary: Summary | null;
-  invStats: InvoiceStats | null;
-}) {
-  const [range, setRange] = useState<"24h" | "7d" | "all">("all");
-  const [newAgent, setNewAgent] = useState("");
-  const [revealed, setRevealed] = useState<AgentKey | null>(null);
-  const [allocTo, setAllocTo] = useState("");
-  const [allocFrom, setAllocFrom] = useState("");
-  const [allocAmt, setAllocAmt] = useState("25");
-  const [moveMode, setMoveMode] = useState<"allocate" | "reclaim" | "transfer">("allocate");
-
-  const orgAvail = org?.balances.find((b) => b.kind === "org_available")?.usdc;
-  const spendDecisions = decisions.filter((d) => d.outcome === "allow" && Number(d.amountUsdc) > 0);
-
-  const cutoff =
-    range === "24h" ? Date.now() - 864e5 : range === "7d" ? Date.now() - 6048e5 : 0;
-  const windowed = spendDecisions.filter((d) => new Date(d.at).getTime() >= cutoff);
-
-  // Spend grouped into 12 buckets across the observed window
-  const buckets = useMemo(() => {
-    if (!windowed.length) return [];
-    const times = windowed.map((d) => new Date(d.at).getTime());
-    const min = Math.min(...times);
-    const max = Math.max(...times, min + 1);
-    const span = max - min;
-    const n = 12;
-    const size = span / n || 1;
-    // Pick a label granularity that actually distinguishes the buckets: a run
-    // that happened inside a minute needs seconds, a week needs dates.
-    const fmt: Intl.DateTimeFormatOptions =
-      span < 6 * 60_000
-        ? { minute: "2-digit", second: "2-digit" }
-        : span < 36 * 3600_000
-          ? { hour: "2-digit", minute: "2-digit" }
-          : { month: "short", day: "numeric" };
-    const out = Array.from({ length: n }, (_, i) => ({
-      label: new Date(min + size * i).toLocaleString([], { ...fmt, hour12: false }),
-      value: 0,
-    }));
-    for (const d of windowed) {
-      const i = Math.min(n - 1, Math.floor((new Date(d.at).getTime() - min) / size));
-      out[i].value += Number(d.amountUsdc);
-    }
-    // Blank out repeated labels so the axis stays readable.
-    let prev = "";
-    for (const b of out) {
-      if (b.label === prev) b.label = "";
-      else prev = b.label;
-    }
-    return out;
-  }, [windowed]);
-
-  const peak = buckets.reduce((best, b, i) => (b.value > (buckets[best]?.value ?? 0) ? i : best), 0);
-  const totalSpend = windowed.reduce((a, d) => a + Number(d.amountUsdc), 0);
-
-  const byDest = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const d of windowed) {
-      const key = d.destination.replace(/^https?:\/\//, "").split("/")[0];
-      m.set(key, (m.get(key) ?? 0) + Number(d.amountUsdc));
-    }
-    const colors = ["var(--orange)", "var(--green)", "var(--yellow)", "var(--accent)", "var(--purple)", "#64748b"];
-    return [...m.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([label, value], i) => ({ label, value, color: colors[i % colors.length] }));
-  }, [windowed]);
-
-  const marks = useMemo(
-    () => [...new Set(decisions.map((d) => new Date(d.at).getDate()))],
-    [decisions],
-  );
-
-  const createAgent = () =>
-    act("Create agent", async () => {
-      const res = await gFetch("/v1/guardian/agents", {
-        method: "POST",
-        body: JSON.stringify({ name: newAgent.trim() }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(d.error));
-      const entry = { agentId: d.agentId, name: newAgent.trim(), key: d.apiKey };
-      setRevealed(entry);
-      updateSession({ agentKeys: [...session.agentKeys, entry] });
-      setNewAgent("");
-      return "Agent created — key saved to the Playground and shown once below.";
-    });
-
-  /**
-   * Money can move three ways, and the form adapts: treasury → agent,
-   * agent → treasury, and agent → agent (the "I funded the wrong one" fix).
-   */
-  const moveMoney = () =>
-    act("Move funds", async () => {
-      const amount = allocAmt.trim();
-      if (moveMode === "allocate") {
-        const res = await gFetch("/v1/guardian/allocate", {
-          method: "POST",
-          body: JSON.stringify({ agentId: allocTo, amountUsdc: amount }),
-        });
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-        return `Allocated ${fmtUsd(amount)} from treasury to ${agentName(allocTo)}.`;
-      }
-      if (moveMode === "reclaim") {
-        const res = await gFetch("/v1/guardian/reclaim", {
-          method: "POST",
-          body: JSON.stringify({ agentId: allocFrom, ...(amount ? { amountUsdc: amount } : {}) }),
-        });
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-        return `Pulled ${fmtUsd(d.amountUsdc)} back from ${agentName(allocFrom)} to the treasury.`;
-      }
-      const res = await gFetch("/v1/guardian/transfer", {
-        method: "POST",
-        body: JSON.stringify({
-          fromAgentId: allocFrom,
-          toAgentId: allocTo,
-          ...(amount ? { amountUsdc: amount } : {}),
-        }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-      return `Moved ${fmtUsd(d.amountUsdc)} from ${d.from} to ${d.to}.`;
-    });
-
-  const rotateKey = (agentId: string) =>
-    act("Rotate key", async () => {
-      const res = await gFetch(`/v1/guardian/agents/${agentId}/rotate-key`, { method: "POST" });
-      const d = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(d.error));
-      setRevealed({ agentId, name: `${agentName(agentId)} (rotated)`, key: d.apiKey });
-      updateSession({
-        agentKeys: session.agentKeys.map((k) =>
-          k.agentId === agentId ? { ...k, key: d.apiKey } : k,
-        ),
-      });
-      return "Key rotated — the old key is dead. Copy the new one below.";
-    });
-
-  const freeze = (id: string, on: boolean) =>
-    act("Freeze", async () => {
-      await gFetch(`/v1/guardian/${on ? "freeze" : "unfreeze"}`, {
-        method: "POST",
-        body: JSON.stringify({ agentId: id, ...(on ? { reason: "guardian kill switch" } : {}) }),
-      });
-      return `${agentName(id)} ${on ? "frozen — all spending stopped" : "unfrozen"}.`;
-    });
-
-  return (
-    <>
-      <div className="grid g-4">
-        <Stat
-          label="Org treasury"
-          value={fmtUsd(orgAvail)}
-          foot="unallocated USDC"
-          delta={{ dir: "flat", text: "vault" }}
-        />
-        <Stat
-          label="With agents"
-          value={fmtUsd(metrics?.balancesUsdc?.agentAvailable)}
-          foot={`${fmtUsd(metrics?.balancesUsdc?.escrow ?? "0")} locked in escrow`}
-        />
-        <Stat
-          label="Spent externally"
-          value={fmtUsd(metrics?.balancesUsdc?.external)}
-          foot={`${metrics?.journals ?? 0} ledger entries`}
-          delta={totalSpend > 0 ? { dir: "up", text: fmtUsd(totalSpend) } : undefined}
-        />
-        <Stat
-          label="Blocked attempts"
-          value={String(metrics?.decisions?.deny ?? 0)}
-          foot="policy denials — safety working"
-          delta={
-            (metrics?.decisions?.deny ?? 0) > 0 ? { dir: "down", text: "denied" } : { dir: "flat", text: "none" }
-          }
-        />
-      </div>
-
-      <div className="grid g-main fill">
-        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
-          <div className="card-head">
-            <div>
-              <h2>Agent spend</h2>
-              <div className="sub">
-                {fmtUsd(totalSpend)} across {windowed.length} settled payments
-              </div>
-            </div>
-            <div className="seg">
-              {(["24h", "7d", "all"] as const).map((r) => (
-                <button key={r} className={range === r ? "on" : ""} onClick={() => setRange(r)}>
-                  {r === "24h" ? "24 hours" : r === "7d" ? "7 days" : "All time"}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div style={{ flex: 1, minHeight: 220 }}>
-            {buckets.length ? (
-              <BarChart
-                data={buckets.map((b, i) => ({ ...b, caption: i === peak ? "peak" : undefined }))}
-                highlightIndex={peak}
-              />
-            ) : (
-              <Empty icon="play">
-                No spending yet. Open the <b>Agent Playground</b> and run a mission to see money
-                move under policy.
-              </Empty>
-            )}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
-          <div className="card">
-            <Calendar marks={marks} />
-          </div>
-          <div className="card" style={{ flex: 1 }}>
-            <div className="between" style={{ marginBottom: 12 }}>
-              <span className="muted" style={{ fontSize: 12.5 }}>
-                Daily cap headroom
-              </span>
-              <span className="pill info">
-                <i /> {fmtUsd(policy?.dailyMaxUsdc)}/agent
-              </span>
-            </div>
-            {(org?.agents ?? []).slice(0, 4).map((a) => (
-              <div key={a.id} style={{ marginBottom: 13 }}>
-                <div className="between" style={{ marginBottom: 5 }}>
-                  <span style={{ fontSize: 12.5 }}>{a.name}</span>
-                  <span className="mono faint" style={{ fontSize: 11.5 }}>
-                    {fmtUsd(a.spent24hUsdc)}
-                  </span>
-                </div>
-                <BarLine value={Number(a.spent24hUsdc)} max={Number(org?.dailyMaxUsdc ?? 1)} />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid g-thirds fill">
-        <AIPanel summary={summary} gFetch={gFetch} onGoto={(v) => setView(v as View)} />
-
-        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
-          <div className="card-head">
-            <div>
-              <h2>Where the money went</h2>
-              <div className="sub">Last {range === "24h" ? "24 hours" : range === "7d" ? "7 days" : "all time"}</div>
-            </div>
-          </div>
-          {byDest.length ? (
-            <>
-              <div className="donut-wrap">
-                <Donut
-                  slices={byDest}
-                  total={fmtUsd(totalSpend, totalSpend < 100 ? 2 : 0)}
-                  caption="settled"
-                />
-                <div className="legend">
-                  {byDest.map((s) => (
-                    <div className="legend-row" key={s.label}>
-                      <i style={{ background: s.color }} />
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{s.label}</span>
-                      <span className="amt">{fmtUsd(s.value)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="divider" />
-              <div className="between" style={{ fontSize: 12.5 }}>
-                <span className="muted">Revenue collected</span>
-                <b className="mono" style={{ color: "var(--green)" }}>
-                  {fmtUsd(invStats?.paidUsdc ?? "0")}
-                </b>
-              </div>
-              <div className="between" style={{ fontSize: 12.5, marginTop: 8 }}>
-                <span className="muted">Net position</span>
-                <b
-                  className="mono"
-                  style={{
-                    color: Number(invStats?.paidUsdc ?? 0) - totalSpend >= 0 ? "var(--green)" : "var(--warn)",
-                  }}
-                >
-                  {fmtUsd(Number(invStats?.paidUsdc ?? 0) - totalSpend)}
-                </b>
-              </div>
-            </>
-          ) : (
-            <Empty icon="wallet">
-              No settled payments yet. Run a mission to see where agent money goes.
-            </Empty>
-          )}
-        </div>
-
-        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
-          <div className="card-head">
-            <h2>{alerts.length ? "Needs you" : "Recent decisions"}</h2>
-            <button
-              className="round"
-              onClick={() => setView(alerts.length ? alerts[0].goto : "activity")}
-              aria-label="Open"
-            >
-              <Icon name="arrowRight" />
-            </button>
-          </div>
-          {alerts.length > 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 9, flex: 1 }}>
-              {alerts.slice(0, 4).map((al) => (
-                <button key={al.id} className="mission-card" onClick={() => setView(al.goto)}>
-                  <b>{al.title}</b>
-                  <p>{al.body}</p>
-                </button>
-              ))}
-            </div>
-          ) : decisions.length === 0 ? (
-            <Empty icon="shield">
-              Everything is inside policy — no approvals pending, no drift, no failed deliveries.
-            </Empty>
-          ) : (
-            <div style={{ flex: 1 }}>
-              {decisions.slice(0, 6).map((d) => (
-                <div className="lrow" key={d.intentId + d.at}>
-                  <div className="when">
-                    <b>{fmtTime(d.at)}</b>
-                    <span>{agentName(d.agentId)}</span>
-                  </div>
-                  <div className="who">
-                    <span className="mono">{d.destination.replace(/^https?:\/\//, "").slice(0, 24)}</span>
-                    <div className="faint" style={{ fontSize: 11 }}>
-                      {d.ruleIds[0]}
-                    </div>
-                  </div>
-                  <span
-                    className={`pill ${d.outcome === "allow" ? "ok" : d.outcome === "deny" ? "bad" : "warn"}`}
-                  >
-                    {d.outcome}
-                  </span>
-                  <span className="amt">{fmtUsd(d.amountUsdc)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-head">
-          <div>
-            <h2>Agents</h2>
-            <div className="sub">Each agent holds its own stipend and spends only through the vault</div>
-          </div>
-          <div className="row">
-            <input
-              style={{ width: 180 }}
-              placeholder="New agent name"
-              value={newAgent}
-              onChange={(e) => setNewAgent(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && newAgent.trim() && void createAgent()}
-            />
-            <button className="sm" disabled={busy || !newAgent.trim()} onClick={() => void createAgent()}>
-              <Icon name="plus" size={13} /> Create agent
-            </button>
-          </div>
-        </div>
-        {revealed && (
-          <div className="code" style={{ marginBottom: 14 }}>
-            <b style={{ color: "var(--text)" }}>{revealed.name}</b> API key — shown once, already
-            loaded into the Playground:
-            <div style={{ marginTop: 6, color: "var(--accent)" }}>{revealed.key}</div>
-            <button className="ghost sm" style={{ marginTop: 9 }} onClick={() => setRevealed(null)}>
-              I saved it
-            </button>
-          </div>
-        )}
-        <div className="tbl-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Agent</th>
-                <th>Status</th>
-                <th className="num">Available</th>
-                <th className="num">Held</th>
-                <th>Spent today</th>
-                <th>Key</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {(org?.agents ?? []).map((a) => {
-                const av = org?.balances.find((b) => b.kind === "agent_available" && b.agentId === a.id)?.usdc;
-                const held = org?.balances.find((b) => b.kind === "agent_held" && b.agentId === a.id)?.usdc;
-                const frozen = a.status === "frozen";
-                const hasKey = session.agentKeys.some((k) => k.agentId === a.id);
-                return (
-                  <tr key={a.id}>
-                    <td>
-                      <b style={{ fontWeight: 600 }}>{a.name}</b>{" "}
-                      <span className="faint mono" style={{ fontSize: 11 }}>
-                        {a.id}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`pill ${frozen ? "bad" : "ok"}`}>
-                        <i /> {a.status}
-                      </span>
-                    </td>
-                    <td className="num mono">{fmtUsd(av ?? "0")}</td>
-                    <td className="num mono">{fmtUsd(held ?? "0")}</td>
-                    <td style={{ minWidth: 130 }}>
-                      <BarLine value={Number(a.spent24hUsdc)} max={Number(org?.dailyMaxUsdc ?? 1)} />
-                    </td>
-                    <td>
-                      <span className={`pill ${hasKey ? "info" : "mute"}`}>
-                        {hasKey ? "in playground" : "not stored"}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
-                        <button
-                          className={`sm ${frozen ? "ghost" : "danger"}`}
-                          disabled={busy}
-                          onClick={() => void freeze(a.id, !frozen)}
-                        >
-                          {frozen ? "Unfreeze" : "Freeze"}
-                        </button>
-                        <button
-                          className="bare sm"
-                          disabled={busy}
-                          title="Issue a new API key — the old one stops working immediately"
-                          onClick={() => void rotateKey(a.id)}
-                        >
-                          Rotate key
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <div className="divider" />
-        <div className="between" style={{ marginBottom: 11, flexWrap: "wrap" }}>
-          <b style={{ fontSize: 13, fontWeight: 620 }}>Move funds</b>
-          <div className="seg">
-            {(
-              [
-                ["allocate", "Treasury → agent"],
-                ["reclaim", "Agent → treasury"],
-                ["transfer", "Agent → agent"],
-              ] as const
-            ).map(([k, label]) => (
-              <button key={k} className={moveMode === k ? "on" : ""} onClick={() => setMoveMode(k)}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="row">
-          {moveMode !== "allocate" && (
-            <select style={{ width: 180 }} value={allocFrom} onChange={(e) => setAllocFrom(e.target.value)}>
-              <option value="">From agent…</option>
-              {(org?.agents ?? []).map((a) => {
-                const bal = org?.balances.find(
-                  (b) => b.kind === "agent_available" && b.agentId === a.id,
-                )?.usdc;
-                return (
-                  <option key={a.id} value={a.id}>
-                    {a.name} ({fmtUsd(bal ?? "0")})
-                  </option>
-                );
-              })}
-            </select>
-          )}
-          {moveMode !== "reclaim" && (
-            <select style={{ width: 180 }} value={allocTo} onChange={(e) => setAllocTo(e.target.value)}>
-              <option value="">To agent…</option>
-              {(org?.agents ?? [])
-                .filter((a) => moveMode !== "transfer" || a.id !== allocFrom)
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-            </select>
-          )}
-          <input
-            style={{ width: 110 }}
-            value={allocAmt}
-            onChange={(e) => setAllocAmt(e.target.value)}
-            placeholder={moveMode === "allocate" ? "25" : "blank = all"}
-            aria-label="Amount USDC"
-          />
-          <button
-            className="sm"
-            disabled={
-              busy ||
-              (moveMode === "allocate" && (!allocTo || !allocAmt.trim())) ||
-              (moveMode === "reclaim" && !allocFrom) ||
-              (moveMode === "transfer" && (!allocFrom || !allocTo))
-            }
-            onClick={() => void moveMoney()}
-          >
-            {moveMode === "allocate"
-              ? "Allocate"
-              : moveMode === "reclaim"
-                ? "Pull back to treasury"
-                : "Transfer between agents"}
-          </button>
-          <span className="faint" style={{ fontSize: 11.5 }}>
-            Treasury {fmtUsd(orgAvail)}
-            {moveMode !== "allocate" ? " · leave amount blank to move everything available" : ""}
-          </span>
-        </div>
-      </div>
-    </>
-  );
-}
-
-/* =============================================================== playground */
-
-function Playground({
-  session,
-  updateSession,
-  policy,
-  busy,
-  act,
-  gFetch,
-  setView,
-  setToast,
-  pending,
-  mission: ms,
-  setMission,
-  cancelRef,
-}: Shared & {
-  session: Session;
-  updateSession: (patch: Partial<Session>) => void;
-  policy: Policy | null;
-  pending: Approval[];
-  mission: MissionState;
-  setMission: React.Dispatch<React.SetStateAction<MissionState>>;
-  /** Owned by the shell so Stop still works after navigating away and back. */
-  cancelRef: React.MutableRefObject<boolean>;
-}) {
-  const [pasteKey, setPasteKey] = useState("");
-  const [shownRaw, setShownRaw] = useState<Record<string, boolean>>({});
-
-  const { missionId, steps, log, running, actorId } = ms;
-  const patch = (p: Partial<MissionState>) => setMission((m) => ({ ...m, ...p }));
-
-  const mission = MISSIONS.find((m) => m.id === missionId)!;
-  const actor = session.agentKeys.find((k) => k.agentId === actorId) ?? session.agentKeys[0];
-  const peer = session.agentKeys.find((k) => k.agentId !== actor?.agentId);
-
-  useEffect(() => {
-    if (!actorId && session.agentKeys[0]) patch({ actorId: session.agentKeys[0].agentId });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.agentKeys, actorId]);
-
-  const blockedStep = steps.find((s) => s.status === "blocked");
-
-  async function start() {
-    if (!actor) return;
-    cancelRef.current = false;
-    setShownRaw({});
-    patch({ running: true, steps: [], log: [] });
-    const runId = `run_${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
-    try {
-      await runMission(mission, {
-        api: API,
-        agentKey: actor.key,
-        guardianKey: session.guardianKey,
-        agentId: actor.agentId,
-        agentName: actor.name,
-        runId,
-        payeeAgentId: peer?.agentId,
-        sellerUrl: SELLER,
-        emit: (steps) => setMission((m) => ({ ...m, steps })),
-        log: (line) =>
-          setMission((m) => ({
-            ...m,
-            log: [...m.log, `${new Date().toLocaleTimeString([], { hour12: false })}  ${line}`],
-          })),
-        onBlocked: () => {
-          /* the shell's approval watcher raises the alert + banner */
-        },
-        onUnblocked: (_s, outcome) =>
-          setToast(
-            outcome === "approved"
-              ? "Approved — the agent picked straight back up."
-              : `Agent was told: ${outcome}. It is replanning without that spend.`,
-            outcome === "approved" ? "ok" : "info",
-          ),
-        cancelled: () => cancelRef.current,
-      });
-    } finally {
-      setMission((m) => ({ ...m, running: false }));
-    }
-  }
-
-  const addKey = () =>
-    act("Add key", async () => {
-      const res = await fetch(`${API}/v1/agent/budget`, {
-        headers: { Authorization: `Bearer ${pasteKey.trim()}` },
-      });
-      if (!res.ok) throw new Error("That agent key was rejected by the API");
-      updateSession({
-        agentKeys: [
-          ...session.agentKeys,
-          { agentId: `manual_${session.agentKeys.length}`, name: "Pasted agent", key: pasteKey.trim() },
-        ],
-      });
-      setPasteKey("");
-      return "Agent key added to the Playground.";
-    });
-
-  const resolveInline = (approvalId: string, approve: boolean) =>
-    act("Approval", async () => {
-      const res = await gFetch(`/v1/guardian/approvals/${approvalId}/resolve`, {
-        method: "POST",
-        body: JSON.stringify({ approve, resolvedBy: "playground" }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(d.error ?? d));
-      return approve ? "Approved — watch the agent continue." : "Denied — the agent will replan.";
-    });
-
-  const done = steps.filter((s) => s.status === "done").length;
-
-  return (
-    <>
-      <div className="banner info">
-        <span className="ico">
-          <Icon name="robot" size={16} />
-        </span>
-        <span className="txt">
-          <b>Test it yourself — no coding required</b>
-          <span>
-            Pick a mission, hit Run, and watch a real agent spend real balances through the real
-            policy engine. Every call below is the same API your production agents would use.
-          </span>
-        </span>
-      </div>
-
-      <div className="grid g-main fill">
-        <div className="card" style={{ display: "flex", flexDirection: "column" }}>
-          <div className="card-head">
-            <div>
-              <h2>{running ? "Mission running" : "Mission timeline"}</h2>
-              <div className="sub">
-                {steps.length
-                  ? `${done}/${steps.length} steps complete${blockedStep ? " · parked for your decision" : ""}`
-                  : "Select a mission and press Run to begin"}
-              </div>
-            </div>
-            <div className="row">
-              {running ? (
-                <button
-                  className="danger sm"
-                  onClick={() => {
-                    cancelRef.current = true;
-                    setToast("Mission cancelled.", "info");
-                  }}
-                >
-                  Stop
-                </button>
-              ) : (
-                <button className="sm" disabled={!actor || busy} onClick={() => void start()}>
-                  <Icon name="play" size={13} /> Run mission
-                </button>
-              )}
-            </div>
-          </div>
-
-          {blockedStep?.approvalId && (
-            <div className="banner" style={{ marginBottom: 14 }}>
-              <span className="ico">
-                <Icon name="clock" size={16} />
-              </span>
-              <span className="txt">
-                <b>The agent is blocked, waiting on you</b>
-                <span>
-                  It cannot continue until you decide. Approve or deny right here — or open the
-                  Approvals screen.
-                </span>
-              </span>
-              <button className="light sm" disabled={busy} onClick={() => void resolveInline(blockedStep.approvalId!, true)}>
-                Approve
-              </button>
-              <button className="danger sm" disabled={busy} onClick={() => void resolveInline(blockedStep.approvalId!, false)}>
-                Deny
-              </button>
-            </div>
-          )}
-
-          <div style={{ flex: 1, overflowY: "auto", minHeight: 260 }}>
-            {steps.length === 0 ? (
-              <Empty icon="play">
-                Nothing running. Pick a mission on the right — <b>{mission.title}</b> is selected.
-              </Empty>
-            ) : (
-              <div className="steps">
-                {steps.map((s, i) => (
-                  <div
-                    key={s.id + i}
-                    className={`step ${
-                      s.status === "done"
-                        ? "done"
-                        : s.status === "running"
-                          ? "run"
-                          : s.status === "blocked"
-                            ? "block"
-                            : s.status === "failed"
-                              ? "fail"
-                              : ""
-                    }`}
-                  >
-                    <div className="bullet">
-                      {s.status === "running" ? (
-                        <span className="spinner" />
-                      ) : s.status === "done" ? (
-                        <Icon name="check" size={13} />
-                      ) : s.status === "blocked" ? (
-                        <Icon name="clock" size={13} />
-                      ) : s.status === "failed" ? (
-                        <Icon name="x" size={13} />
-                      ) : (
-                        i + 1
-                      )}
-                    </div>
-                    <div className="sbody">
-                      <b>{s.title}</b>
-                      {s.status === "running" ? (
-                        <div className="thinking">
-                          <span className="bar" /> {s.detail}
-                        </div>
-                      ) : s.summary ? (
-                        <p className="sum">{s.summary}</p>
-                      ) : (
-                        <p>{s.detail}</p>
-                      )}
-                      {s.output && (
-                        <>
-                          <button
-                            className="step-toggle"
-                            onClick={() =>
-                              setShownRaw((r) => ({ ...r, [s.id + i]: !r[s.id + i] }))
-                            }
-                          >
-                            {shownRaw[s.id + i] ? "▾ hide raw response" : "▸ raw response"}
-                          </button>
-                          {shownRaw[s.id + i] && <div className="out">{s.output}</div>}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          {steps.length > 0 && !running && (
-            <>
-              <div className="divider" />
-              <div className="between">
-                <span className="faint" style={{ fontSize: 11.5 }}>
-                  Run archived — the deliverable and full step history are in Work &amp; deliverables.
-                </span>
-                <button className="ghost sm" onClick={() => setView("work")}>
-                  Open deliverable <Icon name="arrowRight" size={12} />
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
-          <div className="card">
-            <div className="card-head">
-              <h2>Choose a mission</h2>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-              {MISSIONS.map((m) => (
-                <button
-                  key={m.id}
-                  className={`mission-card ${m.id === missionId ? "sel" : ""}`}
-                  onClick={() => patch({ missionId: m.id })}
-                  disabled={running}
-                >
-                  <b>{m.title}</b>
-                  <p>{m.brief}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <h2>Run as</h2>
-            </div>
-            {session.agentKeys.length === 0 ? (
-              <>
-                <p className="muted" style={{ fontSize: 12.5, marginTop: 0, lineHeight: 1.6 }}>
-                  No agent keys stored yet. Create an agent on the Overview screen — its key is
-                  saved here automatically — or paste one below.
-                </p>
-                <div className="row">
-                  <input
-                    placeholder="pv_agent_…"
-                    value={pasteKey}
-                    onChange={(e) => setPasteKey(e.target.value)}
-                  />
-                  <button className="ghost sm" disabled={!pasteKey.trim() || busy} onClick={() => void addKey()}>
-                    Add
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <select
-                  value={actorId}
-                  onChange={(e) => patch({ actorId: e.target.value })}
-                  disabled={running}
-                >
-                  {session.agentKeys.map((k) => (
-                    <option key={k.agentId} value={k.agentId}>
-                      {k.name} · {k.key.slice(0, 16)}…
-                    </option>
-                  ))}
-                </select>
-                <div className="divider" />
-                <div className="between" style={{ fontSize: 12.5 }}>
-                  <span className="muted">Approval threshold</span>
-                  <b className="mono">{fmtUsd(policy?.hitlAboveUsdc)}</b>
-                </div>
-                <div className="between" style={{ fontSize: 12.5, marginTop: 8 }}>
-                  <span className="muted">Per-payment ceiling</span>
-                  <b className="mono">{fmtUsd(policy?.perTxMaxUsdc)}</b>
-                </div>
-                <div className="between" style={{ fontSize: 12.5, marginTop: 8 }}>
-                  <span className="muted">Peer for escrow</span>
-                  <b>{peer ? peer.name : "none"}</b>
-                </div>
-                <div className="divider" />
-                <p className="faint" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.6 }}>
-                  Tip: run <b>Large purchase</b> to watch the agent park and wait for you, then
-                  approve it and see it resume by itself.
-                </p>
-              </>
-            )}
-          </div>
-
-          <div className="card" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-            <div className="card-head">
-              <h2>Agent log</h2>
-              {pending.length > 0 && (
-                <button className="ghost sm" onClick={() => setView("approvals")}>
-                  {pending.length} pending <Icon name="arrowRight" size={12} />
-                </button>
-              )}
-            </div>
-            <div
-              className="code"
-              style={{ flex: 1, overflowY: "auto", minHeight: 110, whiteSpace: "pre-wrap" }}
-            >
-              {log.length ? log.join("\n") : "Waiting for the agent to say something…"}
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-/* ================================================================ approvals */
-
-function Approvals({
-  approvals,
-  pending,
-  busy,
-  act,
-  gFetch,
-  agentName,
-}: Shared & { approvals: Approval[]; pending: Approval[] }) {
-  const resolve = (id: string, approve: boolean) =>
-    act("Approval", async () => {
-      const res = await gFetch(`/v1/guardian/approvals/${id}/resolve`, {
-        method: "POST",
-        body: JSON.stringify({ approve, resolvedBy: "guardian-web" }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(d.error ?? d));
-      return approve
-        ? "Approved — the payment executed and the agent was told to continue."
-        : "Denied — the agent has been told to replan.";
-    });
-
-  const history = approvals.filter((a) => a.status !== "pending");
-  const approved = history.filter((h) => h.status === "approved").length;
-
-  return (
-    <>
-      <div className="grid g-4">
-        <Stat label="Waiting on you" value={String(pending.length)} foot="agents parked right now" />
-        <Stat label="Approved" value={String(approved)} foot="you let these through" />
-        <Stat
-          label="Denied or expired"
-          value={String(history.length - approved)}
-          foot="agents replanned without the spend"
-        />
-        <Stat
-          label="Total value held"
-          value={fmtUsd(pending.reduce((a, p) => a + Number(p.amountUsdc), 0))}
-          foot="frozen until you decide"
-        />
-      </div>
-
-      <div className="card fill" style={{ display: "flex", flexDirection: "column" }}>
-        <div className="card-head">
-          <div>
-            <h2>Pending decisions</h2>
-            <div className="sub">
-              Agents are blocked here. Approving runs the payment immediately; denying makes them replan.
-            </div>
-          </div>
-        </div>
-        {pending.length === 0 ? (
-          <Empty icon="shield">
-            Inbox zero — nothing is waiting on you. Anything above your approval threshold will
-            appear here and alert you automatically.
-          </Empty>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {pending.map((a) => (
-              <div
-                key={a.id}
-                className="card tight"
-                style={{ background: "var(--surface-3)", borderColor: "rgba(251,146,60,0.28)" }}
-              >
-                <div className="between" style={{ flexWrap: "wrap", gap: 12 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div className="row" style={{ gap: 8, marginBottom: 5 }}>
-                      <b style={{ fontSize: 15.5 }}>{fmtUsd(a.amountUsdc)}</b>
-                      <span className="pill warn">
-                        <i /> {a.tool}
-                      </span>
-                      <span className="pill mute">expires {relTime(a.expiresAt)}</span>
-                    </div>
-                    <div style={{ fontSize: 12.5 }} className="muted">
-                      <b style={{ color: "var(--text-2)" }}>{agentName(a.agentId)}</b> wants to pay{" "}
-                      <span className="mono">{a.destination}</span>
-                      {a.memo ? ` — “${a.memo}”` : ""}
-                    </div>
-                    <div className="faint" style={{ fontSize: 11.5, marginTop: 4 }}>
-                      Held because: {a.reasons.join("; ")}
-                    </div>
-                  </div>
-                  <div className="row" style={{ flexWrap: "nowrap" }}>
-                    <button disabled={busy} onClick={() => void resolve(a.id, true)}>
-                      Approve payment
-                    </button>
-                    <button className="danger" disabled={busy} onClick={() => void resolve(a.id, false)}>
-                      Deny
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="divider" />
-        <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>History</h2>
-        {history.length === 0 ? (
-          <div className="muted" style={{ fontSize: 12.5 }}>
-            No resolved approvals yet.
-          </div>
-        ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Agent</th>
-                  <th className="num">Amount</th>
-                  <th>Destination</th>
-                  <th>Outcome</th>
-                  <th>Decided by</th>
-                  <th>When</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((a) => (
-                  <tr key={a.id}>
-                    <td>{agentName(a.agentId)}</td>
-                    <td className="num mono">{fmtUsd(a.amountUsdc)}</td>
-                    <td className="mono">{a.destination}</td>
-                    <td>
-                      <span
-                        className={`pill ${
-                          a.status === "approved" ? "ok" : a.status === "expired" ? "warn" : "bad"
-                        }`}
-                      >
-                        {a.status}
-                      </span>
-                    </td>
-                    <td className="muted">{a.resolvedBy ?? "—"}</td>
-                    <td className="mono faint">{relTime(a.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-/* ================================================================== escrows */
-
-function Escrows({ escrows, busy, act, gFetch, agentName }: Shared & { escrows: Escrow[] }) {
-  const resolve = (id: string, action: "release" | "refund") =>
-    act("Escrow", async () => {
-      const res = await gFetch(`/v1/guardian/escrows/${id}/resolve`, {
-        method: "POST",
-        body: JSON.stringify({ action, resolvedBy: "guardian-web" }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(d.error ?? d));
-      return `Escrow ${action === "release" ? "released to the payee" : "refunded to the payer"}.`;
-    });
-
-  const locked = escrows.filter((e) => e.state === "locked");
-  const lockedValue = locked.reduce((a, e) => a + Number(e.amountUsdc), 0);
-
-  return (
-    <>
-      <div className="grid g-4">
-        <Stat label="Locked now" value={String(locked.length)} foot={`${fmtUsd(lockedValue)} held`} />
-        <Stat
-          label="Released"
-          value={String(escrows.filter((e) => e.state === "released").length)}
-          foot="work accepted, peer paid"
-        />
-        <Stat
-          label="Refunded"
-          value={String(escrows.filter((e) => e.state.includes("refund")).length)}
-          foot="returned to the payer"
-        />
-        <Stat label="Total" value={String(escrows.length)} foot="all agent-to-agent jobs" />
-      </div>
-
-      <div className="card fill" style={{ display: "flex", flexDirection: "column" }}>
-        <div className="card-head">
-          <div>
-            <h2>Agent-to-agent escrow</h2>
-            <div className="sub">
-              Funds lock when one agent hires another and only move on acceptance — or refund
-              automatically at timeout.
-            </div>
-          </div>
-        </div>
-        {escrows.length === 0 ? (
-          <Empty icon="swap">
-            No escrows yet. Run the <b>Research brief</b> mission in the Playground — the agent
-            hires a peer and locks funds.
-          </Empty>
-        ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Payer</th>
-                  <th>Payee</th>
-                  <th className="num">Amount</th>
-                  <th>State</th>
-                  <th>Job</th>
-                  <th>Auto-refund</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {escrows.map((e) => (
-                  <tr key={e.id}>
-                    <td>{agentName(e.payerAgentId)}</td>
-                    <td>{agentName(e.payeeAgentId)}</td>
-                    <td className="num mono">{fmtUsd(e.amountUsdc)}</td>
-                    <td>
-                      <span
-                        className={`pill ${
-                          e.state === "locked" ? "warn" : e.state === "released" ? "ok" : "mute"
-                        }`}
-                      >
-                        <i /> {e.state}
-                      </span>
-                    </td>
-                    <td className="muted wrap">{e.memo ?? e.jobId ?? "—"}</td>
-                    <td className="mono faint">
-                      {e.state === "locked" ? relTime(e.timeoutAt) : "—"}
-                    </td>
-                    <td>
-                      {e.state === "locked" ? (
-                        <div className="row" style={{ flexWrap: "nowrap" }}>
-                          <button className="sm" disabled={busy} onClick={() => void resolve(e.id, "release")}>
-                            Release
-                          </button>
-                          <button
-                            className="danger sm"
-                            disabled={busy}
-                            onClick={() => void resolve(e.id, "refund")}
-                          >
-                            Refund
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="faint">settled</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-/* =================================================================== ledger */
-
-function Ledger({
-  journals,
-  metrics,
-  recon,
-}: {
-  journals: Journal[];
-  metrics: Metrics | null;
-  recon: Recon | null;
-}) {
-  const short = (id: string) =>
-    id.replace(/^org:[^:]+:/, "treasury ").replace(/^agent:/, "").replace(/^escrow:/, "escrow ");
-  const delta = (m: string) => {
-    const n = Number(m) / 1e6;
-    return `${n >= 0 ? "+" : ""}${n.toFixed(2)}`;
-  };
-
-  return (
-    <>
-      <div className="grid g-4">
-        <Stat label="Journal entries" value={String(metrics?.journals ?? 0)} foot="every balanced movement" />
-        <Stat label="In escrow" value={fmtUsd(metrics?.balancesUsdc?.escrow ?? "0")} foot="locked between agents" />
-        <Stat label="In flight" value={fmtUsd(metrics?.balancesUsdc?.agentHeld ?? "0")} foot="held mid-payment" />
-        <Stat
-          label="Reconciliation"
-          value={recon?.ok ? "Clean" : "DRIFT"}
-          foot={`${recon?.journalsReplayed ?? 0} entries replayed · ${recon?.accountsChecked ?? 0} accounts`}
-          delta={recon?.ok ? { dir: "up", text: "0 drift" } : { dir: "down", text: `${recon?.drift.length} bad` }}
-        />
-      </div>
-
-      <div className="card fill" style={{ display: "flex", flexDirection: "column" }}>
-        <div className="card-head">
-          <div>
-            <h2>Double-entry journal</h2>
-            <div className="sub">
-              The source of truth. Every entry sums to zero; a watchdog replays all of them each
-              minute and screams if a cent is off.
-            </div>
-          </div>
-        </div>
-        {journals.length === 0 ? (
-          <Empty icon="book">No entries yet.</Empty>
-        ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Entry</th>
-                  <th>Movements</th>
-                </tr>
-              </thead>
-              <tbody>
-                {journals.map((j) => (
-                  <tr key={j.id}>
-                    <td className="mono faint">{fmtTime(j.createdAt)}</td>
-                    <td>
-                      <span className="pill mute">{j.memo}</span>
-                    </td>
-                    <td className="wrap">
-                      {j.lines.map((l, i) => (
-                        <span key={i} className="mono" style={{ marginRight: 16, whiteSpace: "nowrap" }}>
-                          <span className="muted">{short(l.accountId)}</span>{" "}
-                          <b style={{ color: Number(l.deltaMicro) >= 0 ? "var(--green)" : "var(--red)" }}>
-                            {delta(l.deltaMicro)}
-                          </b>
-                        </span>
-                      ))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-/* =================================================================== policy */
-
-/* ================================================================= webhooks */
-
-function Webhooks({
-  webhooks,
-  deliveries,
-  busy,
-  act,
-  gFetch,
-}: Shared & { webhooks: Webhook[]; deliveries: Delivery[] }) {
-  const [url, setUrl] = useState("");
-  const [secret, setSecret] = useState<string | null>(null);
-
-  const add = () =>
-    act("Webhook", async () => {
-      const res = await gFetch("/v1/guardian/webhooks", {
-        method: "POST",
-        body: JSON.stringify({ url: url.trim() }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
-      setSecret(d.secret);
-      setUrl("");
-      return "Endpoint registered — signing secret shown once below.";
-    });
-
-  const del = (id: string) =>
-    act("Delete", async () => {
-      await gFetch(`/v1/guardian/webhooks/${id}`, { method: "DELETE" });
-      return "Endpoint removed.";
-    });
-
-  const test = (id: string) =>
-    act("Test", async () => {
-      const res = await gFetch(`/v1/guardian/webhooks/${id}/test`, { method: "POST" });
-      if (!res.ok) throw new Error(JSON.stringify(await res.json()));
-      return "Test event dispatched — watch the delivery table below.";
-    });
-
-  const ok = deliveries.filter((d) => d.status === "delivered").length;
-  const rate = deliveries.length ? Math.round((ok / deliveries.length) * 100) : 100;
-
-  return (
-    <>
-      <div className="grid g-4">
-        <Stat label="Endpoints" value={String(webhooks.length)} foot="receiving money events" />
-        <Stat label="Deliveries" value={String(deliveries.length)} foot="signed and retried 3×" />
-        <Stat label="Success rate" value={`${rate}%`} foot={`${ok} delivered`} delta={{ dir: rate === 100 ? "up" : "down", text: `${rate}%` }} />
-        <Stat
-          label="Failed"
-          value={String(deliveries.filter((d) => d.status === "failed").length)}
-          foot="gave up after 3 attempts"
-        />
-      </div>
-
-      <div className="card">
-        <div className="card-head">
-          <div>
-            <h2>Endpoints</h2>
-            <div className="sub">
-              Every payment, denial, approval and escrow event POSTs here — HMAC-SHA256 signed.
-            </div>
-          </div>
-          <div className="row">
-            <input
-              style={{ width: 300 }}
-              placeholder="https://your-server/policyvault-hook"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && url.trim() && void add()}
-            />
-            <button className="sm" disabled={busy || !url.trim()} onClick={() => void add()}>
-              <Icon name="plus" size={13} /> Add
-            </button>
-          </div>
-        </div>
-        {secret && (
-          <div className="code" style={{ marginBottom: 14 }}>
-            Signing secret (shown once) — verify <b style={{ color: "var(--text)" }}>x-policyvault-signature</b> with it:
-            <div style={{ marginTop: 6, color: "var(--accent)" }}>{secret}</div>
-            <button className="ghost sm" style={{ marginTop: 9 }} onClick={() => setSecret(null)}>
-              I saved it
-            </button>
-          </div>
-        )}
-        {webhooks.length === 0 ? (
-          <Empty icon="zap">
-            No endpoints yet. Add one to stream every money event into your own systems.
-          </Empty>
-        ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>URL</th>
-                  <th>Added</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {webhooks.map((w) => (
-                  <tr key={w.id}>
-                    <td className="mono">{w.url}</td>
-                    <td className="faint mono">{relTime(w.createdAt)}</td>
-                    <td>
-                      <div className="row" style={{ flexWrap: "nowrap" }}>
-                        <button className="ghost sm" disabled={busy} onClick={() => void test(w.id)}>
-                          Send test
-                        </button>
-                        <button className="danger sm" disabled={busy} onClick={() => void del(w.id)}>
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="card fill" style={{ display: "flex", flexDirection: "column" }}>
-        <div className="card-head">
-          <h2>Delivery log</h2>
-        </div>
-        {deliveries.length === 0 ? (
-          <Empty icon="inbox">No deliveries yet.</Empty>
-        ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Event</th>
-                  <th>Status</th>
-                  <th className="num">Attempts</th>
-                  <th>Error</th>
-                  <th>When</th>
-                </tr>
-              </thead>
-              <tbody>
-                {deliveries.map((d) => (
-                  <tr key={d.id}>
-                    <td className="mono">{d.event}</td>
-                    <td>
-                      <span
-                        className={`pill ${
-                          d.status === "delivered" ? "ok" : d.status === "pending" ? "warn" : "bad"
-                        }`}
-                      >
-                        <i /> {d.status}
-                      </span>
-                    </td>
-                    <td className="num mono">{d.attempts}</td>
-                    <td className="muted wrap">{d.lastError ?? "—"}</td>
-                    <td className="faint mono">{relTime(d.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-/* ================================================================= activity */
-
-function Activity({
-  decisions,
-  agentName,
-  setToast,
-  query,
-}: {
-  decisions: Decision[];
-  agentName: (id: string) => string;
-  setToast: (m: string, k?: "ok" | "err" | "info") => void;
-  query: string;
-}) {
-  const [filter, setFilter] = useState<"all" | "allow" | "deny" | "review">("all");
-  const [agentF, setAgentF] = useState("all");
-  const [toolF, setToolF] = useState("all");
-  const [destF, setDestF] = useState("all");
-
-  // Facet options come from the data itself, so they always match what exists.
-  const agentOpts = useMemo(
-    () => [...new Set(decisions.map((d) => d.agentId))].map((id) => ({ id, name: agentName(id) })),
-    [decisions, agentName],
-  );
-  const toolOpts = useMemo(() => [...new Set(decisions.map((d) => d.tool))], [decisions]);
-  const destOpts = useMemo(
-    () => [...new Set(decisions.map((d) => d.destination.replace(/^https?:\/\//, "").split("/")[0]))],
-    [decisions],
-  );
-
-  const rows = useMemo(
-    () =>
-      decisions.filter((d) => {
-        const dest = d.destination.replace(/^https?:\/\//, "").split("/")[0];
-        return (
-          (filter === "all" || d.outcome === filter) &&
-          (agentF === "all" || d.agentId === agentF) &&
-          (toolF === "all" || d.tool === toolF) &&
-          (destF === "all" || dest === destF) &&
-          (!query ||
-            d.destination.toLowerCase().includes(query.toLowerCase()) ||
-            agentName(d.agentId).toLowerCase().includes(query.toLowerCase()) ||
-            d.ruleIds.join(" ").toLowerCase().includes(query.toLowerCase()))
-        );
-      }),
-    [decisions, filter, agentF, toolF, destF, query, agentName],
-  );
-
-  const shownTotal = rows
-    .filter((d) => d.outcome === "allow")
-    .reduce((a, d) => a + Number(d.amountUsdc), 0);
-  const filtersActive = filter !== "all" || agentF !== "all" || toolF !== "all" || destF !== "all";
-
-  const counts = {
-    allow: decisions.filter((d) => d.outcome === "allow").length,
-    deny: decisions.filter((d) => d.outcome === "deny").length,
-    review: decisions.filter((d) => d.outcome === "review").length,
-  };
-
-  function exportCsv() {
-    const head = "time,agent,outcome,tool,amount_usdc,destination,rules,reasons";
-    const body = rows.map((d) =>
-      [
-        d.at,
-        agentName(d.agentId),
-        d.outcome,
-        d.tool,
-        d.amountUsdc,
-        d.destination,
-        d.ruleIds.join("|"),
-        `"${d.reasons.join("; ").replace(/"/g, '""')}"`,
-      ].join(","),
-    );
-    const blob = new Blob([[head, ...body].join("\n")], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `policyvault-activity-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    setToast(`Exported ${rows.length} decisions.`, "ok");
-  }
-
-  return (
-    <>
-      <div className="grid g-4">
-        <Stat label="Total decisions" value={String(decisions.length)} foot="every intent, ever" />
-        <Stat label="Allowed" value={String(counts.allow)} foot="settled under policy" />
-        <Stat label="Denied" value={String(counts.deny)} foot="refused by a rule" />
-        <Stat label="Sent for review" value={String(counts.review)} foot="escalated to you" />
-      </div>
-
-      <div className="card fill" style={{ display: "flex", flexDirection: "column" }}>
-        <div className="card-head">
-          <div>
-            <h2>Decision trail</h2>
-            <div className="sub">
-              {rows.length} of {decisions.length} shown · {fmtUsd(shownTotal)} settled in this view
-              {query ? ` · matching “${query}”` : ""}
-            </div>
-          </div>
-          <div className="row">
-            <div className="seg">
-              {(["all", "allow", "review", "deny"] as const).map((k) => (
-                <button key={k} className={filter === k ? "on" : ""} onClick={() => setFilter(k)}>
-                  {k}
-                </button>
-              ))}
-            </div>
-            <button className="ghost sm" onClick={exportCsv} disabled={!rows.length}>
-              <Icon name="download" size={13} /> CSV
-            </button>
-          </div>
-        </div>
-
-        <div className="row" style={{ marginBottom: 14, gap: 8 }}>
-          <select style={{ width: 170 }} value={agentF} onChange={(e) => setAgentF(e.target.value)}>
-            <option value="all">All agents</option>
-            {agentOpts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-          <select style={{ width: 170 }} value={toolF} onChange={(e) => setToolF(e.target.value)}>
-            <option value="all">All tools</option>
-            {toolOpts.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <select style={{ width: 210 }} value={destF} onChange={(e) => setDestF(e.target.value)}>
-            <option value="all">All destinations</option>
-            {destOpts.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-          {filtersActive && (
-            <button
-              className="bare sm"
-              onClick={() => {
-                setFilter("all");
-                setAgentF("all");
-                setToolF("all");
-                setDestF("all");
-              }}
-            >
-              <Icon name="x" size={12} /> Clear filters
-            </button>
-          )}
-        </div>
-        {rows.length === 0 ? (
-          <Empty icon="list">Nothing matches. Run a mission in the Playground to generate activity.</Empty>
-        ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Agent</th>
-                  <th>Outcome</th>
-                  <th>Tool</th>
-                  <th className="num">Amount</th>
-                  <th>Destination</th>
-                  <th>Rule fired</th>
-                  <th>Why</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((d) => (
-                  <tr key={d.intentId + d.at}>
-                    <td className="mono faint">{fmtTime(d.at)}</td>
-                    <td>{agentName(d.agentId)}</td>
-                    <td>
-                      <span
-                        className={`pill ${
-                          d.outcome === "allow" ? "ok" : d.outcome === "deny" ? "bad" : "warn"
-                        }`}
-                      >
-                        <i /> {d.outcome}
-                      </span>
-                    </td>
-                    <td className="mono">{d.tool}</td>
-                    <td className="num mono">{fmtUsd(d.amountUsdc)}</td>
-                    <td className="mono">{d.destination.replace(/^https?:\/\//, "")}</td>
-                    <td className="mono faint">{d.ruleIds.join(", ")}</td>
-                    <td className="muted wrap">{d.reasons[0]}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-

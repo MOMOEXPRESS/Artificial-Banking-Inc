@@ -1572,8 +1572,31 @@ export const store = {
     });
     wipe();
     const org = this.createOrg("Maya Research Desk", 100_000_000n); // $100 demo float
+    // Allowlist localhost so the built-in x402 demo seller is reachable — the
+    // "Buy pricing report" playground step previously refused with
+    // allowlist_miss because the seller runs on http://localhost:9402.
+    const t = this.getPolicyTemplate(org.id);
+    this.setPolicyTemplate(org.id, {
+      ...t,
+      domainAllowlist: [...t.domainAllowlist, "localhost"],
+    });
+    this.addKnownCounterparty(org.id, "localhost");
     const researcher = this.createAgent(org.id, "Researcher");
     const writer = this.createAgent(org.id, "Writer");
+    // Pre-fund the Researcher with a stipend so the built-in "Research brief"
+    // mission has money to spend without an extra step for the user.
+    this.applyEntries(org.id, [
+      {
+        id: id("j"),
+        orgId: org.id,
+        memo: "seed_stipend",
+        createdAt: new Date().toISOString(),
+        lines: [
+          { accountId: `org:${org.id}:available`, deltaMicro: -40_000_000n },
+          { accountId: `agent:${researcher.agentId}:available`, deltaMicro: 40_000_000n },
+        ],
+      },
+    ]);
     return {
       orgId: org.id,
       guardianKey: org.guardianKey,
