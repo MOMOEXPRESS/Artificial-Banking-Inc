@@ -26,7 +26,7 @@ import { agentApiKeyIsLive } from "@policyvault/common";
 
 export type OrgStatus = "active" | "frozen" | "archived";
 export type AgentStatus = "active" | "frozen" | "archived";
-export type EscrowState = "locked" | "released" | "refunded" | "timeout_refunded";
+export type EscrowState = "locked" | "settling" | "released" | "refunded" | "timeout_refunded";
 export type ApprovalStatus = "pending" | "approved" | "denied" | "expired";
 
 export interface OrgRow {
@@ -1247,9 +1247,18 @@ export const store = {
   },
 
   deleteMerchant(orgId: string, merchantIdOrKey: string): boolean {
+    const row = db
+      .prepare("SELECT key FROM merchants WHERE org_id = ? AND (id = ? OR key = ?)")
+      .get(orgId, merchantIdOrKey, merchantIdOrKey.toLowerCase()) as Row | undefined;
     const info = db
       .prepare("DELETE FROM merchants WHERE org_id = ? AND (id = ? OR key = ?)")
       .run(orgId, merchantIdOrKey, merchantIdOrKey.toLowerCase());
+    if (info.changes > 0 && row?.key) {
+      db.prepare("DELETE FROM known_counterparties WHERE org_id = ? AND value = ?").run(
+        orgId,
+        String(row.key).toLowerCase(),
+      );
+    }
     return info.changes > 0;
   },
 
@@ -1620,17 +1629,23 @@ export const store = {
   },
 
   addKnownCounterparty(orgId: string, value: string): void {
-    const v = value.trim().toLowerCase();
-    if (!v) return;
+    const key = value.trim().toLowerCase();
+    if (!key) return;
     db.prepare(
       "INSERT OR IGNORE INTO known_counterparties (org_id, value) VALUES (?, ?)",
-    ).run(orgId, v);
+    ).run(orgId, key);
     // Seed merchant directory metadata when first seen — label defaults to key.
     try {
-      this.upsertMerchant({ orgId, key: v, label: value.trim() });
+      this.upsertMerchant({ orgId, key, label: value.trim() });
     } catch {
       /* merchants table may race on first boot; counterparty write already landed */
     }
+  },
+
+  removeKnownCounterparty(orgId: string, value: string): void {
+    const key = value.trim().toLowerCase();
+    if (!key) return;
+    db.prepare("DELETE FROM known_counterparties WHERE org_id = ? AND value = ?").run(orgId, key);
   },
 
   // ------------------------------------------------------------ pay events
@@ -1745,6 +1760,21 @@ export const store = {
     db.prepare("UPDATE escrows SET state = ?, resolved_at = ? WHERE id = ?").run(
       state,
       resolvedAt,
+      escrowId,
+    );
+  },
+
+  /** CAS: lock → settling so only one settler can proceed (A11). */
+  claimEscrow(escrowId: string): boolean {
+    const info = db
+      .prepare("UPDATE escrows SET state = 'settling' WHERE id = ? AND state = 'locked'")
+      .run(escrowId);
+    return info.changes > 0;
+  },
+
+  /** Roll back a failed settle attempt. */
+  unclaimEscrow(escrowId: string): void {
+    db.prepare("UPDATE escrows SET state = 'locked' WHERE id = ? AND state = 'settling'").run(
       escrowId,
     );
   },

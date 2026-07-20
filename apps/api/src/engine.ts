@@ -19,6 +19,7 @@ import { X402Error, X402Rail } from "./rails/x402.js";
 import { TransferMockRail } from "./rails/transfer-mock.js";
 import type { PaymentRail } from "./rails/types.js";
 import { screenDestination } from "./platform/compliance.js";
+import { notify } from "./platform/notifier.js";
 import { recordObs } from "./platform/observability.js";
 import { store, type ApprovalRow, type EscrowRow } from "./store.js";
 import { emitEvent } from "./webhooks.js";
@@ -116,6 +117,19 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
         tool: input.tool,
         reason: screen.reason,
         provider: screen.provider,
+      });
+      recordObs({
+        name: "compliance.flagged",
+        orgId: input.orgId,
+        agentId: input.agentId,
+        attrs: { destination, reason: screen.reason, tool: input.tool },
+      });
+      void notify({
+        kind: "compliance.flagged",
+        orgId: input.orgId,
+        title: "Compliance blocked",
+        body: screen.reason ?? "Destination blocked by compliance screen",
+        meta: { destination, tool: input.tool, provider: screen.provider },
       });
       return {
         ok: false,
@@ -272,6 +286,17 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       orgId: input.orgId,
       agentId: input.agentId,
       attrs: { destination: input.destination, reason: screen.reason },
+    });
+    void notify({
+      kind: "compliance.flagged",
+      orgId: input.orgId,
+      title: "Compliance blocked",
+      body: screen.reason ?? "Destination blocked by compliance screen",
+      meta: {
+        destination: input.destination,
+        tool: input.tool,
+        provider: screen.provider,
+      },
     });
     return {
       ok: false,
@@ -658,12 +683,17 @@ export function settleEscrow(
   action: "release" | "refund" | "timeout_refund",
   actor: string,
 ): ExecResult {
-  if (escrow.state !== "locked") {
+  // A11: CAS claim before ledger apply so concurrent settlers cannot double-book.
+  if (!store.claimEscrow(escrow.id)) {
+    const fresh = store.getEscrow(escrow.id, escrow.orgId) ?? escrow;
     return {
       ok: false,
       status: 409,
       payload: {
-        error: { code: "VALIDATION_ERROR", message: `Escrow is ${escrow.state}` },
+        error: {
+          code: "VALIDATION_ERROR",
+          message: `Escrow is ${fresh.state !== "locked" ? fresh.state : "busy"}`,
+        },
       },
     };
   }
@@ -716,6 +746,7 @@ export function settleEscrow(
     });
     return { ok: true, payload: { state: newState } };
   } catch (e) {
+    store.unclaimEscrow(escrow.id);
     return {
       ok: false,
       status: 500,

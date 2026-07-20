@@ -4,7 +4,7 @@ import {
   formatMicroToUsdc,
   parseUsdcToMicro,
 } from "@policyvault/common";
-import { DevLocalProvider, setCustodyProvider } from "@policyvault/custody";
+import { DevLocalProvider, getCustodyProvider, setCustodyProvider } from "@policyvault/custody";
 import { recogniseRevenue, transferAvailable } from "@policyvault/ledger";
 import { evaluatePolicy, matchedAutomationRules } from "@policyvault/policy";
 import cors from "cors";
@@ -234,6 +234,8 @@ function guardianRoute(
   return (req, res) => {
     const ctx = authGuardianCtx(req);
     if (!ctx) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+    // Stash for handlers that need role (e.g. GET /org actor).
+    (req as express.Request & { guardianCtx?: GuardianCtx }).guardianCtx = ctx;
     // Viewers may read (GET/HEAD) only — mutates require approver or owner.
     const method = req.method.toUpperCase();
     const isRead = method === "GET" || method === "HEAD";
@@ -622,12 +624,16 @@ app.post("/v1/guardian/orgs", (req, res) => {
 
 app.get(
   "/v1/guardian/org",
-  guardianRoute((org, _req, res) => {
+  guardianRoute((org, req, res) => {
     const accounts = [...store.getAccountMap(org.id).values()];
     const agents = store.listAgents(org.id);
     const template = store.getPolicyTemplate(org.id);
+    const actor = (req as express.Request & { guardianCtx?: GuardianCtx }).guardianCtx;
     res.json({
       org: { id: org.id, name: org.name, status: org.status, settings: org.settings },
+      actor: actor
+        ? { role: actor.role, guardianId: actor.guardianId }
+        : { role: "owner", guardianId: "owner" },
       agents: agents.map(({ apiKey: _, ...rest }) => ({
         ...rest,
         spent24hUsdc: formatMicroToUsdc(store.spentLast24h(rest.id)),
@@ -1310,11 +1316,25 @@ app.get(
 app.get(
   "/v1/guardian/setup",
   guardianRoute((_org, _req, res) => {
+    let custodyName = "none";
+    try {
+      custodyName = getCustodyProvider().name;
+    } catch {
+      /* unregistered */
+    }
+    const cdpEnv = Boolean(process.env.CDP_API_KEY_ID);
     res.json({
       setup: {
-        custody: process.env.CDP_API_KEY_ID ? "cdp" : "dev-local-key",
+        custody: custodyName,
         network: "base-sepolia",
-        settlement: process.env.CDP_API_KEY_ID ? "onchain" : "mock (dev facilitator)",
+        settlement:
+          custodyName === "cdp" ? "onchain (cdp)" : "mock (dev facilitator / transfer-mock)",
+        cdpApiKeyConfigured: cdpEnv,
+        cdpWired: custodyName === "cdp",
+        note:
+          cdpEnv && custodyName !== "cdp"
+            ? "CDP_API_KEY_ID is set but the process still uses DevLocalProvider — swap via setCustodyProvider(CdpProvider)."
+            : undefined,
         telegram: telegramEnabled,
         rateLimitPerMin: RATE_LIMIT_PER_MIN,
         approvalTtlMinutes: APPROVAL_TTL_MINUTES,

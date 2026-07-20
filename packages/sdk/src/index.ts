@@ -348,6 +348,56 @@ export class AbiGuardianClient extends AbiHttpClient {
     return this.request<{ merchants: unknown[] }>("/v1/guardian/merchants");
   }
 
+  upsertMerchant(input: { key: string; label?: string; category?: string }) {
+    return this.request<{ merchant: unknown }>("/v1/guardian/merchants", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  deleteMerchant(id: string) {
+    return this.request<{ ok: boolean }>(`/v1/guardian/merchants/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  createSubscription(input: {
+    agentId: string;
+    vendor: string;
+    amountUsdc: string;
+    intervalHours: number;
+    maxTotalUsdc?: string;
+    memo?: string;
+    startNow?: boolean;
+  }) {
+    return this.request<{ subscription: unknown }>("/v1/guardian/subscriptions", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  subscriptionAction(id: string, action: "pause" | "resume" | "cancel") {
+    return this.request<{ ok: boolean }>(`/v1/guardian/subscriptions/${id}/${action}`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  resolveEscrow(id: string, action: "release" | "refund", resolvedBy = "guardian") {
+    return this.request<{ ok: boolean }>(`/v1/guardian/escrows/${id}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ action, resolvedBy }),
+    });
+  }
+
+  getObservability() {
+    return this.request<{ sink: string }>("/v1/guardian/observability");
+  }
+
+  listWallets() {
+    return this.request<Record<string, unknown>>("/v1/guardian/wallets");
+  }
+
   listApprovals(status?: string) {
     const q = status ? `?status=${encodeURIComponent(status)}` : "";
     return this.request<{ approvals: ApprovalView[] }>(`/v1/guardian/approvals${q}`);

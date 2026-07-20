@@ -52,7 +52,8 @@ type Session = {
 type Prefs = { autoJump: boolean; sound: boolean };
 
 type OrgView = {
-  org: { id: string; name: string; status: string };
+  org: { id: string; name: string; status: string; settings?: Record<string, unknown> };
+  actor?: { role: "owner" | "approver" | "viewer"; guardianId: string };
   agents: { id: string; name: string; status: string; spent24hUsdc: string }[];
   dailyMaxUsdc: string;
   balances: { id: string; kind: string; agentId?: string; usdc: string }[];
@@ -130,6 +131,9 @@ type Setup = {
   telegram: boolean;
   rateLimitPerMin: number;
   approvalTtlMinutes: number;
+  cdpApiKeyConfigured?: boolean;
+  cdpWired?: boolean;
+  note?: string;
 };
 type Recon = { ok: boolean; accountsChecked: number; journalsReplayed: number; drift: unknown[] };
 
@@ -569,7 +573,13 @@ export default function Console() {
             <div className="who">
               <b>{org?.org.name ?? "Loading…"}</b>
               <span>
-                {connected ? "Guardian · live" : "reconnecting…"}
+                {org?.actor?.role === "viewer"
+                  ? "Viewer · read-only"
+                  : org?.actor?.role === "approver"
+                    ? "Approver · live"
+                    : connected
+                      ? "Guardian · live"
+                      : "reconnecting…"}
                 {org?.org.status === "frozen" ? " · FROZEN" : ""}
               </span>
             </div>
@@ -733,7 +743,13 @@ export default function Console() {
                 (policy ? <PolicyView {...shared} policy={policy} /> : <Skeleton />)}
               {view === "webhooks" && <Webhooks {...shared} webhooks={webhooks} deliveries={deliveries} />}
               {view === "activity" && (
-                <Activity decisions={decisions} agentName={agentName} setToast={setToast} query={query} />
+                <Activity
+                  decisions={decisions}
+                  agentName={agentName}
+                  setToast={setToast}
+                  query={query}
+                  gFetch={gFetch}
+                />
               )}
               {view === "settings" && (
                 <SettingsView
@@ -750,6 +766,8 @@ export default function Console() {
                   gFetch={gFetch}
                   api={API}
                   sellerUrl={SELLER}
+                  actorRole={org?.actor?.role ?? "owner"}
+                  onGoto={(v) => setView(v as View)}
                 />
               )}
             </div>
@@ -2316,11 +2334,13 @@ function Activity({
   agentName,
   setToast,
   query,
+  gFetch,
 }: {
   decisions: Decision[];
   agentName: (id: string) => string;
   setToast: (m: string, k?: "ok" | "err" | "info") => void;
   query: string;
+  gFetch: (path: string, init?: RequestInit) => Promise<Response>;
 }) {
   const [filter, setFilter] = useState<"all" | "allow" | "deny" | "review">("all");
   const [agentF, setAgentF] = useState("all");
@@ -2367,27 +2387,43 @@ function Activity({
     review: decisions.filter((d) => d.outcome === "review").length,
   };
 
-  function exportCsv() {
-    const head = "time,agent,outcome,tool,amount_usdc,destination,rules,reasons";
-    const body = rows.map((d) =>
-      [
-        d.at,
-        agentName(d.agentId),
-        d.outcome,
-        d.tool,
-        d.amountUsdc,
-        d.destination,
-        d.ruleIds.join("|"),
-        `"${d.reasons.join("; ").replace(/"/g, '""')}"`,
-      ].join(","),
-    );
-    const blob = new Blob([[head, ...body].join("\n")], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `policyvault-activity-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    setToast(`Exported ${rows.length} decisions.`, "ok");
+  async function exportCsv() {
+    try {
+      const res = await gFetch("/v1/guardian/audit/export?limit=2000", {
+        headers: { Accept: "text/csv" },
+      });
+      if (!res.ok) throw new Error("export failed");
+      const text = await res.text();
+      const blob = new Blob([text], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `abi-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setToast("Exported server audit CSV (decisions + freezes).", "ok");
+    } catch {
+      // Fallback to filtered client CSV if the server export is unavailable.
+      const head = "time,agent,outcome,tool,amount_usdc,destination,rules,reasons";
+      const body = rows.map((d) =>
+        [
+          d.at,
+          agentName(d.agentId),
+          d.outcome,
+          d.tool,
+          d.amountUsdc,
+          d.destination,
+          d.ruleIds.join("|"),
+          `"${d.reasons.join("; ").replace(/"/g, '""')}"`,
+        ].join(","),
+      );
+      const blob = new Blob([[head, ...body].join("\n")], { type: "text/csv" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `policyvault-activity-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setToast(`Exported ${rows.length} filtered decisions (client fallback).`, "ok");
+    }
   }
 
   return (
@@ -2416,7 +2452,7 @@ function Activity({
                 </button>
               ))}
             </div>
-            <button className="ghost sm" onClick={exportCsv} disabled={!rows.length}>
+            <button className="ghost sm" onClick={() => void exportCsv()} disabled={!decisions.length}>
               <Icon name="download" size={13} /> CSV
             </button>
           </div>

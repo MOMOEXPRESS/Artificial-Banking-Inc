@@ -169,6 +169,27 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
         }),
       },
       "/v1/agent/escrow/{id}": { get: stub(["agent"], "Get escrow status", "agentBearer") },
+      "/v1/guardian/guardians": {
+        get: stub(["guardian"], "List guardians + quorum", "guardianBearer"),
+        post: stub(["guardian"], "Invite guardian (approver/viewer)", "guardianBearer", {
+          "201": { description: "Created" },
+        }),
+      },
+      "/v1/guardian/guardians/{id}": {
+        delete: stub(["guardian"], "Revoke guardian", "guardianBearer"),
+      },
+      "/v1/guardian/orgs": {
+        post: stub(["platform"], "Create org (gated)", null, { "201": { description: "Created" } }),
+      },
+      "/v1/guardian/webhooks/{id}": {
+        delete: stub(["guardian"], "Delete webhook", "guardianBearer"),
+      },
+      "/v1/guardian/webhooks/{id}/test": {
+        post: stub(["guardian"], "Send test webhook delivery", "guardianBearer"),
+      },
+      "/v1/guardian/webhooks/deliveries": {
+        get: stub(["guardian"], "Webhook delivery log", "guardianBearer"),
+      },
       "/v1/guardian/setup": { get: stub(["guardian"], "Environment / custody setup hints", "guardianBearer") },
       "/v1/guardian/settings": {
         get: stub(["guardian"], "Org settings JSON", "guardianBearer"),
