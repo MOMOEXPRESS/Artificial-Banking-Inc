@@ -13,6 +13,7 @@ Use these three first when coding or reviewing scope:
 | Document | Path | Description |
 |----------|------|-------------|
 | **Platform Architecture** | [`docs/PLATFORM-ARCHITECTURE.md`](./PLATFORM-ARCHITECTURE.md) | Live extension-point map for the 13 platform pillars — **read before adding features.** |
+| **Audit Findings** | [`docs/AUDIT-FINDINGS.md`](./AUDIT-FINDINGS.md) | Verified security findings: fixed / open / deferred with reasoning. |
 | **Validation Build Rundown** | [`docs/VALIDATION-BUILD-RUNDOWN.md`](./VALIDATION-BUILD-RUNDOWN.md) | Sign-off-ready MVP rundown: architecture, features, UI, agent surfaces, phases, validation checklist. |
 | **Full-Scale Build Plan** | [`docs/FULL-SCALE-BUILD-PLAN.md`](./FULL-SCALE-BUILD-PLAN.md) | Master engineering/product plan: bounded contexts, data model, money flows, SDK/MCP, roadmap, NFRs, DoD. |
 | **README** | [`README.md`](../README.md) | Repo overview, monorepo map, quick start, phase map. |

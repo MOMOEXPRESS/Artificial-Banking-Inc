@@ -3099,7 +3099,9 @@ input[type="range"].slider::-moz-range-thumb {
   color: var(--faint);
 }
 
-/* ============================================================== ABI chat */
+.view {
+  animation: fade-up 0.28s ease both;
+}
 
 .chat-shell {
   gap: 0;

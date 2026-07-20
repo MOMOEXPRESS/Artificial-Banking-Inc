@@ -35,8 +35,13 @@ class EnvDenylistScreener implements ComplianceScreener {
       .split(",")
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean);
-    const dest = destination.trim().toLowerCase();
-    const hit = blocked.find((b) => dest === b || dest.includes(b));
+    let dest = destination.trim().toLowerCase();
+    try {
+      if (dest.startsWith("http")) dest = new URL(dest).hostname;
+    } catch {
+      /* keep raw */
+    }
+    const hit = blocked.find((b) => dest === b || (b.includes(".") && dest.endsWith(`.${b}`)));
     if (hit) {
       return {
         ok: false,

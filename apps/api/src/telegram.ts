@@ -4,6 +4,12 @@ import { store, type ApprovalRow } from "./store.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID ?? "";
+const ALLOWED_USERS = new Set(
+  (process.env.TELEGRAM_ALLOWED_USER_IDS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
 export const telegramEnabled = Boolean(TOKEN && CHAT_ID);
@@ -83,18 +89,36 @@ async function pollOnce(): Promise<void> {
     offset = Math.max(offset, update.update_id + 1);
     const cq = update.callback_query;
     if (!cq?.data?.startsWith("apr:")) continue;
+    // Only accept button presses from the configured ops chat.
+    if (cq.message && String(cq.message.chat.id) !== String(CHAT_ID)) {
+      await tg("answerCallbackQuery", {
+        callback_query_id: cq.id,
+        text: "Wrong chat — ignored",
+      }).catch(() => {});
+      continue;
+    }
+    const fromId = cq.from?.id != null ? String(cq.from.id) : "";
+    if (ALLOWED_USERS.size > 0 && (!fromId || !ALLOWED_USERS.has(fromId))) {
+      await tg("answerCallbackQuery", {
+        callback_query_id: cq.id,
+        text: "Not an authorised guardian",
+      }).catch(() => {});
+      continue;
+    }
     const [, approvalId, action] = cq.data.split(":");
     const approval = store.getApprovalAnyOrg(approvalId);
     let answer: string;
     if (!approval) {
       answer = "Approval not found";
     } else {
-      const resolvedBy = `telegram:${cq.from?.username ?? cq.from?.id ?? "guardian"}`;
+      const resolvedBy = `telegram:${cq.from?.username ?? (fromId || "guardian")}`;
+      const guardianId = fromId ? `tg:${fromId}` : "telegram";
       const outcome = await resolveApproval(
         approval.orgId,
         approvalId,
         action === "approve",
         resolvedBy,
+        guardianId,
       );
       answer =
         outcome.kind === "resolved"

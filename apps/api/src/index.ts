@@ -98,31 +98,43 @@ function authAgent(req: express.Request): { orgId: string; agentId: string } | n
 }
 
 /** Guardian auth: org is derived from the pv_guardian_ key, never from the body. */
-function authGuardian(req: express.Request): OrgRow | null {
+type GuardianRole = "owner" | "approver" | "viewer";
+type GuardianCtx = { org: OrgRow; role: GuardianRole; guardianId: string };
+
+function authGuardianCtx(req: express.Request): GuardianCtx | null {
   const key = bearer(req);
   if (!key || !key.startsWith("pv_guardian_")) return null;
-  // The org's founding key, or any invited (non-revoked) guardian of that org.
   const founder = store.findOrgByGuardianKey(key);
-  if (founder) return founder;
+  if (founder) return { org: founder, role: "owner", guardianId: "owner" };
   const invited = store.findGuardianByKey(key);
-  if (invited?.role === "viewer") return null;
-  return invited ? (store.getOrg(invited.orgId) ?? null) : null;
+  if (!invited || invited.revokedAt) return null;
+  if (invited.role === "viewer") return null;
+  const org = store.getOrg(invited.orgId);
+  if (!org) return null;
+  return { org, role: invited.role, guardianId: invited.id };
 }
 
 /** Identity of the acting guardian, for vote attribution under quorum. */
 function guardianIdentity(req: express.Request): string {
-  const key = bearer(req) ?? "";
-  const invited = store.findGuardianByKey(key);
-  return invited ? invited.id : "owner";
+  return authGuardianCtx(req)?.guardianId ?? "owner";
 }
 
 function guardianRoute(
   handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
+  opts?: { ownerOnly?: boolean },
 ): express.RequestHandler {
   return (req, res) => {
-    const org = authGuardian(req);
-    if (!org) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
-    Promise.resolve(handler(org, req, res)).catch((e) => {
+    const ctx = authGuardianCtx(req);
+    if (!ctx) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+    if (opts?.ownerOnly && ctx.role !== "owner") {
+      return res.status(403).json({
+        error: {
+          code: "UNAUTHORIZED",
+          message: "This action requires an owner guardian key",
+        },
+      });
+    }
+    Promise.resolve(handler(ctx.org, req, res)).catch((e) => {
       if (e instanceof z.ZodError) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: e.message } });
       }
@@ -360,7 +372,19 @@ app.post("/v1/demo/bootstrap", (_req, res) => {
 // ---------------------------------------------------------------------------
 
 /** Create a real org with a mock USDC deposit (on-chain deposit is a later phase). */
+const ALLOW_PUBLIC_ORG_CREATE =
+  process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE === "1" ||
+  (process.env.NODE_ENV !== "production" && process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE !== "0");
+
 app.post("/v1/guardian/orgs", (req, res) => {
+  if (!ALLOW_PUBLIC_ORG_CREATE) {
+    return res.status(403).json({
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Public org creation disabled — set POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE=1",
+      },
+    });
+  }
   const body = z
     .object({
       name: z.string().min(1).max(80),
@@ -390,7 +414,7 @@ app.post(
       apiKey,
       note: "Store this API key now — it is not shown again. Use as Bearer token for /v1/agent routes.",
     });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.get(
@@ -475,7 +499,7 @@ app.post(
     };
     store.createSubscription(sub);
     res.status(201).json({ subscription: subView(sub) });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.post(
@@ -492,7 +516,7 @@ app.post(
       action === "pause" ? "paused" : action === "resume" ? "active" : "cancelled",
     );
     res.json({ ok: true, status: action === "pause" ? "paused" : action === "resume" ? "active" : "cancelled" });
-  }),
+  }, { ownerOnly: true }),
 );
 
 // ------------------------------------------------------------- guardians
@@ -516,7 +540,8 @@ app.post(
     const body = z
       .object({
         name: z.string().min(1).max(60),
-        role: z.enum(["owner", "approver", "viewer"]).default("approver"),
+        // Inviting another owner requires a future dual-control flow — not via this route.
+        role: z.enum(["approver", "viewer"]).default("approver"),
       })
       .parse(req.body);
     const g = store.createGuardian(org.id, body.name, body.role);
@@ -525,7 +550,7 @@ app.post(
       guardianKey: g.guardianKey,
       note: "Shown once. This key can sign in to the console for this org.",
     });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.delete(
@@ -535,7 +560,7 @@ app.delete(
       return res.status(404).json({ error: { code: "NOT_FOUND" } });
     }
     res.json({ ok: true });
-  }),
+  }, { ownerOnly: true }),
 );
 
 /** How many distinct approvals a payment needs before it executes. */
@@ -557,7 +582,7 @@ app.post(
     }
     store.setPolicyTemplate(org.id, { ...current, approvalQuorum: body.approvalQuorum });
     res.json({ ok: true, approvalQuorum: body.approvalQuorum });
-  }),
+  }, { ownerOnly: true }),
 );
 
 // ------------------------------------------------------------- analytics
@@ -888,7 +913,7 @@ app.post(
     } catch (e) {
       res.status(400).json({ error: { code: "INSUFFICIENT_STIPEND", message: String(e) } });
     }
-  }),
+  }, { ownerOnly: true }),
 );
 
 /** Rotate an agent's API key. The old key stops working immediately. */
@@ -906,7 +931,7 @@ app.post(
       apiKey,
       note: "Old key is dead. Update the agent's environment now — it cannot spend until you do.",
     });
-  }),
+  }, { ownerOnly: true }),
 );
 
 /**
@@ -966,7 +991,7 @@ app.post(
       amountUsdc: formatMicroToUsdc(amount),
       agentRemainingUsdc: formatMicroToUsdc(available - amount),
     });
-  }),
+  }, { ownerOnly: true }),
 );
 
 /**
@@ -1033,7 +1058,7 @@ app.post(
       from: from.name,
       to: to.name,
     });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.post(
@@ -1056,7 +1081,7 @@ app.post(
     }
     store.addFreeze(org.id, body.agentId, body.reason);
     res.json({ ok: true });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.post(
@@ -1073,7 +1098,7 @@ app.post(
       store.setOrgStatus(org.id, "active");
     }
     res.json({ ok: true });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.get(
@@ -1239,7 +1264,7 @@ app.post(
       store.addKnownCounterparty(org.id, v);
     }
     res.json({ ok: true, policy: policyView(next) });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.get(
@@ -1347,7 +1372,7 @@ app.post(
       secret: webhook.secret,
       note: "Verify x-policyvault-signature (HMAC-SHA256 of raw body with this secret) and dedupe on x-policyvault-delivery.",
     });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.get(
@@ -1367,7 +1392,7 @@ app.delete(
     const deleted = store.deleteWebhook(req.params.id, org.id);
     if (!deleted) return res.status(404).json({ error: { code: "NOT_FOUND" } });
     res.json({ ok: true });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.get(
@@ -1394,7 +1419,7 @@ app.post(
       note: "Test delivery fired from the guardian console",
     });
     res.json({ ok: true, note: "Test event dispatched to all endpoints — check deliveries." });
-  }),
+  }, { ownerOnly: true }),
 );
 
 // ---------------------------------------------------------------------------
@@ -1615,6 +1640,10 @@ async function runDueSubscriptions(): Promise<void> {
       continue;
     }
     const nextRunAt = new Date(Date.now() + sub.intervalHours * 3600_000).toISOString();
+    // Claim the due slot BEFORE awaiting the rail — otherwise a 10s sweep can
+    // overlap an in-flight charge and double-spend.
+    if (!store.claimSubscriptionRun(sub.id, sub.nextRunAt, nextRunAt)) continue;
+
     const intentId = id("int");
     const decision = evaluatePolicy(
       {

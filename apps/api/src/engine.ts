@@ -573,6 +573,10 @@ export async function resolveApproval(
     memo: approval.memo,
     payeeAgentId: approval.payeeAgentId,
     timeoutMinutes: approval.timeoutMinutes,
+  }).catch((e) => {
+    // Unexpected throw after claim — release the lock so a guardian can retry.
+    store.unclaimApproval(approval.id);
+    throw e;
   });
   store.resolveApproval(approval.id, {
     status: result.ok ? "approved" : "denied",

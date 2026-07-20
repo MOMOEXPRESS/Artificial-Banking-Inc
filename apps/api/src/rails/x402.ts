@@ -98,7 +98,10 @@ export async function payViaX402(args: {
   const doFetch = args.fetchImpl ?? fetch;
   const account = privateKeyToAccount(args.privateKey);
 
-  const first = await doFetch(args.url, { signal: AbortSignal.timeout(10_000) });
+  const first = await doFetch(args.url, {
+    signal: AbortSignal.timeout(10_000),
+    redirect: "error",
+  });
   if (first.status !== 402) {
     if (first.ok) {
       throw new X402Error("NO_PAYMENT_REQUIRED", "Resource did not request payment (HTTP 200)");
@@ -184,6 +187,7 @@ export async function payViaX402(args: {
   const paid = await doFetch(args.url, {
     headers: { "X-PAYMENT": paymentHeader },
     signal: AbortSignal.timeout(15_000),
+    redirect: "error",
   });
   if (!paid.ok) {
     const body = await paid.text().catch(() => "");
@@ -212,7 +216,8 @@ export async function payViaX402(args: {
       payer: account.address,
       payTo: requirement.payTo,
       txHash: settlement.txHash,
-      settled: settlement.success !== false,
+      // Require an explicit success flag — missing/undefined must not book a payment.
+      settled: settlement.success === true,
     },
     resource,
     contentType,

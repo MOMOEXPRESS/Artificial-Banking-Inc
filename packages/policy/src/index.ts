@@ -196,7 +196,13 @@ export function evaluatePolicy(
   // masquerade as "api.openai.com".
   const domainOk =
     rules.domainAllowlist.length > 0 &&
-    rules.domainAllowlist.some((d) => dest === norm(d) || dest.endsWith(`.${norm(d)}`));
+    rules.domainAllowlist.some((d) => {
+      const entry = norm(d);
+      if (dest === entry) return true;
+      // Suffix matches require a dotted domain — bare TLDs like "com" never widen.
+      if (!entry.includes(".")) return false;
+      return dest.endsWith(`.${entry}`);
+    });
 
   if (intent.tool === "pay" || intent.tool === "withdraw") {
     if (!isAddressLike(intent.destination)) {
