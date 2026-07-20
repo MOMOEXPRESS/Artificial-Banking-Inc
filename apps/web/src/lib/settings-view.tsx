@@ -23,17 +23,6 @@ export type Recon = {
 };
 
 type Guardian = { id: string; name: string; role: string; createdAt: string; revokedAt?: string };
-type Subscription = {
-  id: string;
-  vendor: string;
-  amountUsdc: string;
-  intervalHours: number;
-  status: string;
-  runs: number;
-  spentUsdc: string;
-  nextRunAt: string;
-  lastError?: string;
-};
 
 const SECTIONS = [
   { key: "golive", label: "Go live", icon: "shield" },
@@ -85,10 +74,8 @@ export function SettingsView({
   const [section, setSection] = useState<Section>("golive");
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [quorum, setQuorum] = useState(1);
-  const [subs, setSubs] = useState<Subscription[]>([]);
   const [newGuardian, setNewGuardian] = useState("");
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
-  const [subForm, setSubForm] = useState({ agentId: "", vendor: "", amountUsdc: "", intervalHours: "24" });
   const [inviteRole, setInviteRole] = useState<"approver" | "viewer">("approver");
   const [orgSettings, setOrgSettings] = useState<Record<string, unknown>>({});
   const [planDraft, setPlanDraft] = useState("");
@@ -99,13 +86,9 @@ export function SettingsView({
 
   const loadTeam = async () => {
     try {
-      const [g, s] = await Promise.all([
-        gFetch("/v1/guardian/guardians").then((r) => r.json()),
-        gFetch("/v1/guardian/subscriptions").then((r) => r.json()),
-      ]);
+      const g = await gFetch("/v1/guardian/guardians").then((r) => r.json());
       setGuardians(g.guardians ?? []);
       setQuorum(g.quorum ?? 1);
-      setSubs(s.subscriptions ?? []);
     } catch {
       /* non-fatal */
     }
@@ -185,32 +168,6 @@ export function SettingsView({
       if (!res.ok) throw new Error(JSON.stringify(await res.json()));
       await loadTeam();
       return "Guardian revoked — their key no longer works.";
-    });
-
-  const createSub = () =>
-    act("Subscription", async () => {
-      const res = await gFetch("/v1/guardian/subscriptions", {
-        method: "POST",
-        body: JSON.stringify({
-          agentId: subForm.agentId,
-          vendor: subForm.vendor.trim(),
-          amountUsdc: subForm.amountUsdc.trim(),
-          intervalHours: Number(subForm.intervalHours) || 24,
-        }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error?.message ?? "failed");
-      setSubForm({ agentId: "", vendor: "", amountUsdc: "", intervalHours: "24" });
-      await loadTeam();
-      return "Recurring charge created — every run still passes the policy engine.";
-    });
-
-  const subAction = (id: string, action: "pause" | "resume" | "cancel") =>
-    act("Subscription", async () => {
-      const res = await gFetch(`/v1/guardian/subscriptions/${id}/${action}`, { method: "POST" });
-      if (!res.ok) throw new Error(JSON.stringify(await res.json()));
-      await loadTeam();
-      return `Subscription ${action}d.`;
     });
 
   const golive = [
@@ -547,7 +504,7 @@ export function SettingsView({
                   <button
                     key={n}
                     className={quorum === n ? "" : "ghost"}
-                    disabled={busy}
+                    disabled={busy || readOnly}
                     onClick={() => void setQuorumTo(n)}
                   >
                     {n === 1 ? "Any one guardian" : `${n} guardians`}
@@ -570,6 +527,7 @@ export function SettingsView({
                     style={{ width: 170 }}
                     placeholder="Name"
                     value={newGuardian}
+                    disabled={readOnly}
                     onChange={(e) => setNewGuardian(e.target.value)}
                   />
                   <select
@@ -607,7 +565,7 @@ export function SettingsView({
                   <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     {g.role}
                     {!g.revokedAt && (
-                      <button className="bare sm" disabled={busy} onClick={() => void revoke(g.id)}>
+                      <button className="bare sm" disabled={busy || readOnly} onClick={() => void revoke(g.id)}>
                         revoke
                       </button>
                     )}
@@ -709,7 +667,7 @@ export function SettingsView({
                   not merely hidden. Escrow releases are blocked too.
                 </span>
               </div>
-              <button className={orgFrozen ? "ghost" : "danger"} disabled={busy} onClick={() => void toggleFreeze()}>
+              <button className={orgFrozen ? "ghost" : "danger"} disabled={busy || readOnly} onClick={() => void toggleFreeze()}>
                 {orgFrozen ? "Unfreeze org" : "Freeze everything"}
               </button>
             </div>

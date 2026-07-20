@@ -83,8 +83,9 @@ extension points that let each pillar grow without a rewrite.
 | Batch enqueue (≤10) | DONE | `POST /v1/guardian/payments/batch` |
 | Rail registry | DONE | `GET /v1/guardian/payments/rails` |
 | PaymentRail + custody | DONE | Interface + DevLocal wired; CDP stub ready |
-| Console | DONE | Nav **Payments** + Invoices + Escrows |
-| Guardian SDK | DONE | invoices / subs / escrows / schedule / batch / rails |
+| Console | DONE | Nav **Payments** (Recent / Invoices / Escrows / Schedule / Subs / Rails) |
+| Guardian SDK | DONE | invoices / subs / escrows / schedule / batch / rails / webhooks |
+| Dual money APIs | DONE | Prefer `POST /v1/guardian/wallets/move`; legacy `/allocate` `/reclaim` `/transfer` kept + SDK wrappers |
 | Usage metering | DEFERRED | Phase-2 commerce — not required for COMPLETE |
 
 ---
@@ -132,8 +133,8 @@ extension points that let each pillar grow without a rewrite.
 |------------|--------|---------|
 | REST + OpenAPI | DONE | `GET /v1/openapi.json` (expanded stubs) |
 | TS SDK agent + guardian | DONE | `@policyvault/sdk` |
-| MCP agent tools | DONE | `apps/mcp-server` |
-| Signed webhooks | DONE | HMAC deliveries + retries |
+| MCP agent tools | DONE | `apps/mcp-server` (+ wait_for_approval / list_activity / get_decision) |
+| Signed webhooks | DONE | HMAC deliveries + retries + secret rotate |
 | Multi-language SDKs | DEFERRED | Generate from OpenAPI later |
 
 ---

@@ -90,7 +90,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "escrow_status",
-      description: "Get the state of an escrow (locked/released/refunded/timeout_refunded)",
+      description: "Get the state of an escrow (locked/settling/released/refunded/timeout_refunded)",
       inputSchema: {
         type: "object",
         properties: { escrowId: { type: "string" } },
@@ -123,6 +123,38 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: "object",
         properties: { approvalId: { type: "string" } },
         required: ["approvalId"],
+      },
+    },
+    {
+      name: "wait_for_approval",
+      description:
+        "Poll a pending approval until it is approved, denied, expired, or maxWaitMs elapses",
+      inputSchema: {
+        type: "object",
+        properties: {
+          approvalId: { type: "string" },
+          pollMs: { type: "number" },
+          maxWaitMs: { type: "number" },
+        },
+        required: ["approvalId"],
+      },
+    },
+    {
+      name: "list_activity",
+      description: "List recent policy decisions for this agent",
+      inputSchema: {
+        type: "object",
+        properties: { limit: { type: "number" } },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: "get_decision",
+      description: "Look up a single policy decision by intentId",
+      inputSchema: {
+        type: "object",
+        properties: { intentId: { type: "string" } },
+        required: ["intentId"],
       },
     },
   ],
@@ -204,6 +236,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
     if (name === "get_approval") {
       const data = await client.getApproval((args as { approvalId: string }).approvalId);
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    }
+    if (name === "wait_for_approval") {
+      const a = args as { approvalId: string; pollMs?: number; maxWaitMs?: number };
+      const approval = await client.waitForApproval(a.approvalId, {
+        pollMs: a.pollMs,
+        maxWaitMs: a.maxWaitMs,
+      });
+      return { content: [{ type: "text", text: JSON.stringify({ approval }, null, 2) }] };
+    }
+    if (name === "list_activity") {
+      const limit = (args as { limit?: number }).limit;
+      const data = await client.listActivity(limit);
+      return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
+    }
+    if (name === "get_decision") {
+      const data = await client.getDecision((args as { intentId: string }).intentId);
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
     }
     return {

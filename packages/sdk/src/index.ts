@@ -143,6 +143,18 @@ export class PolicyVaultClient extends AbiHttpClient {
     return this.request<{ approval: ApprovalView }>(`/v1/agent/approvals/${approvalId}`);
   }
 
+  listActivity(limit = 50) {
+    return this.request<{ decisions: DecisionView[] }>(
+      `/v1/agent/activity?limit=${encodeURIComponent(String(limit))}`,
+    );
+  }
+
+  getDecision(intentId: string) {
+    return this.request<{ decision: DecisionView }>(
+      `/v1/agent/decisions/${encodeURIComponent(intentId)}`,
+    );
+  }
+
   /**
    * Poll an approval until it leaves pending state or maxWaitMs elapses.
    * Returns the final approval row; callers should treat non-approved as a
@@ -402,6 +414,67 @@ export class AbiGuardianClient extends AbiHttpClient {
     const q = status ? `?status=${encodeURIComponent(status)}` : "";
     return this.request<{ approvals: ApprovalView[] }>(`/v1/guardian/approvals${q}`);
   }
+
+  listWebhooks() {
+    return this.request<{ webhooks: { id: string; url: string; createdAt: string }[] }>(
+      "/v1/guardian/webhooks",
+    );
+  }
+
+  createWebhook(url: string) {
+    return this.request<{ id: string; url: string; secret: string }>("/v1/guardian/webhooks", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+  }
+
+  deleteWebhook(id: string) {
+    return this.request<{ ok: boolean }>(`/v1/guardian/webhooks/${id}`, { method: "DELETE" });
+  }
+
+  rotateWebhookSecret(id: string) {
+    return this.request<{ id: string; secret: string }>(`/v1/guardian/webhooks/${id}/rotate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  /** Preferred unified treasury move (HITL above threshold). */
+  moveFunds(input: {
+    from: { scope: string; id: string };
+    to: { scope: string; id: string };
+    amountUsdc: string;
+    memo?: string;
+  }) {
+    return this.request<Record<string, unknown>>("/v1/guardian/wallets/move", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** @deprecated Prefer {@link moveFunds} — legacy stipend allocate. */
+  allocate(agentId: string, amountUsdc: string) {
+    return this.request<Record<string, unknown>>("/v1/guardian/allocate", {
+      method: "POST",
+      body: JSON.stringify({ agentId, amountUsdc }),
+    });
+  }
+
+  /** @deprecated Prefer {@link moveFunds} — legacy stipend reclaim. */
+  reclaim(agentId: string, amountUsdc?: string) {
+    return this.request<Record<string, unknown>>("/v1/guardian/reclaim", {
+      method: "POST",
+      body: JSON.stringify({ agentId, amountUsdc }),
+    });
+  }
+
+  /** @deprecated Prefer {@link moveFunds} — legacy agent↔agent transfer. */
+  transfer(fromAgentId: string, toAgentId: string, amountUsdc: string) {
+    return this.request<Record<string, unknown>>("/v1/guardian/transfer", {
+      method: "POST",
+      body: JSON.stringify({ fromAgentId, toAgentId, amountUsdc }),
+    });
+  }
 }
 
 /** @deprecated Prefer PolicyVaultClient. */
@@ -413,12 +486,25 @@ export interface EscrowView {
   payerAgentId: string;
   payeeAgentId: string;
   amountUsdc: string;
-  state: "locked" | "released" | "refunded" | "timeout_refunded";
+  state: "locked" | "settling" | "released" | "refunded" | "timeout_refunded";
   jobId?: string;
   memo?: string;
   createdAt: string;
   timeoutAt: string;
   resolvedAt?: string;
+}
+
+export interface DecisionView {
+  intentId: string;
+  orgId: string;
+  agentId: string;
+  outcome: string;
+  ruleIds: string[];
+  reasons: string[];
+  tool: string;
+  amountUsdc: string;
+  destination: string;
+  at: string;
 }
 
 export interface ApprovalView {

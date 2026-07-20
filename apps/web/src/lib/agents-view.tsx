@@ -65,12 +65,15 @@ export function AgentsView({
   busy,
   act,
   onKeyRevealed,
+  readOnly = false,
 }: {
   gFetch: (path: string, init?: RequestInit) => Promise<Response>;
   busy: boolean;
   act: (label: string, fn: () => Promise<string | void>) => Promise<void>;
   onKeyRevealed?: (entry: { agentId: string; name: string; key: string }) => void;
+  readOnly?: boolean;
 }) {
+  const locked = busy || readOnly;
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [groups, setGroups] = useState<GroupRow[]>([]);
   const [freezes, setFreezes] = useState<FreezeRow[]>([]);
@@ -198,7 +201,7 @@ export function AgentsView({
                 />
                 <button
                   className="sm"
-                  disabled={busy || !newName.trim()}
+                  disabled={locked || !newName.trim()}
                   onClick={() => void createAgent()}
                 >
                   Create
@@ -246,7 +249,7 @@ export function AgentsView({
                           {a.status === "active" && (
                             <button
                               className="sm ghost"
-                              disabled={busy}
+                              disabled={locked}
                               onClick={() =>
                                 void act("Freeze", async () => {
                                   await gFetch(`/v1/guardian/agents/${a.id}/freeze`, {
@@ -264,7 +267,7 @@ export function AgentsView({
                           {a.status === "frozen" && (
                             <button
                               className="sm ghost"
-                              disabled={busy}
+                              disabled={locked}
                               onClick={() =>
                                 void act("Unfreeze", async () => {
                                   await gFetch(`/v1/guardian/agents/${a.id}/unfreeze`, {
@@ -282,7 +285,7 @@ export function AgentsView({
                           {a.status !== "archived" && (
                             <button
                               className="sm ghost"
-                              disabled={busy}
+                              disabled={locked}
                               onClick={() =>
                                 void act("Rotate key", async () => {
                                   const res = await gFetch(
@@ -384,7 +387,7 @@ export function AgentsView({
                     </select>
                   </label>
                   <button
-                    disabled={busy}
+                    disabled={locked}
                     onClick={() =>
                       void act("Save profile", async () => {
                         const profile: Record<string, unknown> = {
@@ -418,7 +421,7 @@ export function AgentsView({
                 <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
                   <button
                     className="sm ghost"
-                    disabled={busy || selectedAgent?.status === "archived"}
+                    disabled={locked || selectedAgent?.status === "archived"}
                     onClick={() =>
                       void act("Revoke keys", async () => {
                         const res = await gFetch(`/v1/guardian/agents/${selected}/revoke-key`, {
@@ -437,7 +440,7 @@ export function AgentsView({
                   {selectedAgent?.status !== "archived" ? (
                     <button
                       className="sm ghost"
-                      disabled={busy}
+                      disabled={locked}
                       onClick={() =>
                         void act("Archive", async () => {
                           await gFetch(`/v1/guardian/agents/${selected}/archive`, {
@@ -454,7 +457,7 @@ export function AgentsView({
                   ) : (
                     <button
                       className="sm"
-                      disabled={busy}
+                      disabled={locked}
                       onClick={() =>
                         void act("Unarchive", async () => {
                           const res = await gFetch(`/v1/guardian/agents/${selected}/unarchive`, {
@@ -478,7 +481,7 @@ export function AgentsView({
                   )}
                   <button
                     className="sm"
-                    disabled={busy || selectedAgent?.status !== "active"}
+                    disabled={locked || selectedAgent?.status !== "active"}
                     onClick={() =>
                       void act("Mint session", async () => {
                         const res = await gFetch(
@@ -565,7 +568,7 @@ export function AgentsView({
               />
               <button
                 className="sm"
-                disabled={busy || !groupName.trim()}
+                disabled={locked || !groupName.trim()}
                 onClick={() => void createGroup()}
               >
                 Create group
@@ -602,7 +605,7 @@ export function AgentsView({
                       {g.status === "active" && (
                         <button
                           className="sm ghost"
-                          disabled={busy}
+                          disabled={locked}
                           onClick={() =>
                             void act("Archive group", async () => {
                               await gFetch(`/v1/guardian/agent-groups/${g.id}/archive`, {
@@ -670,7 +673,7 @@ export function AgentsView({
                         {!s.revokedAt && (
                           <button
                             className="sm ghost"
-                            disabled={busy}
+                            disabled={locked}
                             onClick={() =>
                               void act("Revoke session", async () => {
                                 await gFetch(`/v1/guardian/session-keys/${s.id}/revoke`, {

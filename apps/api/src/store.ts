@@ -1712,6 +1712,27 @@ export const store = {
     }));
   },
 
+  getDecision(orgId: string, intentId: string): DecisionRow | undefined {
+    const r = db
+      .prepare(
+        "SELECT * FROM decisions WHERE org_id = ? AND intent_id = ? ORDER BY id DESC LIMIT 1",
+      )
+      .get(orgId, intentId) as Row | undefined;
+    if (!r) return undefined;
+    return {
+      intentId: r.intent_id,
+      orgId: r.org_id,
+      agentId: r.agent_id,
+      outcome: r.outcome,
+      ruleIds: JSON.parse(r.rule_ids_json),
+      reasons: JSON.parse(r.reasons_json),
+      tool: r.tool,
+      amountUsdc: r.amount_usdc,
+      destination: r.destination,
+      at: r.at,
+    };
+  },
+
   // --------------------------------------------------------------- escrows
   createEscrow(e: EscrowRow): void {
     db.prepare(
@@ -2125,6 +2146,17 @@ export const store = {
       orgId,
     );
     return info.changes > 0;
+  },
+
+  /** Issue a new signing secret (shown once). Old secret stops verifying immediately. */
+  rotateWebhookSecret(webhookId: string, orgId: string): string | null {
+    const existing = this.getWebhook(webhookId);
+    if (!existing || existing.orgId !== orgId) return null;
+    const secret = `pv_whsec_${randomBytes(16).toString("hex")}`;
+    const info = db
+      .prepare("UPDATE webhooks SET secret = ? WHERE id = ? AND org_id = ?")
+      .run(secret, webhookId, orgId);
+    return info.changes > 0 ? secret : null;
   },
 
   createDelivery(args: {

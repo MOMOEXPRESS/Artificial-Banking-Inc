@@ -1,3 +1,12 @@
+// ---------------------------------------------------------------------------
+// ASPIRATIONAL SCHEMA (A14 deferred)
+// Live persistence is SQLite via apps/api/src/store.ts (better-sqlite3).
+// This Prisma model targets a future Postgres cutover behind the same store
+// boundary — do not treat enums/fields here as the runtime contract.
+// Notable drift vs live store: EscrowStatus lacks `settling` / timeout_refunded;
+// ApprovalStatus uses timed_out vs live `expired`; API keys are hashed here
+// but still plaintext in SQLite until A13.
+// ---------------------------------------------------------------------------
 generator client {
   provider = "prisma-client-js"
 }

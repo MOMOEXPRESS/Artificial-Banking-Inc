@@ -25,7 +25,6 @@ import { SettingsView } from "../../lib/settings-view";
 import { MISSIONS, runMission, type RunStep } from "../../lib/mission";
 import {
   AIPanel,
-  InvoicesView,
   WorkView,
   type Invoice,
   type InvoiceStats,
@@ -165,8 +164,6 @@ const NAV: { key: View; label: string; icon: string }[] = [
   { key: "work", label: "Work & deliverables", icon: "book" },
   { key: "approvals", label: "Approvals", icon: "check" },
   { key: "insights", label: "Insights", icon: "spark" },
-  { key: "invoices", label: "Invoices", icon: "wallet" },
-  { key: "escrows", label: "Escrows", icon: "swap" },
   { key: "ledger", label: "Ledger", icon: "list" },
   { key: "policy", label: "Policy", icon: "sliders" },
   { key: "webhooks", label: "Webhooks", icon: "zap" },
@@ -416,7 +413,7 @@ export default function Console() {
           tone: "info",
           title: `Escrow ${fmtUsd(e.amountUsdc)} auto-refunds ${relTime(e.timeoutAt)}`,
           body: `${agentName(e.payerAgentId)} → ${agentName(e.payeeAgentId)} · release it if the work landed`,
-          goto: "escrows",
+          goto: "payments",
         });
       }
     }
@@ -514,7 +511,8 @@ export default function Console() {
   if (!session)
     return <Login onLogin={saveSession} setToast={setToast} toast={toast} clear={() => setToastRaw(null)} />;
 
-  const shared = { busy, act, gFetch, agentName, org, setToast, setView };
+  const readOnly = org?.actor?.role === "viewer";
+  const shared = { busy, act, gFetch, agentName, org, setToast, setView, readOnly };
 
   return (
     <div className="app">
@@ -671,12 +669,13 @@ export default function Console() {
                   invStats={invStats}
                 />
               )}
-              {view === "treasury" && <TreasuryView gFetch={gFetch} busy={busy} act={act} />}
+              {view === "treasury" && <TreasuryView gFetch={gFetch} busy={busy} act={act} readOnly={readOnly} />}
               {view === "agents" && (
                 <AgentsView
                   gFetch={gFetch}
                   busy={busy}
                   act={act}
+                  readOnly={readOnly}
                   onKeyRevealed={(entry) => {
                     updateSession({
                       agentKeys: [
@@ -692,6 +691,27 @@ export default function Console() {
                   gFetch={gFetch}
                   busy={busy}
                   act={act}
+                  readOnly={readOnly}
+                  invoices={invoices}
+                  invStats={invStats}
+                  escrows={escrows}
+                  agents={(org?.agents ?? []).map((a) => ({
+                    id: a.id,
+                    name: a.name,
+                    status: a.status,
+                  }))}
+                />
+              )}
+              {(view === "invoices" || view === "escrows") && (
+                <PaymentsView
+                  gFetch={gFetch}
+                  busy={busy}
+                  act={act}
+                  readOnly={readOnly}
+                  invoices={invoices}
+                  invStats={invStats}
+                  escrows={escrows}
+                  initialTab={view}
                   agents={(org?.agents ?? []).map((a) => ({
                     id: a.id,
                     name: a.name,
@@ -716,6 +736,7 @@ export default function Console() {
                   gFetch={gFetch}
                   act={act}
                   busy={busy}
+                  readOnly={readOnly}
                   pending={pending}
                   agentName={agentName}
                   onGoto={(v) => setView(v as View)}
@@ -727,18 +748,8 @@ export default function Console() {
               {view === "insights" && (
                 <InsightsView gFetch={gFetch} setView={(v) => setView(v as View)} />
               )}
-              {view === "invoices" && (
-                <InvoicesView
-                  invoices={invoices}
-                  stats={invStats}
-                  busy={busy}
-                  act={act}
-                  gFetch={gFetch}
-                />
-              )}
-              {view === "approvals" && <Approvals {...shared} approvals={approvals} pending={pending} />}
-              {view === "escrows" && <Escrows {...shared} escrows={escrows} />}
-              {view === "ledger" && <Ledger journals={journals} metrics={metrics} recon={recon} />}
+{view === "approvals" && <Approvals {...shared} approvals={approvals} pending={pending} />}
+{view === "ledger" && <Ledger journals={journals} metrics={metrics} recon={recon} />}
               {view === "policy" &&
                 (policy ? <PolicyView {...shared} policy={policy} /> : <Skeleton />)}
               {view === "webhooks" && <Webhooks {...shared} webhooks={webhooks} deliveries={deliveries} />}
@@ -917,10 +928,12 @@ type Shared = {
   org: OrgView | null;
   setToast: (m: string, k?: "ok" | "err" | "info") => void;
   setView: (v: View) => void;
+  readOnly: boolean;
 };
 
 function Overview({
   org,
+  readOnly,
   metrics,
   decisions,
   approvals,
@@ -1303,7 +1316,7 @@ function Overview({
               onChange={(e) => setNewAgent(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && newAgent.trim() && void createAgent()}
             />
-            <button className="sm" disabled={busy || !newAgent.trim()} onClick={() => void createAgent()}>
+            <button className="sm" disabled={busy || readOnly || !newAgent.trim()} onClick={() => void createAgent()}>
               <Icon name="plus" size={13} /> Create agent
             </button>
           </div>
@@ -1364,14 +1377,14 @@ function Overview({
                       <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
                         <button
                           className={`sm ${frozen ? "ghost" : "danger"}`}
-                          disabled={busy}
+                          disabled={busy || readOnly}
                           onClick={() => void freeze(a.id, !frozen)}
                         >
                           {frozen ? "Unfreeze" : "Freeze"}
                         </button>
                         <button
                           className="bare sm"
-                          disabled={busy}
+                          disabled={busy || readOnly}
                           title="Issue a new API key — the old one stops working immediately"
                           onClick={() => void rotateKey(a.id)}
                         >
@@ -1446,6 +1459,7 @@ function Overview({
             className="sm"
             disabled={
               busy ||
+              readOnly ||
               (moveMode === "allocate" && (!allocTo || !allocAmt.trim())) ||
               (moveMode === "reclaim" && !allocFrom) ||
               (moveMode === "transfer" && (!allocFrom || !allocTo))
@@ -1483,6 +1497,7 @@ function Playground({
   mission: ms,
   setMission,
   cancelRef,
+  readOnly,
 }: Shared & {
   session: Session;
   updateSession: (patch: Partial<Session>) => void;
@@ -1616,7 +1631,7 @@ function Playground({
                   Stop
                 </button>
               ) : (
-                <button className="sm" disabled={!actor || busy} onClick={() => void start()}>
+                <button className="sm" disabled={!actor || busy || readOnly} onClick={() => void start()}>
                   <Icon name="play" size={13} /> Run mission
                 </button>
               )}
@@ -1635,10 +1650,10 @@ function Playground({
                   Approvals screen.
                 </span>
               </span>
-              <button className="light sm" disabled={busy} onClick={() => void resolveInline(blockedStep.approvalId!, true)}>
+              <button className="light sm" disabled={busy || readOnly} onClick={() => void resolveInline(blockedStep.approvalId!, true)}>
                 Approve
               </button>
-              <button className="danger sm" disabled={busy} onClick={() => void resolveInline(blockedStep.approvalId!, false)}>
+              <button className="danger sm" disabled={busy || readOnly} onClick={() => void resolveInline(blockedStep.approvalId!, false)}>
                 Deny
               </button>
             </div>
@@ -1760,7 +1775,7 @@ function Playground({
                     value={pasteKey}
                     onChange={(e) => setPasteKey(e.target.value)}
                   />
-                  <button className="ghost sm" disabled={!pasteKey.trim() || busy} onClick={() => void addKey()}>
+                  <button className="ghost sm" disabled={!pasteKey.trim() || busy || readOnly} onClick={() => void addKey()}>
                     Add
                   </button>
                 </div>
@@ -1831,6 +1846,7 @@ function Approvals({
   act,
   gFetch,
   agentName,
+  readOnly,
 }: Shared & { approvals: Approval[]; pending: Approval[] }) {
   const resolve = (id: string, approve: boolean) =>
     act("Approval", async () => {
@@ -1966,117 +1982,6 @@ function Approvals({
   );
 }
 
-/* ================================================================== escrows */
-
-function Escrows({ escrows, busy, act, gFetch, agentName }: Shared & { escrows: Escrow[] }) {
-  const resolve = (id: string, action: "release" | "refund") =>
-    act("Escrow", async () => {
-      const res = await gFetch(`/v1/guardian/escrows/${id}/resolve`, {
-        method: "POST",
-        body: JSON.stringify({ action, resolvedBy: "guardian-web" }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(d.error ?? d));
-      return `Escrow ${action === "release" ? "released to the payee" : "refunded to the payer"}.`;
-    });
-
-  const locked = escrows.filter((e) => e.state === "locked");
-  const lockedValue = locked.reduce((a, e) => a + Number(e.amountUsdc), 0);
-
-  return (
-    <>
-      <div className="grid g-4">
-        <Stat label="Locked now" value={String(locked.length)} foot={`${fmtUsd(lockedValue)} held`} />
-        <Stat
-          label="Released"
-          value={String(escrows.filter((e) => e.state === "released").length)}
-          foot="work accepted, peer paid"
-        />
-        <Stat
-          label="Refunded"
-          value={String(escrows.filter((e) => e.state.includes("refund")).length)}
-          foot="returned to the payer"
-        />
-        <Stat label="Total" value={String(escrows.length)} foot="all agent-to-agent jobs" />
-      </div>
-
-      <div className="card fill" style={{ display: "flex", flexDirection: "column" }}>
-        <div className="card-head">
-          <div>
-            <h2>Agent-to-agent escrow</h2>
-            <div className="sub">
-              Funds lock when one agent hires another and only move on acceptance — or refund
-              automatically at timeout.
-            </div>
-          </div>
-        </div>
-        {escrows.length === 0 ? (
-          <Empty icon="swap">
-            No escrows yet. Run the <b>Research brief</b> mission in the Playground — the agent
-            hires a peer and locks funds.
-          </Empty>
-        ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Payer</th>
-                  <th>Payee</th>
-                  <th className="num">Amount</th>
-                  <th>State</th>
-                  <th>Job</th>
-                  <th>Auto-refund</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {escrows.map((e) => (
-                  <tr key={e.id}>
-                    <td>{agentName(e.payerAgentId)}</td>
-                    <td>{agentName(e.payeeAgentId)}</td>
-                    <td className="num mono">{fmtUsd(e.amountUsdc)}</td>
-                    <td>
-                      <span
-                        className={`pill ${
-                          e.state === "locked" ? "warn" : e.state === "released" ? "ok" : "mute"
-                        }`}
-                      >
-                        <i /> {e.state}
-                      </span>
-                    </td>
-                    <td className="muted wrap">{e.memo ?? e.jobId ?? "—"}</td>
-                    <td className="mono faint">
-                      {e.state === "locked" ? relTime(e.timeoutAt) : "—"}
-                    </td>
-                    <td>
-                      {e.state === "locked" ? (
-                        <div className="row" style={{ flexWrap: "nowrap" }}>
-                          <button className="sm" disabled={busy} onClick={() => void resolve(e.id, "release")}>
-                            Release
-                          </button>
-                          <button
-                            className="danger sm"
-                            disabled={busy}
-                            onClick={() => void resolve(e.id, "refund")}
-                          >
-                            Refund
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="faint">settled</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
 /* =================================================================== ledger */
 
 function Ledger({
@@ -2169,7 +2074,9 @@ function Webhooks({
   busy,
   act,
   gFetch,
+  readOnly,
 }: Shared & { webhooks: Webhook[]; deliveries: Delivery[] }) {
+  const locked = busy || readOnly;
   const [url, setUrl] = useState("");
   const [secret, setSecret] = useState<string | null>(null);
 
@@ -2197,6 +2104,15 @@ function Webhooks({
       const res = await gFetch(`/v1/guardian/webhooks/${id}/test`, { method: "POST" });
       if (!res.ok) throw new Error(JSON.stringify(await res.json()));
       return "Test event dispatched — watch the delivery table below.";
+    });
+
+  const rotate = (id: string) =>
+    act("Rotate secret", async () => {
+      const res = await gFetch(`/v1/guardian/webhooks/${id}/rotate`, { method: "POST", body: "{}" });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+      setSecret(d.secret);
+      return "Webhook signing secret rotated — shown once below.";
     });
 
   const ok = deliveries.filter((d) => d.status === "delivered").length;
@@ -2228,10 +2144,11 @@ function Webhooks({
               style={{ width: 300 }}
               placeholder="https://your-server/policyvault-hook"
               value={url}
+              disabled={readOnly}
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && url.trim() && void add()}
             />
-            <button className="sm" disabled={busy || !url.trim()} onClick={() => void add()}>
+            <button className="sm" disabled={locked || !url.trim()} onClick={() => void add()}>
               <Icon name="plus" size={13} /> Add
             </button>
           </div>
@@ -2266,10 +2183,13 @@ function Webhooks({
                     <td className="faint mono">{relTime(w.createdAt)}</td>
                     <td>
                       <div className="row" style={{ flexWrap: "nowrap" }}>
-                        <button className="ghost sm" disabled={busy} onClick={() => void test(w.id)}>
+                        <button className="ghost sm" disabled={locked} onClick={() => void test(w.id)}>
                           Send test
                         </button>
-                        <button className="danger sm" disabled={busy} onClick={() => void del(w.id)}>
+                        <button className="ghost sm" disabled={locked} onClick={() => void rotate(w.id)}>
+                          Rotate secret
+                        </button>
+                        <button className="danger sm" disabled={locked} onClick={() => void del(w.id)}>
                           Delete
                         </button>
                       </div>

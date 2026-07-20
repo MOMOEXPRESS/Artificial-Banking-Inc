@@ -172,12 +172,15 @@ export function PolicyView({
   busy,
   act,
   gFetch,
+  readOnly = false,
 }: {
   policy: Policy;
   busy: boolean;
   act: (label: string, fn: () => Promise<string | void>) => Promise<void>;
   gFetch: (p: string, i?: RequestInit) => Promise<Response>;
+  readOnly?: boolean;
 }) {
+  const locked = busy || readOnly;
   const [f, setF] = useState({
     hitlAboveUsdc: policy.hitlAboveUsdc,
     perTxMaxUsdc: policy.perTxMaxUsdc,
@@ -336,7 +339,7 @@ export function PolicyView({
               </button>
               <button
                 className="sm"
-                disabled={busy || bandsInvalid || dailyInvalid}
+                disabled={locked || bandsInvalid || dailyInvalid}
                 onClick={() => void save()}
               >
                 Save policy
@@ -743,7 +746,7 @@ export function PolicyView({
               </div>
               <button
                 className="sm ghost"
-                disabled={busy}
+                disabled={locked}
                 onClick={() =>
                   void act("Apply template", async () => {
                     const res = await gFetch("/v1/guardian/policy/apply-template", {
@@ -779,7 +782,7 @@ export function PolicyView({
                 </div>
                 <button
                   className="ghost sm"
-                  disabled={busy}
+                  disabled={locked}
                   onClick={() =>
                     void act("Restore policy", async () => {
                       const res = await gFetch(`/v1/guardian/policy/versions/${v.id}/restore`, {
@@ -836,7 +839,7 @@ export function PolicyView({
             <button className="ghost sm" onClick={reset}>
               Discard
             </button>
-            <button className="sm" disabled={busy || bandsInvalid || dailyInvalid} onClick={() => void save()}>
+            <button className="sm" disabled={locked || bandsInvalid || dailyInvalid} onClick={() => void save()}>
               Save policy
             </button>
           </div>

@@ -279,13 +279,16 @@ export function InvoicesView({
   busy,
   act,
   gFetch,
+  readOnly = false,
 }: {
   invoices: Invoice[];
   stats: InvoiceStats | null;
   busy: boolean;
   act: (label: string, fn: () => Promise<string | void>) => Promise<void>;
   gFetch: (p: string, i?: RequestInit) => Promise<Response>;
+  readOnly?: boolean;
 }) {
+  const locked = busy || readOnly;
   const [form, setForm] = useState({ counterparty: "", amountUsdc: "", dueInDays: "14", memo: "" });
   const [open, setOpen] = useState(false);
 
@@ -353,7 +356,7 @@ export function InvoicesView({
                 the treasury as revenue.
               </div>
             </div>
-            <button className="sm" onClick={() => setOpen((v) => !v)}>
+            <button className="sm" disabled={readOnly} onClick={() => setOpen((v) => !v)}>
               <Icon name="plus" size={13} /> New invoice
             </button>
           </div>
@@ -398,7 +401,7 @@ export function InvoicesView({
               </div>
               <div className="row">
                 <button
-                  disabled={busy || !form.counterparty.trim() || !form.amountUsdc.trim()}
+                  disabled={locked || !form.counterparty.trim() || !form.amountUsdc.trim()}
                   onClick={() => void create()}
                 >
                   Raise invoice
@@ -440,10 +443,10 @@ export function InvoicesView({
                   <div className="inv-amt">{fmtUsd(inv.amountUsdc)}</div>
                   {inv.status !== "paid" && inv.status !== "void" ? (
                     <div className="row" style={{ flexWrap: "nowrap" }}>
-                      <button className="sm" disabled={busy} onClick={() => void pay(inv.id)}>
+                      <button className="sm" disabled={locked} onClick={() => void pay(inv.id)}>
                         Mark paid
                       </button>
-                      <button className="ghost sm" disabled={busy} onClick={() => void voidIt(inv.id)}>
+                      <button className="ghost sm" disabled={locked} onClick={() => void voidIt(inv.id)}>
                         Void
                       </button>
                     </div>

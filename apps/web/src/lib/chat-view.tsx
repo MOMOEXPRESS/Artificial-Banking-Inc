@@ -34,6 +34,7 @@ export function ChatView({
   pending,
   agentName,
   onGoto,
+  readOnly = false,
 }: {
   gFetch: (p: string, i?: RequestInit) => Promise<Response>;
   act: (label: string, fn: () => Promise<string | void>) => Promise<void>;
@@ -41,7 +42,9 @@ export function ChatView({
   pending: Approval[];
   agentName: (id: string) => string;
   onGoto: (view: string) => void;
+  readOnly?: boolean;
 }) {
+  const locked = busy || readOnly;
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
@@ -121,10 +124,10 @@ export function ChatView({
                 <div style={{ fontSize: 12, marginTop: 4 }}>{a.reasons[0]}</div>
               </div>
               <div className="row" style={{ gap: 8 }}>
-                <button className="sm" disabled={busy} onClick={() => void resolve(a.id, true)}>
+                <button className="sm" disabled={locked} onClick={() => void resolve(a.id, true)}>
                   Approve
                 </button>
-                <button className="sm danger" disabled={busy} onClick={() => void resolve(a.id, false)}>
+                <button className="sm danger" disabled={locked} onClick={() => void resolve(a.id, false)}>
                   Reject
                 </button>
               </div>
@@ -153,14 +156,14 @@ export function ChatView({
                 <div className="row" style={{ marginTop: 10, gap: 8 }}>
                   <button
                     className="sm"
-                    disabled={busy || !pending.some((p) => p.id === m.approvalId)}
+                    disabled={locked || !pending.some((p) => p.id === m.approvalId)}
                     onClick={() => void resolve(m.approvalId!, true)}
                   >
                     Approve
                   </button>
                   <button
                     className="sm danger"
-                    disabled={busy || !pending.some((p) => p.id === m.approvalId)}
+                    disabled={locked || !pending.some((p) => p.id === m.approvalId)}
                     onClick={() => void resolve(m.approvalId!, false)}
                   >
                     Reject
@@ -180,7 +183,7 @@ export function ChatView({
 
       <div className="suggest" style={{ marginTop: 12 }}>
         {["How much did we spend today?", "What is waiting on me?", "Are the books clean?"].map((s) => (
-          <button key={s} disabled={busy} onClick={() => void send(s)}>
+          <button key={s} disabled={locked} onClick={() => void send(s)}>
             {s}
           </button>
         ))}
@@ -193,7 +196,7 @@ export function ChatView({
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void send(draft)}
         />
-        <button onClick={() => void send(draft)} disabled={busy || !draft.trim()} aria-label="Send">
+        <button onClick={() => void send(draft)} disabled={locked || !draft.trim()} aria-label="Send">
           <Icon name="send" />
         </button>
       </div>

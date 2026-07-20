@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Empty, Icon, fmtUsd } from "./ui";
+import { Empty, Icon, fmtUsd, relTime } from "./ui";
+import { InvoicesView, type Invoice, type InvoiceStats } from "./views";
 
 type Agent = { id: string; name: string; status: string };
 type Rail = { id: string; tools: string[]; description: string; status: string };
@@ -27,21 +28,45 @@ type PayRow = {
   outcome: string;
 };
 
+type Escrow = {
+  id: string;
+  payerAgentId: string;
+  payeeAgentId: string;
+  amountUsdc: string;
+  state: string;
+  jobId?: string;
+  memo?: string;
+  timeoutAt: string;
+};
+
 export function PaymentsView({
   gFetch,
   busy,
   act,
   agents,
+  readOnly = false,
+  invoices = [],
+  invStats = null,
+  escrows = [],
+  initialTab,
 }: {
   gFetch: (path: string, init?: RequestInit) => Promise<Response>;
   busy: boolean;
   act: (label: string, fn: () => Promise<string | void>) => Promise<void>;
   agents: Agent[];
+  readOnly?: boolean;
+  invoices?: Invoice[];
+  invStats?: InvoiceStats | null;
+  escrows?: Escrow[];
+  initialTab?: "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows";
 }) {
+  const locked = busy || readOnly;
   const [rails, setRails] = useState<Rail[]>([]);
   const [subs, setSubs] = useState<Sub[]>([]);
   const [recent, setRecent] = useState<PayRow[]>([]);
-  const [tab, setTab] = useState<"recent" | "schedule" | "subs" | "rails">("recent");
+  const [tab, setTab] = useState<
+    "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows"
+  >(initialTab ?? "recent");
   const [form, setForm] = useState({
     agentId: "",
     vendor: "",
@@ -49,6 +74,10 @@ export function PaymentsView({
     runAt: "",
     intervalHours: "24",
   });
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab]);
 
   const refresh = useCallback(async () => {
     const [r, s, p] = await Promise.all([
@@ -71,17 +100,40 @@ export function PaymentsView({
 
   const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id.slice(0, 8);
 
+  const resolveEscrow = (id: string, action: "release" | "refund") =>
+    act("Escrow", async () => {
+      const res = await gFetch(`/v1/guardian/escrows/${id}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+      return `Escrow ${action === "release" ? "released to the payee" : "refunded to the payer"}.`;
+    });
+
+  const escrowTone = (state: string) => {
+    if (state === "locked") return "warn";
+    if (state === "settling") return "info";
+    if (state === "released") return "ok";
+    return "mute";
+  };
+
   return (
     <>
       <div className="card-head" style={{ marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: 0 }}>Payments</h2>
-          <div className="sub">USDC rails, schedules, subscriptions — every charge still hits policy</div>
+          <div className="sub">
+            USDC rails, invoices, escrows, schedules — every charge still hits policy
+            {readOnly ? " · viewer read-only" : ""}
+          </div>
         </div>
         <div className="seg">
           {(
             [
               ["recent", "Recent"],
+              ["invoices", "Invoices"],
+              ["escrows", "Escrows"],
               ["schedule", "Schedule"],
               ["subs", "Subscriptions"],
               ["rails", "Rails"],
@@ -94,6 +146,95 @@ export function PaymentsView({
         </div>
       </div>
 
+      {tab === "invoices" && (
+        <InvoicesView
+          invoices={invoices}
+          stats={invStats}
+          busy={busy}
+          act={act}
+          gFetch={gFetch}
+          readOnly={readOnly}
+        />
+      )}
+
+      {tab === "escrows" && (
+        <div className="card fill" style={{ display: "flex", flexDirection: "column" }}>
+          <div className="card-head">
+            <div>
+              <h2>Agent-to-agent escrow</h2>
+              <div className="sub">
+                Funds lock when one agent hires another and only move on acceptance — or refund
+                automatically at timeout.
+              </div>
+            </div>
+          </div>
+          {escrows.length === 0 ? (
+            <Empty icon="swap">
+              No escrows yet. Run the <b>Research brief</b> mission in the Playground — the agent
+              hires a peer and locks funds.
+            </Empty>
+          ) : (
+            <div className="tbl-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Payer</th>
+                    <th>Payee</th>
+                    <th className="num">Amount</th>
+                    <th>State</th>
+                    <th>Job</th>
+                    <th>Auto-refund</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {escrows.map((e) => (
+                    <tr key={e.id}>
+                      <td>{agentName(e.payerAgentId)}</td>
+                      <td>{agentName(e.payeeAgentId)}</td>
+                      <td className="num mono">{fmtUsd(e.amountUsdc)}</td>
+                      <td>
+                        <span className={`pill ${escrowTone(e.state)}`}>
+                          <i /> {e.state}
+                        </span>
+                      </td>
+                      <td className="muted wrap">{e.memo ?? e.jobId ?? "—"}</td>
+                      <td className="mono faint">
+                        {e.state === "locked" ? relTime(e.timeoutAt) : "—"}
+                      </td>
+                      <td>
+                        {e.state === "locked" ? (
+                          <div className="row" style={{ flexWrap: "nowrap" }}>
+                            <button
+                              className="sm"
+                              disabled={locked}
+                              onClick={() => void resolveEscrow(e.id, "release")}
+                            >
+                              Release
+                            </button>
+                            <button
+                              className="danger sm"
+                              disabled={locked}
+                              onClick={() => void resolveEscrow(e.id, "refund")}
+                            >
+                              Refund
+                            </button>
+                          </div>
+                        ) : e.state === "settling" ? (
+                          <span className="faint">settling…</span>
+                        ) : (
+                          <span className="faint">settled</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === "recent" && (
         <div className="card">
           <div className="card-head">
@@ -103,7 +244,9 @@ export function PaymentsView({
             </button>
           </div>
           {!recent.length ? (
-            <Empty icon="zap">No settled pay / pay_api / escrow_lock yet — run a Playground mission.</Empty>
+            <Empty icon="zap">
+              No settled pay / pay_api / escrow_lock yet — run a Playground mission.
+            </Empty>
           ) : (
             <table>
               <thead>
@@ -123,9 +266,7 @@ export function PaymentsView({
                     </td>
                     <td>{p.agentName}</td>
                     <td className="mono">{p.tool}</td>
-                    <td className="mono faint" style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {p.destination}
-                    </td>
+                    <td className="mono wrap">{p.destination}</td>
                     <td className="num mono">{fmtUsd(p.amountUsdc)}</td>
                   </tr>
                 ))}
@@ -148,6 +289,7 @@ export function PaymentsView({
               <label>Agent</label>
               <select
                 value={form.agentId}
+                disabled={readOnly}
                 onChange={(e) => setForm({ ...form, agentId: e.target.value })}
               >
                 {agents.map((a) => (
@@ -161,6 +303,7 @@ export function PaymentsView({
               <label>Vendor / destination</label>
               <input
                 value={form.vendor}
+                disabled={readOnly}
                 onChange={(e) => setForm({ ...form, vendor: e.target.value })}
                 placeholder="api.openai.com"
               />
@@ -169,6 +312,7 @@ export function PaymentsView({
               <label>Amount (USDC)</label>
               <input
                 value={form.amountUsdc}
+                disabled={readOnly}
                 onChange={(e) => setForm({ ...form, amountUsdc: e.target.value })}
                 placeholder="5"
               />
@@ -178,12 +322,13 @@ export function PaymentsView({
               <input
                 type="datetime-local"
                 value={form.runAt}
+                disabled={readOnly}
                 onChange={(e) => setForm({ ...form, runAt: e.target.value })}
               />
             </div>
           </div>
           <button
-            disabled={busy || !form.agentId || !form.vendor.trim() || !form.amountUsdc.trim()}
+            disabled={locked || !form.agentId || !form.vendor.trim() || !form.amountUsdc.trim()}
             onClick={() =>
               void act("Schedule payment", async () => {
                 const runAt = form.runAt
@@ -226,6 +371,7 @@ export function PaymentsView({
                 <label>Agent</label>
                 <select
                   value={form.agentId}
+                  disabled={readOnly}
                   onChange={(e) => setForm({ ...form, agentId: e.target.value })}
                 >
                   {agents.map((a) => (
@@ -239,6 +385,7 @@ export function PaymentsView({
                 <label>Vendor</label>
                 <input
                   value={form.vendor}
+                  disabled={readOnly}
                   onChange={(e) => setForm({ ...form, vendor: e.target.value })}
                 />
               </div>
@@ -246,6 +393,7 @@ export function PaymentsView({
                 <label>Amount</label>
                 <input
                   value={form.amountUsdc}
+                  disabled={readOnly}
                   onChange={(e) => setForm({ ...form, amountUsdc: e.target.value })}
                 />
               </div>
@@ -253,12 +401,13 @@ export function PaymentsView({
                 <label>Every (hours)</label>
                 <input
                   value={form.intervalHours}
+                  disabled={readOnly}
                   onChange={(e) => setForm({ ...form, intervalHours: e.target.value })}
                 />
               </div>
             </div>
             <button
-              disabled={busy || !form.agentId || !form.vendor.trim() || !form.amountUsdc.trim()}
+              disabled={locked || !form.agentId || !form.vendor.trim() || !form.amountUsdc.trim()}
               onClick={() =>
                 void act("Create subscription", async () => {
                   const res = await gFetch("/v1/guardian/subscriptions", {
@@ -305,7 +454,9 @@ export function PaymentsView({
                       <td className="mono">
                         {s.vendor}
                         {s.memo?.includes("scheduled") || s.memo?.startsWith("batch_") ? (
-                          <div className="faint" style={{ fontSize: 10 }}>one-shot</div>
+                          <div className="faint" style={{ fontSize: 10 }}>
+                            one-shot
+                          </div>
                         ) : null}
                       </td>
                       <td>{agentName(s.agentId)}</td>
@@ -326,7 +477,7 @@ export function PaymentsView({
                         {s.status === "active" && (
                           <button
                             className="ghost sm"
-                            disabled={busy}
+                            disabled={locked}
                             onClick={() =>
                               void act("Pause", async () => {
                                 await gFetch(`/v1/guardian/subscriptions/${s.id}/pause`, {
@@ -342,7 +493,7 @@ export function PaymentsView({
                         {s.status === "paused" && (
                           <button
                             className="ghost sm"
-                            disabled={busy}
+                            disabled={locked}
                             onClick={() =>
                               void act("Resume", async () => {
                                 await gFetch(`/v1/guardian/subscriptions/${s.id}/resume`, {
@@ -358,7 +509,7 @@ export function PaymentsView({
                         {s.status !== "cancelled" && (
                           <button
                             className="ghost sm"
-                            disabled={busy}
+                            disabled={locked}
                             onClick={() =>
                               void act("Cancel", async () => {
                                 await gFetch(`/v1/guardian/subscriptions/${s.id}/cancel`, {
@@ -386,7 +537,9 @@ export function PaymentsView({
           <div className="card-head">
             <div>
               <h2>Settlement rails</h2>
-              <div className="sub">Extension point: PaymentRail — x402 + transfer-mock wired today</div>
+              <div className="sub">
+                Extension point: PaymentRail — x402 + transfer-mock wired today
+              </div>
             </div>
             <Icon name="zap" />
           </div>
@@ -394,8 +547,12 @@ export function PaymentsView({
             <div key={r.id} className="between" style={{ padding: "10px 0", gap: 12 }}>
               <div>
                 <b className="mono">{r.id}</b>
-                <div className="faint" style={{ fontSize: 12 }}>{r.description}</div>
-                <div className="faint" style={{ fontSize: 11 }}>tools: {r.tools.join(", ")}</div>
+                <div className="faint" style={{ fontSize: 12 }}>
+                  {r.description}
+                </div>
+                <div className="faint" style={{ fontSize: 11 }}>
+                  tools: {r.tools.join(", ")}
+                </div>
               </div>
               <span className={`pill ${r.status === "live" ? "ok" : "mute"}`}>
                 <i /> {r.status}

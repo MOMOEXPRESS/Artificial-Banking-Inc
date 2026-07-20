@@ -1471,6 +1471,19 @@ app.delete(
   }, { ownerOnly: true }),
 );
 
+app.post(
+  "/v1/guardian/webhooks/:id/rotate",
+  guardianRoute((org, req, res) => {
+    const secret = store.rotateWebhookSecret(req.params.id, org.id);
+    if (!secret) return res.status(404).json({ error: { code: "NOT_FOUND" } });
+    res.json({
+      id: req.params.id,
+      secret,
+      note: "New signing secret shown once — update receivers before the next delivery.",
+    });
+  }, { ownerOnly: true }),
+);
+
 app.get(
   "/v1/guardian/webhooks/deliveries",
   guardianRoute((org, _req, res) => {
@@ -1517,6 +1530,26 @@ app.get("/v1/agent/budget", (req, res) => {
     dailyRemainingUsdc: formatMicroToUsdc(remaining < 0n ? 0n : remaining),
     frozen: rules.agentFrozen || rules.orgFrozen,
   });
+});
+
+app.get("/v1/agent/activity", (req, res) => {
+  const auth = authAgent(req);
+  if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 50;
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
+  res.json({
+    decisions: store.listDecisionsForAgent(auth.orgId, auth.agentId, limit),
+  });
+});
+
+app.get("/v1/agent/decisions/:intentId", (req, res) => {
+  const auth = authAgent(req);
+  if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  const decision = store.getDecision(auth.orgId, req.params.intentId);
+  if (!decision || decision.agentId !== auth.agentId) {
+    return res.status(404).json({ error: { code: "NOT_FOUND" } });
+  }
+  res.json({ decision });
 });
 
 const payBody = z.object({

@@ -64,11 +64,14 @@ export function TreasuryView({
   gFetch,
   busy,
   act,
+  readOnly = false,
 }: {
   gFetch: (path: string, init?: RequestInit) => Promise<Response>;
   busy: boolean;
   act: (label: string, fn: () => Promise<string | void>) => Promise<void>;
+  readOnly?: boolean;
 }) {
+  const locked = busy || readOnly;
   const [wallets, setWallets] = useState<WalletsPayload | null>(null);
   const [moves, setMoves] = useState<MoveRow[]>([]);
   const [cashflow, setCashflow] = useState<Cashflow | null>(null);
@@ -421,7 +424,7 @@ export function TreasuryView({
                       {m.status === "pending" && (
                         <button
                           className="primary sm"
-                          disabled={busy}
+                          disabled={locked}
                           onClick={() =>
                             void act("Approve move", async () => {
                               const res = await gFetch(`/v1/guardian/treasury/moves/${m.id}/resolve`, {
@@ -514,7 +517,7 @@ export function TreasuryView({
             <p className="mono sm">Vault {recovery?.vaultAddress ?? "—"}</p>
             <button
               className="ghost"
-              disabled={busy}
+              disabled={locked}
               onClick={() =>
                 void act("Rotate custody", async () => {
                   if (!confirm("Rotate org custody key? Update any funding destinations.")) return;

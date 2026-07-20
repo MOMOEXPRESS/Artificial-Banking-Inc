@@ -14,7 +14,7 @@
     "dev:mcp": "npm run dev -w @policyvault/mcp-server",
     "dev:worker": "npm run dev -w @policyvault/worker",
     "demo:agent": "npm run start -w @policyvault/demo-agent",
-    "test": "npm run test -w @policyvault/policy -w @policyvault/ledger",
+    "test": "npm run test -w @policyvault/policy -w @policyvault/ledger -w @policyvault/api",
     "db:generate": "npm run generate -w @policyvault/db",
     "lint": "echo \"lint: add eslint in later pass\""
   },

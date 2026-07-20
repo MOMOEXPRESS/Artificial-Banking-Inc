@@ -39,6 +39,8 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
       "/v1/demo/bootstrap": { post: stub(["platform"], "Create demo org", null, { "201": { description: "Created" } }) },
 
       "/v1/agent/budget": { get: stub(["agent"], "Agent stipend + daily remaining", "agentBearer") },
+      "/v1/agent/activity": { get: stub(["agent"], "Agent decision activity log", "agentBearer") },
+      "/v1/agent/decisions/{intentId}": { get: stub(["agent"], "Lookup decision by intent id", "agentBearer") },
       "/v1/agent/simulate": { post: stub(["agent"], "Dry-run policy evaluation", "agentBearer") },
       "/v1/agent/pay": {
         post: stub(["agent"], "Pay an address / vendor under policy", "agentBearer", {
@@ -183,6 +185,9 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
       },
       "/v1/guardian/webhooks/{id}": {
         delete: stub(["guardian"], "Delete webhook", "guardianBearer"),
+      },
+      "/v1/guardian/webhooks/{id}/rotate": {
+        post: stub(["guardian"], "Rotate webhook signing secret", "guardianBearer"),
       },
       "/v1/guardian/webhooks/{id}/test": {
         post: stub(["guardian"], "Send test webhook delivery", "guardianBearer"),
