@@ -33,6 +33,19 @@ export interface AgentRow {
   name: string;
   status: AgentStatus;
   apiKey: string;
+  /** Extensible profile for groups, ownership, reputation, runtime metadata. */
+  profile: Record<string, unknown>;
+}
+
+export interface ChatMessageRow {
+  id: string;
+  orgId: string;
+  role: "user" | "assistant" | "system";
+  kind: "text" | "approval_request" | "system" | "alert";
+  body: string;
+  approvalId?: string;
+  meta?: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface DecisionRow {
@@ -190,6 +203,15 @@ export interface WebhookDeliveryRow {
 }
 
 export type PolicyRulesTemplate = ReturnType<typeof templateSoloSwarm>;
+
+export interface PolicyVersionRow {
+  id: string;
+  orgId: string;
+  version: string;
+  rules: PolicyRulesTemplate;
+  createdAt: string;
+  note?: string;
+}
 
 function id(prefix: string): string {
   return `${prefix}_${randomBytes(6).toString("hex")}`;
@@ -408,12 +430,33 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   delivered_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_deliveries_org ON webhook_deliveries(org_id, id);
+CREATE TABLE IF NOT EXISTS policy_versions (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  version TEXT NOT NULL,
+  rules_json TEXT NOT NULL,
+  note TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_policy_versions_org ON policy_versions(org_id, created_at);
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  role TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  body TEXT NOT NULL,
+  approval_id TEXT,
+  meta_json TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_org ON chat_messages(org_id, created_at);
 `);
 
 // Dev migrations: add columns introduced after the tables first shipped.
 for (const migration of [
   "ALTER TABLE vaults ADD COLUMN private_key TEXT",
   "ALTER TABLE orgs ADD COLUMN deposit_micro TEXT",
+  "ALTER TABLE agents ADD COLUMN profile_json TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -488,7 +531,22 @@ function rowToOrg(r: Row): OrgRow {
 }
 
 function rowToAgent(r: Row): AgentRow {
-  return { id: r.id, orgId: r.org_id, name: r.name, status: r.status, apiKey: r.api_key };
+  let profile: Record<string, unknown> = {};
+  if (typeof r.profile_json === "string" && r.profile_json) {
+    try {
+      profile = JSON.parse(r.profile_json) as Record<string, unknown>;
+    } catch {
+      profile = {};
+    }
+  }
+  return {
+    id: r.id,
+    orgId: r.org_id,
+    name: r.name,
+    status: r.status,
+    apiKey: r.api_key,
+    profile,
+  };
 }
 
 function rowToAccount(r: Row): LedgerAccount {
@@ -646,10 +704,13 @@ export const store = {
         "INSERT INTO accounts (id, org_id, kind, agent_id, balance_micro) VALUES (?, ?, 'revenue', NULL, '0')",
       ).run(`org:${orgId}:revenue`, orgId);
       const template = templateSoloSwarm();
-      db.prepare("INSERT INTO policies (org_id, rules_json) VALUES (?, ?)").run(
-        orgId,
-        JSON.stringify(template, (_k, v) => (typeof v === "bigint" ? `bigint:${v}` : v)),
+      const rulesJson = JSON.stringify(template, (_k, v) =>
+        typeof v === "bigint" ? `bigint:${v}` : v,
       );
+      db.prepare("INSERT INTO policies (org_id, rules_json) VALUES (?, ?)").run(orgId, rulesJson);
+      db.prepare(
+        "INSERT INTO policy_versions (id, org_id, version, rules_json, note, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ).run(id("polver"), orgId, "v1", rulesJson, "initial", nowIso());
       const insertKc = db.prepare(
         "INSERT OR IGNORE INTO known_counterparties (org_id, value) VALUES (?, ?)",
       );
@@ -807,11 +868,112 @@ export const store = {
     ) as PolicyRulesTemplate;
   },
 
-  setPolicyTemplate(orgId: string, template: PolicyRulesTemplate): void {
-    db.prepare("INSERT OR REPLACE INTO policies (org_id, rules_json) VALUES (?, ?)").run(
-      orgId,
-      JSON.stringify(template, (_k, v) => (typeof v === "bigint" ? `bigint:${v}` : v)),
+  setPolicyTemplate(orgId: string, template: PolicyRulesTemplate, note?: string): string {
+    const version = `v${Date.now()}`;
+    const rulesJson = JSON.stringify(template, (_k, v) =>
+      typeof v === "bigint" ? `bigint:${v}` : v,
     );
+    const tx = db.transaction(() => {
+      db.prepare("INSERT OR REPLACE INTO policies (org_id, rules_json) VALUES (?, ?)").run(
+        orgId,
+        rulesJson,
+      );
+      db.prepare(
+        "INSERT INTO policy_versions (id, org_id, version, rules_json, note, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ).run(id("polver"), orgId, version, rulesJson, note ?? null, nowIso());
+    });
+    tx();
+    return version;
+  },
+
+  /** Active policy pin used by handleIntent — latest version row, else demo-v0. */
+  getPolicyVersion(orgId: string): string {
+    const r = db
+      .prepare(
+        "SELECT version FROM policy_versions WHERE org_id = ? ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(orgId) as Row | undefined;
+    return (r?.version as string | undefined) ?? "demo-v0";
+  },
+
+  listPolicyVersions(orgId: string, limit = 20): PolicyVersionRow[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM policy_versions WHERE org_id = ? ORDER BY created_at DESC LIMIT ?",
+        )
+        .all(orgId, limit) as Row[]
+    ).map((r) => ({
+      id: r.id as string,
+      orgId: r.org_id as string,
+      version: r.version as string,
+      rules: JSON.parse(r.rules_json as string, (_k, v) =>
+        typeof v === "string" && v.startsWith("bigint:") ? BigInt(v.slice(7)) : v,
+      ) as PolicyRulesTemplate,
+      createdAt: r.created_at as string,
+      note: (r.note as string | null) ?? undefined,
+    }));
+  },
+
+  setAgentProfile(agentId: string, profile: Record<string, unknown>): void {
+    db.prepare("UPDATE agents SET profile_json = ? WHERE id = ?").run(
+      JSON.stringify(profile),
+      agentId,
+    );
+  },
+
+  appendChatMessage(input: {
+    orgId: string;
+    role: ChatMessageRow["role"];
+    kind: ChatMessageRow["kind"];
+    body: string;
+    approvalId?: string;
+    meta?: Record<string, unknown>;
+  }): ChatMessageRow {
+    const row: ChatMessageRow = {
+      id: id("chat"),
+      orgId: input.orgId,
+      role: input.role,
+      kind: input.kind,
+      body: input.body,
+      approvalId: input.approvalId,
+      meta: input.meta,
+      createdAt: nowIso(),
+    };
+    db.prepare(
+      "INSERT INTO chat_messages (id, org_id, role, kind, body, approval_id, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      row.id,
+      row.orgId,
+      row.role,
+      row.kind,
+      row.body,
+      row.approvalId ?? null,
+      row.meta ? JSON.stringify(row.meta) : null,
+      row.createdAt,
+    );
+    return row;
+  },
+
+  listChatMessages(orgId: string, limit = 100): ChatMessageRow[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM chat_messages WHERE org_id = ? ORDER BY created_at ASC LIMIT ?",
+        )
+        .all(orgId, limit) as Row[]
+    ).map((r) => ({
+      id: r.id as string,
+      orgId: r.org_id as string,
+      role: r.role as ChatMessageRow["role"],
+      kind: r.kind as ChatMessageRow["kind"],
+      body: r.body as string,
+      approvalId: (r.approval_id as string | null) ?? undefined,
+      meta: r.meta_json
+        ? (JSON.parse(r.meta_json as string) as Record<string, unknown>)
+        : undefined,
+      createdAt: r.created_at as string,
+    }));
   },
 
   knownCounterparties(orgId: string): string[] {
@@ -1574,6 +1736,8 @@ export const store = {
         "decisions",
         "pay_events",
         "known_counterparties",
+        "chat_messages",
+        "policy_versions",
         "policies",
         "journals",
         "accounts",

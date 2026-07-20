@@ -1,13 +1,5 @@
-/**
- * Telegram guardian approvals: when an approval lands, DM the ops chat with
- * Approve/Deny buttons; button presses resolve the approval through the same
- * engine path as the REST route.
- *
- * Enabled when TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set (create a bot
- * with @BotFather, message it once, read the chat id from getUpdates).
- * Without them this module is a silent no-op.
- */
 import { resolveApproval } from "./engine.js";
+import { registerNotifier } from "./platform/notifier.js";
 import { store, type ApprovalRow } from "./store.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
@@ -56,6 +48,16 @@ export function notifyApprovalPending(approval: ApprovalRow): void {
       ],
     },
   }).catch((e) => console.error("telegram notify failed:", e));
+}
+
+/** Register Telegram as one channel on the shared notifier bus. */
+export function registerTelegramNotifier(): void {
+  if (!telegramEnabled) return;
+  registerNotifier("telegram", (payload) => {
+    if (payload.kind === "approval.pending") {
+      notifyApprovalPending(payload.approval);
+    }
+  });
 }
 
 interface TgUpdate {

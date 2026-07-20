@@ -16,7 +16,11 @@ export type AgentErrorCode =
   | "RECONCILE_STALE"
   | "NOT_FOUND"
   | "UNAUTHORIZED"
-  | "VALIDATION_ERROR";
+  | "VALIDATION_ERROR"
+  /** Destination failed a compliance / KYT screen. */
+  | "COMPLIANCE_BLOCKED"
+  /** Custody provider unavailable or misconfigured. */
+  | "CUSTODY_UNAVAILABLE";
 
 export type DecisionOutcome = "allow" | "deny" | "review";
 
@@ -29,6 +33,39 @@ export type IntentTool =
   | "escrow_refund"
   | "withdraw";
 
+/**
+ * Wallet scopes the platform can grow into without rewriting the ledger.
+ * Today only `org` and `agent` are wired; `department` / `shared` are reserved
+ * account-id schemes (`dept:{id}:available`, `shared:{id}:available`).
+ */
+export type WalletScope = "org" | "department" | "agent" | "shared";
+
+/** Notification channels — in-app + Telegram today; others are extension slots. */
+export type NotificationChannel =
+  | "in_app"
+  | "telegram"
+  | "email"
+  | "slack"
+  | "discord"
+  | "push"
+  | "sms"
+  | "webhook";
+
+export type WebhookEventName =
+  | "payment.succeeded"
+  | "payment.failed"
+  | "approval.pending"
+  | "approval.resolved"
+  | "policy.denied"
+  | "agent.frozen"
+  | "agent.unfrozen"
+  | "escrow.locked"
+  | "escrow.released"
+  | "escrow.refunded"
+  | "invoice.paid"
+  | "subscription.charged"
+  | "compliance.flagged";
+
 export interface MoneyIntent {
   agentId: string;
   orgId: string;
@@ -39,6 +76,19 @@ export interface MoneyIntent {
   jobId?: string;
   idempotencyKey: string;
   memo?: string;
+}
+
+/**
+ * Thin agent identity envelope. Extra fields live in `profile` so the registry
+ * can grow (reputation, groups, ownership) without schema churn on every call.
+ */
+export interface AgentIdentity {
+  id: string;
+  orgId: string;
+  name: string;
+  status: "active" | "frozen" | "archived";
+  /** Free-form profile for future: groupId, ownerGuardianId, runtime, tags. */
+  profile?: Record<string, unknown>;
 }
 
 export function parseUsdcToMicro(input: string | number): MicroUsdc {
@@ -62,4 +112,17 @@ export function formatMicroToUsdc(micro: MicroUsdc): string {
 }
 
 export const LEGAL_FOOTER =
-  "PolicyVault is software for policy-gated agent treasuries. Not a bank. Not FDIC insured. Not investment advice. Operators remain responsible for agent spend.";
+  "Artificial Banking Incorporated is software for policy-gated agent treasuries. Not a bank. Not FDIC insured. Not investment advice. Operators remain responsible for agent spend.";
+
+/** Stable account id helpers — keep every future wallet scope on this scheme. */
+export function accountId(scope: WalletScope, ownerId: string, kind: "available" | "held" = "available"): string {
+  const prefix =
+    scope === "org"
+      ? "org"
+      : scope === "agent"
+        ? "agent"
+        : scope === "department"
+          ? "dept"
+          : "shared";
+  return `${prefix}:${ownerId}:${kind}`;
+}

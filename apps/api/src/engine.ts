@@ -16,6 +16,7 @@ import {
 } from "@policyvault/ledger";
 import { evaluatePolicy, type PolicyRules } from "@policyvault/policy";
 import { payViaX402, X402Error } from "./rails/x402.js";
+import { screenDestination } from "./platform/compliance.js";
 import { store, type ApprovalRow, type EscrowRow } from "./store.js";
 import { emitEvent } from "./webhooks.js";
 
@@ -215,6 +216,34 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
   let txHash: string | undefined;
   let resource: unknown;
   const isUrl = /^https?:\/\//i.test(input.destination);
+
+  // Compliance screen — pluggable; allow-all by default.
+  const screen = await screenDestination(input.destination, {
+    orgId: input.orgId,
+    agentId: input.agentId,
+  });
+  if (!screen.ok) {
+    releaseFullHold();
+    emitEvent(input.orgId, "compliance.flagged", {
+      intentId: input.intentId,
+      agentId: input.agentId,
+      destination: input.destination,
+      reason: screen.reason,
+      provider: screen.provider,
+    });
+    return {
+      ok: false,
+      status: 403,
+      payload: {
+        intentId: input.intentId,
+        error: {
+          code: "COMPLIANCE_BLOCKED",
+          message: screen.reason ?? "Destination blocked by compliance screen",
+        },
+      },
+    };
+  }
+
   if (input.tool === "pay_api" && isUrl) {
     const privateKey = store.getVaultPrivateKey(input.orgId);
     if (!privateKey) {

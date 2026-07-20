@@ -37,8 +37,10 @@ import {
   type OrgRow,
   type RunRow,
 } from "./store.js";
-import { notifyApprovalPending, startTelegramPolling, telegramEnabled } from "./telegram.js";
+import { startTelegramPolling, telegramEnabled, registerTelegramNotifier } from "./telegram.js";
+import { notify, registerInAppNotifier } from "./platform/notifier.js";
 import { emitEvent } from "./webhooks.js";
+import { openApiDocument } from "./platform/openapi.js";
 
 const app = express();
 app.use(cors());
@@ -46,6 +48,9 @@ app.use(express.json());
 
 const PORT = Number(process.env.PORT ?? 8787);
 const STARTED_AT = Date.now();
+
+registerInAppNotifier();
+registerTelegramNotifier();
 
 // ---------------------------------------------------------------------------
 // Rate limiting: sliding window per bearer key (falls back to IP).
@@ -208,7 +213,7 @@ async function handleIntent(
       memo: input.memo,
     },
     rulesFor(input.agentId, input.orgId),
-    "demo-v0",
+    store.getPolicyVersion(input.orgId),
   );
   const intentId = id("int");
   recordDecision({
@@ -278,7 +283,7 @@ async function handleIntent(
       httpStatus: 202,
     };
     store.setIdempotent(input.orgId, idemKey, reviewPayload);
-    notifyApprovalPending(approval);
+    void notify({ kind: "approval.pending", approval });
     emitEvent(input.orgId, "approval.pending", {
       approvalId: approval.id,
       intentId,
@@ -313,10 +318,15 @@ async function handleIntent(
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
-    service: "policyvault-api",
+    service: "abi-api",
     uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
     legal: LEGAL_FOOTER,
+    telegram: telegramEnabled,
   });
+});
+
+app.get("/v1/openapi.json", (_req, res) => {
+  res.json(openApiDocument(`http://localhost:${PORT}`));
 });
 
 /**
@@ -617,6 +627,46 @@ app.post(
   guardianRoute((org, req, res) => {
     const body = z.object({ question: z.string().max(400) }).parse(req.body);
     res.json(answerQuestion(org.id, body.question));
+  }),
+);
+
+/** In-app ABI Assistant — durable chat + approval cards (Telegram is optional). */
+app.get(
+  "/v1/guardian/chat",
+  guardianRoute((org, _req, res) => {
+    res.json({ messages: store.listChatMessages(org.id) });
+  }),
+);
+
+app.post(
+  "/v1/guardian/chat",
+  guardianRoute((org, req, res) => {
+    const body = z.object({ message: z.string().min(1).max(800) }).parse(req.body);
+    store.appendChatMessage({
+      orgId: org.id,
+      role: "user",
+      kind: "text",
+      body: body.message,
+    });
+    const answer = answerQuestion(org.id, body.message);
+    const reply = store.appendChatMessage({
+      orgId: org.id,
+      role: "assistant",
+      kind: "text",
+      body: answer.answer,
+      meta: answer.goto ? { goto: answer.goto } : undefined,
+    });
+    res.json({ reply, goto: answer.goto, messages: store.listChatMessages(org.id) });
+  }),
+);
+
+app.get(
+  "/v1/guardian/policy/versions",
+  guardianRoute((org, _req, res) => {
+    res.json({
+      current: store.getPolicyVersion(org.id),
+      versions: store.listPolicyVersions(org.id).map(({ rules: _r, ...rest }) => rest),
+    });
   }),
 );
 

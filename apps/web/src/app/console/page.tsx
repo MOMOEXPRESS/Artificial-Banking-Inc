@@ -31,6 +31,7 @@ import {
   type Run,
   type Summary,
 } from "../../lib/views";
+import { ChatView } from "../../lib/chat-view";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
 const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
@@ -145,6 +146,7 @@ type Recon = { ok: boolean; accountsChecked: number; journalsReplayed: number; d
 type View =
   | "overview"
   | "playground"
+  | "chat"
   | "work"
   | "approvals"
   | "insights"
@@ -159,6 +161,7 @@ type View =
 const NAV: { key: View; label: string; icon: string }[] = [
   { key: "overview", label: "Overview", icon: "home" },
   { key: "playground", label: "Agent Playground", icon: "play" },
+  { key: "chat", label: "ABI Chat", icon: "bell" },
   { key: "work", label: "Work & deliverables", icon: "book" },
   { key: "approvals", label: "Approvals", icon: "check" },
   { key: "insights", label: "Insights", icon: "spark" },
@@ -401,7 +404,7 @@ export default function Console() {
         tone: "warn",
         title: `${agentName(a.agentId)} needs ${fmtUsd(a.amountUsdc)} approved`,
         body: `${a.destination} · ${a.reasons[0] ?? "awaiting your decision"} · expires ${relTime(a.expiresAt)}`,
-        goto: "approvals",
+        goto: "chat",
       });
     }
     for (const e of escrows.filter((x) => x.state === "locked")) {
@@ -480,11 +483,13 @@ export default function Console() {
     setBanner(alert);
     // Don't yank you off the Playground — it already shows inline Approve/Deny
     // right where you're watching the agent. Jump from anywhere else.
-    if (prefsRef.current.autoJump && viewRef.current !== "approvals" && viewRef.current !== "playground") {
-      setView("approvals");
-      setToast(`Agent parked a ${fmtUsd(a.amountUsdc)} payment — jumped you to Approvals.`, "info");
+    if (prefsRef.current.autoJump && viewRef.current !== "approvals" && viewRef.current !== "playground" && viewRef.current !== "chat") {
+      setView("chat");
+      setToast(`Agent parked a ${fmtUsd(a.amountUsdc)} payment — opened ABI Chat.`, "info");
     } else if (viewRef.current === "playground") {
       setToast(`Agent parked ${fmtUsd(a.amountUsdc)} — approve or deny it right in the timeline.`, "info");
+    } else if (viewRef.current === "chat") {
+      setToast(`New approval in chat · ${fmtUsd(a.amountUsdc)}`, "info");
     }
   }, [pending, loading, agentName, setToast]);
 
@@ -526,6 +531,7 @@ export default function Console() {
           >
             <Icon name={n.icon} />
             {n.key === "approvals" && pending.length > 0 && <span className="dot-badge" />}
+            {n.key === "chat" && pending.length > 0 && <span className="dot-badge" />}
             {n.key === "playground" && mission.running && (
               <span className="dot-badge" style={{ background: "var(--accent)" }} />
             )}
@@ -669,6 +675,16 @@ export default function Console() {
                   mission={mission}
                   setMission={setMission}
                   cancelRef={missionCancel}
+                />
+              )}
+              {view === "chat" && (
+                <ChatView
+                  gFetch={gFetch}
+                  act={act}
+                  busy={busy}
+                  pending={pending}
+                  agentName={agentName}
+                  onGoto={(v) => setView(v as View)}
                 />
               )}
               {view === "work" && (

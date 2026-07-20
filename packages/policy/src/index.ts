@@ -20,6 +20,12 @@ export interface PolicyRules {
   nowMs?: number;
   /** Distinct guardians required to release a parked payment. Default 1. */
   approvalQuorum?: number;
+  /**
+   * Optional IF/THEN automation hooks evaluated after hard caps.
+   * Kept declarative so a visual rule builder can land later without rewriting
+   * the engine — actions are limited to notify / review / deny / freeze_agent.
+   */
+  automation?: AutomationRule[];
   /** Lowercase destinations seen before (addresses/domains/vendors) */
   knownCounterparties: string[];
   /** Spent in rolling 24h window (micro) */
@@ -29,6 +35,30 @@ export interface PolicyRules {
   agentFrozen: boolean;
   orgFrozen: boolean;
 }
+
+/**
+ * Declarative automation rule. Conditions are AND-ed; first matching rule wins
+ * for side-effect actions that escalate severity (deny > review > notify).
+ */
+export interface AutomationRule {
+  id: string;
+  /** Human label for audit / UI. */
+  name: string;
+  when: AutomationCondition;
+  then: AutomationAction;
+}
+
+export type AutomationCondition =
+  | { kind: "amount_above"; micro: MicroUsdc }
+  | { kind: "balance_below"; micro: MicroUsdc; /** reserved: wallet id when multi-wallet lands */ walletId?: string }
+  | { kind: "merchant_unknown" }
+  | { kind: "budget_exceeded" };
+
+export type AutomationAction =
+  | { kind: "notify"; channel?: "in_app" | "telegram" | "email" | "slack" }
+  | { kind: "require_approval" }
+  | { kind: "deny" }
+  | { kind: "freeze_agent" };
 
 export interface PolicyDecision {
   outcome: DecisionOutcome;
@@ -250,9 +280,91 @@ export function evaluatePolicy(
     return { outcome: "review", ruleIds, reasons, policyVersion };
   }
 
+  // Optional automation hooks — evaluated after hard caps so IF/THEN never
+  // weakens a deny already decided above.
+  const auto = evaluateAutomation(intent, rules);
+  if (auto) {
+    ruleIds.push(`automation:${auto.ruleId}`);
+    reasons.push(auto.reason);
+    return { outcome: auto.outcome, ruleIds, reasons, policyVersion };
+  }
+
   ruleIds.push("default_allow");
   reasons.push("All policy checks passed");
   return { outcome: "allow", ruleIds, reasons, policyVersion };
+}
+
+function evaluateAutomation(
+  intent: MoneyIntent,
+  rules: PolicyRules,
+): { ruleId: string; reason: string; outcome: DecisionOutcome } | null {
+  const list = rules.automation ?? [];
+  let escalate: { ruleId: string; reason: string; outcome: DecisionOutcome } | null = null;
+  for (const rule of list) {
+    if (!conditionMatches(rule.when, intent, rules)) continue;
+    const next = actionToOutcome(rule);
+    if (!next) continue;
+    // freeze_agent is recorded as deny at the policy gate; the engine/API can
+    // later honour a side-effect channel. Severity: deny > review.
+    if (!escalate || severity(next.outcome) > severity(escalate.outcome)) {
+      escalate = next;
+    }
+  }
+  return escalate;
+}
+
+function severity(o: DecisionOutcome): number {
+  return o === "deny" ? 2 : o === "review" ? 1 : 0;
+}
+
+function conditionMatches(
+  when: AutomationCondition,
+  intent: MoneyIntent,
+  rules: PolicyRules,
+): boolean {
+  switch (when.kind) {
+    case "amount_above":
+      return intent.amountMicro > when.micro;
+    case "balance_below":
+      // Wallet balance is not on PolicyRules yet — reserved for multi-wallet.
+      // Treat as non-matching until the runtime injects a balance snapshot.
+      void when.walletId;
+      return false;
+    case "merchant_unknown": {
+      const key = destinationKey(intent.destination);
+      return !rules.knownCounterparties.map(norm).includes(key);
+    }
+    case "budget_exceeded":
+      return rules.spentLast24hMicro + intent.amountMicro > rules.dailyMaxMicro;
+    default:
+      return false;
+  }
+}
+
+function actionToOutcome(
+  rule: AutomationRule,
+): { ruleId: string; reason: string; outcome: DecisionOutcome } | null {
+  switch (rule.then.kind) {
+    case "deny":
+    case "freeze_agent":
+      return {
+        ruleId: rule.id,
+        reason: `Automation “${rule.name}” → ${rule.then.kind}`,
+        outcome: "deny",
+      };
+    case "require_approval":
+      return {
+        ruleId: rule.id,
+        reason: `Automation “${rule.name}” → require approval`,
+        outcome: "review",
+      };
+    case "notify":
+      // Notify-only rules do not change the money outcome; the notifier layer
+      // can subscribe to decisions with ruleIds starting with automation:.
+      return null;
+    default:
+      return null;
+  }
 }
 
 export function templateSoloSwarm(): Omit<
@@ -262,6 +374,7 @@ export function templateSoloSwarm(): Omit<
   | "paysLastMinute"
   | "agentFrozen"
   | "orgFrozen"
+  | "automation"
 > {
   return {
     // Bands must nest: allow < hitlAboveMicro <= review < perTxMaxMicro <= deny

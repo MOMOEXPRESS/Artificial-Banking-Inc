@@ -12,9 +12,10 @@ Use these three first when coding or reviewing scope:
 
 | Document | Path | Description |
 |----------|------|-------------|
-| **Validation Build Rundown** | [C:\Users\ebale\Projects\policyvault\docs\VALIDATION-BUILD-RUNDOWN.md](C:\Users\ebale\Projects\policyvault\docs\VALIDATION-BUILD-RUNDOWN.md) | Sign-off-ready MVP rundown: architecture, features, UI, agent surfaces, phases, validation checklist. **Primary build checklist.** |
-| **Full-Scale Build Plan** | [C:\Users\ebale\Projects\policyvault\docs\FULL-SCALE-BUILD-PLAN.md](C:\Users\ebale\Projects\policyvault\docs\FULL-SCALE-BUILD-PLAN.md) | Master engineering/product plan: bounded contexts, data model, money flows, SDK/MCP, roadmap, NFRs, DoD. |
-| **README** | [C:\Users\ebale\Projects\policyvault\README.md](C:\Users\ebale\Projects\policyvault\README.md) | Repo overview, monorepo map, quick start, phase map. |
+| **Platform Architecture** | [`docs/PLATFORM-ARCHITECTURE.md`](./PLATFORM-ARCHITECTURE.md) | Live extension-point map for the 13 platform pillars — **read before adding features.** |
+| **Validation Build Rundown** | [`docs/VALIDATION-BUILD-RUNDOWN.md`](./VALIDATION-BUILD-RUNDOWN.md) | Sign-off-ready MVP rundown: architecture, features, UI, agent surfaces, phases, validation checklist. |
+| **Full-Scale Build Plan** | [`docs/FULL-SCALE-BUILD-PLAN.md`](./FULL-SCALE-BUILD-PLAN.md) | Master engineering/product plan: bounded contexts, data model, money flows, SDK/MCP, roadmap, NFRs, DoD. |
+| **README** | [`README.md`](../README.md) | Repo overview, monorepo map, quick start, phase map. |
 
 ---
 

@@ -8,7 +8,15 @@ export type LedgerAccountKind =
   | "escrow"
   | "external"
   /** Nominal income account. Carries a credit (negative) balance by nature. */
-  | "revenue";
+  | "revenue"
+  /**
+   * Reserved scopes — account ids use `dept:{id}:available` / `shared:{id}:available`.
+   * Journals may already reference these kinds; allocation APIs land later.
+   */
+  | "dept_available"
+  | "dept_held"
+  | "shared_available"
+  | "shared_held";
 
 /**
  * Asset accounts can never go negative — that would be spending money you do
@@ -93,6 +101,30 @@ export function allocateStipend(args: {
     ],
   };
   return { entry, apply: (m) => applyJournal(m, entry) };
+}
+
+/**
+ * Generic treasury move between any two available accounts in the same org.
+ * Used today for org↔agent; later for dept/shared without new journal shapes.
+ */
+export function transferAvailable(args: {
+  orgId: string;
+  journalId: string;
+  fromAvailableId: string;
+  toAvailableId: string;
+  amountMicro: MicroUsdc;
+  memo?: string;
+}): JournalEntry {
+  return {
+    id: args.journalId,
+    orgId: args.orgId,
+    memo: args.memo ?? "transfer_available",
+    createdAt: new Date().toISOString(),
+    lines: [
+      { accountId: args.fromAvailableId, deltaMicro: -args.amountMicro },
+      { accountId: args.toAvailableId, deltaMicro: args.amountMicro },
+    ],
+  };
 }
 
 export function holdForPayment(args: {

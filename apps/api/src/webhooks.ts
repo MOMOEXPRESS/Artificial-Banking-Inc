@@ -19,7 +19,12 @@ export type WebhookEvent =
   | "approval.resolved"
   | "escrow.locked"
   | "escrow.released"
-  | "escrow.refunded";
+  | "escrow.refunded"
+  | "agent.frozen"
+  | "agent.unfrozen"
+  | "invoice.paid"
+  | "subscription.charged"
+  | "compliance.flagged";
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [2_000, 10_000];
