@@ -152,9 +152,13 @@ export interface SessionKeyRecord {
   createdAt: string;
 }
 
-/** True when the agent still has a usable long-lived API key. */
+/**
+ * True when the agent still has a usable long-lived API key.
+ * Accepts plaintext `pv_agent_…` (reveal-once) or hashed-at-rest `h1:…` (A13).
+ */
 export function agentApiKeyIsLive(apiKey: string): boolean {
-  return apiKey.startsWith("pv_agent_");
+  if (!apiKey || apiKey.startsWith("revoked_")) return false;
+  return apiKey.startsWith("pv_agent_") || apiKey.startsWith("h1:");
 }
 
 /** Org-level feature / plan envelope — SSO, SLA, etc. land as flags here. */

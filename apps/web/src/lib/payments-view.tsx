@@ -58,15 +58,15 @@ export function PaymentsView({
   invoices?: Invoice[];
   invStats?: InvoiceStats | null;
   escrows?: Escrow[];
-  initialTab?: "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows";
+  initialTab?: "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows" | "batch";
 }) {
   const locked = busy || readOnly;
   const [rails, setRails] = useState<Rail[]>([]);
   const [subs, setSubs] = useState<Sub[]>([]);
   const [recent, setRecent] = useState<PayRow[]>([]);
   const [tab, setTab] = useState<
-    "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows"
-  >(initialTab ?? "recent");
+    "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows" | "batch"
+  >(initialTab === "batch" ? "batch" : (initialTab ?? "recent"));
   const [form, setForm] = useState({
     agentId: "",
     vendor: "",
@@ -74,6 +74,9 @@ export function PaymentsView({
     runAt: "",
     intervalHours: "24",
   });
+  const [batchText, setBatchText] = useState(
+    "# agentId,vendor,amountUsdc\n# one payment per line, max 10\n",
+  );
 
   useEffect(() => {
     if (initialTab) setTab(initialTab);
@@ -135,6 +138,7 @@ export function PaymentsView({
               ["invoices", "Invoices"],
               ["escrows", "Escrows"],
               ["schedule", "Schedule"],
+              ["batch", "Batch"],
               ["subs", "Subscriptions"],
               ["rails", "Rails"],
             ] as const
@@ -145,6 +149,72 @@ export function PaymentsView({
           ))}
         </div>
       </div>
+
+      {tab === "batch" && (
+        <div className="card fill">
+          <div className="card-head">
+            <div>
+              <h2>Batch payments</h2>
+              <div className="sub">
+                Up to 10 one-shot schedules — each line still hits policy alone. Format:{" "}
+                <code>agentId,vendor,amountUsdc</code>
+              </div>
+            </div>
+          </div>
+          <textarea
+            value={batchText}
+            disabled={readOnly}
+            onChange={(e) => setBatchText(e.target.value)}
+            rows={8}
+            style={{ width: "100%", fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
+          />
+          <div className="row" style={{ marginTop: 12, gap: 8 }}>
+            <button
+              className="sm"
+              disabled={locked}
+              onClick={() =>
+                void act("Batch enqueue", async () => {
+                  const items = batchText
+                    .split("\n")
+                    .map((l) => l.trim())
+                    .filter((l) => l && !l.startsWith("#"))
+                    .slice(0, 10)
+                    .map((line) => {
+                      const [agentId, vendor, amountUsdc] = line.split(",").map((s) => s.trim());
+                      if (!agentId || !vendor || !amountUsdc) {
+                        throw new Error(`Bad line: ${line}`);
+                      }
+                      return { agentId, vendor, amountUsdc };
+                    });
+                  if (!items.length) throw new Error("No batch items");
+                  const res = await gFetch("/v1/guardian/payments/batch", {
+                    method: "POST",
+                    body: JSON.stringify({ items }),
+                  });
+                  const d = await res.json();
+                  if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                  await refresh();
+                  return `Enqueued ${d.created?.length ?? 0} · errors ${d.errors?.length ?? 0}`;
+                })
+              }
+            >
+              Enqueue batch
+            </button>
+            <button
+              className="sm ghost"
+              disabled={readOnly || !agents[0]}
+              onClick={() => {
+                const a = agents[0]!;
+                setBatchText(
+                  `# agentId,vendor,amountUsdc\n${a.id},https://api.example.com/v1,1.00\n`,
+                );
+              }}
+            >
+              Prefill sample
+            </button>
+          </div>
+        </div>
+      )}
 
       {tab === "invoices" && (
         <InvoicesView

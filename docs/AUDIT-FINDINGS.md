@@ -17,7 +17,7 @@ Updated during the `cursor/abi-platform-polish-1ad2` build pass.
 | A10 | Webhook SSRF denylist incomplete | med | **fixed** | Expanded IPv6/CGNAT/metadata/credentials; re-check + `redirect: "error"` on delivery |
 | A11 | Escrow state update not conditional on `locked` | low | **fixed** | `claimEscrow` CAS locked→settling before ledger; `unclaimEscrow` on failure |
 | A12 | `escrow_lock` skips compliance screen | low | **fixed** | `screenDestination` before lock; same `COMPLIANCE_BLOCKED` shape as pay |
-| A13 | Plaintext API keys in SQLite | med | deferred | Needs hash-at-rest + reveal-once redesign |
+| A13 | Plaintext API keys in SQLite | med | fixed | `h1:sha256(pepper\|\|secret)` at rest; reveal-once on create/rotate; boot rehashes legacy plaintext |
 | A14 | Prisma schema unwired vs SQLite store | med | deferred | Swap behind `store` boundary — see PLATFORM-ARCHITECTURE |
 | A15–A29 | Broader NFR/checklist items from FULL-SCALE-BUILD-PLAN | varies | tracked | Extension points landed; no silent false closes |
 

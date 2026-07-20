@@ -99,7 +99,7 @@ extension points that let each pillar grow without a rewrite.
 | ObservabilitySink | DONE | Console JSON sink at boot; `setObservabilitySink` |
 | Sink status | DONE | `GET /v1/guardian/observability` |
 | Vendor ledger | DONE | `/vendors` |
-| OTel/Prometheus backends | DEFERRED | Plug via sink interface |
+| OTel/Prometheus backends | DONE | PrometheusSink + `GET /metrics`; OTel still pluggable via sink |
 
 ---
 
@@ -112,7 +112,7 @@ extension points that let each pillar grow without a rewrite.
 | Idempotency + rate limit | DONE | Middleware on API |
 | Webhook SSRF guard | DONE | `webhook-url.ts` |
 | Audit export JSON/CSV | DONE | `GET /v1/guardian/audit/export` |
-| Key hashing at rest | DEFERRED | A13 — behind store |
+| Key hashing at rest | DONE | A13 — `h1:sha256(pepper\|\|secret)` in store; reveal-once |
 
 ---
 
@@ -168,7 +168,7 @@ extension points that let each pillar grow without a rewrite.
 | In-app chat | DONE | Default notifier → Chat |
 | Telegram | DONE | Optional polling |
 | Webhook fan-out | DONE | `registerNotifier("webhook")` |
-| Email / Slack slots | DONE | Registered log handlers (swap for SMTP/Slack API) |
+| Email / Slack slots | DONE | Resend + Slack webhook when env set; else safe log stub |
 | Discord / push / SMS | DEFERRED | Typed channels ready |
 
 ---

@@ -101,7 +101,7 @@ export function registerPlatformRoutes(
         denylistConfigured: denylist.length > 0,
         denylistCount: denylist.length,
         /** Destinations never returned — only counts, so exports stay safe. */
-        note: "Screening runs on pay + escrow_lock. Plug vendors via CompositeScreener.",
+        note: "Screening runs on pay + escrow_lock. Default EnvDenylistScreener; set ABI_COMPLIANCE_WEBHOOK_URL for HTTP vendor via CompositeScreener.",
       });
     }),
   );
@@ -114,7 +114,7 @@ export function registerPlatformRoutes(
       res.json({
         orgId: org.id,
         sink: sink.constructor.name,
-        note: "recordObs() fans into ObservabilitySink — default ConsoleJsonSink in API boot.",
+        note: "recordObs() fans into ObservabilitySink — PrometheusSink at boot; scrape GET /metrics.",
       });
     }),
   );

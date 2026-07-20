@@ -23,6 +23,7 @@ import type {
   WalletScope,
 } from "@policyvault/common";
 import { agentApiKeyIsLive } from "@policyvault/common";
+import { hashSecret, isHashedSecret, lookupHash } from "./secrets.js";
 
 export type OrgStatus = "active" | "frozen" | "archived";
 export type AgentStatus = "active" | "frozen" | "archived";
@@ -288,6 +289,30 @@ mkdirSync(dirname(DB_PATH), { recursive: true });
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
+
+/** A13 — rehash any leftover plaintext secrets once at boot. */
+function migrateSecretsAtRest(): void {
+  const rehash = (table: string, column: string, prefix: string) => {
+    const rows = db.prepare(`SELECT rowid AS rid, ${column} AS secret FROM ${table}`).all() as {
+      rid: number;
+      secret: string;
+    }[];
+    const upd = db.prepare(`UPDATE ${table} SET ${column} = ? WHERE rowid = ?`);
+    for (const row of rows) {
+      if (!row.secret || isHashedSecret(row.secret)) continue;
+      if (!row.secret.startsWith(prefix) && prefix !== "") continue;
+      upd.run(hashSecret(row.secret), row.rid);
+    }
+  };
+  try {
+    rehash("orgs", "guardian_key", "pv_guardian_");
+    rehash("agents", "api_key", "pv_agent_");
+    rehash("guardians", "guardian_key", "pv_guardian_");
+    rehash("session_keys", "token", "pv_sess_");
+  } catch (e) {
+    console.error("A13 secret migration skipped:", e);
+  }
+}
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS orgs (
@@ -632,6 +657,8 @@ CREATE INDEX IF NOT EXISTS idx_session_keys_agent ON session_keys(agent_id);
 CREATE INDEX IF NOT EXISTS idx_session_keys_token ON session_keys(token);
 `);
 
+migrateSecretsAtRest();
+
 // Seed platform USDC asset once.
 {
   const exists = db.prepare("SELECT id FROM assets WHERE id = ?").get("asset_usdc");
@@ -897,10 +924,11 @@ export const store = {
   createOrg(name: string, depositMicro: MicroUsdc): OrgRow {
     const orgId = id("org");
     const guardianKey = `pv_guardian_${randomBytes(12).toString("hex")}`;
+    const guardianKeyHash = hashSecret(guardianKey);
     const tx = db.transaction(() => {
       db.prepare(
         "INSERT INTO orgs (id, name, status, guardian_key, deposit_micro) VALUES (?, ?, 'active', ?, ?)",
-      ).run(orgId, name, guardianKey, depositMicro.toString());
+      ).run(orgId, name, guardianKeyHash, depositMicro.toString());
       // Dev custody: a real EVM keypair generated locally so x402 payments can
       // be signed. Production swaps this for CDP/TEE custody — the key must
       // never leave a signer boundary there.
@@ -945,7 +973,14 @@ export const store = {
   },
 
   findOrgByGuardianKey(key: string): OrgRow | undefined {
-    const r = db.prepare("SELECT * FROM orgs WHERE guardian_key = ?").get(key) as Row | undefined;
+    const hashed = lookupHash(key);
+    let r = db.prepare("SELECT * FROM orgs WHERE guardian_key = ?").get(hashed) as Row | undefined;
+    if (!r) {
+      r = db.prepare("SELECT * FROM orgs WHERE guardian_key = ?").get(key) as Row | undefined;
+      if (r && !isHashedSecret(String(r.guardian_key))) {
+        db.prepare("UPDATE orgs SET guardian_key = ? WHERE id = ?").run(hashed, r.id);
+      }
+    }
     return r ? rowToOrg(r) : undefined;
   },
 
@@ -957,10 +992,11 @@ export const store = {
   createAgent(orgId: string, name: string): { agentId: string; apiKey: string } {
     const agentId = id("agt");
     const apiKey = `pv_agent_${randomBytes(12).toString("hex")}`;
+    const apiKeyHash = hashSecret(apiKey);
     const tx = db.transaction(() => {
       db.prepare(
         "INSERT INTO agents (id, org_id, name, status, api_key) VALUES (?, ?, ?, 'active', ?)",
-      ).run(agentId, orgId, name, apiKey);
+      ).run(agentId, orgId, name, apiKeyHash);
       db.prepare(
         "INSERT INTO accounts (id, org_id, kind, agent_id, balance_micro) VALUES (?, ?, 'agent_available', ?, '0')",
       ).run(`agent:${agentId}:available`, orgId, agentId);
@@ -979,20 +1015,43 @@ export const store = {
 
   getAgentByKey(apiKey: string): AgentRow | undefined {
     if (!agentApiKeyIsLive(apiKey)) return undefined;
-    const r = db.prepare("SELECT * FROM agents WHERE api_key = ?").get(apiKey) as Row | undefined;
+    const hashed = lookupHash(apiKey);
+    let r = db.prepare("SELECT * FROM agents WHERE api_key = ?").get(hashed) as Row | undefined;
+    if (!r) {
+      r = db.prepare("SELECT * FROM agents WHERE api_key = ?").get(apiKey) as Row | undefined;
+      if (r && !isHashedSecret(String(r.api_key))) {
+        db.prepare("UPDATE agents SET api_key = ? WHERE id = ?").run(hashed, r.id);
+      }
+    }
     return r ? rowToAgent(r) : undefined;
   },
 
   /** Resolve a live (non-expired, non-revoked) session key to its agent. */
   getAgentBySessionToken(token: string): AgentRow | undefined {
     if (!token.startsWith("pv_sess_")) return undefined;
-    const r = db
+    const hashed = lookupHash(token);
+    let r = db
       .prepare(
         `SELECT a.* FROM session_keys s
          JOIN agents a ON a.id = s.agent_id
          WHERE s.token = ? AND s.revoked_at IS NULL AND s.expires_at > ?`,
       )
-      .get(token, nowIso()) as Row | undefined;
+      .get(hashed, nowIso()) as Row | undefined;
+    if (!r) {
+      r = db
+        .prepare(
+          `SELECT a.* FROM session_keys s
+           JOIN agents a ON a.id = s.agent_id
+           WHERE s.token = ? AND s.revoked_at IS NULL AND s.expires_at > ?`,
+        )
+        .get(token, nowIso()) as Row | undefined;
+      if (r) {
+        db.prepare("UPDATE session_keys SET token = ? WHERE token = ? AND revoked_at IS NULL").run(
+          hashed,
+          token,
+        );
+      }
+    }
     return r ? rowToAgent(r) : undefined;
   },
 
@@ -1009,7 +1068,7 @@ export const store = {
    */
   rotateAgentKey(agentId: string): string {
     const apiKey = `pv_agent_${randomBytes(12).toString("hex")}`;
-    db.prepare("UPDATE agents SET api_key = ? WHERE id = ?").run(apiKey, agentId);
+    db.prepare("UPDATE agents SET api_key = ? WHERE id = ?").run(hashSecret(apiKey), agentId);
     return apiKey;
   },
 
@@ -2068,7 +2127,7 @@ export const store = {
       row.id,
       row.orgId,
       row.agentId,
-      token,
+      hashSecret(token),
       input.label ?? null,
       JSON.stringify(scopes),
       expiresAt,
@@ -2216,17 +2275,18 @@ export const store = {
 
   // ------------------------------------------------------------- guardians
   createGuardian(orgId: string, name: string, role: GuardianRole): GuardianRow {
+    const plaintext = `pv_guardian_${randomBytes(12).toString("hex")}`;
     const row: GuardianRow = {
       id: id("gdn"),
       orgId,
       name,
       role,
-      guardianKey: `pv_guardian_${randomBytes(12).toString("hex")}`,
+      guardianKey: plaintext,
       createdAt: nowIso(),
     };
     db.prepare(
       "INSERT INTO guardians (id, org_id, name, role, guardian_key, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-    ).run(row.id, row.orgId, row.name, row.role, row.guardianKey, row.createdAt);
+    ).run(row.id, row.orgId, row.name, row.role, hashSecret(plaintext), row.createdAt);
     return row;
   },
 
@@ -2246,9 +2306,18 @@ export const store = {
 
   /** Secondary guardians authenticate here; the org's founding key is separate. */
   findGuardianByKey(key: string): GuardianRow | undefined {
-    const r = db
+    const hashed = lookupHash(key);
+    let r = db
       .prepare("SELECT * FROM guardians WHERE guardian_key = ? AND revoked_at IS NULL")
-      .get(key) as Row | undefined;
+      .get(hashed) as Row | undefined;
+    if (!r) {
+      r = db
+        .prepare("SELECT * FROM guardians WHERE guardian_key = ? AND revoked_at IS NULL")
+        .get(key) as Row | undefined;
+      if (r && !isHashedSecret(String(r.guardian_key))) {
+        db.prepare("UPDATE guardians SET guardian_key = ? WHERE id = ?").run(hashed, r.id);
+      }
+    }
     return r
       ? {
           id: r.id,

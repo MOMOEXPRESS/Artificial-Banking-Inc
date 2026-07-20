@@ -204,16 +204,21 @@ export function PolicyView({
   >([]);
   const [templates, setTemplates] = useState<{ id: string; name: string; description: string }[]>([]);
   const [currentVersion, setCurrentVersion] = useState<string>("");
+  const [quorum, setQuorum] = useState(policy.approvalQuorum ?? 1);
+  const [quorumSeats, setQuorumSeats] = useState(1);
 
   useEffect(() => {
     void (async () => {
-      const [v, t] = await Promise.all([
+      const [v, t, q] = await Promise.all([
         gFetch("/v1/guardian/policy/versions").then((r) => r.json()),
         gFetch("/v1/guardian/policy/templates").then((r) => r.json()),
+        gFetch("/v1/guardian/quorum").then((r) => r.json()),
       ]);
       setVersions(v.versions ?? []);
       setCurrentVersion(v.current ?? "");
       setTemplates(t.templates ?? []);
+      setQuorum(q.approvalQuorum ?? policy.approvalQuorum ?? 1);
+      setQuorumSeats(q.seats ?? 1);
     })();
   }, [gFetch, policy]);
 
@@ -388,6 +393,46 @@ export function PolicyView({
             </span>
           </div>
         )}
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <div>
+            <h2>Approval quorum</h2>
+            <div className="sub">
+              How many guardians must approve HITL payments · {quorumSeats} eligible seat(s). Also
+              configurable under Settings → Guardians.
+            </div>
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <input
+              type="number"
+              min={1}
+              max={5}
+              style={{ width: 64 }}
+              disabled={readOnly}
+              value={quorum}
+              onChange={(e) => setQuorum(Number(e.target.value) || 1)}
+            />
+            <button
+              className="sm"
+              disabled={locked}
+              onClick={() =>
+                void act("Set quorum", async () => {
+                  const res = await gFetch("/v1/guardian/quorum", {
+                    method: "POST",
+                    body: JSON.stringify({ approvalQuorum: quorum }),
+                  });
+                  const d = await res.json();
+                  if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                  return `Quorum set to ${d.approvalQuorum}`;
+                })
+              }
+            >
+              Save quorum
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="grid g-2">

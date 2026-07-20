@@ -93,22 +93,43 @@ export function AgentsView({
   const [sessionLabel, setSessionLabel] = useState("");
   const [revealedSession, setRevealedSession] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    const [a, g, f, s] = await Promise.all([
+  const [rosterReady, setRosterReady] = useState(false);
+  const [fundAmounts, setFundAmounts] = useState<Record<string, string>>({});
+
+  const refreshRoster = useCallback(async () => {
+    const [a, g] = await Promise.all([
       gFetch("/v1/guardian/agents").then((x) => x.json()),
       gFetch("/v1/guardian/agent-groups").then((x) => x.json()),
-      gFetch("/v1/guardian/freezes").then((x) => x.json()),
-      gFetch("/v1/guardian/session-keys").then((x) => x.json()),
     ]);
     setAgents(a.agents ?? []);
     setGroups(g.groups ?? []);
+    setRosterReady(true);
+  }, [gFetch]);
+
+  const refreshFreezes = useCallback(async () => {
+    const f = await gFetch("/v1/guardian/freezes").then((x) => x.json());
     setFreezes(f.freezes ?? []);
+  }, [gFetch]);
+
+  const refreshSessions = useCallback(async () => {
+    const s = await gFetch("/v1/guardian/session-keys").then((x) => x.json());
     setSessions(s.sessionKeys ?? []);
   }, [gFetch]);
 
+  const refresh = useCallback(async () => {
+    await refreshRoster();
+    if (tab === "freezes") await refreshFreezes();
+    if (tab === "sessions") await refreshSessions();
+  }, [refreshRoster, refreshFreezes, refreshSessions, tab]);
+
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void refreshRoster();
+  }, [refreshRoster]);
+
+  useEffect(() => {
+    if (tab === "freezes") void refreshFreezes();
+    if (tab === "sessions") void refreshSessions();
+  }, [tab, refreshFreezes, refreshSessions]);
 
   const loadDetail = useCallback(
     async (id: string) => {
@@ -594,6 +615,30 @@ export function AgentsView({
                     <div className="faint" style={{ fontSize: 12 }}>No decisions yet.</div>
                   )}
                 </div>
+
+                <div className="muted" style={{ fontSize: 12, margin: "14px 0 6px" }}>
+                  Recent runs
+                </div>
+                <div style={{ maxHeight: 140, overflow: "auto" }}>
+                  {((detail.recentRuns as { id: string; status: string; startedAt: string; title?: string }[]) ?? [])
+                    .slice(0, 8)
+                    .map((r) => (
+                      <div key={r.id} className="between" style={{ fontSize: 12, padding: "4px 0" }}>
+                        <span>
+                          <span className={`pill ${r.status === "completed" ? "ok" : r.status === "failed" ? "bad" : "warn"}`}>
+                            <i /> {r.status}
+                          </span>{" "}
+                          {r.title ?? r.id.slice(0, 12)}
+                        </span>
+                        <span className="faint mono">
+                          {r.startedAt ? new Date(r.startedAt).toLocaleString() : ""}
+                        </span>
+                      </div>
+                    ))}
+                  {!((detail.recentRuns as unknown[]) ?? []).length && (
+                    <div className="faint" style={{ fontSize: 12 }}>No runs yet — try Playground missions.</div>
+                  )}
+                </div>
               </>
             )}
           </div>
@@ -602,6 +647,9 @@ export function AgentsView({
 
       {tab === "groups" && (
         <div className="card">
+          {!rosterReady && (
+            <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>Loading roster…</div>
+          )}
           <div className="card-head">
             <div>
               <h2>Agent groups</h2>
@@ -715,19 +763,20 @@ export function AgentsView({
                           </button>
                           <button
                             className="sm"
-                            disabled={locked || !g.members.length}
+                            disabled={
+                              locked ||
+                              !g.members.length ||
+                              !Number(fundAmounts[g.id] ?? "10")
+                            }
                             onClick={() =>
                               void act("Fund desk", async () => {
-                                const each = window.prompt(
-                                  `USDC to give each of ${g.members.length} member(s)`,
-                                  "10",
-                                );
-                                if (!each?.trim()) return;
+                                const each = (fundAmounts[g.id] ?? "10").trim();
+                                if (!each) return;
                                 const res = await gFetch(
                                   `/v1/guardian/agent-groups/${g.id}/fund`,
                                   {
                                     method: "POST",
-                                    body: JSON.stringify({ amountUsdcEach: each.trim() }),
+                                    body: JSON.stringify({ amountUsdcEach: each }),
                                   },
                                 );
                                 const d = await res.json();
@@ -739,6 +788,17 @@ export function AgentsView({
                           >
                             Fund members
                           </button>
+                          <input
+                            className="sm"
+                            style={{ width: 72 }}
+                            disabled={locked || !g.members.length}
+                            value={fundAmounts[g.id] ?? "10"}
+                            onChange={(e) =>
+                              setFundAmounts((m) => ({ ...m, [g.id]: e.target.value }))
+                            }
+                            placeholder="USDC"
+                            title="USDC per member"
+                          />
                           <button
                             className="sm ghost"
                             disabled={locked}

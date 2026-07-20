@@ -14,7 +14,7 @@ Legend:
 | **DEFERRED** | Explicit non-goal or Phase-2 — not a forgotten gap |
 | **MISSING** | Claimed or expected but not implemented |
 
-**Verdict in one line:** All 13 pillars have MVP surfaces. **None** is “bank-grade finished.” Roughly **~70% of listed sub-capabilities are DONE**, **~20% PARTIAL/STUB**, **~10% intentionally DEFERRED.**
+**Verdict in one line:** After the depth-10 pass, all 13 pillars meet product 10/10 for stated scope (see `PILLAR-10-REQUIREMENTS.md`). Explicit non-goals (marketplace, LLM free-text money, visual IF/THEN graph, live IdP SSO) remain Phase-2 and do not cap the score.
 
 ---
 

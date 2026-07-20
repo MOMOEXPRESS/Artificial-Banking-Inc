@@ -88,6 +88,9 @@ export function TreasuryView({
 
   const [deptName, setDeptName] = useState("");
   const [sharedName, setSharedName] = useState("");
+  const [sharedCreateMembers, setSharedCreateMembers] = useState<string[]>([]);
+  const [sharedEditMembers, setSharedEditMembers] = useState<Record<string, string[]>>({});
+  const [rotateAgentId, setRotateAgentId] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
@@ -207,9 +210,10 @@ export function TreasuryView({
             <div>
               <h2 style={{ margin: "0 0 6px" }}>Deposit USDC</h2>
               <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
-                Today the console records a <b>mock deposit</b> into the org ledger (dev / demo).
-                When Coinbase CDP is wired, send testnet USDC to the vault address below — the
-                indexer will credit the same ledger after confirmations.
+                Today the console can record a <b>demo ledger deposit</b> (off-chain credit).
+                For go-live with CDP, fund the <b>existent vault address</b> below with USDC on{" "}
+                {wallets?.asset.chain ?? "base-sepolia"} — custody signs via that vault when{" "}
+                <code>CDP_API_KEY_*</code> is set.
               </p>
             </div>
 
@@ -391,16 +395,16 @@ export function TreasuryView({
               <div className="card-head">
                 <div>
                   <h2>Shared pools</h2>
-                  <div className="sub">Multi-agent wallets — ops float, research pool…</div>
+                  <div className="sub">Multi-agent wallets — pick members on create or edit below</div>
                 </div>
               </div>
-              <div className="row" style={{ marginBottom: 12, gap: 8 }}>
+              <div className="row" style={{ marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
                 <input
                   value={sharedName}
                   disabled={readOnly}
                   onChange={(e) => setSharedName(e.target.value)}
                   placeholder="Ops pool"
-                  style={{ flex: 1 }}
+                  style={{ flex: 1, minWidth: 120 }}
                 />
                 <button
                   className="sm"
@@ -409,41 +413,121 @@ export function TreasuryView({
                     void act("Create shared wallet", async () => {
                       const res = await gFetch("/v1/guardian/shared-wallets", {
                         method: "POST",
-                        body: JSON.stringify({ name: sharedName.trim(), memberAgentIds: [] }),
+                        body: JSON.stringify({
+                          name: sharedName.trim(),
+                          memberAgentIds: sharedCreateMembers,
+                        }),
                       });
                       const j = await res.json();
                       if (!res.ok) throw new Error(j.error?.message ?? "Failed");
                       setSharedName("");
+                      setSharedCreateMembers([]);
                       await refresh();
-                      return `Shared wallet ${j.wallet.name} created`;
+                      return `Shared wallet ${j.wallet.name} created · ${sharedCreateMembers.length} member(s)`;
                     })
                   }
                 >
                   Create
                 </button>
               </div>
+              {(wallets?.agents.length ?? 0) > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                  {wallets!.agents.map((a) => {
+                    const on = sharedCreateMembers.includes(a.id);
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        className={`sm ghost ${on ? "on" : ""}`}
+                        disabled={readOnly}
+                        onClick={() =>
+                          setSharedCreateMembers((ids) =>
+                            on ? ids.filter((x) => x !== a.id) : [...ids, a.id],
+                          )
+                        }
+                      >
+                        {on ? "✓ " : ""}
+                        {a.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               {(wallets?.shared.length ?? 0) === 0 ? (
                 <Empty icon="wallet">No shared wallets yet.</Empty>
               ) : (
-                <div className="tbl-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th className="num">Available</th>
-                        <th>Members</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {wallets!.shared.map((s) => (
-                        <tr key={s.id}>
-                          <td>{s.name}</td>
-                          <td className="num mono">{fmt(s.availableUsdc)}</td>
-                          <td className="faint">{s.memberAgentIds?.length ?? 0}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {wallets!.shared.map((s) => {
+                    const members =
+                      sharedEditMembers[s.id] ?? s.memberAgentIds ?? [];
+                    return (
+                      <div
+                        key={s.id}
+                        style={{
+                          padding: 12,
+                          border: "1px solid var(--border)",
+                          borderRadius: 8,
+                          background: "var(--surface-2)",
+                        }}
+                      >
+                        <div className="between" style={{ marginBottom: 8 }}>
+                          <b>{s.name}</b>
+                          <span className="mono">{fmt(s.availableUsdc)}</span>
+                        </div>
+                        <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>
+                          Members — toggle then Save
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                          {(wallets?.agents ?? []).map((a) => {
+                            const on = members.includes(a.id);
+                            return (
+                              <button
+                                key={a.id}
+                                type="button"
+                                className={`sm ghost ${on ? "on" : ""}`}
+                                disabled={readOnly}
+                                onClick={() =>
+                                  setSharedEditMembers((m) => {
+                                    const cur = m[s.id] ?? s.memberAgentIds ?? [];
+                                    return {
+                                      ...m,
+                                      [s.id]: on
+                                        ? cur.filter((x) => x !== a.id)
+                                        : [...cur, a.id],
+                                    };
+                                  })
+                                }
+                              >
+                                {on ? "✓ " : ""}
+                                {a.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <button
+                          className="sm"
+                          disabled={locked}
+                          onClick={() =>
+                            void act("Update shared members", async () => {
+                              const res = await gFetch(
+                                `/v1/guardian/shared-wallets/${s.id}/members`,
+                                {
+                                  method: "POST",
+                                  body: JSON.stringify({ memberAgentIds: members }),
+                                },
+                              );
+                              const j = await res.json();
+                              if (!res.ok) throw new Error(j.error?.message ?? "Failed");
+                              await refresh();
+                              return `Updated members on ${s.name}`;
+                            })
+                          }
+                        >
+                          Save members ({members.length})
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -453,7 +537,10 @@ export function TreasuryView({
             <div className="card-head">
               <div>
                 <h2>Agent wallets</h2>
-                <div className="sub">Stipends allocated from the org vault</div>
+                <div className="sub">
+                  Stipends from the org vault · asset {wallets?.asset.symbol ?? "USDC"} (
+                  {wallets?.asset.chain ?? "—"})
+                </div>
               </div>
             </div>
             <div className="tbl-wrap">
@@ -696,7 +783,7 @@ export function TreasuryView({
                 <div className="sub">Rotate vault or agent signing material · audited</div>
               </div>
             </div>
-            <div className="row" style={{ gap: 8, marginBottom: 14 }}>
+            <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
               <button
                 className="ghost sm"
                 disabled={locked}
@@ -714,6 +801,36 @@ export function TreasuryView({
                 }
               >
                 Rotate vault key
+              </button>
+              <select
+                value={rotateAgentId}
+                disabled={readOnly}
+                onChange={(e) => setRotateAgentId(e.target.value)}
+                style={{ minWidth: 140 }}
+              >
+                <option value="">Agent to rotate…</option>
+                {(wallets?.agents ?? []).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="ghost sm"
+                disabled={locked || !rotateAgentId}
+                onClick={() =>
+                  void act("Rotate agent API key", async () => {
+                    const res = await gFetch(
+                      `/v1/guardian/agents/${rotateAgentId}/rotate-key`,
+                      { method: "POST", body: "{}" },
+                    );
+                    const j = await res.json();
+                    if (!res.ok) throw new Error(j.error?.message ?? "Failed");
+                    return `New agent key (once): ${j.apiKey}`;
+                  })
+                }
+              >
+                Rotate agent key
               </button>
             </div>
             <p className="faint" style={{ fontSize: 12, lineHeight: 1.6, margin: 0 }}>

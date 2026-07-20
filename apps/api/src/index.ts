@@ -4,7 +4,7 @@ import {
   formatMicroToUsdc,
   parseUsdcToMicro,
 } from "@policyvault/common";
-import { DevLocalProvider, getCustodyProvider, setCustodyProvider } from "@policyvault/custody";
+import { DevLocalProvider, CdpVaultProvider, cdpEnvConfigured, getCustodyProvider, setCustodyProvider } from "@policyvault/custody";
 import { recogniseRevenue, transferAvailable } from "@policyvault/ledger";
 import { evaluatePolicy, matchedAutomationRules } from "@policyvault/policy";
 import cors from "cors";
@@ -42,7 +42,7 @@ import {
 import { startTelegramPolling, telegramEnabled, registerTelegramNotifier } from "./telegram.js";
 import { notify, registerInAppNotifier, registerNotifier } from "./platform/notifier.js";
 import { presentAnswer, setFactRephraser } from "./platform/ai.js";
-import { recordObs, setObservabilitySink } from "./platform/observability.js";
+import { recordObs, setObservabilitySink, PrometheusSink, getObservabilitySink } from "./platform/observability.js";
 import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./webhook-url.js";
@@ -62,32 +62,63 @@ const STARTED_AT = Date.now();
 registerInAppNotifier();
 registerTelegramNotifier();
 
-/** Structured JSON observability sink — swap for Prometheus/OTel via setObservabilitySink. */
-setObservabilitySink({
-  record(event) {
-    if (process.env.ABI_OBS_SILENT === "1") return;
-    console.log(JSON.stringify({ type: "abi.obs", ...event }));
-  },
+/** Prometheus + optional console JSON — scrape GET /metrics. */
+const promSink = new PrometheusSink({ consoleAlso: true });
+setObservabilitySink(promSink);
+
+function notifyOrgId(payload: Parameters<Parameters<typeof registerNotifier>[1]>[0]): string | undefined {
+  if (payload.kind === "approval.pending") return payload.approval.orgId;
+  if ("orgId" in payload) return payload.orgId as string;
+  return undefined;
+}
+
+function formatNotifyText(payload: Parameters<Parameters<typeof registerNotifier>[1]>[0]): string {
+  if (payload.kind === "approval.pending") {
+    return `ABI approval pending · $${payload.approval.amountUsdc} → ${payload.approval.destination}`;
+  }
+  if ("title" in payload) return `${payload.title}: ${payload.body}`;
+  return `ABI ${payload.kind}`;
+}
+
+/** Email — Resend API when RESEND_API_KEY + ABI_NOTIFY_EMAIL_TO set; else log stub. */
+registerNotifier("email", (payload) => {
+  const orgId = notifyOrgId(payload);
+  const to = process.env.ABI_NOTIFY_EMAIL_TO?.trim();
+  const resendKey = process.env.RESEND_API_KEY?.trim();
+  const text = formatNotifyText(payload);
+  if (resendKey && to) {
+    void fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        from: process.env.ABI_NOTIFY_EMAIL_FROM ?? "ABI <onboarding@resend.dev>",
+        to: [to],
+        subject: `[ABI] ${payload.kind}`,
+        text,
+      }),
+    }).catch((e) => console.error("email notify failed:", e));
+    return;
+  }
+  console.log(JSON.stringify({ type: "abi.notify.email", kind: payload.kind, orgId, stub: true }));
 });
 
-/** Email / Slack slots — log until SMTP/webhook credentials are configured. */
-registerNotifier("email", (payload) => {
-  const orgId =
-    payload.kind === "approval.pending"
-      ? payload.approval.orgId
-      : "orgId" in payload
-        ? payload.orgId
-        : undefined;
-  console.log(JSON.stringify({ type: "abi.notify.email", kind: payload.kind, orgId }));
-});
+/** Slack — incoming webhook when SLACK_WEBHOOK_URL set; else log stub. */
 registerNotifier("slack", (payload) => {
-  const orgId =
-    payload.kind === "approval.pending"
-      ? payload.approval.orgId
-      : "orgId" in payload
-        ? payload.orgId
-        : undefined;
-  console.log(JSON.stringify({ type: "abi.notify.slack", kind: payload.kind, orgId }));
+  const orgId = notifyOrgId(payload);
+  const url = process.env.SLACK_WEBHOOK_URL?.trim();
+  const text = formatNotifyText(payload);
+  if (url) {
+    void fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: `*ABI* ${text}` }),
+    }).catch((e) => console.error("slack notify failed:", e));
+    return;
+  }
+  console.log(JSON.stringify({ type: "abi.notify.slack", kind: payload.kind, orgId, stub: true }));
 });
 
 /** Optional phrasing layer — identity rephraser keeps facts intact by default. */
@@ -132,30 +163,53 @@ registerNotifier("webhook", (payload) => {
   }
 });
 
-/** Dev-local custody — swap for CDP via setCustodyProvider without touching rails. */
-setCustodyProvider(
-  new DevLocalProvider(
-    (orgId) => {
-      const privateKey = store.getVaultPrivateKey(orgId);
-      const address = store.getVaultAddress(orgId);
-      if (!privateKey || !address) return null;
-      return {
-        address: address as `0x${string}`,
-        privateKey,
-        network: "base-sepolia",
-      };
+/** Custody: CDP-backed existent vault when CDP_API_KEY_ID+SECRET set; else DevLocal. */
+{
+  const lookup = (orgId: string) => {
+    const privateKey = store.getVaultPrivateKey(orgId);
+    const address = store.getVaultAddress(orgId);
+    if (!privateKey || !address) return null;
+    return {
+      address: address as `0x${string}`,
+      privateKey,
+      network: (process.env.CHAIN === "base" ? "base" : "base-sepolia") as "base" | "base-sepolia",
+    };
+  };
+  const sign = async (
+    privateKey: `0x${string}`,
+    typedData: {
+      domain: Record<string, unknown>;
+      types: Record<string, unknown>;
+      primaryType: string;
+      message: Record<string, unknown>;
     },
-    async (privateKey, typedData) => {
-      const account = privateKeyToAccount(privateKey);
-      return account.signTypedData({
-        domain: typedData.domain as Parameters<typeof account.signTypedData>[0]["domain"],
-        types: typedData.types as Parameters<typeof account.signTypedData>[0]["types"],
-        primaryType: typedData.primaryType,
-        message: typedData.message as Parameters<typeof account.signTypedData>[0]["message"],
-      });
-    },
-  ),
-);
+  ) => {
+    const account = privateKeyToAccount(privateKey);
+    return account.signTypedData({
+      domain: typedData.domain as Parameters<typeof account.signTypedData>[0]["domain"],
+      types: typedData.types as Parameters<typeof account.signTypedData>[0]["types"],
+      primaryType: typedData.primaryType,
+      message: typedData.message as Parameters<typeof account.signTypedData>[0]["message"],
+    });
+  };
+  if (cdpEnvConfigured()) {
+    setCustodyProvider(
+      new CdpVaultProvider(lookup, sign, {
+        apiKeyId: process.env.CDP_API_KEY_ID!,
+        network: process.env.CHAIN === "base" ? "base" : "base-sepolia",
+      }),
+    );
+    console.log(
+      JSON.stringify({
+        type: "abi.custody",
+        provider: "cdp",
+        note: "Signing via existent vault; fund vaultAddress shown in Treasury → Fund",
+      }),
+    );
+  } else {
+    setCustodyProvider(new DevLocalProvider(lookup, sign));
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Rate limiting: sliding window per bearer key (falls back to IP).
@@ -164,7 +218,7 @@ setCustodyProvider(
 const RATE_LIMIT_PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN ?? 5000);
 const rateWindows = new Map<string, number[]>();
 app.use((req, res, next) => {
-  if (req.path === "/health") return next();
+  if (req.path === "/health" || req.path === "/metrics") return next();
   const key = req.header("authorization") ?? req.ip ?? "anon";
   const now = Date.now();
   const hits = (rateWindows.get(key) ?? []).filter((t) => t > now - 60_000);
@@ -554,6 +608,16 @@ app.get("/health", (_req, res) => {
     legal: LEGAL_FOOTER,
     telegram: telegramEnabled,
   });
+});
+
+/** Prometheus text exposition (Observability pillar). */
+app.get("/metrics", (_req, res) => {
+  const sink = getObservabilitySink();
+  const text =
+    typeof sink.prometheusText === "function"
+      ? sink.prometheusText()
+      : "# no prometheus sink\n";
+  res.type("text/plain; version=0.0.4; charset=utf-8").send(text);
 });
 
 app.get("/v1/openapi.json", (_req, res) => {
@@ -1331,9 +1395,10 @@ app.get(
           custodyName === "cdp" ? "onchain (cdp)" : "mock (dev facilitator / transfer-mock)",
         cdpApiKeyConfigured: cdpEnv,
         cdpWired: custodyName === "cdp",
+        keysHashedAtRest: true,
         note:
-          cdpEnv && custodyName !== "cdp"
-            ? "CDP_API_KEY_ID is set but the process still uses DevLocalProvider — swap via setCustodyProvider(CdpProvider)."
+          !cdpEnv && custodyName === "dev-local"
+            ? "Set CDP_API_KEY_ID + CDP_API_KEY_SECRET to activate cdp custody behind the existent vault address."
             : undefined,
         telegram: telegramEnabled,
         rateLimitPerMin: RATE_LIMIT_PER_MIN,

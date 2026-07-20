@@ -17,6 +17,8 @@ Use these three first when coding or reviewing scope:
 | **Console UX Audit** | [`docs/CONSOLE-UX-AUDIT.md`](./CONSOLE-UX-AUDIT.md) | UI/UX + stress probe + interactability ranking (Jul 2026). |
 | **Full System Review** | [`docs/FULL-SYSTEM-REVIEW.md`](./FULL-SYSTEM-REVIEW.md) | End-to-end action catalog, scores, pillar depth, live probe results. |
 | **Pillar Depth Audit** | [`docs/PILLAR-DEPTH-AUDIT.md`](./PILLAR-DEPTH-AUDIT.md) | Every sub-capability DONE/PARTIAL/STUB/DEFERRED + brainstorm beyond the 13 pillars. |
+| **Pillar 10/10 Requirements** | [`docs/PILLAR-10-REQUIREMENTS.md`](./PILLAR-10-REQUIREMENTS.md) | Why each pillar was &lt;10, what 10 means, status after depth pass. |
+| **Deploy** | [`docs/DEPLOY.md`](./DEPLOY.md) | Docker Compose, domain/TLS, SQLite vs Postgres, CDP go-live checklist. |
 | **Validation Build Rundown** | [`docs/VALIDATION-BUILD-RUNDOWN.md`](./VALIDATION-BUILD-RUNDOWN.md) | Sign-off-ready MVP rundown: architecture, features, UI, agent surfaces, phases, validation checklist. |
 | **Full-Scale Build Plan** | [`docs/FULL-SCALE-BUILD-PLAN.md`](./FULL-SCALE-BUILD-PLAN.md) | Master engineering/product plan: bounded contexts, data model, money flows, SDK/MCP, roadmap, NFRs, DoD. |
 | **README** | [`README.md`](../README.md) | Repo overview, monorepo map, quick start, phase map. |
