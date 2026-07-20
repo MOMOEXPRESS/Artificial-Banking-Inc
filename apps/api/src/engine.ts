@@ -1,0 +1,666 @@
+/**
+ * Money engine: policy-gated intent execution, escrow settlement, approval
+ * resolution, and background sweeps. Pure of HTTP — driven by the REST routes
+ * and by the Telegram approvals bot.
+ */
+import { randomBytes } from "node:crypto";
+import { formatMicroToUsdc, type IntentTool, type MicroUsdc } from "@policyvault/common";
+import {
+  finalizePayment,
+  holdForPayment,
+  lockEscrow,
+  refundEscrow,
+  releaseEscrow,
+  releaseHold,
+  type JournalEntry,
+} from "@policyvault/ledger";
+import { evaluatePolicy, type PolicyRules } from "@policyvault/policy";
+import { payViaX402, X402Error } from "./rails/x402.js";
+import { store, type ApprovalRow, type EscrowRow } from "./store.js";
+import { emitEvent } from "./webhooks.js";
+
+export const APPROVAL_TTL_MINUTES = Number(process.env.APPROVAL_TTL_MINUTES ?? 10);
+export const ESCROW_DEFAULT_TIMEOUT_MINUTES = Number(process.env.ESCROW_TIMEOUT_MINUTES ?? 15);
+
+export function id(prefix: string): string {
+  return `${prefix}_${randomBytes(6).toString("hex")}`;
+}
+
+export function rulesFor(agentId: string, orgId: string): PolicyRules {
+  const agent = store.getAgent(agentId)!;
+  const org = store.getOrg(orgId)!;
+  const base = store.getPolicyTemplate(orgId);
+  const orgAgentIds = store.listAgents(orgId).map((a) => a.id);
+  return {
+    ...base,
+    knownCounterparties: [
+      ...store.knownCounterparties(orgId),
+      // same-org agents are never "new counterparties" for internal moves
+      ...orgAgentIds,
+    ],
+    spentLast24hMicro: store.spentLast24h(agentId),
+    paysLastMinute: store.paysLastMinute(agentId),
+    agentFrozen: agent.status === "frozen",
+    orgFrozen: org.status === "frozen",
+  };
+}
+
+export function recordDecision(args: {
+  intentId: string;
+  orgId: string;
+  agentId: string;
+  outcome: string;
+  ruleIds: string[];
+  reasons: string[];
+  tool: string;
+  amountUsdc: string;
+  destination: string;
+}) {
+  store.addDecision({ ...args, at: new Date().toISOString() });
+}
+
+export interface ExecInput {
+  orgId: string;
+  agentId: string;
+  tool: IntentTool;
+  amountMicro: MicroUsdc;
+  amountUsdc: string;
+  destination: string;
+  intentId: string;
+  jobId?: string;
+  memo?: string;
+  /** escrow_lock only */
+  payeeAgentId?: string;
+  timeoutMinutes?: number;
+}
+
+export type ExecResult =
+  | { ok: true; payload: Record<string, unknown> }
+  | { ok: false; status: number; payload: Record<string, unknown> };
+
+/**
+ * Execute an already-allowed intent against the ledger + rail.
+ * pay_api with an http(s) destination goes through the real x402 client dance
+ * (signed by the org custody key); everything else uses the instant mock rail.
+ */
+export async function executeIntent(input: ExecInput): Promise<ExecResult> {
+  const agentAvailableId = `agent:${input.agentId}:available`;
+
+  if (input.tool === "escrow_lock") {
+    const escrowId = id("esc");
+    const escrowAccountId = `escrow:${escrowId}`;
+    try {
+      store.applyEntries(
+        input.orgId,
+        [
+          lockEscrow({
+            orgId: input.orgId,
+            journalId: `jl_${escrowId}`,
+            intentId: input.intentId,
+            payerAvailableId: agentAvailableId,
+            escrowAccountId,
+            amountMicro: input.amountMicro,
+          }),
+        ],
+        {
+          createAccounts: [
+            { id: escrowAccountId, orgId: input.orgId, kind: "escrow", balanceMicro: 0n },
+          ],
+        },
+      );
+      const timeoutMinutes = input.timeoutMinutes ?? ESCROW_DEFAULT_TIMEOUT_MINUTES;
+      const row: EscrowRow = {
+        id: escrowId,
+        orgId: input.orgId,
+        payerAgentId: input.agentId,
+        payeeAgentId: input.payeeAgentId!,
+        amountMicro: input.amountMicro,
+        state: "locked",
+        jobId: input.jobId,
+        memo: input.memo,
+        createdAt: new Date().toISOString(),
+        timeoutAt: new Date(Date.now() + timeoutMinutes * 60_000).toISOString(),
+      };
+      store.createEscrow(row);
+      store.recordPay(input.agentId, input.amountMicro);
+      emitEvent(input.orgId, "escrow.locked", {
+        escrowId,
+        payerAgentId: input.agentId,
+        payeeAgentId: input.payeeAgentId,
+        amountUsdc: input.amountUsdc,
+        jobId: input.jobId,
+      });
+      return {
+        ok: true,
+        payload: {
+          intentId: input.intentId,
+          outcome: "allow",
+          escrowId,
+          state: "locked",
+          amountUsdc: input.amountUsdc,
+          timeoutAt: row.timeoutAt,
+        },
+      };
+    } catch (e) {
+      emitEvent(input.orgId, "payment.failed", {
+        intentId: input.intentId,
+        tool: input.tool,
+        agentId: input.agentId,
+        amountUsdc: input.amountUsdc,
+        reason: String(e),
+      });
+      return {
+        ok: false,
+        status: 402,
+        payload: {
+          intentId: input.intentId,
+          error: { code: "INSUFFICIENT_STIPEND", message: String(e) },
+        },
+      };
+    }
+  }
+
+  // pay / pay_api: hold the authorized amount, run the rail, then finalize
+  // exactly what the rail charged and release any remainder back to the agent.
+  const agentHeldId = `agent:${input.agentId}:held`;
+  const externalId = `org:${input.orgId}:external`;
+
+  try {
+    store.applyEntries(input.orgId, [
+      holdForPayment({
+        orgId: input.orgId,
+        journalId: `h_${input.intentId}`,
+        intentId: input.intentId,
+        agentAvailableId,
+        agentHeldId,
+        amountMicro: input.amountMicro,
+      }),
+    ]);
+  } catch (e) {
+    emitEvent(input.orgId, "payment.failed", {
+      intentId: input.intentId,
+      tool: input.tool,
+      agentId: input.agentId,
+      amountUsdc: input.amountUsdc,
+      reason: String(e),
+    });
+    return {
+      ok: false,
+      status: 402,
+      payload: {
+        intentId: input.intentId,
+        error: { code: "INSUFFICIENT_STIPEND", message: String(e) },
+      },
+    };
+  }
+
+  const releaseFullHold = () =>
+    store.applyEntries(input.orgId, [
+      releaseHold({
+        orgId: input.orgId,
+        journalId: `r_${input.intentId}`,
+        intentId: input.intentId,
+        agentHeldId,
+        agentAvailableId,
+        amountMicro: input.amountMicro,
+      }),
+    ]);
+
+  let chargedMicro = input.amountMicro;
+  let rail = input.tool === "pay_api" ? "x402-mock" : "transfer-mock";
+  let txHash: string | undefined;
+  let resource: unknown;
+  const isUrl = /^https?:\/\//i.test(input.destination);
+  if (input.tool === "pay_api" && isUrl) {
+    const privateKey = store.getVaultPrivateKey(input.orgId);
+    if (!privateKey) {
+      releaseFullHold();
+      return {
+        ok: false,
+        status: 502,
+        payload: {
+          intentId: input.intentId,
+          error: {
+            code: "RAIL_FAILED",
+            message: "Org has no custody key (created before wallet support) — recreate org",
+          },
+        },
+      };
+    }
+    try {
+      const paid = await payViaX402({
+        url: input.destination,
+        authorizedMicro: input.amountMicro,
+        privateKey,
+        blocklist: store.getPolicyTemplate(input.orgId).blocklist,
+      });
+      if (!paid.receipt.settled) {
+        throw new X402Error(
+          "RAIL_FAILED",
+          "Seller returned the resource but reported settlement failure — not booking a payment.",
+        );
+      }
+      chargedMicro = paid.receipt.amountMicro;
+      rail = "x402";
+      txHash = paid.receipt.txHash;
+      resource = paid.resource;
+    } catch (e) {
+      releaseFullHold();
+      const code = e instanceof X402Error ? e.code : "RAIL_FAILED";
+      emitEvent(input.orgId, "payment.failed", {
+        intentId: input.intentId,
+        tool: input.tool,
+        agentId: input.agentId,
+        amountUsdc: input.amountUsdc,
+        destination: input.destination,
+        reason: String(e),
+      });
+      return {
+        ok: false,
+        status: 402,
+        payload: {
+          intentId: input.intentId,
+          error: { code, message: e instanceof Error ? e.message : String(e) },
+        },
+      };
+    }
+  }
+
+  const settleEntries: JournalEntry[] = [
+    finalizePayment({
+      orgId: input.orgId,
+      journalId: `f_${input.intentId}`,
+      intentId: input.intentId,
+      agentHeldId,
+      externalId,
+      amountMicro: chargedMicro,
+    }),
+  ];
+  if (chargedMicro < input.amountMicro) {
+    settleEntries.push(
+      releaseHold({
+        orgId: input.orgId,
+        journalId: `r_${input.intentId}`,
+        intentId: input.intentId,
+        agentHeldId,
+        agentAvailableId,
+        amountMicro: input.amountMicro - chargedMicro,
+      }),
+    );
+  }
+  try {
+    store.applyEntries(input.orgId, settleEntries);
+  } catch (e) {
+    // The rail may already have taken the money, but our books could not record
+    // it. Release the hold so the agent's balance is not frozen forever, and
+    // shout — this is a reconciliation event a human must look at.
+    console.error(
+      `SETTLEMENT FAILED intent=${input.intentId} org=${input.orgId} charged=${chargedMicro}:`,
+      e,
+    );
+    try {
+      releaseFullHold();
+    } catch (releaseErr) {
+      console.error(`HOLD ORPHANED intent=${input.intentId} — manual reconciliation required:`, releaseErr);
+    }
+    emitEvent(input.orgId, "payment.failed", {
+      intentId: input.intentId,
+      tool: input.tool,
+      agentId: input.agentId,
+      amountUsdc: input.amountUsdc,
+      reason: `settlement failed after rail succeeded: ${String(e)}`,
+      needsReconciliation: true,
+    });
+    return {
+      ok: false,
+      status: 500,
+      payload: {
+        intentId: input.intentId,
+        error: { code: "RECONCILE_STALE", message: `Settlement failed: ${String(e)}` },
+      },
+    };
+  }
+  store.recordPay(input.agentId, chargedMicro);
+  store.addKnownCounterparty(input.orgId, input.destination);
+  const payload: Record<string, unknown> = {
+    intentId: input.intentId,
+    outcome: "allow" as const,
+    receiptId: `rcpt_${input.intentId}`,
+    amountUsdc: formatMicroToUsdc(chargedMicro),
+    authorizedUsdc: input.amountUsdc,
+    rail,
+  };
+  if (txHash) payload.txHash = txHash;
+  if (resource !== undefined) payload.resource = resource;
+  emitEvent(input.orgId, "payment.succeeded", {
+    intentId: input.intentId,
+    receiptId: payload.receiptId,
+    tool: input.tool,
+    agentId: input.agentId,
+    amountUsdc: formatMicroToUsdc(chargedMicro),
+    destination: input.destination,
+    jobId: input.jobId,
+    rail,
+    txHash,
+  });
+  return { ok: true, payload };
+}
+
+// ---------------------------------------------------------------------------
+// Approval resolution (shared by REST + Telegram)
+// ---------------------------------------------------------------------------
+
+export type ApprovalResolution =
+  | { kind: "not_found" }
+  | { kind: "conflict"; approval: ApprovalRow }
+  | { kind: "expired"; approval: ApprovalRow }
+  | { kind: "frozen"; approval: ApprovalRow }
+  | { kind: "pending_quorum"; have: number; need: number; approval: ApprovalRow }
+  | { kind: "resolved"; ok: boolean; execStatus?: number; approval: ApprovalRow };
+
+export async function resolveApproval(
+  orgId: string,
+  approvalId: string,
+  approve: boolean,
+  resolvedBy: string,
+  /**
+   * Authenticated identity of the voter. Quorum counts distinct values of
+   * THIS, never the client-supplied resolvedBy label — otherwise one guardian
+   * could satisfy a 2-of-N quorum alone by sending two different names.
+   */
+  guardianId = "owner",
+): Promise<ApprovalResolution> {
+  const approval = store.getApproval(approvalId, orgId);
+  if (!approval) return { kind: "not_found" };
+  if (approval.status !== "pending") return { kind: "conflict", approval };
+  if (new Date(approval.expiresAt).getTime() < Date.now()) {
+    sweepApprovalExpiry();
+    return { kind: "expired", approval: store.getApproval(approvalId, orgId)! };
+  }
+
+  // Quorum: record this guardian's vote, and only proceed once enough distinct
+  // guardians agree. A deny from anyone kills it immediately — requiring N
+  // people to approve but only one to refuse is the safe asymmetry.
+  const quorum = Math.max(1, store.getPolicyTemplate(orgId).approvalQuorum ?? 1);
+  if (quorum > 1) {
+    store.recordVote({
+      approvalId: approval.id,
+      guardianId,
+      guardianName: resolvedBy,
+      approve,
+      at: new Date().toISOString(),
+    });
+    const votes = store.listVotes(approval.id);
+    const approvals = votes.filter((v) => v.approve).length;
+    if (approve && approvals < quorum) {
+      return {
+        kind: "pending_quorum",
+        have: approvals,
+        need: quorum,
+        approval: store.getApproval(approvalId, orgId)!,
+      };
+    }
+  }
+
+  // Claim it atomically. Without this, two guardians pressing Approve at the
+  // same instant (console + Telegram) both pass the status check above and the
+  // payment executes twice.
+  if (!store.claimApproval(approval.id)) {
+    return { kind: "conflict", approval: store.getApproval(approvalId, orgId)! };
+  }
+
+  const resolvedAt = new Date().toISOString();
+
+  if (!approve) {
+    const result = {
+      outcome: "deny",
+      error: { code: "POLICY_DENIED", message: "Denied by guardian" },
+    };
+    store.resolveApproval(approval.id, {
+      status: "denied",
+      resolvedAt,
+      resolvedBy,
+      result,
+    });
+    recordDecision({
+      intentId: approval.intentId,
+      orgId: approval.orgId,
+      agentId: approval.agentId,
+      outcome: "deny",
+      ruleIds: ["guardian_denied"],
+      reasons: [`Denied by ${resolvedBy}`],
+      tool: approval.tool,
+      amountUsdc: approval.amountUsdc,
+      destination: approval.destination,
+    });
+    store.setIdempotent(approval.orgId, approval.idempotencyKey, result);
+    emitEvent(orgId, "approval.resolved", {
+      approvalId: approval.id,
+      status: "denied",
+      resolvedBy,
+    });
+    return { kind: "resolved", ok: true, approval: store.getApproval(approvalId, orgId)! };
+  }
+
+  // Approved: re-evaluate against CURRENT rules before executing.
+  //
+  // A guardian's approval satisfies the human-in-the-loop rule — it does not
+  // waive the hard limits. Between parking and approving, the agent may have
+  // been frozen, the destination blocklisted, the caps lowered, or several
+  // other approvals may have settled and consumed the daily cap. Executing the
+  // stale decision would let a queue of individually-legal approvals blow
+  // every limit collectively.
+  const rules = rulesFor(approval.agentId, approval.orgId);
+  if (rules.agentFrozen || rules.orgFrozen) {
+    store.resolveApproval(approval.id, {
+      status: "denied",
+      resolvedAt,
+      resolvedBy,
+      result: {
+        outcome: "deny",
+        error: { code: "FROZEN", message: "Agent or org frozen since approval was requested" },
+      },
+    });
+    return { kind: "frozen", approval: store.getApproval(approvalId, orgId)! };
+  }
+
+  const recheck = evaluatePolicy(
+    {
+      agentId: approval.agentId,
+      orgId: approval.orgId,
+      tool: approval.tool as IntentTool,
+      amountMicro: approval.amountMicro,
+      destination: approval.destination,
+      jobId: approval.jobId,
+      idempotencyKey: approval.idempotencyKey,
+      memo: approval.memo,
+    },
+    // The guardian is the human-in-the-loop, so ignore the rules that exist
+    // purely to summon one. Every hard limit still applies.
+    { ...rules, hitlAboveMicro: approval.amountMicro, hitlCategories: [], quietHours: undefined },
+  );
+  if (recheck.outcome === "deny") {
+    const result = {
+      outcome: "deny",
+      error: {
+        code: "POLICY_DENIED",
+        message: `No longer permitted: ${recheck.reasons.join("; ")}`,
+      },
+    };
+    store.resolveApproval(approval.id, { status: "denied", resolvedAt, resolvedBy, result });
+    recordDecision({
+      intentId: approval.intentId,
+      orgId: approval.orgId,
+      agentId: approval.agentId,
+      outcome: "deny",
+      ruleIds: recheck.ruleIds,
+      reasons: [`Approved by ${resolvedBy} but policy now refuses: ${recheck.reasons[0]}`],
+      tool: approval.tool,
+      amountUsdc: approval.amountUsdc,
+      destination: approval.destination,
+    });
+    store.setIdempotent(approval.orgId, approval.idempotencyKey, { ...result, httpStatus: 403 });
+    emitEvent(orgId, "approval.resolved", {
+      approvalId: approval.id,
+      status: "denied",
+      resolvedBy,
+      reason: recheck.reasons[0],
+    });
+    return { kind: "resolved", ok: false, execStatus: 403, approval: store.getApproval(approvalId, orgId)! };
+  }
+  const result = await executeIntent({
+    orgId: approval.orgId,
+    agentId: approval.agentId,
+    tool: approval.tool as IntentTool,
+    amountMicro: approval.amountMicro,
+    amountUsdc: approval.amountUsdc,
+    destination: approval.destination,
+    intentId: approval.intentId,
+    jobId: approval.jobId,
+    memo: approval.memo,
+    payeeAgentId: approval.payeeAgentId,
+    timeoutMinutes: approval.timeoutMinutes,
+  });
+  store.resolveApproval(approval.id, {
+    status: result.ok ? "approved" : "denied",
+    resolvedAt,
+    resolvedBy,
+    result: result.payload,
+  });
+  recordDecision({
+    intentId: approval.intentId,
+    orgId: approval.orgId,
+    agentId: approval.agentId,
+    outcome: result.ok ? "allow" : "deny",
+    ruleIds: [result.ok ? "guardian_approved" : "execution_failed"],
+    reasons: [
+      result.ok ? `Approved by ${resolvedBy}` : `Approved by ${resolvedBy} but execution failed`,
+    ],
+    tool: approval.tool,
+    amountUsdc: approval.amountUsdc,
+    destination: approval.destination,
+  });
+  if (result.ok) {
+    store.setIdempotent(approval.orgId, approval.idempotencyKey, result.payload);
+  }
+  emitEvent(orgId, "approval.resolved", {
+    approvalId: approval.id,
+    status: result.ok ? "approved" : "denied",
+    resolvedBy,
+  });
+  return {
+    kind: "resolved",
+    ok: result.ok,
+    execStatus: result.ok ? undefined : result.status,
+    approval: store.getApproval(approvalId, orgId)!,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Escrow settlement + sweeps
+// ---------------------------------------------------------------------------
+
+export function settleEscrow(
+  escrow: EscrowRow,
+  action: "release" | "refund" | "timeout_refund",
+  actor: string,
+): ExecResult {
+  if (escrow.state !== "locked") {
+    return {
+      ok: false,
+      status: 409,
+      payload: {
+        error: { code: "VALIDATION_ERROR", message: `Escrow is ${escrow.state}` },
+      },
+    };
+  }
+  const escrowAccountId = `escrow:${escrow.id}`;
+  try {
+    let newState: EscrowRow["state"];
+    if (action === "release") {
+      store.applyEntries(escrow.orgId, [
+        releaseEscrow({
+          orgId: escrow.orgId,
+          journalId: id("j"),
+          escrowAccountId,
+          payeeAvailableId: `agent:${escrow.payeeAgentId}:available`,
+          amountMicro: escrow.amountMicro,
+        }),
+      ]);
+      newState = "released";
+    } else {
+      store.applyEntries(escrow.orgId, [
+        refundEscrow({
+          orgId: escrow.orgId,
+          journalId: id("j"),
+          escrowAccountId,
+          payerAvailableId: `agent:${escrow.payerAgentId}:available`,
+          amountMicro: escrow.amountMicro,
+          reason: action === "timeout_refund" ? "timeout_refund" : "refund",
+        }),
+      ]);
+      newState = action === "timeout_refund" ? "timeout_refunded" : "refunded";
+    }
+    store.updateEscrowState(escrow.id, newState, new Date().toISOString());
+    recordDecision({
+      intentId: id("int"),
+      orgId: escrow.orgId,
+      agentId: escrow.payerAgentId,
+      outcome: "allow",
+      ruleIds: [`escrow_${newState}`],
+      reasons: [`Escrow ${escrow.id} ${newState} by ${actor}`],
+      tool: newState === "released" ? "escrow_release" : "escrow_refund",
+      amountUsdc: formatMicroToUsdc(escrow.amountMicro),
+      destination: newState === "released" ? escrow.payeeAgentId : escrow.payerAgentId,
+    });
+    emitEvent(escrow.orgId, newState === "released" ? "escrow.released" : "escrow.refunded", {
+      escrowId: escrow.id,
+      state: newState,
+      actor,
+      amountUsdc: formatMicroToUsdc(escrow.amountMicro),
+      payerAgentId: escrow.payerAgentId,
+      payeeAgentId: escrow.payeeAgentId,
+    });
+    return { ok: true, payload: { state: newState } };
+  } catch (e) {
+    return {
+      ok: false,
+      status: 500,
+      payload: { error: { code: "RAIL_FAILED", message: String(e) } },
+    };
+  }
+}
+
+export function sweepEscrowTimeouts() {
+  for (const escrow of store.listExpiredLockedEscrows()) {
+    settleEscrow(escrow, "timeout_refund", "system:timeout");
+  }
+}
+
+export function sweepApprovalExpiry() {
+  for (const approval of store.listExpiredPendingApprovals()) {
+    store.resolveApproval(approval.id, {
+      status: "expired",
+      resolvedAt: new Date().toISOString(),
+      result: {
+        outcome: "deny",
+        error: { code: "APPROVAL_TIMEOUT", message: "Guardian did not respond in time" },
+      },
+    });
+    recordDecision({
+      intentId: approval.intentId,
+      orgId: approval.orgId,
+      agentId: approval.agentId,
+      outcome: "deny",
+      ruleIds: ["approval_timeout"],
+      reasons: ["Approval expired without guardian response"],
+      tool: approval.tool,
+      amountUsdc: approval.amountUsdc,
+      destination: approval.destination,
+    });
+    emitEvent(approval.orgId, "approval.resolved", {
+      approvalId: approval.id,
+      status: "expired",
+    });
+  }
+}

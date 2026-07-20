@@ -1,0 +1,217 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrgStatus {
+  active
+  frozen
+  archived
+}
+
+enum AgentStatus {
+  active
+  frozen
+  archived
+}
+
+enum DecisionOutcome {
+  allow
+  deny
+  review
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  denied
+  timed_out
+}
+
+enum EscrowStatus {
+  locked
+  released
+  refunded
+  disputed
+}
+
+model Org {
+  id        String    @id @default(cuid())
+  name      String
+  status    OrgStatus @default(active)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  guardians Guardian[]
+  agents    Agent[]
+  vaults    Vault[]
+  policies  Policy[]
+  intents   Intent[]
+  jobs      Job[]
+  freezes   FreezeEvent[]
+}
+
+model Guardian {
+  id         String   @id @default(cuid())
+  orgId      String
+  email      String
+  name       String?
+  telegramId String?
+  role       String   @default("owner")
+  createdAt  DateTime @default(now())
+
+  org Org @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, email])
+  @@index([orgId])
+}
+
+model Agent {
+  id           String      @id @default(cuid())
+  orgId        String
+  name         String
+  status       AgentStatus @default(active)
+  apiKeyHash   String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  org     Org      @relation(fields: [orgId], references: [id])
+  intents Intent[]
+
+  @@index([orgId])
+}
+
+model Vault {
+  id               String   @id @default(cuid())
+  orgId            String
+  chain            String   @default("base-sepolia")
+  address          String
+  custodyProvider  String   @default("mock")
+  createdAt        DateTime @default(now())
+
+  org Org @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+  @@index([address])
+}
+
+model Policy {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  createdAt DateTime @default(now())
+
+  org      Org             @relation(fields: [orgId], references: [id])
+  versions PolicyVersion[]
+
+  @@index([orgId])
+}
+
+model PolicyVersion {
+  id          String   @id @default(cuid())
+  policyId    String
+  version     String
+  rulesJson   Json
+  createdAt   DateTime @default(now())
+
+  policy Policy @relation(fields: [policyId], references: [id])
+
+  @@index([policyId])
+}
+
+model Intent {
+  id              String   @id @default(cuid())
+  orgId           String
+  agentId         String
+  tool            String
+  amountMicro     String
+  destination     String
+  jobId           String?
+  idempotencyKey  String
+  memo            String?
+  createdAt       DateTime @default(now())
+
+  org      Org       @relation(fields: [orgId], references: [id])
+  agent    Agent     @relation(fields: [agentId], references: [id])
+  decision Decision?
+
+  @@unique([orgId, idempotencyKey])
+  @@index([orgId, agentId])
+}
+
+model Decision {
+  id            String          @id @default(cuid())
+  intentId      String          @unique
+  outcome       DecisionOutcome
+  ruleIds       String[]
+  reasons       String[]
+  policyVersion String
+  createdAt     DateTime        @default(now())
+
+  intent   Intent    @relation(fields: [intentId], references: [id])
+  approval Approval?
+}
+
+model Approval {
+  id         String         @id @default(cuid())
+  decisionId String         @unique
+  status     ApprovalStatus @default(pending)
+  expiresAt  DateTime
+  resolvedAt DateTime?
+  createdAt  DateTime       @default(now())
+
+  decision Decision @relation(fields: [decisionId], references: [id])
+}
+
+model Job {
+  id              String   @id @default(cuid())
+  orgId           String
+  title           String
+  deliverableHash String?
+  createdAt       DateTime @default(now())
+
+  org    Org     @relation(fields: [orgId], references: [id])
+  escrow Escrow?
+
+  @@index([orgId])
+}
+
+model Escrow {
+  id          String       @id @default(cuid())
+  jobId       String       @unique
+  amountMicro String
+  status      EscrowStatus @default(locked)
+  timeoutAt   DateTime
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  job Job @relation(fields: [jobId], references: [id])
+}
+
+model FreezeEvent {
+  id        String   @id @default(cuid())
+  orgId     String
+  scope     String
+  targetId  String?
+  reason    String
+  actor     String
+  createdAt DateTime @default(now())
+
+  org Org @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+}
+
+model IdempotencyRecord {
+  id        String   @id @default(cuid())
+  orgId     String
+  key       String
+  response  Json
+  createdAt DateTime @default(now())
+
+  @@unique([orgId, key])
+}
