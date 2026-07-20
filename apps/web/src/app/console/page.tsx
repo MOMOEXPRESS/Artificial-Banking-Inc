@@ -36,7 +36,8 @@ import { AgentsView } from "../../lib/agents-view";
 import { PaymentsView } from "../../lib/payments-view";
 import { TreasuryView } from "../../lib/treasury-view";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+/** Empty = same-origin (Next proxies /v1 → API). Override for split-domain deploys. */
+const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
 
 /* ==================================================================== types */
