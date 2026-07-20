@@ -17,10 +17,11 @@ export class PolicyVaultApiError extends Error {
   }
 }
 
-export class PolicyVaultClient {
-  private readonly baseUrl: string;
-  private readonly apiKey: string;
-  private readonly fetchImpl: typeof fetch;
+/** Shared HTTP transport for agent + guardian SDKs. */
+class AbiHttpClient {
+  protected readonly baseUrl: string;
+  protected readonly apiKey: string;
+  protected readonly fetchImpl: typeof fetch;
 
   constructor(opts: PolicyVaultClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/$/, "");
@@ -28,7 +29,7 @@ export class PolicyVaultClient {
     this.fetchImpl = opts.fetch ?? fetch;
   }
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+  protected async request<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
@@ -49,7 +50,10 @@ export class PolicyVaultClient {
     }
     return body as T;
   }
+}
 
+/** Agent money verbs — authenticate with `pv_agent_…`. */
+export class PolicyVaultClient extends AbiHttpClient {
   getBudget() {
     return this.request<{
       availableUsdc: string;
@@ -157,6 +161,33 @@ export class PolicyVaultClient {
     }
   }
 }
+
+/** Guardian operator surface — authenticate with `pv_guardian_…`. */
+export class AbiGuardianClient extends AbiHttpClient {
+  getOrg() {
+    return this.request<{
+      org: { id: string; name: string; status: string; settings?: Record<string, unknown> };
+      agents: unknown[];
+      balances: unknown[];
+    }>("/v1/guardian/org");
+  }
+
+  getPolicy() {
+    return this.request<{ policy: Record<string, unknown> }>("/v1/guardian/policy");
+  }
+
+  listMerchants() {
+    return this.request<{ merchants: unknown[] }>("/v1/guardian/merchants");
+  }
+
+  listApprovals(status?: string) {
+    const q = status ? `?status=${encodeURIComponent(status)}` : "";
+    return this.request<{ approvals: ApprovalView[] }>(`/v1/guardian/approvals${q}`);
+  }
+}
+
+/** @deprecated Prefer PolicyVaultClient. */
+export { PolicyVaultClient as AbiAgentClient };
 
 export interface EscrowView {
   id: string;

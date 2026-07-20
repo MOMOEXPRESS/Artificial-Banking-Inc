@@ -26,6 +26,12 @@ export interface PolicyRules {
    * the engine — actions are limited to notify / review / deny / freeze_agent.
    */
   automation?: AutomationRule[];
+  /**
+   * Snapshot of the spending wallet's available balance (micro), injected by
+   * the runtime so `balance_below` automation can match without the policy
+   * package reading the ledger.
+   */
+  walletBalanceMicro?: MicroUsdc;
   /** Lowercase destinations seen before (addresses/domains/vendors) */
   knownCounterparties: string[];
   /** Spent in rolling 24h window (micro) */
@@ -332,10 +338,10 @@ function conditionMatches(
     case "amount_above":
       return intent.amountMicro > when.micro;
     case "balance_below":
-      // Wallet balance is not on PolicyRules yet — reserved for multi-wallet.
-      // Treat as non-matching until the runtime injects a balance snapshot.
+      // Runtime injects walletBalanceMicro (agent available today; walletId later).
       void when.walletId;
-      return false;
+      if (rules.walletBalanceMicro === undefined) return false;
+      return rules.walletBalanceMicro < when.micro;
     case "merchant_unknown": {
       const key = destinationKey(intent.destination);
       return !rules.knownCounterparties.map(norm).includes(key);
@@ -373,15 +379,22 @@ function actionToOutcome(
   }
 }
 
-export function templateSoloSwarm(): Omit<
+/**
+ * Persisted policy template — runtime fields (spent, frozen, counterparties,
+ * wallet balance) are injected by `rulesFor` and never stored.
+ */
+export type PolicyTemplate = Omit<
   PolicyRules,
   | "knownCounterparties"
   | "spentLast24hMicro"
   | "paysLastMinute"
   | "agentFrozen"
   | "orgFrozen"
-  | "automation"
-> {
+  | "walletBalanceMicro"
+  | "nowMs"
+>;
+
+export function templateSoloSwarm(): PolicyTemplate {
   return {
     // Bands must nest: allow < hitlAboveMicro <= review < perTxMaxMicro <= deny
     perTxMaxMicro: 25_000_000n, // $25 hard per-tx ceiling
@@ -394,5 +407,14 @@ export function templateSoloSwarm(): Omit<
     vendorAllowlist: ["api.openai.com", "data.example"],
     blocklist: [],
     hitlCategories: ["withdraw"],
+    automation: [],
   };
+}
+
+/** Rules whose `when` matches — used by the API to fire notify/freeze side-effects. */
+export function matchedAutomationRules(
+  intent: MoneyIntent,
+  rules: PolicyRules,
+): AutomationRule[] {
+  return (rules.automation ?? []).filter((rule) => conditionMatches(rule.when, intent, rules));
 }

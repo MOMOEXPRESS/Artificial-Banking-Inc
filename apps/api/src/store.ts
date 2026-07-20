@@ -12,8 +12,8 @@ import { dirname, join } from "node:path";
 import Database from "better-sqlite3";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { applyJournal, type JournalEntry, type LedgerAccount } from "@policyvault/ledger";
-import { templateSoloSwarm } from "@policyvault/policy";
-import type { MicroUsdc } from "@policyvault/common";
+import { templateSoloSwarm, type PolicyTemplate } from "@policyvault/policy";
+import type { MerchantRecord, MicroUsdc, OrgSettings } from "@policyvault/common";
 
 export type OrgStatus = "active" | "frozen" | "archived";
 export type AgentStatus = "active" | "frozen" | "archived";
@@ -25,6 +25,8 @@ export interface OrgRow {
   name: string;
   status: OrgStatus;
   guardianKey: string;
+  /** Feature / plan / SSO flags — extend without migrations per flag. */
+  settings: OrgSettings;
 }
 
 export interface AgentRow {
@@ -202,7 +204,7 @@ export interface WebhookDeliveryRow {
   deliveredAt?: string;
 }
 
-export type PolicyRulesTemplate = ReturnType<typeof templateSoloSwarm>;
+export type PolicyRulesTemplate = PolicyTemplate;
 
 export interface PolicyVersionRow {
   id: string;
@@ -457,6 +459,7 @@ for (const migration of [
   "ALTER TABLE vaults ADD COLUMN private_key TEXT",
   "ALTER TABLE orgs ADD COLUMN deposit_micro TEXT",
   "ALTER TABLE agents ADD COLUMN profile_json TEXT",
+  "ALTER TABLE orgs ADD COLUMN settings_json TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -464,6 +467,19 @@ for (const migration of [
     /* column already exists */
   }
 }
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS merchants (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  key TEXT NOT NULL,
+  label TEXT,
+  category TEXT,
+  meta_json TEXT,
+  UNIQUE(org_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_merchants_org ON merchants(org_id);
+`);
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -527,7 +543,21 @@ function cached<T>(key: string, compute: () => T): T {
 type Row = Record<string, any>;
 
 function rowToOrg(r: Row): OrgRow {
-  return { id: r.id, name: r.name, status: r.status, guardianKey: r.guardian_key };
+  let settings: OrgSettings = {};
+  if (typeof r.settings_json === "string" && r.settings_json) {
+    try {
+      settings = JSON.parse(r.settings_json) as OrgSettings;
+    } catch {
+      settings = {};
+    }
+  }
+  return {
+    id: r.id,
+    name: r.name,
+    status: r.status,
+    guardianKey: r.guardian_key,
+    settings,
+  };
 }
 
 function rowToAgent(r: Row): AgentRow {
@@ -719,7 +749,7 @@ export const store = {
       }
     });
     tx();
-    return { id: orgId, name, status: "active", guardianKey };
+    return { id: orgId, name, status: "active", guardianKey, settings: {} };
   },
 
   getOrg(orgId: string): OrgRow | undefined {
@@ -922,6 +952,78 @@ export const store = {
     );
   },
 
+  setOrgSettings(orgId: string, settings: OrgSettings): void {
+    db.prepare("UPDATE orgs SET settings_json = ? WHERE id = ?").run(
+      JSON.stringify(settings),
+      orgId,
+    );
+  },
+
+  upsertMerchant(input: {
+    orgId: string;
+    key: string;
+    label?: string;
+    category?: string;
+    meta?: Record<string, unknown>;
+  }): MerchantRecord {
+    const key = input.key.trim().toLowerCase();
+    const existing = db
+      .prepare("SELECT * FROM merchants WHERE org_id = ? AND key = ?")
+      .get(input.orgId, key) as Row | undefined;
+    if (existing) {
+      const label = input.label ?? existing.label ?? undefined;
+      const category = input.category ?? existing.category ?? undefined;
+      const meta =
+        input.meta ??
+        (existing.meta_json ? (JSON.parse(existing.meta_json as string) as Record<string, unknown>) : undefined);
+      db.prepare(
+        "UPDATE merchants SET label = ?, category = ?, meta_json = ? WHERE id = ?",
+      ).run(label ?? null, category ?? null, meta ? JSON.stringify(meta) : null, existing.id);
+      return {
+        id: existing.id as string,
+        orgId: input.orgId,
+        key,
+        label,
+        category,
+        meta,
+      };
+    }
+    const row: MerchantRecord = {
+      id: id("mer"),
+      orgId: input.orgId,
+      key,
+      label: input.label,
+      category: input.category,
+      meta: input.meta,
+    };
+    db.prepare(
+      "INSERT INTO merchants (id, org_id, key, label, category, meta_json) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(
+      row.id,
+      row.orgId,
+      row.key,
+      row.label ?? null,
+      row.category ?? null,
+      row.meta ? JSON.stringify(row.meta) : null,
+    );
+    return row;
+  },
+
+  listMerchants(orgId: string): MerchantRecord[] {
+    return (db.prepare("SELECT * FROM merchants WHERE org_id = ? ORDER BY key").all(orgId) as Row[]).map(
+      (r) => ({
+        id: r.id as string,
+        orgId: r.org_id as string,
+        key: r.key as string,
+        label: (r.label as string | null) ?? undefined,
+        category: (r.category as string | null) ?? undefined,
+        meta: r.meta_json
+          ? (JSON.parse(r.meta_json as string) as Record<string, unknown>)
+          : undefined,
+      }),
+    );
+  },
+
   appendChatMessage(input: {
     orgId: string;
     role: ChatMessageRow["role"];
@@ -983,10 +1085,17 @@ export const store = {
   },
 
   addKnownCounterparty(orgId: string, value: string): void {
-    db.prepare("INSERT OR IGNORE INTO known_counterparties (org_id, value) VALUES (?, ?)").run(
-      orgId,
-      value.toLowerCase(),
-    );
+    const v = value.trim().toLowerCase();
+    if (!v) return;
+    db.prepare(
+      "INSERT OR IGNORE INTO known_counterparties (org_id, value) VALUES (?, ?)",
+    ).run(orgId, v);
+    // Seed merchant directory metadata when first seen — label defaults to key.
+    try {
+      this.upsertMerchant({ orgId, key: v, label: value.trim() });
+    } catch {
+      /* merchants table may race on first boot; counterparty write already landed */
+    }
   },
 
   // ------------------------------------------------------------ pay events

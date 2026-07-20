@@ -162,4 +162,44 @@ describe("evaluatePolicy", () => {
     assert.equal(d.outcome, "review");
     assert.ok(d.ruleIds.includes("new_counterparty"));
   });
+
+  it("fires balance_below automation when wallet snapshot is injected", () => {
+    const d = evaluatePolicy(
+      intent({ tool: "pay_api", destination: "api.openai.com", amountMicro: 1_000_000n }),
+      {
+        ...baseRules(),
+        knownCounterparties: ["api.openai.com"],
+        walletBalanceMicro: 500_000n,
+        automation: [
+          {
+            id: "low_bal",
+            name: "Low balance deny",
+            when: { kind: "balance_below", micro: 1_000_000n },
+            then: { kind: "deny" },
+          },
+        ],
+      },
+    );
+    assert.equal(d.outcome, "deny");
+    assert.ok(d.ruleIds.some((r) => r.startsWith("automation:")));
+  });
+
+  it("ignores balance_below when no wallet snapshot is present", () => {
+    const d = evaluatePolicy(
+      intent({ tool: "pay_api", destination: "api.openai.com", amountMicro: 1_000_000n }),
+      {
+        ...baseRules(),
+        knownCounterparties: ["api.openai.com"],
+        automation: [
+          {
+            id: "low_bal",
+            name: "Low balance deny",
+            when: { kind: "balance_below", micro: 1_000_000n },
+            then: { kind: "deny" },
+          },
+        ],
+      },
+    );
+    assert.equal(d.outcome, "allow");
+  });
 });

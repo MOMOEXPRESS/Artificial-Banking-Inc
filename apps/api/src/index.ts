@@ -1,12 +1,15 @@
 import {
   LEGAL_FOOTER,
+  accountId,
   formatMicroToUsdc,
   parseUsdcToMicro,
 } from "@policyvault/common";
-import { recogniseRevenue } from "@policyvault/ledger";
-import { evaluatePolicy } from "@policyvault/policy";
+import { DevLocalProvider, setCustodyProvider } from "@policyvault/custody";
+import { recogniseRevenue, transferAvailable } from "@policyvault/ledger";
+import { evaluatePolicy, matchedAutomationRules } from "@policyvault/policy";
 import cors from "cors";
 import express from "express";
+import { privateKeyToAccount } from "viem/accounts";
 import { z } from "zod";
 import {
   APPROVAL_TTL_MINUTES,
@@ -38,7 +41,9 @@ import {
   type RunRow,
 } from "./store.js";
 import { startTelegramPolling, telegramEnabled, registerTelegramNotifier } from "./telegram.js";
-import { notify, registerInAppNotifier } from "./platform/notifier.js";
+import { notify, registerInAppNotifier, registerNotifier } from "./platform/notifier.js";
+import { presentAnswer } from "./platform/ai.js";
+import { recordObs } from "./platform/observability.js";
 import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./webhook-url.js";
@@ -52,6 +57,63 @@ const STARTED_AT = Date.now();
 
 registerInAppNotifier();
 registerTelegramNotifier();
+
+/** Webhook channel — fans notify payloads into the existing signed delivery path. */
+registerNotifier("webhook", (payload) => {
+  if (payload.kind === "approval.pending") {
+    emitEvent(payload.approval.orgId, "approval.pending", {
+      approvalId: payload.approval.id,
+      agentId: payload.approval.agentId,
+      amountUsdc: payload.approval.amountUsdc,
+      destination: payload.approval.destination,
+    });
+    return;
+  }
+  if (payload.kind === "approval.resolved") {
+    emitEvent(payload.orgId, "approval.resolved", {
+      approvalId: payload.approvalId,
+      status: payload.status,
+      resolvedBy: payload.resolvedBy,
+    });
+    return;
+  }
+  if (payload.kind === "policy.denied") {
+    emitEvent(payload.orgId, "policy.denied", { title: payload.title, body: payload.body, ...payload.meta });
+    return;
+  }
+  if (payload.kind === "agent.frozen") {
+    emitEvent(payload.orgId, "agent.frozen", { title: payload.title, body: payload.body, ...payload.meta });
+    return;
+  }
+  if (payload.kind === "compliance.flagged") {
+    emitEvent(payload.orgId, "compliance.flagged", { title: payload.title, body: payload.body, ...payload.meta });
+  }
+});
+
+/** Dev-local custody — swap for CDP via setCustodyProvider without touching rails. */
+setCustodyProvider(
+  new DevLocalProvider(
+    (orgId) => {
+      const privateKey = store.getVaultPrivateKey(orgId);
+      const address = store.getVaultAddress(orgId);
+      if (!privateKey || !address) return null;
+      return {
+        address: address as `0x${string}`,
+        privateKey,
+        network: "base-sepolia",
+      };
+    },
+    async (privateKey, typedData) => {
+      const account = privateKeyToAccount(privateKey);
+      return account.signTypedData({
+        domain: typedData.domain as Parameters<typeof account.signTypedData>[0]["domain"],
+        types: typedData.types as Parameters<typeof account.signTypedData>[0]["types"],
+        primaryType: typedData.primaryType,
+        message: typedData.message as Parameters<typeof account.signTypedData>[0]["message"],
+      });
+    },
+  ),
+);
 
 // ---------------------------------------------------------------------------
 // Rate limiting: sliding window per bearer key (falls back to IP).
@@ -109,7 +171,6 @@ function authGuardianCtx(req: express.Request): GuardianCtx | null {
   if (founder) return { org: founder, role: "owner", guardianId: "owner" };
   const invited = store.findGuardianByKey(key);
   if (!invited || invited.revokedAt) return null;
-  if (invited.role === "viewer") return null;
   const org = store.getOrg(invited.orgId);
   if (!org) return null;
   return { org, role: invited.role, guardianId: invited.id };
@@ -127,6 +188,17 @@ function guardianRoute(
   return (req, res) => {
     const ctx = authGuardianCtx(req);
     if (!ctx) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+    // Viewers may read (GET/HEAD) only — mutates require approver or owner.
+    const method = req.method.toUpperCase();
+    const isRead = method === "GET" || method === "HEAD";
+    if (ctx.role === "viewer" && !isRead) {
+      return res.status(403).json({
+        error: {
+          code: "UNAUTHORIZED",
+          message: "Viewer guardians have read-only access",
+        },
+      });
+    }
     if (opts?.ownerOnly && ctx.role !== "owner") {
       return res.status(403).json({
         error: {
@@ -172,6 +244,70 @@ function asyncRoute(
 
 function isInvalidUsdcAmount(e: unknown): boolean {
   return e instanceof Error && e.message === "INVALID_USDC_AMOUNT";
+}
+
+/** Fire notify / freeze_agent actions for matched automation rules. */
+function applyAutomationSideEffects(
+  input: Omit<ExecInput, "intentId" | "payeeAgentId" | "timeoutMinutes"> & {
+    intentId: string;
+    idempotencyKey: string;
+    decisionRuleIds: string[];
+  },
+): void {
+  const rules = rulesFor(input.agentId, input.orgId);
+  const matched = matchedAutomationRules(
+    {
+      agentId: input.agentId,
+      orgId: input.orgId,
+      tool: input.tool,
+      amountMicro: input.amountMicro,
+      destination: input.destination,
+      jobId: input.jobId,
+      idempotencyKey: input.idempotencyKey,
+      memo: input.memo,
+    },
+    rules,
+  );
+  for (const rule of matched) {
+    if (rule.then.kind === "notify") {
+      const channel = rule.then.channel;
+      void notify(
+        {
+          kind: "info",
+          orgId: input.orgId,
+          title: `Automation: ${rule.name}`,
+          body: `${input.tool} $${input.amountUsdc} → ${input.destination}`,
+          meta: { ruleId: rule.id, intentId: input.intentId, agentId: input.agentId },
+        },
+        channel ? [channel] : undefined,
+      );
+    }
+    if (
+      rule.then.kind === "freeze_agent" &&
+      input.decisionRuleIds.includes(`automation:${rule.id}`)
+    ) {
+      store.setAgentStatus(input.agentId, "frozen");
+      store.addFreeze(input.orgId, input.agentId, `automation:${rule.id}`);
+      emitEvent(input.orgId, "agent.frozen", {
+        agentId: input.agentId,
+        reason: `automation:${rule.id}`,
+        intentId: input.intentId,
+      });
+      void notify({
+        kind: "agent.frozen",
+        orgId: input.orgId,
+        title: "Agent frozen by automation",
+        body: `Rule “${rule.name}” froze agent ${input.agentId}`,
+        meta: { ruleId: rule.id, agentId: input.agentId },
+      });
+      recordObs({
+        name: "agent.frozen",
+        orgId: input.orgId,
+        agentId: input.agentId,
+        attrs: { ruleId: rule.id },
+      });
+    }
+  }
 }
 
 function approvalView(a: ApprovalRow) {
@@ -241,6 +377,21 @@ async function handleIntent(
     destination: input.destination,
   });
 
+  // Automation side-effects (notify / freeze) — money outcome already decided.
+  applyAutomationSideEffects({
+    orgId: input.orgId,
+    agentId: input.agentId,
+    intentId,
+    tool: input.tool,
+    amountMicro: input.amountMicro,
+    amountUsdc: input.amountUsdc,
+    destination: input.destination,
+    jobId: input.jobId,
+    memo: input.memo,
+    idempotencyKey: input.idempotencyKey,
+    decisionRuleIds: decision.ruleIds,
+  });
+
   if (decision.outcome === "deny") {
     const payload = {
       intentId,
@@ -257,6 +408,19 @@ async function handleIntent(
       destination: input.destination,
       ruleIds: decision.ruleIds,
       reasons: decision.reasons,
+    });
+    void notify({
+      kind: "policy.denied",
+      orgId: input.orgId,
+      title: "Policy denied",
+      body: decision.reasons.join("; "),
+      meta: { intentId, agentId: input.agentId, ruleIds: decision.ruleIds },
+    });
+    recordObs({
+      name: "policy.denied",
+      orgId: input.orgId,
+      agentId: input.agentId,
+      attrs: { ruleIds: decision.ruleIds },
     });
     return res.status(403).json(payload);
   }
@@ -418,6 +582,31 @@ app.post(
   }, { ownerOnly: true }),
 );
 
+/** Patch extensible agent profile (groups, ownership, tags — no schema churn). */
+app.patch(
+  "/v1/guardian/agents/:id/profile",
+  guardianRoute((org, req, res) => {
+    const agent = store.getAgent(req.params.id);
+    if (!agent || agent.orgId !== org.id) {
+      return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+    }
+    const body = z.object({ profile: z.record(z.unknown()) }).parse(req.body);
+    const next = { ...agent.profile, ...body.profile };
+    store.setAgentProfile(agent.id, next);
+    res.json({
+      agentId: agent.id,
+      profile: next,
+      identity: {
+        id: agent.id,
+        orgId: agent.orgId,
+        name: agent.name,
+        status: agent.status,
+        profile: next,
+      },
+    });
+  }, { ownerOnly: true }),
+);
+
 app.get(
   "/v1/guardian/org",
   guardianRoute((org, _req, res) => {
@@ -425,7 +614,7 @@ app.get(
     const agents = store.listAgents(org.id);
     const template = store.getPolicyTemplate(org.id);
     res.json({
-      org: { id: org.id, name: org.name, status: org.status },
+      org: { id: org.id, name: org.name, status: org.status, settings: org.settings },
       agents: agents.map(({ apiKey: _, ...rest }) => ({
         ...rest,
         spent24hUsdc: formatMicroToUsdc(store.spentLast24h(rest.id)),
@@ -595,6 +784,31 @@ app.get(
   }),
 );
 
+/** Merchant directory metadata layered on known counterparties. */
+app.get(
+  "/v1/guardian/merchants",
+  guardianRoute((org, _req, res) => {
+    res.json({ merchants: store.listMerchants(org.id) });
+  }),
+);
+
+app.post(
+  "/v1/guardian/merchants",
+  guardianRoute((org, req, res) => {
+    const body = z
+      .object({
+        key: z.string().min(1),
+        label: z.string().optional(),
+        category: z.string().optional(),
+        meta: z.record(z.unknown()).optional(),
+      })
+      .parse(req.body);
+    const merchant = store.upsertMerchant({ orgId: org.id, ...body });
+    store.addKnownCounterparty(org.id, body.key);
+    res.json({ merchant });
+  }, { ownerOnly: true }),
+);
+
 app.get(
   "/v1/guardian/burn",
   guardianRoute((org, _req, res) => {
@@ -650,9 +864,11 @@ app.get(
 
 app.post(
   "/v1/guardian/ask",
-  guardianRoute((org, req, res) => {
+  guardianRoute(async (org, req, res) => {
     const body = z.object({ question: z.string().max(400) }).parse(req.body);
-    res.json(answerQuestion(org.id, body.question));
+    const raw = answerQuestion(org.id, body.question);
+    const answer = await presentAnswer(body.question, raw.answer);
+    res.json({ answer, goto: raw.goto });
   }),
 );
 
@@ -666,7 +882,7 @@ app.get(
 
 app.post(
   "/v1/guardian/chat",
-  guardianRoute((org, req, res) => {
+  guardianRoute(async (org, req, res) => {
     const body = z.object({ message: z.string().min(1).max(800) }).parse(req.body);
     store.appendChatMessage({
       orgId: org.id,
@@ -674,15 +890,16 @@ app.post(
       kind: "text",
       body: body.message,
     });
-    const answer = answerQuestion(org.id, body.message);
+    const raw = answerQuestion(org.id, body.message);
+    const text = await presentAnswer(body.message, raw.answer);
     const reply = store.appendChatMessage({
       orgId: org.id,
       role: "assistant",
       kind: "text",
-      body: answer.answer,
-      meta: answer.goto ? { goto: answer.goto } : undefined,
+      body: text,
+      meta: raw.goto ? { goto: raw.goto } : undefined,
     });
-    res.json({ reply, goto: answer.goto, messages: store.listChatMessages(org.id) });
+    res.json({ reply, goto: raw.goto, messages: store.listChatMessages(org.id) });
   }),
 );
 
@@ -694,6 +911,20 @@ app.get(
       versions: store.listPolicyVersions(org.id).map(({ rules: _r, ...rest }) => rest),
     });
   }),
+);
+
+/** Restore a prior policy version as the active template (creates a new version row). */
+app.post(
+  "/v1/guardian/policy/versions/:id/restore",
+  guardianRoute((org, req, res) => {
+    const versions = store.listPolicyVersions(org.id, 100);
+    const hit = versions.find((v) => v.id === req.params.id || v.version === req.params.id);
+    if (!hit) {
+      return res.status(404).json({ error: { code: "NOT_FOUND", message: "policy version" } });
+    }
+    store.setPolicyTemplate(org.id, hit.rules, `restore:${hit.version}`);
+    res.json({ ok: true, policy: policyView(store.getPolicyTemplate(org.id)) });
+  }, { ownerOnly: true }),
 );
 
 // ---------------------------------------------------------------- invoices
@@ -899,16 +1130,14 @@ app.post(
     const amount = parseUsdcToMicro(body.amountUsdc);
     try {
       store.applyEntries(org.id, [
-        {
-          id: id("j"),
+        transferAvailable({
           orgId: org.id,
+          journalId: id("j"),
+          fromAvailableId: accountId("org", org.id),
+          toAvailableId: accountId("agent", body.agentId),
+          amountMicro: amount,
           memo: "allocate_stipend",
-          createdAt: new Date().toISOString(),
-          lines: [
-            { accountId: `org:${org.id}:available`, deltaMicro: -amount },
-            { accountId: `agent:${body.agentId}:available`, deltaMicro: amount },
-          ],
-        },
+        }),
       ]);
       res.json({ ok: true, amountUsdc: body.amountUsdc });
     } catch (e) {
@@ -955,8 +1184,8 @@ app.post(
       return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
     }
     const accounts = store.getAccountMap(org.id);
-    const available = accounts.get(`agent:${body.agentId}:available`)?.balanceMicro ?? 0n;
-    const held = accounts.get(`agent:${body.agentId}:held`)?.balanceMicro ?? 0n;
+    const available = accounts.get(accountId("agent", body.agentId))?.balanceMicro ?? 0n;
+    const held = accounts.get(accountId("agent", body.agentId, "held"))?.balanceMicro ?? 0n;
     const amount = body.amountUsdc ? parseUsdcToMicro(body.amountUsdc) : available;
 
     if (amount <= 0n) {
@@ -976,16 +1205,14 @@ app.post(
     }
 
     store.applyEntries(org.id, [
-      {
-        id: id("j"),
+      transferAvailable({
         orgId: org.id,
+        journalId: id("j"),
+        fromAvailableId: accountId("agent", body.agentId),
+        toAvailableId: accountId("org", org.id),
+        amountMicro: amount,
         memo: "reclaim_stipend",
-        createdAt: new Date().toISOString(),
-        lines: [
-          { accountId: `agent:${body.agentId}:available`, deltaMicro: -amount },
-          { accountId: `org:${org.id}:available`, deltaMicro: amount },
-        ],
-      },
+      }),
     ]);
     res.json({
       ok: true,
@@ -1021,8 +1248,8 @@ app.post(
       return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
     }
     const accounts = store.getAccountMap(org.id);
-    const available = accounts.get(`agent:${body.fromAgentId}:available`)?.balanceMicro ?? 0n;
-    const held = accounts.get(`agent:${body.fromAgentId}:held`)?.balanceMicro ?? 0n;
+    const available = accounts.get(accountId("agent", body.fromAgentId))?.balanceMicro ?? 0n;
+    const held = accounts.get(accountId("agent", body.fromAgentId, "held"))?.balanceMicro ?? 0n;
     const amount = body.amountUsdc ? parseUsdcToMicro(body.amountUsdc) : available;
 
     if (amount <= 0n) {
@@ -1042,16 +1269,14 @@ app.post(
     }
 
     store.applyEntries(org.id, [
-      {
-        id: id("j"),
+      transferAvailable({
         orgId: org.id,
+        journalId: id("j"),
+        fromAvailableId: accountId("agent", body.fromAgentId),
+        toAvailableId: accountId("agent", body.toAgentId),
+        amountMicro: amount,
         memo: "transfer_stipend",
-        createdAt: new Date().toISOString(),
-        lines: [
-          { accountId: `agent:${body.fromAgentId}:available`, deltaMicro: -amount },
-          { accountId: `agent:${body.toAgentId}:available`, deltaMicro: amount },
-        ],
-      },
+      }),
     ]);
     res.json({
       ok: true,
@@ -1077,10 +1302,25 @@ app.post(
         return res.status(404).json({ error: { code: "NOT_FOUND" } });
       }
       store.setAgentStatus(body.agentId, "frozen");
+      emitEvent(org.id, "agent.frozen", { agentId: body.agentId, reason: body.reason });
+      void notify({
+        kind: "agent.frozen",
+        orgId: org.id,
+        title: "Agent frozen",
+        body: `${agent.name} frozen — ${body.reason}`,
+        meta: { agentId: body.agentId },
+      });
     } else {
       store.setOrgStatus(org.id, "frozen");
+      void notify({
+        kind: "agent.frozen",
+        orgId: org.id,
+        title: "Organization frozen",
+        body: body.reason,
+      });
     }
     store.addFreeze(org.id, body.agentId, body.reason);
+    recordObs({ name: "freeze", orgId: org.id, agentId: body.agentId, attrs: { reason: body.reason } });
     res.json({ ok: true });
   }, { ownerOnly: true }),
 );
@@ -1095,8 +1335,10 @@ app.post(
         return res.status(404).json({ error: { code: "NOT_FOUND" } });
       }
       store.setAgentStatus(body.agentId, "active");
+      emitEvent(org.id, "agent.unfrozen", { agentId: body.agentId });
     } else {
       store.setOrgStatus(org.id, "active");
+      emitEvent(org.id, "agent.unfrozen", { org: true });
     }
     res.json({ ok: true });
   }, { ownerOnly: true }),
@@ -1161,6 +1403,14 @@ function policyView(template: ReturnType<typeof store.getPolicyTemplate>) {
     blocklist: template.blocklist,
     hitlCategories: template.hitlCategories,
     quietHours: template.quietHours ?? null,
+    approvalQuorum: template.approvalQuorum ?? 1,
+    automation: (template.automation ?? []).map((rule) => ({
+      ...rule,
+      when:
+        rule.when.kind === "amount_above" || rule.when.kind === "balance_below"
+          ? { ...rule.when, micro: rule.when.micro.toString() }
+          : rule.when,
+    })),
   };
 }
 
@@ -1207,9 +1457,39 @@ app.post(
           })
           .nullable()
           .optional(),
+        automation: z
+          .array(
+            z.object({
+              id: z.string().min(1),
+              name: z.string().min(1),
+              when: z.union([
+                z.object({ kind: z.literal("amount_above"), micro: z.union([z.string(), z.number()]) }),
+                z.object({
+                  kind: z.literal("balance_below"),
+                  micro: z.union([z.string(), z.number()]),
+                  walletId: z.string().optional(),
+                }),
+                z.object({ kind: z.literal("merchant_unknown") }),
+                z.object({ kind: z.literal("budget_exceeded") }),
+              ]),
+              then: z.union([
+                z.object({
+                  kind: z.literal("notify"),
+                  channel: z.enum(["in_app", "telegram", "email", "slack"]).optional(),
+                }),
+                z.object({ kind: z.literal("require_approval") }),
+                z.object({ kind: z.literal("deny") }),
+                z.object({ kind: z.literal("freeze_agent") }),
+              ]),
+            }),
+          )
+          .optional(),
       })
       .parse(req.body);
     const current = store.getPolicyTemplate(org.id);
+    // automation.micro fields are micro-USDC integers (string or number), not USDC decimals.
+    const parseAutomationMicro = (v: string | number) =>
+      typeof v === "number" ? BigInt(Math.trunc(v)) : BigInt(String(v).replace(/^bigint:/, ""));
     const next = {
       ...current,
       ...(body.perTxMaxUsdc !== undefined && { perTxMaxMicro: parseUsdcToMicro(body.perTxMaxUsdc) }),
@@ -1225,6 +1505,15 @@ app.post(
       ...(body.blocklist && { blocklist: body.blocklist }),
       ...(body.hitlCategories && { hitlCategories: body.hitlCategories }),
       ...(body.quietHours !== undefined && { quietHours: body.quietHours ?? undefined }),
+      ...(body.automation !== undefined && {
+        automation: body.automation.map((rule) => ({
+          ...rule,
+          when:
+            rule.when.kind === "amount_above" || rule.when.kind === "balance_below"
+              ? { ...rule.when, micro: parseAutomationMicro(rule.when.micro) }
+              : rule.when,
+        })),
+      }),
     };
     if (next.hitlAboveMicro >= next.perTxMaxMicro) {
       return res.status(400).json({

@@ -1,15 +1,29 @@
 /**
- * Minimal OpenAPI 3.1 document for the ABI HTTP surface.
- * Kept hand-authored beside the live Express routes so future SDK generators
+ * OpenAPI 3.1 document for the ABI HTTP surface.
+ * Hand-authored beside live Express routes so future SDK generators
  * (TypeScript / Python / Go / Rust) have a stable contract to target.
- * Expand fields as routes mature — do not invent endpoints that do not exist.
+ * Paths listed here must exist — do not invent endpoints.
  */
 export function openApiDocument(baseUrl = "http://localhost:8787") {
+  const bearer = (scheme: "agentBearer" | "guardianBearer") => [{ [scheme]: [] }];
+  const ok = (description: string) => ({ "200": { description } });
+  const stub = (
+    tags: string[],
+    summary: string,
+    security: "agentBearer" | "guardianBearer" | null,
+    responses: Record<string, { description: string }> = ok("OK"),
+  ) => ({
+    tags,
+    summary,
+    ...(security ? { security: bearer(security) } : {}),
+    responses,
+  });
+
   return {
     openapi: "3.1.0",
     info: {
       title: "Artificial Banking Incorporated API",
-      version: "0.1.0",
+      version: "0.2.0",
       description:
         "Financial operating system for AI agents — policy-gated payments, budgets, approvals, and audit.",
     },
@@ -20,99 +34,86 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
       { name: "platform", description: "Health, OpenAPI, demo bootstrap" },
     ],
     paths: {
-      "/health": {
-        get: {
-          tags: ["platform"],
-          summary: "Liveness",
-          responses: { "200": { description: "OK" } },
-        },
-      },
-      "/v1/openapi.json": {
-        get: {
-          tags: ["platform"],
-          summary: "OpenAPI document",
-          responses: { "200": { description: "OpenAPI 3.1 JSON" } },
-        },
-      },
-      "/v1/agent/budget": {
-        get: {
-          tags: ["agent"],
-          summary: "Agent stipend + daily remaining",
-          security: [{ agentBearer: [] }],
-          responses: { "200": { description: "Budget snapshot" } },
-        },
-      },
-      "/v1/agent/simulate": {
-        post: {
-          tags: ["agent"],
-          summary: "Dry-run policy evaluation",
-          security: [{ agentBearer: [] }],
-          responses: { "200": { description: "Policy decision" } },
-        },
-      },
+      "/health": { get: stub(["platform"], "Liveness", null) },
+      "/v1/openapi.json": { get: stub(["platform"], "OpenAPI document", null) },
+      "/v1/demo/bootstrap": { post: stub(["platform"], "Create demo org", null, { "201": { description: "Created" } }) },
+
+      "/v1/agent/budget": { get: stub(["agent"], "Agent stipend + daily remaining", "agentBearer") },
+      "/v1/agent/simulate": { post: stub(["agent"], "Dry-run policy evaluation", "agentBearer") },
       "/v1/agent/pay": {
-        post: {
-          tags: ["agent"],
-          summary: "Pay an address / vendor under policy",
-          security: [{ agentBearer: [] }],
-          responses: {
-            "200": { description: "Settled" },
-            "202": { description: "Needs approval" },
-            "403": { description: "Denied" },
-          },
-        },
+        post: stub(["agent"], "Pay an address / vendor under policy", "agentBearer", {
+          "200": { description: "Settled" },
+          "202": { description: "Needs approval" },
+          "403": { description: "Denied" },
+        }),
       },
       "/v1/agent/pay_api": {
-        post: {
-          tags: ["agent"],
-          summary: "Pay an HTTP / x402 resource under policy",
-          security: [{ agentBearer: [] }],
-          responses: {
-            "200": { description: "Settled" },
-            "202": { description: "Needs approval" },
-            "403": { description: "Denied" },
-          },
-        },
+        post: stub(["agent"], "Pay an HTTP / x402 resource under policy", "agentBearer", {
+          "200": { description: "Settled" },
+          "202": { description: "Needs approval" },
+          "403": { description: "Denied" },
+        }),
       },
-      "/v1/guardian/org": {
-        get: {
-          tags: ["guardian"],
-          summary: "Org, agents, balances",
-          security: [{ guardianBearer: [] }],
-          responses: { "200": { description: "Org view" } },
-        },
+      "/v1/agent/escrow/lock": { post: stub(["agent"], "Lock stipend into escrow", "agentBearer") },
+      "/v1/agent/escrow/{id}/release": { post: stub(["agent"], "Release escrow to payee", "agentBearer") },
+      "/v1/agent/escrow/{id}/refund": { post: stub(["agent"], "Refund escrow to payer", "agentBearer") },
+      "/v1/agent/approvals/{id}": { get: stub(["agent"], "Poll parked approval", "agentBearer") },
+
+      "/v1/guardian/org": { get: stub(["guardian"], "Org, agents, balances, settings", "guardianBearer") },
+      "/v1/guardian/agents": { post: stub(["guardian"], "Create agent", "guardianBearer", { "201": { description: "Created" } }) },
+      "/v1/guardian/agents/{id}/profile": { patch: stub(["guardian"], "Update agent profile JSON", "guardianBearer") },
+      "/v1/guardian/agents/{id}/rotate-key": { post: stub(["guardian"], "Rotate agent API key", "guardianBearer") },
+      "/v1/guardian/allocate": { post: stub(["guardian"], "Allocate stipend org→agent", "guardianBearer") },
+      "/v1/guardian/reclaim": { post: stub(["guardian"], "Reclaim stipend agent→org", "guardianBearer") },
+      "/v1/guardian/transfer": { post: stub(["guardian"], "Transfer stipend agent→agent", "guardianBearer") },
+      "/v1/guardian/freeze": { post: stub(["guardian"], "Freeze agent or org", "guardianBearer") },
+      "/v1/guardian/unfreeze": { post: stub(["guardian"], "Unfreeze agent or org", "guardianBearer") },
+      "/v1/guardian/policy": {
+        get: stub(["guardian"], "Get active policy", "guardianBearer"),
+        post: stub(["guardian"], "Update policy (incl. automation)", "guardianBearer"),
       },
+      "/v1/guardian/policy/versions": { get: stub(["guardian"], "Policy version history", "guardianBearer") },
+      "/v1/guardian/policy/versions/{id}/restore": {
+        post: stub(["guardian"], "Restore a prior policy version", "guardianBearer"),
+      },
+      "/v1/guardian/policy/simulate": { post: stub(["guardian"], "Simulate proposed rules on history", "guardianBearer") },
+      "/v1/guardian/quorum": {
+        get: stub(["guardian"], "Approval quorum settings", "guardianBearer"),
+        post: stub(["guardian"], "Set approval quorum", "guardianBearer"),
+      },
+      "/v1/guardian/approvals": { get: stub(["guardian"], "List approvals", "guardianBearer") },
+      "/v1/guardian/approvals/{id}/resolve": { post: stub(["guardian"], "Approve or deny parked payment", "guardianBearer") },
+      "/v1/guardian/activity": { get: stub(["guardian"], "Decision / audit log", "guardianBearer") },
+      "/v1/guardian/journals": { get: stub(["guardian"], "Ledger journals", "guardianBearer") },
+      "/v1/guardian/metrics": { get: stub(["guardian"], "Treasury metrics", "guardianBearer") },
+      "/v1/guardian/reconcile": { get: stub(["guardian"], "Reconciliation report", "guardianBearer") },
+      "/v1/guardian/vendors": { get: stub(["guardian"], "Vendor spend ledger", "guardianBearer") },
+      "/v1/guardian/merchants": {
+        get: stub(["guardian"], "Merchant directory", "guardianBearer"),
+        post: stub(["guardian"], "Upsert merchant metadata", "guardianBearer"),
+      },
+      "/v1/guardian/burn": { get: stub(["guardian"], "Burn-rate forecast", "guardianBearer") },
+      "/v1/guardian/anomalies": { get: stub(["guardian"], "Spend anomalies", "guardianBearer") },
+      "/v1/guardian/economics": { get: stub(["guardian"], "Job economics", "guardianBearer") },
+      "/v1/guardian/summary": { get: stub(["guardian"], "Natural-language summary facts", "guardianBearer") },
+      "/v1/guardian/ask": { post: stub(["guardian"], "Ask deterministic Q&A", "guardianBearer") },
       "/v1/guardian/chat": {
-        get: {
-          tags: ["guardian"],
-          summary: "In-app ABI Assistant transcript",
-          security: [{ guardianBearer: [] }],
-          responses: { "200": { description: "Chat messages" } },
-        },
-        post: {
-          tags: ["guardian"],
-          summary: "Ask the assistant / post a chat message",
-          security: [{ guardianBearer: [] }],
-          responses: { "200": { description: "Assistant reply" } },
-        },
+        get: stub(["guardian"], "ABI Chat transcript", "guardianBearer"),
+        post: stub(["guardian"], "Post to ABI Chat", "guardianBearer"),
       },
-      "/v1/guardian/approvals/{id}/resolve": {
-        post: {
-          tags: ["guardian"],
-          summary: "Approve or deny a parked payment",
-          security: [{ guardianBearer: [] }],
-          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-          responses: { "200": { description: "Resolved" } },
-        },
+      "/v1/guardian/webhooks": {
+        get: stub(["guardian"], "List webhooks", "guardianBearer"),
+        post: stub(["guardian"], "Register webhook", "guardianBearer"),
       },
-      "/v1/guardian/policy/versions": {
-        get: {
-          tags: ["guardian"],
-          summary: "Policy version history",
-          security: [{ guardianBearer: [] }],
-          responses: { "200": { description: "Versions newest-first" } },
-        },
+      "/v1/guardian/subscriptions": {
+        get: stub(["guardian"], "List subscriptions", "guardianBearer"),
+        post: stub(["guardian"], "Create subscription", "guardianBearer"),
       },
+      "/v1/guardian/invoices": {
+        get: stub(["guardian"], "List invoices", "guardianBearer"),
+        post: stub(["guardian"], "Create invoice", "guardianBearer"),
+      },
+      "/v1/guardian/setup": { get: stub(["guardian"], "Environment / custody setup hints", "guardianBearer") },
     },
     components: {
       securitySchemes: {
@@ -138,12 +139,18 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
       ],
       extensionPoints: {
         custody: "@policyvault/custody CustodyProvider",
+        rails: "apps/api/src/rails/types.ts PaymentRail",
         notifier: "apps/api/src/platform/notifier.ts",
-        compliance: "apps/api/src/platform/compliance.ts",
-        rails: "apps/api/src/rails/*",
-        automation: "PolicyRules.automation",
-        wallets: "WalletScope + LedgerAccountKind dept_/shared_",
+        compliance: "apps/api/src/platform/compliance.ts CompositeScreener",
+        automation: "PolicyRules.automation + matchedAutomationRules",
+        wallets: "WalletScope + accountId() + transferAvailable()",
+        observability: "apps/api/src/platform/observability.ts ObservabilitySink",
+        ai: "apps/api/src/platform/ai.ts FactRephraser",
+        merchants: "MerchantRecord / GET|POST /v1/guardian/merchants",
+        orgSettings: "OrgRow.settings JSON",
       },
+      moneySpine:
+        "handleIntent → evaluatePolicy → executeIntent → PaymentRail.settle → ledger finalize",
     },
   };
 }

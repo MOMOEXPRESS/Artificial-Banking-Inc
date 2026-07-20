@@ -4,7 +4,7 @@
  * and by the Telegram approvals bot.
  */
 import { randomBytes } from "node:crypto";
-import { formatMicroToUsdc, type IntentTool, type MicroUsdc } from "@policyvault/common";
+import { accountId, formatMicroToUsdc, type IntentTool, type MicroUsdc } from "@policyvault/common";
 import {
   finalizePayment,
   holdForPayment,
@@ -15,13 +15,19 @@ import {
   type JournalEntry,
 } from "@policyvault/ledger";
 import { evaluatePolicy, type PolicyRules } from "@policyvault/policy";
-import { payViaX402, X402Error } from "./rails/x402.js";
+import { X402Error, X402Rail } from "./rails/x402.js";
+import { TransferMockRail } from "./rails/transfer-mock.js";
+import type { PaymentRail } from "./rails/types.js";
 import { screenDestination } from "./platform/compliance.js";
+import { recordObs } from "./platform/observability.js";
 import { store, type ApprovalRow, type EscrowRow } from "./store.js";
 import { emitEvent } from "./webhooks.js";
 
 export const APPROVAL_TTL_MINUTES = Number(process.env.APPROVAL_TTL_MINUTES ?? 10);
 export const ESCROW_DEFAULT_TIMEOUT_MINUTES = Number(process.env.ESCROW_TIMEOUT_MINUTES ?? 15);
+
+const x402Rail: PaymentRail = new X402Rail();
+const transferMockRail: PaymentRail = new TransferMockRail();
 
 export function id(prefix: string): string {
   return `${prefix}_${randomBytes(6).toString("hex")}`;
@@ -36,6 +42,7 @@ export function rulesFor(agentId: string, orgId: string): PolicyRules {
   const org = store.getOrg(orgId)!;
   const base = store.getPolicyTemplate(orgId);
   const orgAgentIds = store.listAgents(orgId).map((a) => a.id);
+  const availableId = accountId("agent", agentId, "available");
   return {
     ...base,
     knownCounterparties: [
@@ -47,6 +54,7 @@ export function rulesFor(agentId: string, orgId: string): PolicyRules {
     paysLastMinute: store.paysLastMinute(agentId),
     agentFrozen: agent.status === "frozen",
     orgFrozen: org.status === "frozen",
+    walletBalanceMicro: store.getAccountMap(orgId).get(availableId)?.balanceMicro ?? 0n,
   };
 }
 
@@ -89,7 +97,9 @@ export type ExecResult =
  * (signed by the org custody key); everything else uses the instant mock rail.
  */
 export async function executeIntent(input: ExecInput): Promise<ExecResult> {
-  const agentAvailableId = `agent:${input.agentId}:available`;
+  const agentAvailableId = accountId("agent", input.agentId, "available");
+  const agentHeldId = accountId("agent", input.agentId, "held");
+  const externalId = `org:${input.orgId}:external`;
 
   if (input.tool === "escrow_lock") {
     const destination = input.destination || input.payeeAgentId || "";
@@ -194,8 +204,6 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
 
   // pay / pay_api: hold the authorized amount, run the rail, then finalize
   // exactly what the rail charged and release any remainder back to the agent.
-  const agentHeldId = `agent:${input.agentId}:held`;
-  const externalId = `org:${input.orgId}:external`;
 
   try {
     store.applyEntries(input.orgId, [
@@ -239,7 +247,7 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     ]);
 
   let chargedMicro = input.amountMicro;
-  let rail = input.tool === "pay_api" ? "x402-mock" : "transfer-mock";
+  let rail = transferMockRail.name;
   let txHash: string | undefined;
   let resource: unknown;
   const isUrl = /^https?:\/\//i.test(input.destination);
@@ -258,6 +266,12 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       reason: screen.reason,
       provider: screen.provider,
     });
+    recordObs({
+      name: "compliance.flagged",
+      orgId: input.orgId,
+      agentId: input.agentId,
+      attrs: { destination: input.destination, reason: screen.reason },
+    });
     return {
       ok: false,
       status: 403,
@@ -271,59 +285,52 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     };
   }
 
-  if (input.tool === "pay_api" && isUrl) {
-    const privateKey = store.getVaultPrivateKey(input.orgId);
-    if (!privateKey) {
-      releaseFullHold();
-      return {
-        ok: false,
-        status: 502,
-        payload: {
-          intentId: input.intentId,
-          error: {
-            code: "RAIL_FAILED",
-            message: "Org has no custody key (created before wallet support) — recreate org",
-          },
-        },
-      };
+  const selectedRail: PaymentRail =
+    input.tool === "pay_api" && isUrl ? x402Rail : transferMockRail;
+
+  try {
+    const settled = await selectedRail.settle({
+      orgId: input.orgId,
+      agentId: input.agentId,
+      intentId: input.intentId,
+      destination: input.destination,
+      authorizedMicro: input.amountMicro,
+      blocklist: store.getPolicyTemplate(input.orgId).blocklist,
+    });
+    if (!settled.settled) {
+      throw new X402Error(
+        "RAIL_FAILED",
+        "Rail reported settlement failure — not booking a payment.",
+      );
     }
-    try {
-      const paid = await payViaX402({
-        url: input.destination,
-        authorizedMicro: input.amountMicro,
-        privateKey,
-        blocklist: store.getPolicyTemplate(input.orgId).blocklist,
-      });
-      if (!paid.receipt.settled) {
-        throw new X402Error(
-          "RAIL_FAILED",
-          "Seller returned the resource but reported settlement failure — not booking a payment.",
-        );
-      }
-      chargedMicro = paid.receipt.amountMicro;
-      rail = "x402";
-      txHash = paid.receipt.txHash;
-      resource = paid.resource;
-    } catch (e) {
-      releaseFullHold();
-      const code = e instanceof X402Error ? e.code : "RAIL_FAILED";
-      emitEvent(input.orgId, "payment.failed", {
+    chargedMicro = settled.chargedMicro;
+    rail = settled.rail;
+    txHash = settled.txHash;
+    resource = settled.resource;
+  } catch (e) {
+    releaseFullHold();
+    const code =
+      e instanceof X402Error
+        ? e.code === "CUSTODY_UNAVAILABLE"
+          ? "CUSTODY_UNAVAILABLE"
+          : e.code
+        : "RAIL_FAILED";
+    emitEvent(input.orgId, "payment.failed", {
+      intentId: input.intentId,
+      tool: input.tool,
+      agentId: input.agentId,
+      amountUsdc: input.amountUsdc,
+      destination: input.destination,
+      reason: String(e),
+    });
+    return {
+      ok: false,
+      status: code === "CUSTODY_UNAVAILABLE" ? 502 : 402,
+      payload: {
         intentId: input.intentId,
-        tool: input.tool,
-        agentId: input.agentId,
-        amountUsdc: input.amountUsdc,
-        destination: input.destination,
-        reason: String(e),
-      });
-      return {
-        ok: false,
-        status: 402,
-        payload: {
-          intentId: input.intentId,
-          error: { code, message: e instanceof Error ? e.message : String(e) },
-        },
-      };
-    }
+        error: { code, message: e instanceof Error ? e.message : String(e) },
+      },
+    };
   }
 
   const settleEntries: JournalEntry[] = [

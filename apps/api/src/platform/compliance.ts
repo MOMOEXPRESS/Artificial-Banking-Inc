@@ -71,3 +71,22 @@ export async function screenDestination(
 ): Promise<ScreenResult> {
   return screener.screenDestination(destination, ctx);
 }
+
+/** Run multiple screeners in order — first failure wins. */
+export class CompositeScreener implements ComplianceScreener {
+  readonly name: string;
+  constructor(private readonly screeners: ComplianceScreener[]) {
+    this.name = `composite(${screeners.map((s) => s.name).join("+")})`;
+  }
+
+  async screenDestination(
+    destination: string,
+    ctx: { orgId: string; agentId: string },
+  ): Promise<ScreenResult> {
+    for (const s of this.screeners) {
+      const result = await s.screenDestination(destination, ctx);
+      if (!result.ok) return result;
+    }
+    return { ok: true };
+  }
+}

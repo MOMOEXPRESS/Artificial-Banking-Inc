@@ -91,6 +91,36 @@ export interface AgentIdentity {
   profile?: Record<string, unknown>;
 }
 
+/**
+ * Documented optional keys for `AgentIdentity.profile` / `AgentRow.profile`.
+ * Not enforced — conventions so agent groups / ownership can land without
+ * schema churn.
+ */
+export interface AgentProfileHints {
+  groupId?: string;
+  ownerGuardianId?: string;
+  tags?: string[];
+  runtime?: string;
+  reputationScore?: number;
+}
+
+/** Org-level feature / plan envelope — SSO, SLA, etc. land as flags here. */
+export type OrgSettings = Record<string, unknown>;
+
+/**
+ * Merchant directory row (org-scoped). Allowlists stay string-based; this is
+ * optional metadata layered on top of known counterparties.
+ */
+export interface MerchantRecord {
+  id: string;
+  orgId: string;
+  /** Normalized key matching allowlist / destination keys. */
+  key: string;
+  label?: string;
+  category?: string;
+  meta?: Record<string, unknown>;
+}
+
 export function parseUsdcToMicro(input: string | number): MicroUsdc {
   const s = String(input).trim();
   if (!/^\d+(\.\d{1,6})?$/.test(s)) {
