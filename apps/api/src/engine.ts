@@ -92,6 +92,33 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
   const agentAvailableId = `agent:${input.agentId}:available`;
 
   if (input.tool === "escrow_lock") {
+    const destination = input.destination || input.payeeAgentId || "";
+    const screen = await screenDestination(destination, {
+      orgId: input.orgId,
+      agentId: input.agentId,
+    });
+    if (!screen.ok) {
+      emitEvent(input.orgId, "compliance.flagged", {
+        intentId: input.intentId,
+        agentId: input.agentId,
+        destination,
+        tool: input.tool,
+        reason: screen.reason,
+        provider: screen.provider,
+      });
+      return {
+        ok: false,
+        status: 403,
+        payload: {
+          intentId: input.intentId,
+          error: {
+            code: "COMPLIANCE_BLOCKED",
+            message: screen.reason ?? "Destination blocked by compliance screen",
+          },
+        },
+      };
+    }
+
     const escrowId = id("esc");
     const escrowAccountId = `escrow:${escrowId}`;
     try {

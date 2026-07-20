@@ -41,6 +41,7 @@ import { startTelegramPolling, telegramEnabled, registerTelegramNotifier } from 
 import { notify, registerInAppNotifier } from "./platform/notifier.js";
 import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
+import { webhookUrlProblem } from "./webhook-url.js";
 
 const app = express();
 app.use(cors());
@@ -1161,31 +1162,6 @@ function policyView(template: ReturnType<typeof store.getPolicyTemplate>) {
     hitlCategories: template.hitlCategories,
     quietHours: template.quietHours ?? null,
   };
-}
-
-function webhookUrlProblem(raw: string): string | null {
-  const url = new URL(raw);
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    return "Webhook URL must use http or https";
-  }
-  if (process.env.NODE_ENV === "production") {
-    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-    const privateIpv4 =
-      /^127\./.test(host) ||
-      /^10\./.test(host) ||
-      /^192\.168\./.test(host) ||
-      /^169\.254\./.test(host) ||
-      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
-    if (
-      host === "localhost" ||
-      host.endsWith(".localhost") ||
-      host === "::1" ||
-      privateIpv4
-    ) {
-      return "Production webhooks cannot target localhost or private network addresses";
-    }
-  }
-  return null;
 }
 
 app.get(

@@ -14,9 +14,9 @@ Updated during the `cursor/abi-platform-polish-1ad2` build pass.
 | A7 | Approval stuck in `resolving` on throw | med | **fixed** | `unclaimApproval` on unexpected `executeIntent` throw |
 | A8 | Domain allowlist bare TLD (`com`) | med | **fixed** | Suffix match requires dotted entry |
 | A9 | Compliance denylist used unanchored `includes` | low | **fixed** | Equality / dotted suffix only |
-| A10 | Webhook SSRF denylist incomplete | med | open | Expand metadata/IPv6 denylist in a follow-up |
+| A10 | Webhook SSRF denylist incomplete | med | **fixed** | Expanded IPv6/CGNAT/metadata/credentials; re-check + `redirect: "error"` on delivery |
 | A11 | Escrow state update not conditional on `locked` | low | open | Safe in single-process SQLite; tighten with Postgres |
-| A12 | `escrow_lock` skips compliance screen | low | open | Wire `screenDestination` before lock |
+| A12 | `escrow_lock` skips compliance screen | low | **fixed** | `screenDestination` before lock; same `COMPLIANCE_BLOCKED` shape as pay |
 | A13 | Plaintext API keys in SQLite | med | deferred | Needs hash-at-rest + reveal-once redesign |
 | A14 | Prisma schema unwired vs SQLite store | med | deferred | Swap behind `store` boundary — see PLATFORM-ARCHITECTURE |
 | A15–A29 | Broader NFR/checklist items from FULL-SCALE-BUILD-PLAN | varies | tracked | Extension points landed; no silent false closes |

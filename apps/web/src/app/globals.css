@@ -3172,3 +3172,245 @@ input[type="range"].slider::-moz-range-thumb {
   line-height: 1.55;
   white-space: pre-wrap;
 }
+
+/* ============================================================ marketing pages */
+
+.marketing-links a.is-active {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.mkt-page {
+  padding: 120px 24px 72px;
+  animation: fade-up 0.4s ease both;
+}
+
+.mkt-page-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.mkt-about-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 28px;
+  margin-bottom: 8px;
+}
+
+.mkt-about-hero .section-head {
+  margin: 0;
+}
+
+.mkt-prose {
+  max-width: 640px;
+  margin: 28px 0 36px;
+}
+
+.mkt-prose h3 {
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--ink);
+  margin: 0 0 10px;
+}
+
+.mkt-prose p {
+  font-size: 15.5px;
+  line-height: 1.65;
+  color: var(--ink-muted);
+  margin: 0 0 14px;
+}
+
+.mkt-code {
+  display: block;
+  margin: 16px 0 0;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-x: auto;
+  border: 1px solid rgba(10, 10, 12, 0.08);
+}
+
+.mkt-card-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 28px;
+}
+
+@media (max-width: 860px) {
+  .mkt-card-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mkt-card {
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 18px;
+  padding: 22px 22px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  animation: fade-up 0.45s ease both;
+}
+
+.mkt-card:nth-child(2) { animation-delay: 0.06s; }
+.mkt-card:nth-child(3) { animation-delay: 0.12s; }
+.mkt-card:nth-child(4) { animation-delay: 0.18s; }
+
+.mkt-card-n {
+  display: inline-block;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.mkt-card h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.mkt-card p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.mkt-endpoint-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mkt-endpoint-list li {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .mkt-endpoint-list li {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
+
+.pill-method {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: #93c5fd;
+}
+
+.mkt-doc-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 40px;
+}
+
+.mkt-price-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 36px;
+}
+
+@media (max-width: 900px) {
+  .mkt-price-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mkt-price-card {
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 20px;
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  animation: fade-up 0.4s ease both;
+}
+
+.mkt-price-card.is-featured {
+  border-color: rgba(37, 99, 235, 0.45);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
+
+.mkt-price-card h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.mkt-price {
+  margin: 10px 0 0;
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mkt-price span {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.mkt-price-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+.mkt-price-card li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.mkt-price-card .btn-primary,
+.mkt-price-card .btn-ghost {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+}
+
+.mkt-fineprint {
+  margin: 36px 0 0;
+  max-width: 560px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-faint, rgba(10, 10, 12, 0.45));
+}
