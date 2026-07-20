@@ -69,6 +69,26 @@ extension points that let each pillar grow without a rewrite.
 
 ---
 
+## Payments pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| USDC micro `pay` | DONE | `POST /v1/agent/pay` → transfer-mock |
+| x402 `pay_api` | DONE | `X402Rail` + custody EIP-712 |
+| Internal / mock transfer | DONE | Non-URL destinations via transfer-mock |
+| Escrow L/R/R + timeout | DONE | Agent + guardian resolve; sweeper |
+| Subscriptions | DONE | Create / pause / resume / cancel + policy sweeper |
+| Invoices | DONE | Create / pay / void + Console |
+| Scheduled one-shot | DONE | `POST /v1/guardian/payments/schedule` |
+| Batch enqueue (≤10) | DONE | `POST /v1/guardian/payments/batch` |
+| Rail registry | DONE | `GET /v1/guardian/payments/rails` |
+| PaymentRail + custody | DONE | Interface + DevLocal wired; CDP stub ready |
+| Console | DONE | Nav **Payments** + Invoices + Escrows |
+| Guardian SDK | DONE | invoices / subs / escrows / schedule / batch / rails |
+| Usage metering | DEFERRED | Phase-2 commerce — not required for COMPLETE |
+
+---
+
 ## Money spine (do not break)
 
 ```
@@ -101,7 +121,7 @@ aspirational Postgres schema — swap behind `store`, do not dual-write.
 | 1 | **Treasury** | Org / dept / shared / agent wallets, unified moves + multisig HITL, USDC asset registry, deposit/withdraw, cash-flow, forecast, recovery | `WalletScope` + `accountId` + `transferAvailable`; `GET /v1/guardian/wallets`; Console → Treasury |
 | 2 | **AI Agent Management** | Roster, detail, archive, freeze audit, rotate/revoke keys, session keys (`pv_sess_`), groups, ownership, per-agent analytics, Console → Agents | `AgentIdentity` + `AgentProfileHints`; `agent-routes.ts`; `AbiGuardianClient` |
 | 3 | **Financial Policies** | Caps, lists, HITL (+ categories), cooldown, quiet hours, quorum, automation editor, versions/restore, templates, history simulator | `policy-routes.ts`; `PolicyTemplate` / `matchedAutomationRules`; Console → Policy |
-| 4 | **Payments** | USDC micro, x402 + transfer-mock rails, escrow, subs, invoices | `PaymentRail` interface; `@policyvault/custody` (DevLocal wired, CDP stub ready) |
+| 4 | **Payments** | USDC pay + x402, escrow, invoices, subscriptions, schedule/batch one-shots, rail registry, Console → Payments | `PaymentRail`; `payment-routes.ts`; custody DevLocal / CDP stub |
 | 5 | **Observability** | Metrics, insights, vendor/burn/anomaly analytics | Pure `analytics.ts` / `insights.ts`; `ObservabilitySink` |
 | 6 | **Security** | Roles (owner/approver/**viewer read**), freezes, idempotency, rate limit, webhook SSRF | Viewer GET path; key hashing deferred behind `store` |
 | 7 | **AI Features** | Deterministic ask + chat | `FactRephraser` over facts — never interprets money intents |

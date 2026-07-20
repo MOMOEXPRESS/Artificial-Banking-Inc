@@ -281,6 +281,48 @@ export class AbiGuardianClient extends AbiHttpClient {
     });
   }
 
+  listInvoices() {
+    return this.request<{ invoices: unknown[] }>("/v1/guardian/invoices");
+  }
+
+  listSubscriptions() {
+    return this.request<{ subscriptions: unknown[] }>("/v1/guardian/subscriptions");
+  }
+
+  listEscrows() {
+    return this.request<{ escrows: unknown[] }>("/v1/guardian/escrows");
+  }
+
+  schedulePayment(input: {
+    agentId: string;
+    vendor: string;
+    amountUsdc: string;
+    runAt?: string;
+    memo?: string;
+  }) {
+    return this.request<{ scheduled: unknown }>("/v1/guardian/payments/schedule", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  batchSchedule(items: {
+    agentId: string;
+    vendor: string;
+    amountUsdc: string;
+    runAt?: string;
+    memo?: string;
+  }[]) {
+    return this.request<{ created: unknown[]; errors: unknown[] }>(
+      "/v1/guardian/payments/batch",
+      { method: "POST", body: JSON.stringify({ items }) },
+    );
+  }
+
+  listPaymentRails() {
+    return this.request<{ rails: unknown[] }>("/v1/guardian/payments/rails");
+  }
+
   listMerchants() {
     return this.request<{ merchants: unknown[] }>("/v1/guardian/merchants");
   }

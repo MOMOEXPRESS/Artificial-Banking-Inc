@@ -47,6 +47,7 @@ import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./webhook-url.js";
 import { registerAgentRoutes } from "./agent-routes.js";
+import { registerPaymentRoutes } from "./payment-routes.js";
 import { registerPolicyRoutes } from "./policy-routes.js";
 import { registerTreasuryRoutes } from "./treasury-routes.js";
 
@@ -231,6 +232,7 @@ function guardianRoute(
 registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
 registerAgentRoutes(app, { guardianRoute });
 registerPolicyRoutes(app, { guardianRoute });
+registerPaymentRoutes(app, { guardianRoute });
 
 /** Wrap an async route handler so rejections become clean HTTP errors. */
 function asyncRoute(

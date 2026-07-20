@@ -33,6 +33,7 @@ import {
   type Summary,
 } from "../../lib/views";
 import { AgentsView } from "../../lib/agents-view";
+import { PaymentsView } from "../../lib/payments-view";
 import { TreasuryView } from "../../lib/treasury-view";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
@@ -136,6 +137,7 @@ type View =
   | "overview"
   | "treasury"
   | "agents"
+  | "payments"
   | "playground"
   | "chat"
   | "work"
@@ -153,6 +155,7 @@ const NAV: { key: View; label: string; icon: string }[] = [
   { key: "overview", label: "Overview", icon: "home" },
   { key: "treasury", label: "Treasury", icon: "wallet" },
   { key: "agents", label: "Agents", icon: "robot" },
+  { key: "payments", label: "Payments", icon: "zap" },
   { key: "playground", label: "Agent Playground", icon: "play" },
   { key: "chat", label: "ABI Chat", icon: "bell" },
   { key: "work", label: "Work & deliverables", icon: "book" },
@@ -672,6 +675,18 @@ export default function Console() {
                       ],
                     });
                   }}
+                />
+              )}
+              {view === "payments" && (
+                <PaymentsView
+                  gFetch={gFetch}
+                  busy={busy}
+                  act={act}
+                  agents={(org?.agents ?? []).map((a) => ({
+                    id: a.id,
+                    name: a.name,
+                    status: a.status,
+                  }))}
                 />
               )}
               {view === "playground" && (

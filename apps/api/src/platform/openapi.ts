@@ -139,14 +139,36 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
         get: stub(["guardian"], "List webhooks", "guardianBearer"),
         post: stub(["guardian"], "Register webhook", "guardianBearer"),
       },
-      "/v1/guardian/subscriptions": {
-        get: stub(["guardian"], "List subscriptions", "guardianBearer"),
-        post: stub(["guardian"], "Create subscription", "guardianBearer"),
-      },
       "/v1/guardian/invoices": {
         get: stub(["guardian"], "List invoices", "guardianBearer"),
         post: stub(["guardian"], "Create invoice", "guardianBearer"),
       },
+      "/v1/guardian/invoices/{id}/pay": { post: stub(["guardian"], "Mark invoice paid / settle", "guardianBearer") },
+      "/v1/guardian/invoices/{id}/void": { post: stub(["guardian"], "Void invoice", "guardianBearer") },
+      "/v1/guardian/subscriptions": {
+        get: stub(["guardian"], "List subscriptions", "guardianBearer"),
+        post: stub(["guardian"], "Create subscription", "guardianBearer"),
+      },
+      "/v1/guardian/subscriptions/{id}/{action}": {
+        post: stub(["guardian"], "pause | resume | cancel subscription", "guardianBearer"),
+      },
+      "/v1/guardian/escrows": { get: stub(["guardian"], "List escrows", "guardianBearer") },
+      "/v1/guardian/escrows/{id}/resolve": {
+        post: stub(["guardian"], "Guardian resolve escrow release/refund", "guardianBearer"),
+      },
+      "/v1/guardian/payments/rails": { get: stub(["guardian"], "List settlement rails", "guardianBearer") },
+      "/v1/guardian/payments/recent": { get: stub(["guardian"], "Recent settled payments", "guardianBearer") },
+      "/v1/guardian/payments/schedule": {
+        post: stub(["guardian"], "Schedule one-shot payment", "guardianBearer", {
+          "201": { description: "Scheduled" },
+        }),
+      },
+      "/v1/guardian/payments/batch": {
+        post: stub(["guardian"], "Batch enqueue one-shot schedules (≤10)", "guardianBearer", {
+          "201": { description: "Created" },
+        }),
+      },
+      "/v1/agent/escrow/{id}": { get: stub(["agent"], "Get escrow status", "agentBearer") },
       "/v1/guardian/setup": { get: stub(["guardian"], "Environment / custody setup hints", "guardianBearer") },
       "/v1/guardian/wallets": { get: stub(["guardian"], "Multi-wallet registry (org/dept/agent/shared)", "guardianBearer") },
       "/v1/guardian/wallets/move": { post: stub(["guardian"], "Unified treasury move (HITL above threshold)", "guardianBearer") },
