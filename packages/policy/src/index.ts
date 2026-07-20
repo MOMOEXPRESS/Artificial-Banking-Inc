@@ -67,6 +67,14 @@ function destinationKey(dest: string): string {
   return d;
 }
 
+function blocklistMatches(destination: string, rawDestination: string, blocked: string): boolean {
+  const blockedKey = destinationKey(blocked);
+  const raw = norm(rawDestination);
+  if (raw === norm(blocked)) return true;
+  if (isAddressLike(blockedKey)) return destination === blockedKey;
+  return destination === blockedKey || destination.endsWith(`.${blockedKey}`);
+}
+
 /**
  * Deterministic policy engine. Default deny if any hard rule fails.
  * LLM never calls this with free text — only structured MoneyIntent.
@@ -97,7 +105,7 @@ export function evaluatePolicy(
   }
 
   const dest = destinationKey(intent.destination);
-  if (rules.blocklist.map(norm).includes(dest) || rules.blocklist.map(norm).includes(norm(intent.destination))) {
+  if (rules.blocklist.some((blocked) => blocklistMatches(dest, intent.destination, blocked))) {
     return {
       outcome: "deny",
       ruleIds: ["blocklist"],

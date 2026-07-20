@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build -w @policyvault/common -w @policyvault/policy -w @policyvault/ledger -w @policyvault/sdk -w @policyvault/web",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "outputDirectory": "apps/web/.next",
+  "rewrites": []
+}

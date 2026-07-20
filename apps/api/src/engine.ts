@@ -26,6 +26,10 @@ export function id(prefix: string): string {
   return `${prefix}_${randomBytes(6).toString("hex")}`;
 }
 
+export function scopedIdempotencyKey(agentId: string, key: string): string {
+  return `${agentId}:${key}`;
+}
+
 export function rulesFor(agentId: string, orgId: string): PolicyRules {
   const agent = store.getAgent(agentId)!;
   const org = store.getOrg(orgId)!;
@@ -410,6 +414,7 @@ export async function resolveApproval(
   }
 
   const resolvedAt = new Date().toISOString();
+  const idemKey = scopedIdempotencyKey(approval.agentId, approval.idempotencyKey);
 
   if (!approve) {
     const result = {
@@ -433,7 +438,7 @@ export async function resolveApproval(
       amountUsdc: approval.amountUsdc,
       destination: approval.destination,
     });
-    store.setIdempotent(approval.orgId, approval.idempotencyKey, result);
+    store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
     emitEvent(orgId, "approval.resolved", {
       approvalId: approval.id,
       status: "denied",
@@ -452,14 +457,33 @@ export async function resolveApproval(
   // every limit collectively.
   const rules = rulesFor(approval.agentId, approval.orgId);
   if (rules.agentFrozen || rules.orgFrozen) {
+    const result = {
+      outcome: "deny",
+      error: { code: "FROZEN", message: "Agent or org frozen since approval was requested" },
+    };
     store.resolveApproval(approval.id, {
       status: "denied",
       resolvedAt,
       resolvedBy,
-      result: {
-        outcome: "deny",
-        error: { code: "FROZEN", message: "Agent or org frozen since approval was requested" },
-      },
+      result,
+    });
+    recordDecision({
+      intentId: approval.intentId,
+      orgId: approval.orgId,
+      agentId: approval.agentId,
+      outcome: "deny",
+      ruleIds: [rules.orgFrozen ? "org_frozen" : "agent_frozen"],
+      reasons: ["Frozen before guardian approval resolved"],
+      tool: approval.tool,
+      amountUsdc: approval.amountUsdc,
+      destination: approval.destination,
+    });
+    store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
+    emitEvent(orgId, "approval.resolved", {
+      approvalId: approval.id,
+      status: "denied",
+      resolvedBy,
+      reason: "frozen",
     });
     return { kind: "frozen", approval: store.getApproval(approvalId, orgId)! };
   }
@@ -499,7 +523,7 @@ export async function resolveApproval(
       amountUsdc: approval.amountUsdc,
       destination: approval.destination,
     });
-    store.setIdempotent(approval.orgId, approval.idempotencyKey, { ...result, httpStatus: 403 });
+    store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
     emitEvent(orgId, "approval.resolved", {
       approvalId: approval.id,
       status: "denied",
@@ -540,9 +564,10 @@ export async function resolveApproval(
     amountUsdc: approval.amountUsdc,
     destination: approval.destination,
   });
-  if (result.ok) {
-    store.setIdempotent(approval.orgId, approval.idempotencyKey, result.payload);
-  }
+  store.setIdempotent(approval.orgId, idemKey, {
+    ...result.payload,
+    httpStatus: result.ok ? 200 : result.status,
+  });
   emitEvent(orgId, "approval.resolved", {
     approvalId: approval.id,
     status: result.ok ? "approved" : "denied",

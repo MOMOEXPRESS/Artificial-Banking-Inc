@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ABMark } from "../../lib/brand";
+import { ABAppIcon, ABLockup } from "../../lib/brand";
 import {
   BarChart,
   BarLine,
@@ -515,7 +515,7 @@ export default function Console() {
     <div className="app">
       <nav className="rail">
         <Link href="/" className="rail-logo" title="Back to landing" style={{ textDecoration: "none" }}>
-          <ABMark size={22} tone="#06121f" />
+          <ABAppIcon size={38} />
         </Link>
         {NAV.map((n) => (
           <button
@@ -802,15 +802,7 @@ function Login({
     <div className="login-wrap">
       <div className="login-card">
         <div className="brand" style={{ flexDirection: "column", gap: 14 }}>
-          <ABMark size={44} />
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 15, letterSpacing: "0.24em", fontWeight: 640 }}>
-              ARTIFICIAL BANKING
-            </div>
-            <div style={{ fontSize: 10, letterSpacing: "0.36em", color: "var(--muted)", marginTop: 3 }}>
-              INCORPORATED
-            </div>
-          </div>
+          <ABLockup size={56} tone="#fff" />
         </div>
         <p className="login-sub">
           Financial infrastructure for autonomous AI. Programmable wallets, spending policies and
@@ -1335,9 +1327,14 @@ function Overview({
             </tbody>
           </table>
         </div>
-        <div className="divider" />
-        <div className="between" style={{ marginBottom: 11, flexWrap: "wrap" }}>
-          <b style={{ fontSize: 13, fontWeight: 620 }}>Move funds</b>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <h2>Move funds</h2>
+            <div className="sub">Treasury ↔ agents — three directions, balanced double-entry</div>
+          </div>
           <div className="seg">
             {(
               [

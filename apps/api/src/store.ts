@@ -1301,6 +1301,20 @@ export const store = {
     ).map(rowToSub);
   },
 
+  /**
+   * Atomically move a due subscription to its next slot before charging it.
+   * Without this claim, overlapping sweep ticks can see the same due row while
+   * an x402 request is still awaiting network I/O and charge it twice.
+   */
+  claimSubscriptionRun(subId: string, expectedNextRunAt: string, nextRunAt: string): boolean {
+    const info = db
+      .prepare(
+        "UPDATE subscriptions SET next_run_at = ? WHERE id = ? AND status = 'active' AND next_run_at = ?",
+      )
+      .run(nextRunAt, subId, expectedNextRunAt);
+    return info.changes > 0;
+  },
+
   setSubscriptionStatus(subId: string, status: SubscriptionStatus): void {
     db.prepare("UPDATE subscriptions SET status = ? WHERE id = ?").run(status, subId);
   },

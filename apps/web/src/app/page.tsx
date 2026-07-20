@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ABLockup, ABMark, ABWordmark } from "../lib/brand";
+import { ABAppIcon, ABLockup, ABWordmark } from "../lib/brand";
 import { Icon } from "../lib/ui";
 
 /**
@@ -40,13 +40,15 @@ function TopNav() {
   return (
     <header className={`marketing-nav ${scrolled ? "on-scroll" : ""}`}>
       <div className="marketing-nav-inner">
-        <ABWordmark size={26} />
+        <Link href="/" aria-label="Artificial Banking Incorporated home">
+          <ABWordmark size={26} tone="#0a0a0c" />
+        </Link>
         <nav className="marketing-links">
-          <a href="#features">Features</a>
-          <a href="#how">How it works</a>
-          <a href="#enterprise">Enterprise</a>
+          <Link href="/">Landing</Link>
+          <Link href="/console">Console</Link>
           <a href="#docs">Docs</a>
           <a href="#pricing">Pricing</a>
+          <a href="#about">About</a>
           <a href="https://github.com/MOMOEXPRESS/Artificial-Banking-Inc" target="_blank" rel="noreferrer">
             GitHub
           </a>
@@ -128,13 +130,13 @@ function HeroGraphic() {
         <svg viewBox="0 0 520 520" className="orbit">
           <defs>
             <radialGradient id="halo" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(74,158,255,0.28)" />
-              <stop offset="60%" stopColor="rgba(74,158,255,0.05)" />
-              <stop offset="100%" stopColor="rgba(74,158,255,0)" />
+              <stop offset="0%" stopColor="rgba(59,130,246,0.18)" />
+              <stop offset="60%" stopColor="rgba(59,130,246,0.04)" />
+              <stop offset="100%" stopColor="rgba(59,130,246,0)" />
             </radialGradient>
             <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#4a9eff" stopOpacity="0.6" />
-              <stop offset="100%" stopColor="#a78bfa" stopOpacity="0.15" />
+              <stop offset="0%" stopColor="#2563eb" stopOpacity="0.55" />
+              <stop offset="100%" stopColor="#0a0a0c" stopOpacity="0.12" />
             </linearGradient>
           </defs>
           <circle cx="260" cy="260" r="240" fill="url(#halo)" />
@@ -155,7 +157,7 @@ function HeroGraphic() {
             cy="260"
             r="160"
             fill="none"
-            stroke="rgba(255,255,255,0.08)"
+            stroke="rgba(10,10,12,0.12)"
             strokeWidth="1"
             className="orbit-spin-mid"
           />
@@ -165,7 +167,7 @@ function HeroGraphic() {
             cy="260"
             r="110"
             fill="none"
-            stroke="rgba(255,255,255,0.12)"
+            stroke="rgba(10,10,12,0.16)"
             strokeWidth="1"
             className="orbit-spin-fast"
           />
@@ -184,7 +186,7 @@ function HeroGraphic() {
           </g>
         </svg>
         <div className="hero-graphic-mark">
-          <ABMark size={110} tone="#fff" />
+          <ABAppIcon size={128} />
         </div>
         {/* Floating status chips */}
         <div className="chip-float chip-a">
@@ -214,13 +216,13 @@ function Node({ cx, cy, label, small }: { cx: number; cy: number; label: string;
   const r = small ? 8 : 14;
   return (
     <g>
-      <circle cx={cx} cy={cy} r={r + 6} fill="rgba(74,158,255,0.08)" />
-      <circle cx={cx} cy={cy} r={r} fill="rgba(74,158,255,0.9)" />
+      <circle cx={cx} cy={cy} r={r + 6} fill="rgba(37,99,235,0.1)" />
+      <circle cx={cx} cy={cy} r={r} fill="rgba(37,99,235,0.95)" />
       <text
         x={cx}
         y={cy - r - 8}
         textAnchor="middle"
-        fill="rgba(255,255,255,0.7)"
+        fill="rgba(10,10,12,0.55)"
         fontSize="10"
         fontFamily="var(--mono)"
       >
@@ -438,7 +440,7 @@ function CtaBand() {
   return (
     <section className="cta-band">
       <div className="cta-inner">
-        <ABLockup size={80} />
+        <ABLockup size={80} tone="#fff" />
         <h2>Ship an autonomous agent this afternoon.</h2>
         <p>
           The console is free while it&rsquo;s in development. Bring an OpenAI, Anthropic, or any
@@ -464,8 +466,8 @@ function FooterBand() {
     <footer className="marketing-footer">
       <div className="marketing-footer-inner">
         <div className="marketing-footer-brand">
-          <ABWordmark size={28} />
-          <p>
+          <ABWordmark size={28} tone="#fff" />
+          <p id="about">
             The authorization layer between AI agents and real money. Programmable, auditable and
             enterprise-safe.
           </p>
@@ -474,16 +476,16 @@ function FooterBand() {
           <FooterCol
             title="Product"
             links={[
+              ["Landing", "/"],
               ["Console", "/console"],
               ["Live demo", "/console?demo=1"],
               ["Features", "#features"],
-              ["How it works", "#how"],
             ]}
           />
           <FooterCol
             title="Company"
             links={[
-              ["About", "#"],
+              ["About", "#about"],
               ["Pricing", "#pricing"],
               ["Docs", "#docs"],
               ["GitHub", "https://github.com/MOMOEXPRESS/Artificial-Banking-Inc"],

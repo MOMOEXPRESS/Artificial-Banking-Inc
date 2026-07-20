@@ -15,6 +15,7 @@ import {
   recordDecision,
   resolveApproval,
   rulesFor,
+  scopedIdempotencyKey,
   settleEscrow,
   sweepApprovalExpiry,
   sweepEscrowTimeouts,
@@ -99,6 +100,7 @@ function authGuardian(req: express.Request): OrgRow | null {
   const founder = store.findOrgByGuardianKey(key);
   if (founder) return founder;
   const invited = store.findGuardianByKey(key);
+  if (invited?.role === "viewer") return null;
   return invited ? (store.getOrg(invited.orgId) ?? null) : null;
 }
 
@@ -119,6 +121,11 @@ function guardianRoute(
       if (e instanceof z.ZodError) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: e.message } });
       }
+      if (isInvalidUsdcAmount(e)) {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
+        });
+      }
       console.error("guardian route error:", e);
       res.status(500).json({ error: { code: "RAIL_FAILED", message: String(e) } });
     });
@@ -134,10 +141,19 @@ function asyncRoute(
       if (e instanceof z.ZodError) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: e.message } });
       }
+      if (isInvalidUsdcAmount(e)) {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
+        });
+      }
       console.error("route error:", e);
       res.status(500).json({ error: { code: "RAIL_FAILED", message: String(e) } });
     });
   };
+}
+
+function isInvalidUsdcAmount(e: unknown): boolean {
+  return e instanceof Error && e.message === "INVALID_USDC_AMOUNT";
 }
 
 function approvalView(a: ApprovalRow) {
@@ -155,10 +171,11 @@ async function handleIntent(
   res: express.Response,
   input: Omit<ExecInput, "intentId"> & { idempotencyKey: string },
 ) {
+  const idemKey = scopedIdempotencyKey(input.agentId, input.idempotencyKey);
   // Claim the key first. Anything already recorded — settled, denied, parked
   // or in flight — replays instead of executing a second time.
-  if (!store.reserveIdempotent(input.orgId, input.idempotencyKey)) {
-    const existing = store.getIdempotent(input.orgId, input.idempotencyKey) as
+  if (!store.reserveIdempotent(input.orgId, idemKey)) {
+    const existing = store.getIdempotent(input.orgId, idemKey) as
       | { status?: string; httpStatus?: number }
       | undefined;
     if (existing?.status === "in_flight") {
@@ -213,7 +230,7 @@ async function handleIntent(
       error: { code: "POLICY_DENIED" as const, message: decision.reasons.join("; ") },
       ruleIds: decision.ruleIds,
     };
-    store.setIdempotent(input.orgId, input.idempotencyKey, { ...payload, httpStatus: 403 });
+    store.setIdempotent(input.orgId, idemKey, { ...payload, httpStatus: 403 });
     emitEvent(input.orgId, "policy.denied", {
       intentId,
       agentId: input.agentId,
@@ -260,7 +277,7 @@ async function handleIntent(
       hint: "Poll GET /v1/agent/approvals/:id until approved/denied/expired.",
       httpStatus: 202,
     };
-    store.setIdempotent(input.orgId, input.idempotencyKey, reviewPayload);
+    store.setIdempotent(input.orgId, idemKey, reviewPayload);
     notifyApprovalPending(approval);
     emitEvent(input.orgId, "approval.pending", {
       approvalId: approval.id,
@@ -285,11 +302,11 @@ async function handleIntent(
 
   const result = await executeIntent({ ...input, intentId });
   if (result.ok) {
-    store.setIdempotent(input.orgId, input.idempotencyKey, { ...result.payload, httpStatus: 200 });
+    store.setIdempotent(input.orgId, idemKey, { ...result.payload, httpStatus: 200 });
     return res.json(result.payload);
   }
   // A rail failure is transient — free the key so the caller may genuinely retry.
-  store.releaseIdempotent(input.orgId, input.idempotencyKey);
+  store.releaseIdempotent(input.orgId, idemKey);
   return res.status(result.status).json(result.payload);
 }
 
@@ -517,7 +534,9 @@ app.post(
   guardianRoute((org, req, res) => {
     const body = z.object({ approvalQuorum: z.number().int().min(1).max(5) }).parse(req.body);
     const current = store.getPolicyTemplate(org.id);
-    const seats = store.listGuardians(org.id).filter((g) => !g.revokedAt).length + 1; // +1 founder
+    const seats = store
+      .listGuardians(org.id)
+      .filter((g) => !g.revokedAt && g.role !== "viewer").length + 1; // +1 founder
     if (body.approvalQuorum > seats) {
       return res.status(400).json({
         error: {
@@ -1069,6 +1088,31 @@ function policyView(template: ReturnType<typeof store.getPolicyTemplate>) {
   };
 }
 
+function webhookUrlProblem(raw: string): string | null {
+  const url = new URL(raw);
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return "Webhook URL must use http or https";
+  }
+  if (process.env.NODE_ENV === "production") {
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    const privateIpv4 =
+      /^127\./.test(host) ||
+      /^10\./.test(host) ||
+      /^192\.168\./.test(host) ||
+      /^169\.254\./.test(host) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
+    if (
+      host === "localhost" ||
+      host.endsWith(".localhost") ||
+      host === "::1" ||
+      privateIpv4
+    ) {
+      return "Production webhooks cannot target localhost or private network addresses";
+    }
+  }
+  return null;
+}
+
 app.get(
   "/v1/guardian/policy",
   guardianRoute((org, _req, res) => {
@@ -1240,6 +1284,12 @@ app.post(
   "/v1/guardian/webhooks",
   guardianRoute((org, req, res) => {
     const body = z.object({ url: z.string().url() }).parse(req.body);
+    const problem = webhookUrlProblem(body.url);
+    if (problem) {
+      return res.status(400).json({
+        error: { code: "VALIDATION_ERROR", message: problem },
+      });
+    }
     const webhook = store.createWebhook(org.id, body.url);
     res.status(201).json({
       id: webhook.id,
@@ -1492,6 +1542,11 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   if (err instanceof z.ZodError) {
     return res.status(400).json({
       error: { code: "VALIDATION_ERROR", message: err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") },
+    });
+  }
+  if (isInvalidUsdcAmount(err)) {
+    return res.status(400).json({
+      error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
     });
   }
   console.error("unhandled route error:", err);
