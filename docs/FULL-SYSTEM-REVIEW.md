@@ -245,6 +245,8 @@ Interpretation: **DONE** = MVP surface ships and works. **PARTIAL** = API/UI exi
 For **MVP completeness: no — all 13 have working surfaces.**  
 For **production depth: yes** — mainly live custody/settlement, key hashing, Postgres, real notifiers, and KYC vendors.
 
+**Sub-capability matrix + feature brainstorm:** see [`docs/PILLAR-DEPTH-AUDIT.md`](./PILLAR-DEPTH-AUDIT.md) (shared-wallet members UI, batch payments UI, email/Slack stubs, A13, CDP, and Wave 1–4 recommendations).
+
 ---
 
 ## 7. Security / audit register (unchanged truths)
