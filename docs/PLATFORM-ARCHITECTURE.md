@@ -49,6 +49,26 @@ extension points that let each pillar grow without a rewrite.
 
 ---
 
+## Financial Policies pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| Spend caps + velocity | DONE | Engine + Console Limits |
+| Allowlists / blocklist | DONE | Address / domain / vendor + blocklist |
+| HITL amount threshold | DONE | `hitlAbove` bands |
+| HITL categories | DONE | Console tool chips + API |
+| New-counterparty cooldown | DONE | Console hours control + engine review |
+| Quiet hours | DONE | UTC window review/deny |
+| Approval quorum | DONE | `GET/POST /v1/guardian/quorum` |
+| Automation IF/THEN | DONE | API + Console rule editor (notify/approve/deny/freeze) |
+| History simulator | DONE | Caps + lists + quiet hours replay |
+| Policy versions + restore | DONE | Version list with summary + Console restore |
+| Starter templates | DONE | Solo / Swarm / API seller + apply-template |
+| Console | DONE | Policy view — limits, lists, automation, versions, templates |
+| Guardian SDK | DONE | update/simulate/versions/templates/quorum |
+
+---
+
 ## Money spine (do not break)
 
 ```
@@ -80,7 +100,7 @@ aspirational Postgres schema — swap behind `store`, do not dual-write.
 |---|--------|------------|-----------------|
 | 1 | **Treasury** | Org / dept / shared / agent wallets, unified moves + multisig HITL, USDC asset registry, deposit/withdraw, cash-flow, forecast, recovery | `WalletScope` + `accountId` + `transferAvailable`; `GET /v1/guardian/wallets`; Console → Treasury |
 | 2 | **AI Agent Management** | Roster, detail, archive, freeze audit, rotate/revoke keys, session keys (`pv_sess_`), groups, ownership, per-agent analytics, Console → Agents | `AgentIdentity` + `AgentProfileHints`; `agent-routes.ts`; `AbiGuardianClient` |
-| 3 | **Financial Policies** | Caps, lists, HITL, quiet hours, quorum, simulator, **automation[]** on policy API | `policy_versions` + restore; `PolicyTemplate` / `matchedAutomationRules` |
+| 3 | **Financial Policies** | Caps, lists, HITL (+ categories), cooldown, quiet hours, quorum, automation editor, versions/restore, templates, history simulator | `policy-routes.ts`; `PolicyTemplate` / `matchedAutomationRules`; Console → Policy |
 | 4 | **Payments** | USDC micro, x402 + transfer-mock rails, escrow, subs, invoices | `PaymentRail` interface; `@policyvault/custody` (DevLocal wired, CDP stub ready) |
 | 5 | **Observability** | Metrics, insights, vendor/burn/anomaly analytics | Pure `analytics.ts` / `insights.ts`; `ObservabilitySink` |
 | 6 | **Security** | Roles (owner/approver/**viewer read**), freezes, idempotency, rate limit, webhook SSRF | Viewer GET path; key hashing deferred behind `store` |

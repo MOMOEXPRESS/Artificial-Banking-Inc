@@ -28,7 +28,6 @@ import {
   anomalies,
   burnForecast,
   jobEconomics,
-  simulatePolicy,
   vendorLedger,
 } from "./analytics.js";
 import { answerQuestion, buildSummary } from "./insights.js";
@@ -48,6 +47,7 @@ import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./webhook-url.js";
 import { registerAgentRoutes } from "./agent-routes.js";
+import { registerPolicyRoutes } from "./policy-routes.js";
 import { registerTreasuryRoutes } from "./treasury-routes.js";
 
 const app = express();
@@ -230,6 +230,7 @@ function guardianRoute(
 
 registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
 registerAgentRoutes(app, { guardianRoute });
+registerPolicyRoutes(app, { guardianRoute });
 
 /** Wrap an async route handler so rejections become clean HTTP errors. */
 function asyncRoute(
@@ -723,27 +724,7 @@ app.delete(
   }, { ownerOnly: true }),
 );
 
-/** How many distinct approvals a payment needs before it executes. */
-app.post(
-  "/v1/guardian/quorum",
-  guardianRoute((org, req, res) => {
-    const body = z.object({ approvalQuorum: z.number().int().min(1).max(5) }).parse(req.body);
-    const current = store.getPolicyTemplate(org.id);
-    const seats = store
-      .listGuardians(org.id)
-      .filter((g) => !g.revokedAt && g.role !== "viewer").length + 1; // +1 founder
-    if (body.approvalQuorum > seats) {
-      return res.status(400).json({
-        error: {
-          code: "VALIDATION_ERROR",
-          message: `Quorum of ${body.approvalQuorum} needs ${body.approvalQuorum} guardians; you have ${seats}. Approvals would be unresolvable.`,
-        },
-      });
-    }
-    store.setPolicyTemplate(org.id, { ...current, approvalQuorum: body.approvalQuorum });
-    res.json({ ok: true, approvalQuorum: body.approvalQuorum });
-  }, { ownerOnly: true }),
-);
+/** How many distinct approvals a payment needs before it executes — see policy-routes. */
 
 // ------------------------------------------------------------- analytics
 
@@ -800,27 +781,7 @@ app.get(
   }),
 );
 
-/** Replay real history against a proposed ruleset before committing to it. */
-app.post(
-  "/v1/guardian/policy/simulate",
-  guardianRoute((org, req, res) => {
-    const body = z
-      .object({
-        perTxMaxUsdc: z.string().optional(),
-        dailyMaxUsdc: z.string().optional(),
-        hitlAboveUsdc: z.string().optional(),
-        maxPaysPerMinute: z.number().int().positive().optional(),
-        addressAllowlist: z.array(z.string()).optional(),
-        domainAllowlist: z.array(z.string()).optional(),
-        vendorAllowlist: z.array(z.string()).optional(),
-        blocklist: z.array(z.string()).optional(),
-        windowHours: z.number().int().positive().max(24 * 90).default(24 * 7),
-      })
-      .parse(req.body);
-    const { windowHours, ...change } = body;
-    res.json({ simulation: simulatePolicy(org.id, change, windowHours) });
-  }),
-);
+/** Replay real history against a proposed ruleset — see policy-routes. */
 
 // ------------------------------------------------------- insights & Q&A
 
@@ -873,29 +834,7 @@ app.post(
   }),
 );
 
-app.get(
-  "/v1/guardian/policy/versions",
-  guardianRoute((org, _req, res) => {
-    res.json({
-      current: store.getPolicyVersion(org.id),
-      versions: store.listPolicyVersions(org.id).map(({ rules: _r, ...rest }) => rest),
-    });
-  }),
-);
-
-/** Restore a prior policy version as the active template (creates a new version row). */
-app.post(
-  "/v1/guardian/policy/versions/:id/restore",
-  guardianRoute((org, req, res) => {
-    const versions = store.listPolicyVersions(org.id, 100);
-    const hit = versions.find((v) => v.id === req.params.id || v.version === req.params.id);
-    if (!hit) {
-      return res.status(404).json({ error: { code: "NOT_FOUND", message: "policy version" } });
-    }
-    store.setPolicyTemplate(org.id, hit.rules, `restore:${hit.version}`);
-    res.json({ ok: true, policy: policyView(store.getPolicyTemplate(org.id)) });
-  }, { ownerOnly: true }),
-);
+/** Policy versions + restore — see policy-routes. */
 
 // ---------------------------------------------------------------- invoices
 
@@ -1340,148 +1279,6 @@ app.get(
       },
     });
   }),
-);
-
-function policyView(template: ReturnType<typeof store.getPolicyTemplate>) {
-  return {
-    perTxMaxUsdc: formatMicroToUsdc(template.perTxMaxMicro),
-    dailyMaxUsdc: formatMicroToUsdc(template.dailyMaxMicro),
-    hitlAboveUsdc: formatMicroToUsdc(template.hitlAboveMicro),
-    maxPaysPerMinute: template.maxPaysPerMinute,
-    newCounterpartyCooldownHours: template.newCounterpartyCooldownHours,
-    addressAllowlist: template.addressAllowlist,
-    domainAllowlist: template.domainAllowlist,
-    vendorAllowlist: template.vendorAllowlist,
-    blocklist: template.blocklist,
-    hitlCategories: template.hitlCategories,
-    quietHours: template.quietHours ?? null,
-    approvalQuorum: template.approvalQuorum ?? 1,
-    automation: (template.automation ?? []).map((rule) => ({
-      ...rule,
-      when:
-        rule.when.kind === "amount_above" || rule.when.kind === "balance_below"
-          ? { ...rule.when, micro: rule.when.micro.toString() }
-          : rule.when,
-    })),
-  };
-}
-
-app.get(
-  "/v1/guardian/policy",
-  guardianRoute((org, _req, res) => {
-    res.json({ policy: policyView(store.getPolicyTemplate(org.id)) });
-  }),
-);
-
-/** Partial policy update. Amounts in USDC strings; lists replace wholesale. */
-app.post(
-  "/v1/guardian/policy",
-  guardianRoute((org, req, res) => {
-    const body = z
-      .object({
-        perTxMaxUsdc: z.string().optional(),
-        dailyMaxUsdc: z.string().optional(),
-        hitlAboveUsdc: z.string().optional(),
-        maxPaysPerMinute: z.number().int().positive().optional(),
-        newCounterpartyCooldownHours: z.number().int().min(0).optional(),
-        addressAllowlist: z.array(z.string()).optional(),
-        domainAllowlist: z.array(z.string()).optional(),
-        vendorAllowlist: z.array(z.string()).optional(),
-        blocklist: z.array(z.string()).optional(),
-        hitlCategories: z
-          .array(
-            z.enum([
-              "pay",
-              "pay_api",
-              "transfer_internal",
-              "escrow_lock",
-              "escrow_release",
-              "escrow_refund",
-              "withdraw",
-            ]),
-          )
-          .optional(),
-        quietHours: z
-          .object({
-            startHour: z.number().int().min(0).max(23),
-            endHour: z.number().int().min(0).max(23),
-            action: z.enum(["review", "deny"]),
-          })
-          .nullable()
-          .optional(),
-        automation: z
-          .array(
-            z.object({
-              id: z.string().min(1),
-              name: z.string().min(1),
-              when: z.union([
-                z.object({ kind: z.literal("amount_above"), micro: z.union([z.string(), z.number()]) }),
-                z.object({
-                  kind: z.literal("balance_below"),
-                  micro: z.union([z.string(), z.number()]),
-                  walletId: z.string().optional(),
-                }),
-                z.object({ kind: z.literal("merchant_unknown") }),
-                z.object({ kind: z.literal("budget_exceeded") }),
-              ]),
-              then: z.union([
-                z.object({
-                  kind: z.literal("notify"),
-                  channel: z.enum(["in_app", "telegram", "email", "slack"]).optional(),
-                }),
-                z.object({ kind: z.literal("require_approval") }),
-                z.object({ kind: z.literal("deny") }),
-                z.object({ kind: z.literal("freeze_agent") }),
-              ]),
-            }),
-          )
-          .optional(),
-      })
-      .parse(req.body);
-    const current = store.getPolicyTemplate(org.id);
-    // automation.micro fields are micro-USDC integers (string or number), not USDC decimals.
-    const parseAutomationMicro = (v: string | number) =>
-      typeof v === "number" ? BigInt(Math.trunc(v)) : BigInt(String(v).replace(/^bigint:/, ""));
-    const next = {
-      ...current,
-      ...(body.perTxMaxUsdc !== undefined && { perTxMaxMicro: parseUsdcToMicro(body.perTxMaxUsdc) }),
-      ...(body.dailyMaxUsdc !== undefined && { dailyMaxMicro: parseUsdcToMicro(body.dailyMaxUsdc) }),
-      ...(body.hitlAboveUsdc !== undefined && { hitlAboveMicro: parseUsdcToMicro(body.hitlAboveUsdc) }),
-      ...(body.maxPaysPerMinute !== undefined && { maxPaysPerMinute: body.maxPaysPerMinute }),
-      ...(body.newCounterpartyCooldownHours !== undefined && {
-        newCounterpartyCooldownHours: body.newCounterpartyCooldownHours,
-      }),
-      ...(body.addressAllowlist && { addressAllowlist: body.addressAllowlist }),
-      ...(body.domainAllowlist && { domainAllowlist: body.domainAllowlist }),
-      ...(body.vendorAllowlist && { vendorAllowlist: body.vendorAllowlist }),
-      ...(body.blocklist && { blocklist: body.blocklist }),
-      ...(body.hitlCategories && { hitlCategories: body.hitlCategories }),
-      ...(body.quietHours !== undefined && { quietHours: body.quietHours ?? undefined }),
-      ...(body.automation !== undefined && {
-        automation: body.automation.map((rule) => ({
-          ...rule,
-          when:
-            rule.when.kind === "amount_above" || rule.when.kind === "balance_below"
-              ? { ...rule.when, micro: parseAutomationMicro(rule.when.micro) }
-              : rule.when,
-        })),
-      }),
-    };
-    if (next.hitlAboveMicro >= next.perTxMaxMicro) {
-      return res.status(400).json({
-        error: {
-          code: "VALIDATION_ERROR",
-          message: "hitlAboveUsdc must be below perTxMaxUsdc (allow < review < deny bands)",
-        },
-      });
-    }
-    store.setPolicyTemplate(org.id, next);
-    // New allowlist entries are trusted counterparties going forward.
-    for (const v of [...next.vendorAllowlist, ...next.domainAllowlist, ...next.addressAllowlist]) {
-      store.addKnownCounterparty(org.id, v);
-    }
-    res.json({ ok: true, policy: policyView(next) });
-  }, { ownerOnly: true }),
 );
 
 app.get(

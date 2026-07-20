@@ -19,7 +19,8 @@ import {
   relTime,
 } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
-import { PolicyView } from "../../lib/policy-view";
+import { ChatView } from "../../lib/chat-view";
+import { PolicyView, type Policy } from "../../lib/policy-view";
 import { SettingsView } from "../../lib/settings-view";
 import { MISSIONS, runMission, type RunStep } from "../../lib/mission";
 import {
@@ -31,7 +32,6 @@ import {
   type Run,
   type Summary,
 } from "../../lib/views";
-import { ChatView } from "../../lib/chat-view";
 import { AgentsView } from "../../lib/agents-view";
 import { TreasuryView } from "../../lib/treasury-view";
 
@@ -94,19 +94,6 @@ type Escrow = {
   jobId?: string;
   memo?: string;
   timeoutAt: string;
-};
-
-type Policy = {
-  perTxMaxUsdc: string;
-  dailyMaxUsdc: string;
-  hitlAboveUsdc: string;
-  maxPaysPerMinute: number;
-  newCounterpartyCooldownHours: number;
-  addressAllowlist: string[];
-  domainAllowlist: string[];
-  vendorAllowlist: string[];
-  blocklist: string[];
-  hitlCategories: string[];
 };
 
 type Webhook = { id: string; url: string; createdAt: string };

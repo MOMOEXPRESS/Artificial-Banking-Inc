@@ -231,7 +231,54 @@ export class AbiGuardianClient extends AbiHttpClient {
   }
 
   getPolicy() {
-    return this.request<{ policy: Record<string, unknown> }>("/v1/guardian/policy");
+    return this.request<{ policy: Record<string, unknown>; version?: string }>("/v1/guardian/policy");
+  }
+
+  updatePolicy(patch: Record<string, unknown>) {
+    return this.request<{ ok: boolean; policy: Record<string, unknown> }>("/v1/guardian/policy", {
+      method: "POST",
+      body: JSON.stringify(patch),
+    });
+  }
+
+  simulatePolicy(change: Record<string, unknown>) {
+    return this.request<{ simulation: unknown }>("/v1/guardian/policy/simulate", {
+      method: "POST",
+      body: JSON.stringify(change),
+    });
+  }
+
+  listPolicyVersions() {
+    return this.request<{ current: string; versions: unknown[] }>("/v1/guardian/policy/versions");
+  }
+
+  restorePolicyVersion(id: string) {
+    return this.request<{ ok: boolean }>(`/v1/guardian/policy/versions/${id}/restore`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  listPolicyTemplates() {
+    return this.request<{ templates: unknown[] }>("/v1/guardian/policy/templates");
+  }
+
+  applyPolicyTemplate(templateId: string, keepAllowlists = true) {
+    return this.request<{ ok: boolean }>("/v1/guardian/policy/apply-template", {
+      method: "POST",
+      body: JSON.stringify({ templateId, keepAllowlists }),
+    });
+  }
+
+  getQuorum() {
+    return this.request<{ approvalQuorum: number; seats: number }>("/v1/guardian/quorum");
+  }
+
+  setQuorum(approvalQuorum: number) {
+    return this.request<{ ok: boolean }>("/v1/guardian/quorum", {
+      method: "POST",
+      body: JSON.stringify({ approvalQuorum }),
+    });
   }
 
   listMerchants() {

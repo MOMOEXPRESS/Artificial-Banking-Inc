@@ -107,6 +107,10 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
         post: stub(["guardian"], "Restore a prior policy version", "guardianBearer"),
       },
       "/v1/guardian/policy/simulate": { post: stub(["guardian"], "Simulate proposed rules on history", "guardianBearer") },
+      "/v1/guardian/policy/templates": { get: stub(["guardian"], "List starter policy templates", "guardianBearer") },
+      "/v1/guardian/policy/apply-template": {
+        post: stub(["guardian"], "Apply a starter policy template", "guardianBearer"),
+      },
       "/v1/guardian/quorum": {
         get: stub(["guardian"], "Approval quorum settings", "guardianBearer"),
         post: stub(["guardian"], "Set approval quorum", "guardianBearer"),

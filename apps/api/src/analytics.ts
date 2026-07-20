@@ -30,10 +30,13 @@ export interface SimulationChange {
   dailyMaxUsdc?: string;
   hitlAboveUsdc?: string;
   maxPaysPerMinute?: number;
+  newCounterpartyCooldownHours?: number;
   addressAllowlist?: string[];
   domainAllowlist?: string[];
   vendorAllowlist?: string[];
   blocklist?: string[];
+  hitlCategories?: string[];
+  quietHours?: { startHour: number; endHour: number; action: "review" | "deny" } | null;
 }
 
 export interface SimulationResult {
@@ -80,10 +83,19 @@ export function simulatePolicy(
     ...(change.dailyMaxUsdc !== undefined && { dailyMaxMicro: parseUsdcToMicro(change.dailyMaxUsdc) }),
     ...(change.hitlAboveUsdc !== undefined && { hitlAboveMicro: parseUsdcToMicro(change.hitlAboveUsdc) }),
     ...(change.maxPaysPerMinute !== undefined && { maxPaysPerMinute: change.maxPaysPerMinute }),
+    ...(change.newCounterpartyCooldownHours !== undefined && {
+      newCounterpartyCooldownHours: change.newCounterpartyCooldownHours,
+    }),
     ...(change.addressAllowlist && { addressAllowlist: change.addressAllowlist }),
     ...(change.domainAllowlist && { domainAllowlist: change.domainAllowlist }),
     ...(change.vendorAllowlist && { vendorAllowlist: change.vendorAllowlist }),
     ...(change.blocklist && { blocklist: change.blocklist }),
+    ...(change.hitlCategories && {
+      hitlCategories: change.hitlCategories as import("@policyvault/policy").PolicyTemplate["hitlCategories"],
+    }),
+    ...(change.quietHours !== undefined && {
+      quietHours: change.quietHours ?? undefined,
+    }),
   };
 
   const cutoff = Date.now() - windowHours * 3600_000;

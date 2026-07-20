@@ -411,6 +411,95 @@ export function templateSoloSwarm(): PolicyTemplate {
   };
 }
 
+/** Multi-agent desk — tighter per-tx, shared vendor list, overnight quiet hours. */
+export function templateSwarm(): PolicyTemplate {
+  return {
+    perTxMaxMicro: 15_000_000n,
+    dailyMaxMicro: 40_000_000n,
+    maxPaysPerMinute: 8,
+    newCounterpartyCooldownHours: 48,
+    hitlAboveMicro: 5_000_000n,
+    addressAllowlist: [],
+    domainAllowlist: [],
+    vendorAllowlist: ["api.openai.com", "api.anthropic.com", "data.example"],
+    blocklist: [],
+    hitlCategories: ["withdraw", "transfer_internal"],
+    quietHours: { startHour: 22, endHour: 6, action: "review" },
+    approvalQuorum: 1,
+    automation: [
+      {
+        id: "auto_unknown_merchant",
+        name: "Unknown merchant → approval",
+        when: { kind: "merchant_unknown" },
+        then: { kind: "require_approval" },
+      },
+    ],
+  };
+}
+
+/** API seller / x402-heavy — higher velocity, domain allowlist focus. */
+export function templateApiSeller(): PolicyTemplate {
+  return {
+    perTxMaxMicro: 50_000_000n,
+    dailyMaxMicro: 200_000_000n,
+    maxPaysPerMinute: 30,
+    newCounterpartyCooldownHours: 0,
+    hitlAboveMicro: 25_000_000n,
+    addressAllowlist: [],
+    domainAllowlist: ["localhost"],
+    vendorAllowlist: [],
+    blocklist: [],
+    hitlCategories: ["withdraw"],
+    approvalQuorum: 1,
+    automation: [
+      {
+        id: "auto_large_pay",
+        name: "Large payment → notify",
+        when: { kind: "amount_above", micro: 20_000_000n },
+        then: { kind: "notify", channel: "in_app" },
+      },
+    ],
+  };
+}
+
+export type PolicyTemplateId = "solo_swarm" | "swarm" | "api_seller";
+
+export function policyTemplateById(id: PolicyTemplateId): PolicyTemplate {
+  switch (id) {
+    case "swarm":
+      return templateSwarm();
+    case "api_seller":
+      return templateApiSeller();
+    case "solo_swarm":
+    default:
+      return templateSoloSwarm();
+  }
+}
+
+export function listPolicyTemplateCatalog(): {
+  id: PolicyTemplateId;
+  name: string;
+  description: string;
+}[] {
+  return [
+    {
+      id: "solo_swarm",
+      name: "Solo swarm",
+      description: "Default demo — $10 HITL, $25 per-tx, OpenAI allowlisted.",
+    },
+    {
+      id: "swarm",
+      name: "Research swarm",
+      description: "Tighter caps, overnight quiet hours, unknown-merchant HITL.",
+    },
+    {
+      id: "api_seller",
+      name: "API seller",
+      description: "Higher velocity for x402 / machine payments; large-pay notify.",
+    },
+  ];
+}
+
 /** Rules whose `when` matches — used by the API to fire notify/freeze side-effects. */
 export function matchedAutomationRules(
   intent: MoneyIntent,
