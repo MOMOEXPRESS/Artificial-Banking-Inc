@@ -32,6 +32,7 @@ import {
   type Summary,
 } from "../../lib/views";
 import { ChatView } from "../../lib/chat-view";
+import { AgentsView } from "../../lib/agents-view";
 import { TreasuryView } from "../../lib/treasury-view";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
@@ -147,6 +148,7 @@ type Recon = { ok: boolean; accountsChecked: number; journalsReplayed: number; d
 type View =
   | "overview"
   | "treasury"
+  | "agents"
   | "playground"
   | "chat"
   | "work"
@@ -163,6 +165,7 @@ type View =
 const NAV: { key: View; label: string; icon: string }[] = [
   { key: "overview", label: "Overview", icon: "home" },
   { key: "treasury", label: "Treasury", icon: "wallet" },
+  { key: "agents", label: "Agents", icon: "robot" },
   { key: "playground", label: "Agent Playground", icon: "play" },
   { key: "chat", label: "ABI Chat", icon: "bell" },
   { key: "work", label: "Work & deliverables", icon: "book" },
@@ -669,6 +672,21 @@ export default function Console() {
                 />
               )}
               {view === "treasury" && <TreasuryView gFetch={gFetch} busy={busy} act={act} />}
+              {view === "agents" && (
+                <AgentsView
+                  gFetch={gFetch}
+                  busy={busy}
+                  act={act}
+                  onKeyRevealed={(entry) => {
+                    updateSession({
+                      agentKeys: [
+                        ...session!.agentKeys.filter((k) => k.agentId !== entry.agentId),
+                        entry,
+                      ],
+                    });
+                  }}
+                />
+              )}
               {view === "playground" && (
                 <Playground
                   {...shared}

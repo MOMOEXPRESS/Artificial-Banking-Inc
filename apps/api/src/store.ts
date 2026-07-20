@@ -13,7 +13,16 @@ import Database from "better-sqlite3";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { applyJournal, type JournalEntry, type LedgerAccount } from "@policyvault/ledger";
 import { templateSoloSwarm, type PolicyTemplate } from "@policyvault/policy";
-import type { AssetRecord, MerchantRecord, MicroUsdc, OrgSettings, WalletScope } from "@policyvault/common";
+import type {
+  AgentGroupRecord,
+  AssetRecord,
+  MerchantRecord,
+  MicroUsdc,
+  OrgSettings,
+  SessionKeyRecord,
+  WalletScope,
+} from "@policyvault/common";
+import { agentApiKeyIsLive } from "@policyvault/common";
 
 export type OrgStatus = "active" | "frozen" | "archived";
 export type AgentStatus = "active" | "frozen" | "archived";
@@ -37,6 +46,14 @@ export interface AgentRow {
   apiKey: string;
   /** Extensible profile for groups, ownership, reputation, runtime metadata. */
   profile: Record<string, unknown>;
+}
+
+export interface FreezeRow {
+  id: number;
+  orgId: string;
+  agentId?: string;
+  reason: string;
+  at: string;
 }
 
 export interface ChatMessageRow {
@@ -589,6 +606,30 @@ CREATE TABLE IF NOT EXISTS recovery_events (
   at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_recovery_org ON recovery_events(org_id);
+
+CREATE TABLE IF NOT EXISTS agent_groups (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_groups_org ON agent_groups(org_id);
+
+CREATE TABLE IF NOT EXISTS session_keys (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  agent_id TEXT NOT NULL REFERENCES agents(id),
+  token TEXT NOT NULL UNIQUE,
+  label TEXT,
+  scopes_json TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_session_keys_org ON session_keys(org_id);
+CREATE INDEX IF NOT EXISTS idx_session_keys_agent ON session_keys(agent_id);
+CREATE INDEX IF NOT EXISTS idx_session_keys_token ON session_keys(token);
 `);
 
 // Seed platform USDC asset once.
@@ -937,7 +978,21 @@ export const store = {
   },
 
   getAgentByKey(apiKey: string): AgentRow | undefined {
+    if (!agentApiKeyIsLive(apiKey)) return undefined;
     const r = db.prepare("SELECT * FROM agents WHERE api_key = ?").get(apiKey) as Row | undefined;
+    return r ? rowToAgent(r) : undefined;
+  },
+
+  /** Resolve a live (non-expired, non-revoked) session key to its agent. */
+  getAgentBySessionToken(token: string): AgentRow | undefined {
+    if (!token.startsWith("pv_sess_")) return undefined;
+    const r = db
+      .prepare(
+        `SELECT a.* FROM session_keys s
+         JOIN agents a ON a.id = s.agent_id
+         WHERE s.token = ? AND s.revoked_at IS NULL AND s.expires_at > ?`,
+      )
+      .get(token, nowIso()) as Row | undefined;
     return r ? rowToAgent(r) : undefined;
   },
 
@@ -958,8 +1013,29 @@ export const store = {
     return apiKey;
   },
 
+  /**
+   * Kill the long-lived API key without issuing a replacement (O11 revoke-all
+   * for the single-key model). Session keys are revoked separately.
+   */
+  revokeAgentKey(agentId: string): void {
+    const dead = `revoked_${agentId}_${randomBytes(8).toString("hex")}`;
+    db.prepare("UPDATE agents SET api_key = ? WHERE id = ?").run(dead, agentId);
+  },
+
+  renameAgent(agentId: string, name: string): void {
+    db.prepare("UPDATE agents SET name = ? WHERE id = ?").run(name, agentId);
+  },
+
   setAgentStatus(agentId: string, status: AgentStatus): void {
-    db.prepare("UPDATE agents SET status = ? WHERE id = ?").run(status, agentId);
+    const tx = db.transaction(() => {
+      db.prepare("UPDATE agents SET status = ? WHERE id = ?").run(status, agentId);
+      if (status === "frozen" || status === "archived") {
+        db.prepare(
+          "UPDATE session_keys SET revoked_at = COALESCE(revoked_at, ?) WHERE agent_id = ? AND revoked_at IS NULL",
+        ).run(nowIso(), agentId);
+      }
+    });
+    tx();
   },
 
   getVaultAddress(orgId: string): string | undefined {
@@ -1817,6 +1893,174 @@ export const store = {
     );
   },
 
+  listFreezes(orgId: string, limit = 50): FreezeRow[] {
+    return (
+      db
+        .prepare("SELECT * FROM freezes WHERE org_id = ? ORDER BY id DESC LIMIT ?")
+        .all(orgId, limit) as Row[]
+    ).map((r) => ({
+      id: r.id as number,
+      orgId: r.org_id as string,
+      agentId: (r.agent_id as string | null) ?? undefined,
+      reason: r.reason as string,
+      at: r.at as string,
+    }));
+  },
+
+  listDecisionsForAgent(orgId: string, agentId: string, limit = 50): DecisionRow[] {
+    const rows = db
+      .prepare(
+        "SELECT * FROM decisions WHERE org_id = ? AND agent_id = ? ORDER BY id DESC LIMIT ?",
+      )
+      .all(orgId, agentId, limit) as Row[];
+    return rows.map((r) => ({
+      intentId: r.intent_id,
+      orgId: r.org_id,
+      agentId: r.agent_id,
+      outcome: r.outcome,
+      ruleIds: JSON.parse(r.rule_ids_json),
+      reasons: JSON.parse(r.reasons_json),
+      tool: r.tool,
+      amountUsdc: r.amount_usdc,
+      destination: r.destination,
+      at: r.at,
+    }));
+  },
+
+  listRunsForAgent(orgId: string, agentId: string, limit = 50): RunRow[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM runs WHERE org_id = ? AND agent_id = ? ORDER BY started_at DESC LIMIT ?",
+        )
+        .all(orgId, agentId, limit) as Row[]
+    ).map(rowToRun);
+  },
+
+  // ---------------------------------------------------------- agent groups
+  createAgentGroup(orgId: string, name: string): AgentGroupRecord {
+    const row: AgentGroupRecord = {
+      id: id("agrp"),
+      orgId,
+      name,
+      status: "active",
+      createdAt: nowIso(),
+    };
+    db.prepare(
+      "INSERT INTO agent_groups (id, org_id, name, status, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(row.id, row.orgId, row.name, row.status, row.createdAt);
+    return row;
+  },
+
+  listAgentGroups(orgId: string): AgentGroupRecord[] {
+    return (db.prepare("SELECT * FROM agent_groups WHERE org_id = ?").all(orgId) as Row[]).map(
+      (r) => ({
+        id: r.id as string,
+        orgId: r.org_id as string,
+        name: r.name as string,
+        status: r.status as "active" | "archived",
+        createdAt: r.created_at as string,
+      }),
+    );
+  },
+
+  getAgentGroup(groupId: string): AgentGroupRecord | undefined {
+    const r = db.prepare("SELECT * FROM agent_groups WHERE id = ?").get(groupId) as Row | undefined;
+    if (!r) return undefined;
+    return {
+      id: r.id as string,
+      orgId: r.org_id as string,
+      name: r.name as string,
+      status: r.status as "active" | "archived",
+      createdAt: r.created_at as string,
+    };
+  },
+
+  setAgentGroupStatus(groupId: string, status: "active" | "archived"): void {
+    db.prepare("UPDATE agent_groups SET status = ? WHERE id = ?").run(status, groupId);
+  },
+
+  // ---------------------------------------------------------- session keys
+  createSessionKey(input: {
+    orgId: string;
+    agentId: string;
+    label?: string;
+    scopes?: string[];
+    ttlHours?: number;
+  }): SessionKeyRecord {
+    const ttl = Math.min(Math.max(input.ttlHours ?? 24, 1), 24 * 30);
+    const token = `pv_sess_${randomBytes(16).toString("hex")}`;
+    const createdAt = nowIso();
+    const expiresAt = new Date(Date.now() + ttl * 3600_000).toISOString();
+    const scopes = input.scopes?.length ? input.scopes : ["read", "pay", "escrow"];
+    const row: SessionKeyRecord = {
+      id: id("sess"),
+      orgId: input.orgId,
+      agentId: input.agentId,
+      token,
+      label: input.label,
+      scopes,
+      expiresAt,
+      createdAt,
+    };
+    db.prepare(
+      `INSERT INTO session_keys (id, org_id, agent_id, token, label, scopes_json, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      row.id,
+      row.orgId,
+      row.agentId,
+      token,
+      input.label ?? null,
+      JSON.stringify(scopes),
+      expiresAt,
+      createdAt,
+    );
+    return row;
+  },
+
+  listSessionKeys(orgId: string, agentId?: string): Omit<SessionKeyRecord, "token">[] {
+    const rows = (
+      agentId
+        ? (db
+            .prepare(
+              "SELECT * FROM session_keys WHERE org_id = ? AND agent_id = ? ORDER BY created_at DESC",
+            )
+            .all(orgId, agentId) as Row[])
+        : (db
+            .prepare("SELECT * FROM session_keys WHERE org_id = ? ORDER BY created_at DESC")
+            .all(orgId) as Row[])
+    );
+    return rows.map((r) => ({
+      id: r.id as string,
+      orgId: r.org_id as string,
+      agentId: r.agent_id as string,
+      label: (r.label as string | null) ?? undefined,
+      scopes: JSON.parse(r.scopes_json as string) as string[],
+      expiresAt: r.expires_at as string,
+      revokedAt: (r.revoked_at as string | null) ?? undefined,
+      createdAt: r.created_at as string,
+    }));
+  },
+
+  revokeSessionKey(orgId: string, sessionId: string): boolean {
+    const info = db
+      .prepare(
+        "UPDATE session_keys SET revoked_at = ? WHERE id = ? AND org_id = ? AND revoked_at IS NULL",
+      )
+      .run(nowIso(), sessionId, orgId);
+    return info.changes > 0;
+  },
+
+  revokeAllSessionKeys(agentId: string): number {
+    const info = db
+      .prepare(
+        "UPDATE session_keys SET revoked_at = ? WHERE agent_id = ? AND revoked_at IS NULL",
+      )
+      .run(nowIso(), agentId);
+    return info.changes;
+  },
+
   // -------------------------------------------------------------- webhooks
   createWebhook(orgId: string, url: string): WebhookRow {
     const row: WebhookRow = {
@@ -2305,6 +2549,8 @@ export const store = {
         "departments",
         "treasury_moves",
         "recovery_events",
+        "session_keys",
+        "agent_groups",
         "chat_messages",
         "policy_versions",
         "policies",

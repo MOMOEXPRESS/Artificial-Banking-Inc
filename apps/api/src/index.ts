@@ -47,6 +47,7 @@ import { recordObs } from "./platform/observability.js";
 import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./webhook-url.js";
+import { registerAgentRoutes } from "./agent-routes.js";
 import { registerTreasuryRoutes } from "./treasury-routes.js";
 
 const app = express();
@@ -153,11 +154,15 @@ function bearer(req: express.Request): string | null {
 
 function authAgent(req: express.Request): { orgId: string; agentId: string } | null {
   const key = bearer(req);
-  if (!key || !key.startsWith("pv_agent_")) return null;
-  const agent = store.getAgentByKey(key);
+  if (!key) return null;
+  const agent = key.startsWith("pv_sess_")
+    ? store.getAgentBySessionToken(key)
+    : key.startsWith("pv_agent_")
+      ? store.getAgentByKey(key)
+      : undefined;
   if (!agent) return null;
-  // Frozen agents/orgs still authenticate: their intents hit the policy engine
-  // and produce an explainable agent_frozen/org_frozen deny in the trace.
+  // Frozen / archived agents still authenticate: their intents hit the policy
+  // engine and produce an explainable agent_frozen/org_frozen deny in the trace.
   return { orgId: agent.orgId, agentId: agent.id };
 }
 
@@ -224,6 +229,7 @@ function guardianRoute(
 }
 
 registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
+registerAgentRoutes(app, { guardianRoute });
 
 /** Wrap an async route handler so rejections become clean HTTP errors. */
 function asyncRoute(
@@ -570,45 +576,6 @@ app.post("/v1/guardian/orgs", (req, res) => {
     legal: LEGAL_FOOTER,
   });
 });
-
-/** Create an agent in the org. The API key is returned exactly once — store it. */
-app.post(
-  "/v1/guardian/agents",
-  guardianRoute((org, req, res) => {
-    const body = z.object({ name: z.string().min(1).max(80) }).parse(req.body);
-    const { agentId, apiKey } = store.createAgent(org.id, body.name);
-    res.status(201).json({
-      agentId,
-      apiKey,
-      note: "Store this API key now — it is not shown again. Use as Bearer token for /v1/agent routes.",
-    });
-  }, { ownerOnly: true }),
-);
-
-/** Patch extensible agent profile (groups, ownership, tags — no schema churn). */
-app.patch(
-  "/v1/guardian/agents/:id/profile",
-  guardianRoute((org, req, res) => {
-    const agent = store.getAgent(req.params.id);
-    if (!agent || agent.orgId !== org.id) {
-      return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-    }
-    const body = z.object({ profile: z.record(z.unknown()) }).parse(req.body);
-    const next = { ...agent.profile, ...body.profile };
-    store.setAgentProfile(agent.id, next);
-    res.json({
-      agentId: agent.id,
-      profile: next,
-      identity: {
-        id: agent.id,
-        orgId: agent.orgId,
-        name: agent.name,
-        status: agent.status,
-        profile: next,
-      },
-    });
-  }, { ownerOnly: true }),
-);
 
 app.get(
   "/v1/guardian/org",
@@ -1146,24 +1113,6 @@ app.post(
     } catch (e) {
       res.status(400).json({ error: { code: "INSUFFICIENT_STIPEND", message: String(e) } });
     }
-  }, { ownerOnly: true }),
-);
-
-/** Rotate an agent's API key. The old key stops working immediately. */
-app.post(
-  "/v1/guardian/agents/:id/rotate-key",
-  guardianRoute((org, req, res) => {
-    const agent = store.getAgent(req.params.id);
-    if (!agent || agent.orgId !== org.id) {
-      return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-    }
-    const apiKey = store.rotateAgentKey(agent.id);
-    store.addFreeze(org.id, agent.id, "key rotated");
-    res.json({
-      agentId: agent.id,
-      apiKey,
-      note: "Old key is dead. Update the agent's environment now — it cannot spend until you do.",
-    });
   }, { ownerOnly: true }),
 );
 

@@ -52,7 +52,8 @@ export function rulesFor(agentId: string, orgId: string): PolicyRules {
     ],
     spentLast24hMicro: store.spentLast24h(agentId),
     paysLastMinute: store.paysLastMinute(agentId),
-    agentFrozen: agent.status === "frozen",
+    // Archived agents are non-spendable — same deny path as freeze.
+    agentFrozen: agent.status === "frozen" || agent.status === "archived",
     orgFrozen: org.status === "frozen",
     walletBalanceMicro: store.getAccountMap(orgId).get(availableId)?.balanceMicro ?? 0n,
   };

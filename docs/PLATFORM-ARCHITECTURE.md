@@ -28,6 +28,27 @@ extension points that let each pillar grow without a rewrite.
 
 ---
 
+## AI Agent Management pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| Create / list / detail | DONE | `GET/POST /v1/guardian/agents`, `GET .../agents/:id` |
+| Rename / profile | DONE | `PATCH .../agents/:id` + profile merge (tags, runtime, ownership) |
+| Archive / restore | DONE | `POST .../archive` / `unarchive` (archived = non-spendable) |
+| Freeze / unfreeze | DONE | `POST .../freeze` + org-level `/freeze`; Console roster |
+| Freeze audit log | DONE | `GET /v1/guardian/freezes` |
+| API key rotate | DONE | `POST .../rotate-key` |
+| API key revoke | DONE | `POST .../revoke-key` (kills API + session keys) |
+| Session keys | DONE | `POST .../session-keys`, `GET /session-keys`, auth via `pv_sess_…` |
+| Agent groups | DONE | `POST/GET /v1/guardian/agent-groups` + assign |
+| Ownership | DONE | `profile.ownerGuardianId` validated against guardians |
+| Runs / activity | DONE | Detail embeds runs + decisions; `GET /runs` |
+| Agent analytics | DONE | `GET .../agents/:id/analytics` |
+| Console | DONE | Nav **Agents** → roster / groups / sessions / freezes |
+| Guardian SDK | DONE | `AbiGuardianClient` create/list/freeze/rotate/revoke |
+
+---
+
 ## Money spine (do not break)
 
 ```
@@ -58,7 +79,7 @@ aspirational Postgres schema — swap behind `store`, do not dual-write.
 | # | Pillar | Live today | Extension point |
 |---|--------|------------|-----------------|
 | 1 | **Treasury** | Org / dept / shared / agent wallets, unified moves + multisig HITL, USDC asset registry, deposit/withdraw, cash-flow, forecast, recovery | `WalletScope` + `accountId` + `transferAvailable`; `GET /v1/guardian/wallets`; Console → Treasury |
-| 2 | **AI Agent Management** | Agents, keys, freeze, runs; `PATCH .../agents/:id/profile` | `AgentIdentity` + `AgentProfileHints`; profile JSON for groups/ownership |
+| 2 | **AI Agent Management** | Roster, detail, archive, freeze audit, rotate/revoke keys, session keys (`pv_sess_`), groups, ownership, per-agent analytics, Console → Agents | `AgentIdentity` + `AgentProfileHints`; `agent-routes.ts`; `AbiGuardianClient` |
 | 3 | **Financial Policies** | Caps, lists, HITL, quiet hours, quorum, simulator, **automation[]** on policy API | `policy_versions` + restore; `PolicyTemplate` / `matchedAutomationRules` |
 | 4 | **Payments** | USDC micro, x402 + transfer-mock rails, escrow, subs, invoices | `PaymentRail` interface; `@policyvault/custody` (DevLocal wired, CDP stub ready) |
 | 5 | **Observability** | Metrics, insights, vendor/burn/anomaly analytics | Pure `analytics.ts` / `insights.ts`; `ObservabilitySink` |

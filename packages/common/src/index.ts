@@ -116,8 +116,7 @@ export interface AgentIdentity {
 
 /**
  * Documented optional keys for `AgentIdentity.profile` / `AgentRow.profile`.
- * Not enforced — conventions so agent groups / ownership can land without
- * schema churn.
+ * PATCH validates `groupId` / `ownerGuardianId` when present.
  */
 export interface AgentProfileHints {
   groupId?: string;
@@ -125,6 +124,37 @@ export interface AgentProfileHints {
   tags?: string[];
   runtime?: string;
   reputationScore?: number;
+}
+
+/** Org-scoped agent group (swarm / desk / team). */
+export interface AgentGroupRecord {
+  id: string;
+  orgId: string;
+  name: string;
+  status: "active" | "archived";
+  createdAt: string;
+}
+
+/**
+ * Short-lived agent credential. Prefer these over long-lived API keys when
+ * wiring runtimes; revoke on freeze. Token prefix: `pv_sess_`.
+ */
+export interface SessionKeyRecord {
+  id: string;
+  orgId: string;
+  agentId: string;
+  /** Present only at create time — never listed again. */
+  token?: string;
+  label?: string;
+  scopes: string[];
+  expiresAt: string;
+  revokedAt?: string;
+  createdAt: string;
+}
+
+/** True when the agent still has a usable long-lived API key. */
+export function agentApiKeyIsLive(apiKey: string): boolean {
+  return apiKey.startsWith("pv_agent_");
 }
 
 /** Org-level feature / plan envelope — SSO, SLA, etc. land as flags here. */

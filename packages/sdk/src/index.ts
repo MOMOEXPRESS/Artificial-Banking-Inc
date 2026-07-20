@@ -172,6 +172,64 @@ export class AbiGuardianClient extends AbiHttpClient {
     }>("/v1/guardian/org");
   }
 
+  listAgents() {
+    return this.request<{ agents: unknown[] }>("/v1/guardian/agents");
+  }
+
+  getAgent(agentId: string) {
+    return this.request<Record<string, unknown>>(`/v1/guardian/agents/${agentId}`);
+  }
+
+  createAgent(name: string, profile?: Record<string, unknown>) {
+    return this.request<{ agentId: string; apiKey: string; identity: unknown }>(
+      "/v1/guardian/agents",
+      { method: "POST", body: JSON.stringify({ name, profile }) },
+    );
+  }
+
+  updateAgent(agentId: string, patch: { name?: string; profile?: Record<string, unknown> }) {
+    return this.request<{ identity: unknown }>(`/v1/guardian/agents/${agentId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  }
+
+  freezeAgent(agentId: string, reason = "manual") {
+    return this.request<{ ok: boolean }>(`/v1/guardian/agents/${agentId}/freeze`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  unfreezeAgent(agentId: string) {
+    return this.request<{ ok: boolean }>(`/v1/guardian/agents/${agentId}/unfreeze`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  rotateAgentKey(agentId: string) {
+    return this.request<{ agentId: string; apiKey: string }>(
+      `/v1/guardian/agents/${agentId}/rotate-key`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+  }
+
+  revokeAgentKey(agentId: string) {
+    return this.request<{ ok: boolean }>(`/v1/guardian/agents/${agentId}/revoke-key`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  listAgentGroups() {
+    return this.request<{ groups: unknown[] }>("/v1/guardian/agent-groups");
+  }
+
+  listFreezes() {
+    return this.request<{ freezes: unknown[] }>("/v1/guardian/freezes");
+  }
+
   getPolicy() {
     return this.request<{ policy: Record<string, unknown> }>("/v1/guardian/policy");
   }
