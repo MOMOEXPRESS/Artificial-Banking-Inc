@@ -32,6 +32,7 @@ import {
   type Summary,
 } from "../../lib/views";
 import { ChatView } from "../../lib/chat-view";
+import { TreasuryView } from "../../lib/treasury-view";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
 const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
@@ -145,6 +146,7 @@ type Recon = { ok: boolean; accountsChecked: number; journalsReplayed: number; d
 
 type View =
   | "overview"
+  | "treasury"
   | "playground"
   | "chat"
   | "work"
@@ -160,6 +162,7 @@ type View =
 
 const NAV: { key: View; label: string; icon: string }[] = [
   { key: "overview", label: "Overview", icon: "home" },
+  { key: "treasury", label: "Treasury", icon: "wallet" },
   { key: "playground", label: "Agent Playground", icon: "play" },
   { key: "chat", label: "ABI Chat", icon: "bell" },
   { key: "work", label: "Work & deliverables", icon: "book" },
@@ -665,6 +668,7 @@ export default function Console() {
                   invStats={invStats}
                 />
               )}
+              {view === "treasury" && <TreasuryView gFetch={gFetch} busy={busy} act={act} />}
               {view === "playground" && (
                 <Playground
                   {...shared}

@@ -9,6 +9,25 @@ extension points that let each pillar grow without a rewrite.
 
 ---
 
+## Treasury pillar (complete)
+
+| Capability | Status | Surface |
+|------------|--------|---------|
+| Organization treasury | DONE | Org vault + deposit/withdraw |
+| Department treasuries | DONE | `POST/GET /v1/guardian/departments` |
+| Agent wallets | DONE | Agent available/held + stipend APIs |
+| Shared wallets | DONE | `POST/GET /v1/guardian/shared-wallets` + members |
+| Treasury analytics | DONE | Wallets registry + metrics rollups |
+| Budget allocation | DONE | Unified `POST /v1/guardian/wallets/move` + legacy allocate/reclaim/transfer |
+| Multi-wallet management | DONE | `GET /v1/guardian/wallets` + Console → Treasury |
+| Asset management | DONE | USDC asset registry (`GET /v1/guardian/assets`) |
+| Wallet recovery | DONE | Rotate vault / agent keys + recovery log |
+| Multi-signature support | DONE | Treasury moves above HITL require quorum votes |
+| Treasury forecasting | DONE | `GET /v1/guardian/treasury/forecast` |
+| Cash-flow monitoring | DONE | `GET /v1/guardian/treasury/cashflow` |
+
+---
+
 ## Money spine (do not break)
 
 ```
@@ -38,7 +57,7 @@ aspirational Postgres schema — swap behind `store`, do not dual-write.
 
 | # | Pillar | Live today | Extension point |
 |---|--------|------------|-----------------|
-| 1 | **Treasury** | Org vault + agent stipends via `accountId` + `transferAvailable` | `WalletScope`; reserved `dept_*` / `shared_*` kinds; same journal helper |
+| 1 | **Treasury** | Org / dept / shared / agent wallets, unified moves + multisig HITL, USDC asset registry, deposit/withdraw, cash-flow, forecast, recovery | `WalletScope` + `accountId` + `transferAvailable`; `GET /v1/guardian/wallets`; Console → Treasury |
 | 2 | **AI Agent Management** | Agents, keys, freeze, runs; `PATCH .../agents/:id/profile` | `AgentIdentity` + `AgentProfileHints`; profile JSON for groups/ownership |
 | 3 | **Financial Policies** | Caps, lists, HITL, quiet hours, quorum, simulator, **automation[]** on policy API | `policy_versions` + restore; `PolicyTemplate` / `matchedAutomationRules` |
 | 4 | **Payments** | USDC micro, x402 + transfer-mock rails, escrow, subs, invoices | `PaymentRail` interface; `@policyvault/custody` (DevLocal wired, CDP stub ready) |

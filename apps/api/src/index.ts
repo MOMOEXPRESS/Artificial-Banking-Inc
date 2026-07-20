@@ -47,6 +47,7 @@ import { recordObs } from "./platform/observability.js";
 import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./webhook-url.js";
+import { registerTreasuryRoutes } from "./treasury-routes.js";
 
 const app = express();
 app.use(cors());
@@ -221,6 +222,8 @@ function guardianRoute(
     });
   };
 }
+
+registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
 
 /** Wrap an async route handler so rejections become clean HTTP errors. */
 function asyncRoute(

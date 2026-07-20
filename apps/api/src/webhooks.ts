@@ -25,7 +25,10 @@ export type WebhookEvent =
   | "agent.unfrozen"
   | "invoice.paid"
   | "subscription.charged"
-  | "compliance.flagged";
+  | "compliance.flagged"
+  | "treasury.move.pending"
+  | "treasury.move.executed"
+  | "treasury.recovery";
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [2_000, 10_000];

@@ -10,8 +10,8 @@ export type LedgerAccountKind =
   /** Nominal income account. Carries a credit (negative) balance by nature. */
   | "revenue"
   /**
-   * Reserved scopes — account ids use `dept:{id}:available` / `shared:{id}:available`.
-   * Journals may already reference these kinds; allocation APIs land later.
+   * Department / shared wallet available+held accounts.
+   * Account ids: `dept:{id}:available` / `shared:{id}:available`.
    */
   | "dept_available"
   | "dept_held"
@@ -23,7 +23,7 @@ export type LedgerAccountKind =
  * not have. Nominal/contra accounts (income) legitimately carry the opposite
  * sign, so they are exempt from the floor.
  */
-const CONTRA_KINDS = new Set<LedgerAccountKind>(["revenue"]);
+const CONTRA_KINDS = new Set<LedgerAccountKind>(["revenue", "external"]);
 
 export interface LedgerAccount {
   id: string;

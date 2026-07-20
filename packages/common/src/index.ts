@@ -34,11 +34,31 @@ export type IntentTool =
   | "withdraw";
 
 /**
- * Wallet scopes the platform can grow into without rewriting the ledger.
- * Today only `org` and `agent` are wired; `department` / `shared` are reserved
- * account-id schemes (`dept:{id}:available`, `shared:{id}:available`).
+ * Wallet scopes — org + agent are fully wired; department + shared are first-class
+ * treasury wallets with the same account-id scheme.
  */
 export type WalletScope = "org" | "department" | "agent" | "shared";
+
+/** Reference to any spendable wallet in an org. */
+export interface WalletRef {
+  scope: WalletScope;
+  /** Org id, agent id, department id, or shared-wallet id. */
+  id: string;
+}
+
+/** Supported settlement asset (USDC today; registry allows more without ledger rewrite). */
+export interface AssetRecord {
+  id: string;
+  symbol: string;
+  decimals: number;
+  chain: "base" | "base-sepolia";
+  /** Token contract; null for native gas placeholders. */
+  contract: string | null;
+  /** Org-scoped custom assets; null = platform default. */
+  orgId?: string;
+}
+
+export const USDC_ASSET_ID = "asset_usdc";
 
 /** Notification channels — in-app + Telegram today; others are extension slots. */
 export type NotificationChannel =
@@ -64,7 +84,10 @@ export type WebhookEventName =
   | "escrow.refunded"
   | "invoice.paid"
   | "subscription.charged"
-  | "compliance.flagged";
+  | "compliance.flagged"
+  | "treasury.move.pending"
+  | "treasury.move.executed"
+  | "treasury.recovery";
 
 export interface MoneyIntent {
   agentId: string;

@@ -114,6 +114,35 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
         post: stub(["guardian"], "Create invoice", "guardianBearer"),
       },
       "/v1/guardian/setup": { get: stub(["guardian"], "Environment / custody setup hints", "guardianBearer") },
+      "/v1/guardian/wallets": { get: stub(["guardian"], "Multi-wallet registry (org/dept/agent/shared)", "guardianBearer") },
+      "/v1/guardian/wallets/move": { post: stub(["guardian"], "Unified treasury move (HITL above threshold)", "guardianBearer") },
+      "/v1/guardian/departments": {
+        get: stub(["guardian"], "List department treasuries", "guardianBearer"),
+        post: stub(["guardian"], "Create department treasury", "guardianBearer", { "201": { description: "Created" } }),
+      },
+      "/v1/guardian/shared-wallets": {
+        get: stub(["guardian"], "List shared wallets", "guardianBearer"),
+        post: stub(["guardian"], "Create shared wallet", "guardianBearer", { "201": { description: "Created" } }),
+      },
+      "/v1/guardian/shared-wallets/{id}/members": {
+        post: stub(["guardian"], "Set shared wallet members", "guardianBearer"),
+      },
+      "/v1/guardian/assets": { get: stub(["guardian"], "Asset registry (USDC)", "guardianBearer") },
+      "/v1/guardian/treasury/deposit": { post: stub(["guardian"], "Deposit into org treasury", "guardianBearer") },
+      "/v1/guardian/treasury/withdraw": { post: stub(["guardian"], "Withdraw from org treasury", "guardianBearer") },
+      "/v1/guardian/treasury/cashflow": { get: stub(["guardian"], "Cash-flow series", "guardianBearer") },
+      "/v1/guardian/treasury/forecast": { get: stub(["guardian"], "Treasury runway forecast", "guardianBearer") },
+      "/v1/guardian/treasury/moves": { get: stub(["guardian"], "List treasury moves", "guardianBearer") },
+      "/v1/guardian/treasury/moves/{id}/resolve": {
+        post: stub(["guardian"], "Multi-sig resolve treasury move", "guardianBearer"),
+      },
+      "/v1/guardian/treasury/recovery": { get: stub(["guardian"], "Recovery log + vault address", "guardianBearer") },
+      "/v1/guardian/treasury/recovery/rotate-vault": {
+        post: stub(["guardian"], "Rotate org custody key", "guardianBearer"),
+      },
+      "/v1/guardian/treasury/recovery/rotate-agent-key": {
+        post: stub(["guardian"], "Rotate agent API key (recovery)", "guardianBearer"),
+      },
     },
     components: {
       securitySchemes: {

@@ -13,7 +13,7 @@ import Database from "better-sqlite3";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { applyJournal, type JournalEntry, type LedgerAccount } from "@policyvault/ledger";
 import { templateSoloSwarm, type PolicyTemplate } from "@policyvault/policy";
-import type { MerchantRecord, MicroUsdc, OrgSettings } from "@policyvault/common";
+import type { AssetRecord, MerchantRecord, MicroUsdc, OrgSettings, WalletScope } from "@policyvault/common";
 
 export type OrgStatus = "active" | "frozen" | "archived";
 export type AgentStatus = "active" | "frozen" | "archived";
@@ -202,6 +202,52 @@ export interface WebhookDeliveryRow {
   lastError?: string;
   createdAt: string;
   deliveredAt?: string;
+}
+
+export interface DepartmentRow {
+  id: string;
+  orgId: string;
+  name: string;
+  status: "active" | "archived";
+  createdAt: string;
+}
+
+export interface SharedWalletRow {
+  id: string;
+  orgId: string;
+  name: string;
+  status: "active" | "archived";
+  createdAt: string;
+  memberAgentIds: string[];
+}
+
+export type TreasuryMoveStatus = "pending" | "executed" | "denied" | "cancelled";
+
+export interface TreasuryMoveRow {
+  id: string;
+  orgId: string;
+  fromScope: WalletScope;
+  fromId: string;
+  toScope: WalletScope;
+  toId: string;
+  amountMicro: MicroUsdc;
+  assetId: string;
+  memo?: string;
+  status: TreasuryMoveStatus;
+  votes: string[];
+  createdAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+}
+
+export interface RecoveryEventRow {
+  id: string;
+  orgId: string;
+  kind: string;
+  targetId?: string;
+  note?: string;
+  meta?: Record<string, unknown>;
+  at: string;
 }
 
 export type PolicyRulesTemplate = PolicyTemplate;
@@ -479,7 +525,88 @@ CREATE TABLE IF NOT EXISTS merchants (
   UNIQUE(org_id, key)
 );
 CREATE INDEX IF NOT EXISTS idx_merchants_org ON merchants(org_id);
+
+CREATE TABLE IF NOT EXISTS departments (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_departments_org ON departments(org_id);
+
+CREATE TABLE IF NOT EXISTS shared_wallets (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_shared_wallets_org ON shared_wallets(org_id);
+
+CREATE TABLE IF NOT EXISTS shared_wallet_members (
+  wallet_id TEXT NOT NULL REFERENCES shared_wallets(id),
+  agent_id TEXT NOT NULL REFERENCES agents(id),
+  can_spend INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (wallet_id, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS assets (
+  id TEXT PRIMARY KEY,
+  org_id TEXT,
+  symbol TEXT NOT NULL,
+  decimals INTEGER NOT NULL,
+  chain TEXT NOT NULL,
+  contract TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS treasury_moves (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  from_scope TEXT NOT NULL,
+  from_id TEXT NOT NULL,
+  to_scope TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  amount_micro TEXT NOT NULL,
+  asset_id TEXT NOT NULL,
+  memo TEXT,
+  status TEXT NOT NULL,
+  votes_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  resolved_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_treasury_moves_org ON treasury_moves(org_id);
+
+CREATE TABLE IF NOT EXISTS recovery_events (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  kind TEXT NOT NULL,
+  target_id TEXT,
+  note TEXT,
+  meta_json TEXT,
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_recovery_org ON recovery_events(org_id);
 `);
+
+// Seed platform USDC asset once.
+{
+  const exists = db.prepare("SELECT id FROM assets WHERE id = ?").get("asset_usdc");
+  if (!exists) {
+    db.prepare(
+      "INSERT INTO assets (id, org_id, symbol, decimals, chain, contract, created_at) VALUES (?, NULL, ?, ?, ?, ?, ?)",
+    ).run(
+      "asset_usdc",
+      "USDC",
+      6,
+      "base-sepolia",
+      "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      new Date().toISOString(),
+    );
+  }
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -586,6 +713,25 @@ function rowToAccount(r: Row): LedgerAccount {
     kind: r.kind,
     agentId: r.agent_id ?? undefined,
     balanceMicro: BigInt(r.balance_micro),
+  };
+}
+
+function rowToTreasuryMove(r: Row): TreasuryMoveRow {
+  return {
+    id: r.id as string,
+    orgId: r.org_id as string,
+    fromScope: r.from_scope as WalletScope,
+    fromId: r.from_id as string,
+    toScope: r.to_scope as WalletScope,
+    toId: r.to_id as string,
+    amountMicro: BigInt(r.amount_micro as string),
+    assetId: r.asset_id as string,
+    memo: (r.memo as string | null) ?? undefined,
+    status: r.status as TreasuryMoveStatus,
+    votes: JSON.parse((r.votes_json as string) || "[]") as string[],
+    createdAt: r.created_at as string,
+    resolvedAt: (r.resolved_at as string | null) ?? undefined,
+    resolvedBy: (r.resolved_by as string | null) ?? undefined,
   };
 }
 
@@ -1022,6 +1168,312 @@ export const store = {
           : undefined,
       }),
     );
+  },
+
+  // -------------------------------------------------------------- treasury
+  listAssets(orgId: string): AssetRecord[] {
+    return (
+      db
+        .prepare("SELECT * FROM assets WHERE org_id IS NULL OR org_id = ? ORDER BY symbol")
+        .all(orgId) as Row[]
+    ).map((r) => ({
+      id: r.id as string,
+      symbol: r.symbol as string,
+      decimals: r.decimals as number,
+      chain: r.chain as AssetRecord["chain"],
+      contract: (r.contract as string | null) ?? null,
+      orgId: (r.org_id as string | null) ?? undefined,
+    }));
+  },
+
+  getAsset(assetId: string): AssetRecord | undefined {
+    const r = db.prepare("SELECT * FROM assets WHERE id = ?").get(assetId) as Row | undefined;
+    if (!r) return undefined;
+    return {
+      id: r.id as string,
+      symbol: r.symbol as string,
+      decimals: r.decimals as number,
+      chain: r.chain as AssetRecord["chain"],
+      contract: (r.contract as string | null) ?? null,
+      orgId: (r.org_id as string | null) ?? undefined,
+    };
+  },
+
+  createDepartment(orgId: string, name: string): DepartmentRow {
+    const row: DepartmentRow = {
+      id: id("dept"),
+      orgId,
+      name,
+      status: "active",
+      createdAt: nowIso(),
+    };
+    const tx = db.transaction(() => {
+      db.prepare(
+        "INSERT INTO departments (id, org_id, name, status, created_at) VALUES (?, ?, ?, ?, ?)",
+      ).run(row.id, orgId, name, row.status, row.createdAt);
+      this.createAccount({
+        id: `dept:${row.id}:available`,
+        orgId,
+        kind: "dept_available",
+        balanceMicro: 0n,
+      });
+      this.createAccount({
+        id: `dept:${row.id}:held`,
+        orgId,
+        kind: "dept_held",
+        balanceMicro: 0n,
+      });
+    });
+    tx();
+    bumpRevision();
+    return row;
+  },
+
+  listDepartments(orgId: string): DepartmentRow[] {
+    return (
+      db
+        .prepare("SELECT * FROM departments WHERE org_id = ? ORDER BY created_at")
+        .all(orgId) as Row[]
+    ).map((r) => ({
+      id: r.id as string,
+      orgId: r.org_id as string,
+      name: r.name as string,
+      status: r.status as DepartmentRow["status"],
+      createdAt: r.created_at as string,
+    }));
+  },
+
+  getDepartment(deptId: string): DepartmentRow | undefined {
+    const r = db.prepare("SELECT * FROM departments WHERE id = ?").get(deptId) as Row | undefined;
+    if (!r) return undefined;
+    return {
+      id: r.id as string,
+      orgId: r.org_id as string,
+      name: r.name as string,
+      status: r.status as DepartmentRow["status"],
+      createdAt: r.created_at as string,
+    };
+  },
+
+  createSharedWallet(orgId: string, name: string, memberAgentIds: string[] = []): SharedWalletRow {
+    const rowId = id("shw");
+    const createdAt = nowIso();
+    const tx = db.transaction(() => {
+      db.prepare(
+        "INSERT INTO shared_wallets (id, org_id, name, status, created_at) VALUES (?, ?, ?, 'active', ?)",
+      ).run(rowId, orgId, name, createdAt);
+      this.createAccount({
+        id: `shared:${rowId}:available`,
+        orgId,
+        kind: "shared_available",
+        balanceMicro: 0n,
+      });
+      this.createAccount({
+        id: `shared:${rowId}:held`,
+        orgId,
+        kind: "shared_held",
+        balanceMicro: 0n,
+      });
+      const insert = db.prepare(
+        "INSERT INTO shared_wallet_members (wallet_id, agent_id, can_spend) VALUES (?, ?, 1)",
+      );
+      for (const agentId of memberAgentIds) {
+        insert.run(rowId, agentId);
+      }
+    });
+    tx();
+    bumpRevision();
+    return {
+      id: rowId,
+      orgId,
+      name,
+      status: "active",
+      createdAt,
+      memberAgentIds: [...memberAgentIds],
+    };
+  },
+
+  listSharedWallets(orgId: string): SharedWalletRow[] {
+    const wallets = db
+      .prepare("SELECT * FROM shared_wallets WHERE org_id = ? ORDER BY created_at")
+      .all(orgId) as Row[];
+    return wallets.map((r) => {
+      const members = (
+        db
+          .prepare("SELECT agent_id FROM shared_wallet_members WHERE wallet_id = ?")
+          .all(r.id) as Row[]
+      ).map((m) => m.agent_id as string);
+      return {
+        id: r.id as string,
+        orgId: r.org_id as string,
+        name: r.name as string,
+        status: r.status as SharedWalletRow["status"],
+        createdAt: r.created_at as string,
+        memberAgentIds: members,
+      };
+    });
+  },
+
+  getSharedWallet(walletId: string): SharedWalletRow | undefined {
+    const r = db.prepare("SELECT * FROM shared_wallets WHERE id = ?").get(walletId) as Row | undefined;
+    if (!r) return undefined;
+    const members = (
+      db
+        .prepare("SELECT agent_id FROM shared_wallet_members WHERE wallet_id = ?")
+        .all(walletId) as Row[]
+    ).map((m) => m.agent_id as string);
+    return {
+      id: r.id as string,
+      orgId: r.org_id as string,
+      name: r.name as string,
+      status: r.status as SharedWalletRow["status"],
+      createdAt: r.created_at as string,
+      memberAgentIds: members,
+    };
+  },
+
+  setSharedWalletMembers(walletId: string, agentIds: string[]): void {
+    const tx = db.transaction(() => {
+      db.prepare("DELETE FROM shared_wallet_members WHERE wallet_id = ?").run(walletId);
+      const insert = db.prepare(
+        "INSERT INTO shared_wallet_members (wallet_id, agent_id, can_spend) VALUES (?, ?, 1)",
+      );
+      for (const agentId of agentIds) insert.run(walletId, agentId);
+    });
+    tx();
+    bumpRevision();
+  },
+
+  createTreasuryMove(row: Omit<TreasuryMoveRow, "votes"> & { votes?: string[] }): TreasuryMoveRow {
+    const full: TreasuryMoveRow = { ...row, votes: row.votes ?? [] };
+    db.prepare(
+      `INSERT INTO treasury_moves
+        (id, org_id, from_scope, from_id, to_scope, to_id, amount_micro, asset_id, memo, status, votes_json, created_at, resolved_at, resolved_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      full.id,
+      full.orgId,
+      full.fromScope,
+      full.fromId,
+      full.toScope,
+      full.toId,
+      full.amountMicro.toString(),
+      full.assetId,
+      full.memo ?? null,
+      full.status,
+      JSON.stringify(full.votes),
+      full.createdAt,
+      full.resolvedAt ?? null,
+      full.resolvedBy ?? null,
+    );
+    bumpRevision();
+    return full;
+  },
+
+  getTreasuryMove(moveId: string): TreasuryMoveRow | undefined {
+    const r = db.prepare("SELECT * FROM treasury_moves WHERE id = ?").get(moveId) as Row | undefined;
+    return r ? rowToTreasuryMove(r) : undefined;
+  },
+
+  listTreasuryMoves(orgId: string, status?: string): TreasuryMoveRow[] {
+    const rows = status
+      ? (db
+          .prepare(
+            "SELECT * FROM treasury_moves WHERE org_id = ? AND status = ? ORDER BY created_at DESC",
+          )
+          .all(orgId, status) as Row[])
+      : (db
+          .prepare("SELECT * FROM treasury_moves WHERE org_id = ? ORDER BY created_at DESC LIMIT 100")
+          .all(orgId) as Row[]);
+    return rows.map(rowToTreasuryMove);
+  },
+
+  updateTreasuryMove(
+    moveId: string,
+    patch: Partial<Pick<TreasuryMoveRow, "status" | "votes" | "resolvedAt" | "resolvedBy">>,
+  ): void {
+    const cur = this.getTreasuryMove(moveId);
+    if (!cur) return;
+    const next = { ...cur, ...patch };
+    db.prepare(
+      "UPDATE treasury_moves SET status = ?, votes_json = ?, resolved_at = ?, resolved_by = ? WHERE id = ?",
+    ).run(
+      next.status,
+      JSON.stringify(next.votes),
+      next.resolvedAt ?? null,
+      next.resolvedBy ?? null,
+      moveId,
+    );
+    bumpRevision();
+  },
+
+  addRecoveryEvent(input: {
+    orgId: string;
+    kind: string;
+    targetId?: string;
+    note?: string;
+    meta?: Record<string, unknown>;
+  }): RecoveryEventRow {
+    const row: RecoveryEventRow = {
+      id: id("rcv"),
+      orgId: input.orgId,
+      kind: input.kind,
+      targetId: input.targetId,
+      note: input.note,
+      meta: input.meta,
+      at: nowIso(),
+    };
+    db.prepare(
+      "INSERT INTO recovery_events (id, org_id, kind, target_id, note, meta_json, at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(
+      row.id,
+      row.orgId,
+      row.kind,
+      row.targetId ?? null,
+      row.note ?? null,
+      row.meta ? JSON.stringify(row.meta) : null,
+      row.at,
+    );
+    bumpRevision();
+    return row;
+  },
+
+  listRecoveryEvents(orgId: string, limit = 50): RecoveryEventRow[] {
+    return (
+      db
+        .prepare("SELECT * FROM recovery_events WHERE org_id = ? ORDER BY at DESC LIMIT ?")
+        .all(orgId, limit) as Row[]
+    ).map((r) => ({
+      id: r.id as string,
+      orgId: r.org_id as string,
+      kind: r.kind as string,
+      targetId: (r.target_id as string | null) ?? undefined,
+      note: (r.note as string | null) ?? undefined,
+      meta: r.meta_json
+        ? (JSON.parse(r.meta_json as string) as Record<string, unknown>)
+        : undefined,
+      at: r.at as string,
+    }));
+  },
+
+  /** Rotate org custody keypair — old address recorded in recovery_events.meta. */
+  rotateVaultKey(orgId: string): { address: `0x${string}`; previousAddress?: string } {
+    const previous = this.getVaultAddress(orgId);
+    const privateKey = generatePrivateKey();
+    const address = privateKeyToAccount(privateKey).address;
+    db.prepare("UPDATE vaults SET address = ?, private_key = ? WHERE org_id = ?").run(
+      address,
+      privateKey,
+      orgId,
+    );
+    this.addRecoveryEvent({
+      orgId,
+      kind: "vault_key_rotated",
+      note: "Org custody key rotated by guardian",
+      meta: { previousAddress: previous, newAddress: address },
+    });
+    bumpRevision();
+    return { address, previousAddress: previous };
   },
 
   appendChatMessage(input: {
@@ -1819,6 +2271,8 @@ export const store = {
         orgAvailable: sum("org_available"),
         agentAvailable: sum("agent_available"),
         agentHeld: sum("agent_held"),
+        deptAvailable: sum("dept_available"),
+        sharedAvailable: sum("shared_available"),
         escrow: sum("escrow"),
         external: sum("external"),
       },
@@ -1845,6 +2299,12 @@ export const store = {
         "decisions",
         "pay_events",
         "known_counterparties",
+        "merchants",
+        "shared_wallet_members",
+        "shared_wallets",
+        "departments",
+        "treasury_moves",
+        "recovery_events",
         "chat_messages",
         "policy_versions",
         "policies",
@@ -1854,6 +2314,7 @@ export const store = {
         "agents",
         "orgs",
       ]) {
+        // assets are platform-seeded — do not wipe USDC registry
         db.prepare(`DELETE FROM ${table}`).run();
       }
     });
