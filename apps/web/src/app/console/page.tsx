@@ -38,7 +38,8 @@ import { TreasuryView } from "../../lib/treasury-view";
 
 /** Empty = same-origin (Next proxies /v1 → API). Override for split-domain deploys. */
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
-const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
+/** Same-origin seller proxy — see next.config.mjs rewrite. */
+const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "/x402-seller/report";
 
 /* ==================================================================== types */
 
@@ -296,13 +297,17 @@ export default function Console() {
 
   const gFetch = useCallback(async (path: string, init?: RequestInit) => {
     const s = sessionRef.current;
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${s?.guardianKey ?? ""}`,
+      ...(init?.headers as Record<string, string> | undefined),
+    };
+    // Only set JSON content-type when sending a body (avoids odd GET proxies).
+    if (init?.body != null && !headers["Content-Type"] && !headers["content-type"]) {
+      headers["Content-Type"] = "application/json";
+    }
     return fetch(`${API}${path}`, {
       ...init,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${s?.guardianKey ?? ""}`,
-        ...(init?.headers ?? {}),
-      },
+      headers,
     });
   }, []);
 
@@ -833,6 +838,25 @@ function Login({
 }) {
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
+  const [apiStatus, setApiStatus] = useState<"checking" | "up" | "down">("checking");
+
+  useEffect(() => {
+    let cancelled = false;
+    const probe = async () => {
+      try {
+        const res = await fetch(`${API}/health`, { cache: "no-store" });
+        if (!cancelled) setApiStatus(res.ok ? "up" : "down");
+      } catch {
+        if (!cancelled) setApiStatus("down");
+      }
+    };
+    void probe();
+    const t = setInterval(() => void probe(), 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
 
   async function connect() {
     setBusy(true);
@@ -840,11 +864,14 @@ function Login({
       const res = await fetch(`${API}/v1/guardian/org`, {
         headers: { Authorization: `Bearer ${key.trim()}` },
       });
-      if (!res.ok) throw new Error(`Key rejected (HTTP ${res.status})`);
+      if (res.status === 401) {
+        throw new Error("Key rejected — paste a fresh guardian key or Launch demo (bootstrap wipes old keys)");
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       onLogin({ guardianKey: key.trim(), orgId: data.org.id, agentKeys: [] });
     } catch (e) {
-      setToast(`Connect failed: ${String(e)}. Is the API running on ${API}?`, "err");
+      setToast(`Connect failed: ${String(e)}`, "err");
     } finally {
       setBusy(false);
     }
@@ -855,6 +882,8 @@ function Login({
     try {
       const res = await fetch(`${API}/v1/demo/bootstrap`, { method: "POST" });
       const d = await res.json();
+      if (!res.ok) throw new Error(d.error?.message ?? `HTTP ${res.status}`);
+      if (!d.guardianKey) throw new Error("Bootstrap returned no guardianKey");
       onLogin({
         guardianKey: d.guardianKey,
         orgId: d.orgId,
@@ -864,7 +893,7 @@ function Login({
         ],
       });
     } catch (e) {
-      setToast(`Bootstrap failed: ${String(e)}. Is the API running on ${API}?`, "err");
+      setToast(`Bootstrap failed: ${String(e)}. API status: ${apiStatus}`, "err");
     } finally {
       setBusy(false);
     }
@@ -875,6 +904,17 @@ function Login({
       <div className="login-card">
         <div className="brand" style={{ flexDirection: "column", gap: 14 }}>
           <ABLockup size={56} tone="#fff" />
+        </div>
+        <div
+          className={`pill ${apiStatus === "up" ? "ok" : apiStatus === "down" ? "bad" : "warn"}`}
+          style={{ marginBottom: 12, alignSelf: "flex-start" }}
+        >
+          <i />{" "}
+          {apiStatus === "checking"
+            ? "Checking API…"
+            : apiStatus === "up"
+              ? "API connected (same-origin /v1)"
+              : "API unreachable — start api on :8787"}
         </div>
         <p className="login-sub">
           Financial infrastructure for autonomous AI. Programmable wallets, spending policies and
@@ -900,16 +940,17 @@ function Login({
             onKeyDown={(e) => e.key === "Enter" && key.trim() && void connect()}
           />
         </div>
-        <button style={{ width: "100%" }} disabled={busy || !key.trim()} onClick={() => void connect()}>
+        <button style={{ width: "100%" }} disabled={busy || !key.trim() || apiStatus === "down"} onClick={() => void connect()}>
           Open console
         </button>
         <div className="or">or</div>
-        <button className="ghost" style={{ width: "100%" }} disabled={busy} onClick={() => void bootstrap()}>
+        <button className="ghost" style={{ width: "100%" }} disabled={busy || apiStatus === "down"} onClick={() => void bootstrap()}>
           Launch demo org with $100 float
         </button>
         <p className="faint" style={{ fontSize: 11.5, marginTop: 20, lineHeight: 1.6 }}>
           The demo wipes the local database and seeds a fresh org with two agents and keys loaded
-          into the Playground. Not a bank. Not FDIC insured.
+          into the Playground. Not a bank. Not FDIC insured. If Open console fails with 401, your
+          saved key is stale — use Launch demo again.
         </p>
       </div>
       {toast && (
