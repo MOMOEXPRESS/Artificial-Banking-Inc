@@ -7,28 +7,28 @@ import { Icon } from "../../lib/ui";
 const STEPS = [
   {
     title: "Create an org",
-    body: "Launch the console, bootstrap a demo org, and fund the vault with test USDC.",
+    body: "Open the console, start a demo org, and put test USDC in the vault.",
   },
   {
-    title: "Spawn an agent",
-    body: "Issue an API key. The agent never sees custody keys — only a Bearer token.",
+    title: "Create an agent",
+    body: "Issue an API key. The agent never sees the vault keys — only that Bearer token.",
   },
   {
-    title: "Set policy",
-    body: "Caps, allowlists, HITL thresholds, quiet hours. Simulate before you ship.",
+    title: "Set the rules",
+    body: "Caps, allowed sites, when to ask a person, quiet hours. Test in the simulator first.",
   },
   {
-    title: "Pay under policy",
-    body: "Agents call pay / pay_api / escrow_lock. The engine evaluates, then settles.",
+    title: "Pay under the rules",
+    body: "Agents call pay / pay_api / escrow_lock. We check the rules, then move the money.",
   },
 ];
 
 const ENDPOINTS = [
-  { method: "POST", path: "/v1/agent/pay_api", note: "x402 machine payment" },
-  { method: "POST", path: "/v1/agent/pay", note: "Transfer under stipend" },
-  { method: "POST", path: "/v1/agent/escrow/lock", note: "Agent-to-agent escrow" },
-  { method: "GET", path: "/v1/openapi.json", note: "Full OpenAPI surface" },
-  { method: "POST", path: "/v1/guardian/chat", note: "ABI Chat (deterministic)" },
+  { method: "POST", path: "/v1/agent/pay_api", note: "Pay an API (x402)" },
+  { method: "POST", path: "/v1/agent/pay", note: "Transfer from the agent budget" },
+  { method: "POST", path: "/v1/agent/escrow/lock", note: "Hold money between agents" },
+  { method: "GET", path: "/v1/openapi.json", note: "Full API schema" },
+  { method: "POST", path: "/v1/guardian/chat", note: "Console chat (fixed replies)" },
 ];
 
 export default function DocsPage() {
@@ -38,15 +38,16 @@ export default function DocsPage() {
         <div className="mkt-page-inner">
           <SectionHead
             eyebrow="Documentation"
-            title="Build agents that spend safely"
-            sub="LLM proposes. Policy + signer authorize. Keys never enter the model."
+            title="Build agents that can spend — safely"
+            sub="The AI asks to pay. Your rules and a signer decide. Keys never go into the model."
           />
 
           <div className="mkt-prose">
-            <h3>Money spine</h3>
+            <h3>How money moves</h3>
             <p>
-              Every spend flows through one path: intent → policy evaluation → compliance screen →
-              ledger hold → rail (x402 or transfer) → custody sign → finalize + webhooks.
+              Every spend follows one path: the agent asks → we check your rules → we may screen the
+              destination → we hold the amount on the ledger → we pay (x402 or transfer) → we sign
+              with custody → we finalize and notify you.
             </p>
             <pre className="mkt-code mono">
 {`handleIntent → evaluatePolicy → executeIntent
@@ -70,7 +71,7 @@ export default function DocsPage() {
           <div className="mkt-prose" style={{ marginTop: 48 }}>
             <h3>Core endpoints</h3>
             <p>
-              Point your agent SDK or MCP tools at the API. Full schema lives at{" "}
+              Point your agent SDK or MCP tools at the API. The full schema is at{" "}
               <code className="mono">GET /v1/openapi.json</code>.
             </p>
           </div>
@@ -87,7 +88,7 @@ export default function DocsPage() {
 
           <div className="mkt-doc-cta">
             <Link className="btn-primary" href="/console?demo=1">
-              Open live demo <Icon name="arrowRight" size={14} />
+              Open the live demo <Icon name="arrowRight" size={14} />
             </Link>
             <a
               className="btn-ghost"

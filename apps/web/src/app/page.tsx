@@ -25,10 +25,24 @@ export default function HomePage() {
       <MetricsBand />
       <TrustStrip />
       <Features />
-      <HomeInterstitial />
+      <HomeInterstitial
+        eyebrow="Company money → rules → agent wallet"
+        title="Check the rules first. Move the money second."
+        body="You keep company funds in a vault. Agents only get what you give them. Nothing leaves until it clears your spending rules."
+        src="/home/interstitial-vault.png"
+        alt="Vault, policy shield, and wallet connected in sequence"
+      />
       <ProductTour />
       <HowItWorks />
       <Enterprise />
+      <HomeInterstitial
+        eyebrow="Approve → unlock → receipt"
+        title="You stay in the loop on anything big."
+        body="Set a dollar limit. Over that, payments wait for a person. Approve or deny, and the record stays with the payment — not buried in a chat log."
+        src="/home/interstitial-approve.png"
+        alt="Approval stamp, key, and receipt connected in sequence"
+        flip
+      />
       <MarketingCta />
     </MarketingShell>
   );
@@ -43,39 +57,38 @@ function Hero() {
       <div className="hero-inner">
         <div className="hero-copy">
           <span className="eyebrow">
-            <span className="dot" /> Financial infrastructure for autonomous AI
+            <span className="dot" /> Money controls for AI that can spend
           </span>
           <h1>
-            Give AI agents the ability to <em>spend safely.</em>
+            Let AI agents pay for things — <em>without losing control.</em>
           </h1>
           <p className="hero-sub">
-            Artificial Banking Incorporated is the authorization layer between
-            your AI agents and real money. Programmable wallets, spending
-            policies, human approvals and on-chain settlement — all in one
-            operating system.
+            Artificial Banking Incorporated sits between your AI and your money.
+            Each agent gets its own wallet and budget. You set the rules. Anything
+            large waits for a person. Payments settle in USDC on Base.
           </p>
           <div className="hero-ctas">
             <Link className="btn-primary" href="/console">
-              Launch console <Icon name="arrowRight" size={14} />
+              Open the console <Icon name="arrowRight" size={14} />
             </Link>
             <Link className="btn-ghost" href="/console?demo=1">
-              <Icon name="play" size={14} /> Live demo
+              <Icon name="play" size={14} /> Try the live demo
             </Link>
           </div>
           <div className="hero-meta">
             <div>
               <b>Base + USDC</b>
-              <span>on-chain settlement</span>
+              <span>where payments settle</span>
             </div>
             <div className="sep" />
             <div>
-              <b>x402 native</b>
-              <span>machine payments</span>
+              <b>x402</b>
+              <span>pay APIs automatically</span>
             </div>
             <div className="sep" />
             <div>
               <b>Coinbase CDP</b>
-              <span>managed custody</span>
+              <span>holds the keys for you</span>
             </div>
           </div>
         </div>
@@ -127,7 +140,7 @@ function HeroGraphic() {
                   <span className="title">Recent activity</span>
                   <span className="meta">live</span>
                 </div>
-                <p className="meta">ops-bot settled $1.20 · x402 · api.openai.com</p>
+                <p className="meta">ops-bot paid $1.20 · api.openai.com</p>
                 <div className="hero-console-pills">
                   <i className="ok">allowed</i>
                   <i className="warn">awaiting</i>
@@ -137,9 +150,9 @@ function HeroGraphic() {
               <div className="hero-console-card">
                 <div className="row">
                   <span className="title">Move funds</span>
-                  <span className="meta">guardian</span>
+                  <span className="meta">you</span>
                 </div>
-                <p className="meta">Deposit · Withdraw · Agent stipend — policy checked first.</p>
+                <p className="meta">Deposit · Withdraw · Give an agent budget — rules checked first.</p>
               </div>
             </div>
           </div>
@@ -148,7 +161,7 @@ function HeroGraphic() {
           <span className="pill ok">
             <i /> allowed
           </span>
-          <span className="mono">$1.20 · x402</span>
+          <span className="mono">$1.20 · paid</span>
         </div>
         <div className="chip-float chip-b">
           <span className="pill warn">
@@ -160,7 +173,7 @@ function HeroGraphic() {
           <span className="pill bad">
             <i /> blocked
           </span>
-          <span className="mono">off-allowlist</span>
+          <span className="mono">not on allowlist</span>
         </div>
       </div>
     </div>
@@ -206,10 +219,10 @@ function PartnerLogo({ children, abbr }: { children: React.ReactNode; abbr: stri
 
 function MetricsBand() {
   const metrics = [
-    { label: "Policy probe", value: "0ms", sub: "mock rail latency" },
-    { label: "Guardian round-trip", value: "55ms", sub: "local dev median" },
-    { label: "Console surfaces", value: "10", sub: "money · agents · records" },
-    { label: "Playground missions", value: "7", sub: "real API, real ledger" },
+    { label: "Rule check", value: "~0ms", sub: "in the mock rail" },
+    { label: "Approval ping", value: "55ms", sub: "local median" },
+    { label: "Console pages", value: "10", sub: "money, agents, records" },
+    { label: "Demo missions", value: "7", sub: "real API calls, real ledger" },
   ];
   return (
     <section className="metrics-band section tight">
@@ -238,25 +251,38 @@ function MetricsBand() {
   );
 }
 
-/** Soft editorial pause between feature panes and the product tour. */
-function HomeInterstitial() {
+function HomeInterstitial({
+  eyebrow,
+  title,
+  body,
+  src,
+  alt,
+  flip,
+}: {
+  eyebrow: string;
+  title: string;
+  body: string;
+  src: string;
+  alt: string;
+  flip?: boolean;
+}) {
   return (
-    <section className="home-interstitial" aria-label="Authorize then settle">
+    <section
+      className={`home-interstitial ${flip ? "is-flip" : ""}`}
+      aria-label={title}
+    >
       <div className="home-interstitial-inner">
         <div className="home-interstitial-copy">
           <span className="eyebrow">
-            <span className="dot" /> Vault → policy → wallet
+            <span className="dot" /> {eyebrow}
           </span>
-          <h2>Authorize first. Settle second.</h2>
-          <p>
-            Stipends leave the vault only after policy clears — then land in an agent wallet
-            ready to pay under the same rules.
-          </p>
+          <h2>{title}</h2>
+          <p>{body}</p>
         </div>
         <div className="home-interstitial-art">
           <Image
-            src="/home/interstitial-vault.png"
-            alt="Vault, policy shield, and wallet connected in sequence"
+            src={src}
+            alt={alt}
             width={1200}
             height={675}
             className="home-interstitial-img"
@@ -271,17 +297,17 @@ function HomeInterstitial() {
 const PRODUCT_FRAMES = [
   {
     title: "Overview",
-    sub: "Treasury, agents, and move funds in one glance.",
+    sub: "Vault balance, agents, and money moves in one place.",
     chips: ["$12.4k vault", "8 agents", "2 approvals"],
   },
   {
     title: "Approvals",
-    sub: "Parked payments with one-tap approve or deny.",
-    chips: ["$45 pending", "guardian HITL", "Telegram sync"],
+    sub: "Payments on hold — tap approve or deny.",
+    chips: ["$45 waiting", "needs you", "Telegram too"],
   },
   {
     title: "Policy simulator",
-    sub: "Test caps and allowlists before agents hit production.",
+    sub: "Try your limits before agents spend for real.",
     chips: ["allowlist", "daily cap", "quiet hours"],
   },
 ];
@@ -291,8 +317,8 @@ function ProductTour() {
     <section id="product" className="section product-tour">
       <SectionHead
         eyebrow="Inside the console"
-        title="See the product before you sign in"
-        sub="Three frames operators actually use — not decorative orbit art."
+        title="Peek at the product before you sign in"
+        sub="Three screens people actually use — balances, approvals, and testing your rules."
       />
       <div className="product-frames">
         {PRODUCT_FRAMES.map((f) => (
@@ -317,7 +343,7 @@ function ProductTour() {
       </div>
       <div className="product-tour-cta">
         <Link className="btn-primary" href="/console">
-          Launch console <Icon name="arrowRight" size={14} />
+          Open the console <Icon name="arrowRight" size={14} />
         </Link>
       </div>
     </section>
@@ -335,62 +361,62 @@ const FEATURES: {
 }[] = [
   {
     icon: "wallet",
-    title: "AI agent wallets",
-    lead: "Every agent gets its own programmable stipend — not a shared org card.",
-    body: "Balances, spend history, and identity live on the agent. You fund the vault once, then push stipends down. Agents never share a private key with each other, and you can freeze one without pausing the fleet.",
+    title: "A wallet per agent",
+    lead: "Each agent gets its own budget — not one shared company card.",
+    body: "You fund the company vault once, then hand each agent what it can spend. Freeze one agent without stopping the rest. Balances and history stay attached to that agent.",
     visual: {
-      label: "Stipend · ops-bot",
-      lines: ["Available  $420.00", "Held       $12.40", "Spent today  $38.10"],
+      label: "Budget · ops-bot",
+      lines: ["Available  $420.00", "On hold    $12.40", "Spent today  $38.10"],
     },
   },
   {
     icon: "sliders",
-    title: "Spending policies",
-    lead: "Caps, allowlists, quiet hours — deterministic rules the model cannot talk around.",
-    body: "Edit bands live and probe them in the simulator before production. Velocity brakes and blocklists sit in the same engine that authorizes every intent, so policy and payment stay one path.",
+    title: "Spending rules",
+    lead: "Daily caps, allowed sites, quiet hours — rules the AI cannot talk its way around.",
+    body: "Change the rules live, and test them in the simulator before anything real goes out. The same checks run on every payment attempt.",
     visual: {
-      label: "Policy probe",
-      lines: ["daily_cap  $500  → allow", "host  api.openai.com  → allow", "quiet_hours  02:00  → park"],
+      label: "Rule check",
+      lines: ["daily cap  $500  → ok", "site  api.openai.com  → ok", "quiet hours  02:00  → hold"],
     },
   },
   {
     icon: "check",
     title: "Human approvals",
-    lead: "Anything past your threshold parks until a person says yes.",
-    body: "Approve from the console, chat, or Telegram. Denials write the same journal as allows, so you can see who blocked what and why — without digging through model logs.",
+    lead: "Past your limit, money waits until someone says yes.",
+    body: "Approve from the console, chat, or Telegram. Allows and denials go in the same record, so you can see who said what — without digging through chat history.",
     visual: {
-      label: "Awaiting you",
-      lines: ["$45.00  api.openai.com", "threshold  $25", "route  Telegram · console"],
+      label: "Waiting on you",
+      lines: ["$45.00  api.openai.com", "limit  $25", "via  Telegram · console"],
     },
   },
   {
     icon: "swap",
-    title: "x402 payments",
-    lead: "Speak the machine-payment standard natively — under the same policy.",
-    body: "Agents can pay any x402 seller on-chain without a custom integrator per API. Authorization still runs first; settlement is USDC on Base when the intent clears.",
+    title: "Pay APIs automatically",
+    lead: "Agents can pay services that charge per call — still under your rules.",
+    body: "We speak x402, the machine-payment standard. Rules still run first. When a payment clears, it settles as USDC on Base.",
     visual: {
-      label: "x402 settle",
-      lines: ["seller  data.example", "paid  $1.20 of $5 auth", "rail  Base · USDC"],
+      label: "API payment",
+      lines: ["seller  data.example", "paid  $1.20 of $5", "rail  Base · USDC"],
     },
   },
   {
     icon: "list",
-    title: "Immutable audit log",
-    lead: "Every intent, denial, approval, and settlement is journaled.",
-    body: "Replay from genesis, export to CSV, or stream signed webhooks into your SIEM. When finance asks what an agent spent last Tuesday, you have receipts — not chat transcripts.",
+    title: "A full money record",
+    lead: "Every try, block, approval, and payment is written down.",
+    body: "Export to CSV or send signed webhooks to your tools. When finance asks what an agent spent last Tuesday, you have receipts — not a chat transcript.",
     visual: {
       label: "Journal",
-      lines: ["intent  pay.x402  allowed", "hold  $1.20  → settle", "export  CSV · webhook"],
+      lines: ["pay attempt  allowed", "hold  $1.20  → settled", "export  CSV · webhook"],
     },
   },
   {
     icon: "shield",
-    title: "Keys never enter the model",
-    lead: "LLMs propose. Policy and signer authorize.",
-    body: "EIP-712 transfers, idempotency keys, and a kill-switch on in-flight intents keep custody outside the prompt. The model can ask to spend; it cannot hold the wallet.",
+    title: "Keys stay out of the AI",
+    lead: "The model can ask to spend. It never holds the wallet.",
+    body: "Coinbase CDP (or your signer) moves the money. A kill switch can stop work in flight. Custody stays outside the prompt.",
     visual: {
-      label: "Custody boundary",
-      lines: ["model  propose only", "policy  decide", "CDP signer  execute"],
+      label: "Who does what",
+      lines: ["AI  asks only", "rules  decide", "signer  moves money"],
     },
   },
 ];
@@ -403,9 +429,9 @@ function Features() {
     <div id="features" className="pane-stack">
       <section className="section pane-intro">
         <SectionHead
-          eyebrow="Everything you need"
-          title="A financial operating system for AI agents"
-          sub="Programmable wallets and safety rails, wired straight into on-chain settlement. Scroll each capability — denser than a card grid, clearer than a feature dump."
+          eyebrow="What you get"
+          title="Wallets, rules, and a paper trail for AI spend"
+          sub="Give agents money they can use — with limits you set, approvals when it matters, and a record you can show finance."
         />
       </section>
       {lead.map((f, i) => (
@@ -489,42 +515,42 @@ function PaneVisual({ label, lines }: { label: string; lines: string[] }) {
 const STEPS = [
   {
     n: "01",
-    title: "Connect your organization",
-    lead: "Stand up an org, a guardian key, and a funded vault.",
-    body: "Create the organization, issue a guardian credential, and fund the vault with USDC. Coinbase CDP holds custody — you are not wiring private keys into app configs or agent prompts.",
+    title: "Set up your organization",
+    lead: "Create an org, get a guardian key, and put money in the vault.",
+    body: "The guardian key is how you (a person) open the console. Coinbase CDP can hold the vault keys — you are not pasting private keys into agent configs or chat prompts.",
     visual: {
-      label: "Org bootstrap",
+      label: "Org setup",
       lines: ["org  demo-corp", "guardian  gsk_…", "vault  +$1,000 USDC"],
     },
   },
   {
     n: "02",
     title: "Create AI agents",
-    lead: "Each agent gets an API key and its own stipend account.",
-    body: "Spin agents from the console, then drop the key into Python, Node, or MCP. Identity and balance are per-agent from the first call, so spend attribution is not a later cleanup project.",
+    lead: "Each agent gets an API key and its own spending account.",
+    body: "Create agents in the console, then put the key in your Python, Node, or MCP setup. From the first call, spend is tied to that agent — so you always know who spent what.",
     visual: {
       label: "New agent",
-      lines: ["name  research-bot", "key  agk_…", "stipend  $100"],
+      lines: ["name  research-bot", "key  agk_…", "budget  $100"],
     },
   },
   {
     n: "03",
-    title: "Assign budget & policy",
-    lead: "Caps, ceilings, thresholds, and allowlists — tested before they bite.",
-    body: "Set daily caps, per-payment ceilings, approval thresholds, and host allowlists. Run the simulator against real-looking intents so production is the second place a rule fires, not the first.",
+    title: "Set budgets and rules",
+    lead: "Caps, per-payment limits, approval thresholds, and allowed sites.",
+    body: "Run the simulator with sample payments first. Better to learn a rule fires in the sandbox than after real money moved.",
     visual: {
-      label: "Policy draft",
-      lines: ["cap  $200 / day", "HITL  > $25", "allow  *.openai.com"],
+      label: "Rules draft",
+      lines: ["cap  $200 / day", "ask me  > $25", "allow  *.openai.com"],
     },
   },
   {
     n: "04",
-    title: "Agents complete paid tasks",
-    lead: "Pay verbs hit policy first, then signer, then Base.",
-    body: "Agents call pay verbs; the policy engine authorizes, the CDP wallet signs, and USDC settles on Base. Holds, refunds, and denials all land in the same journal you can export.",
+    title: "Agents pay for work",
+    lead: "They ask to pay. Rules check. Then money moves on Base.",
+    body: "Holds, refunds, and blocks all land in one journal you can export. Same path every time — whether the amount is $1 or $100.",
     visual: {
       label: "Live payment",
-      lines: ["intent  allowed", "sign  CDP", "settle  Base · USDC"],
+      lines: ["ask  allowed", "sign  CDP", "settle  Base · USDC"],
     },
   },
 ];
@@ -537,8 +563,8 @@ function HowItWorks() {
       <section className="section pane-intro">
         <SectionHead
           eyebrow="How it works"
-          title="From zero to a paying agent in four steps"
-          sub="No smart contracts to deploy. No keys for your agents to leak. Scroll the first two steps full-bleed, then the last two side by side."
+          title="From zero to an agent that can pay — in four steps"
+          sub="No smart contracts to write. Agents never get the vault keys. Scroll the first two steps, then the last two side by side."
         />
       </section>
       {lead.map((s, i) => (
@@ -590,33 +616,33 @@ function HowItWorks() {
 const ENTERPRISE_POINTS = [
   {
     icon: "shield",
-    title: "Spending permissions",
-    body: "Role-based access, multi-guardian quorum, and a rotating key surface for every agent.",
+    title: "Who can spend",
+    body: "Roles for people, more than one approver when you need it, and fresh keys per agent.",
   },
   {
     icon: "clock",
-    title: "Budgets you can defend in an audit",
-    body: "Journal-replay reconciliation runs every minute and screams the moment a cent is out of place.",
+    title: "Budgets you can defend",
+    body: "We re-check the books often and flag you if a cent does not match.",
   },
   {
     icon: "list",
     title: "Complete audit trail",
-    body: "Every decision, rule fired and receipt is journaled. Export to CSV, stream over signed webhooks.",
+    body: "Every decision, rule, and receipt is stored. Export CSV or stream signed webhooks.",
   },
   {
     icon: "check",
     title: "Approval workflows",
-    body: "Route large spends to a person, a Telegram DM, or a chat channel — with a hard-cap always above.",
+    body: "Send large spends to a person, Telegram, or a chat channel — with a hard ceiling above that.",
   },
   {
     icon: "zap",
-    title: "Secure by default",
-    body: "The LLM proposes; a deterministic policy engine and hardware-backed signer authorize.",
+    title: "Safe by default",
+    body: "The AI asks. Fixed rules decide. A separate signer moves the money.",
   },
   {
     icon: "swap",
-    title: "Autonomous payments",
-    body: "Recurring subscriptions, agent-to-agent escrow, refunds — every one still passes the same policy.",
+    title: "Ongoing payments",
+    body: "Subscriptions, agent-to-agent holds, refunds — all still go through the same rules.",
   },
 ];
 
@@ -625,8 +651,8 @@ function Enterprise() {
     <section id="enterprise" className="section enterprise">
       <SectionHead
         eyebrow="For teams"
-        title="Enterprise-ready guardrails from day one"
-        sub="Because the first agent-driven mistake is the last one anyone forgets."
+        title="Controls that hold up when more than one person is watching"
+        sub="Because the first surprise AI bill is the one nobody forgets."
       />
       <div className="ent-grid">
         {ENTERPRISE_POINTS.map((p) => (
@@ -642,5 +668,3 @@ function Enterprise() {
     </section>
   );
 }
-
-/* =============================================================== helpers */

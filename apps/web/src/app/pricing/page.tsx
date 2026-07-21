@@ -8,26 +8,26 @@ const TIERS = [
   {
     name: "Developer",
     price: "Free",
-    note: "while in development",
+    note: "while we're building",
     points: [
       "Demo org + playground missions",
-      "x402 + mock rails",
-      "Policy simulator",
-      "ABI Chat + Telegram hooks",
+      "x402 + mock payment rails",
+      "Rule simulator",
+      "Console chat + Telegram hooks",
     ],
-    cta: "Launch console",
+    cta: "Open the console",
     href: "/console",
     featured: true,
   },
   {
     name: "Team",
     price: "Contact",
-    note: "multi-guardian orgs",
+    note: "more than one approver",
     points: [
-      "Shared vault + agent stipends",
-      "Quorum approvals",
+      "Shared vault + agent budgets",
+      "Multi-person approvals",
       "Signed webhooks",
-      "Burn & vendor analytics",
+      "Spend & vendor reports",
     ],
     cta: "Talk to us",
     href: "/about",
@@ -39,7 +39,7 @@ const TIERS = [
     note: "custody + compliance",
     points: [
       "Coinbase CDP custody",
-      "Pluggable compliance screeners",
+      "Pluggable compliance checks",
       "SSO / SCIM (roadmap)",
       "Dedicated support",
     ],
@@ -87,8 +87,8 @@ export default function PricingPage() {
         <div className="mkt-page-inner">
           <SectionHead
             eyebrow="Pricing"
-            title="Start free. Graduate when agents earn their keep."
-            sub="No seat tax on humans who only approve. You pay when autonomous spend needs production rails."
+            title="Start free. Pay when you need production rails."
+            sub="No charge for people who only approve. You pay when agents need real settlement and team controls."
           />
 
           <div className="mkt-price-grid">

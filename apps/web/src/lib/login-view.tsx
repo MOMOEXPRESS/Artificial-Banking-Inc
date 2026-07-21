@@ -1,5 +1,7 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
+import Image from "next/image";
 import { ABLockup } from "./brand";
 import { Icon } from "./ui";
 import type { Session } from "./console-types";
@@ -71,23 +73,35 @@ export function Login({
 
   return (
     <div className="login-wrap">
+      <Link href="/" className="login-back">
+        <Icon name="arrowLeft" size={14} />
+        Back to site
+      </Link>
+
+      <div className="login-decor login-decor-a" aria-hidden>
+        <Image src="/login/vault.png" alt="" width={160} height={160} className="login-decor-img" />
+      </div>
+      <div className="login-decor login-decor-b" aria-hidden>
+        <Image src="/login/guardian.png" alt="" width={140} height={140} className="login-decor-img" />
+      </div>
+
       <div className="login-card">
         <div className="brand" style={{ flexDirection: "column", gap: 14 }}>
           <ABLockup size={200} tone="#fff" />
         </div>
         <p className="login-sub">
-          Financial infrastructure for autonomous AI. Programmable wallets, spending policies and
-          human approvals — the authorization layer between your agents and real money.
+          This is where you open the console. Paste a guardian key if you already have one, or start a
+          demo org with sample money and two agents ready to try.
         </p>
         <ul className="login-points">
           <li>
-            <Icon name="shield" /> Hard budgets, allowlists and a one-tap kill switch
+            <Icon name="shield" /> Set budgets and block anything that shouldn&rsquo;t spend
           </li>
           <li>
-            <Icon name="check" /> Anything large parks and waits for your approval
+            <Icon name="check" /> Big payments wait for a person to approve
           </li>
           <li>
-            <Icon name="swap" /> Escrowed agent-to-agent hiring over real x402 payments
+            <Icon name="swap" /> Agents can pay APIs — under your rules
           </li>
         </ul>
         <div className="field">
@@ -107,11 +121,10 @@ export function Login({
           Launch demo org with $100 float
         </Button>
         <p className="faint" style={{ fontSize: 11.5, marginTop: 20, lineHeight: 1.6 }}>
-          The demo wipes the local database and seeds a fresh org with two agents and keys loaded
-          into the Playground. Not a bank. Not FDIC insured.
+          The demo resets local data and creates a fresh org with two agents. Keys land in the
+          Playground so you can try it right away. Not a bank. Not FDIC insured.
         </p>
       </div>
     </div>
   );
 }
-

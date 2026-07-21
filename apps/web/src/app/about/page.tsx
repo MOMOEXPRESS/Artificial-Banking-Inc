@@ -19,18 +19,17 @@ export default function AboutPage() {
           <SectionHead
             eyebrow="About"
             title="Artificial Banking Incorporated"
-            sub="The financial operating system for AI agents — authorization, custody, and settlement without handing keys to a model."
+            sub="We help companies let AI agents spend money — with budgets, approvals, and a clear record — without handing the wallet keys to the AI."
           />
           <div className="mkt-prose mkt-prose-wide about-lede">
             <p>
-              Agents are already booking APIs, buying data, and negotiating services. What they
-              lack is a bank-grade control plane: stipends, policies, human-in-the-loop, and an
-              immutable journal when something goes wrong.
+              AI agents already call APIs, buy data, and book services. What they usually lack is a
+              proper money setup: a budget per agent, rules that stop bad spends, a person who can
+              approve big ones, and a record when something goes wrong.
             </p>
             <p>
-              ABI sits between the model and the money. The LLM may propose a payment; a
-              deterministic policy engine and a professional signer decide whether it happens.
-              Keys never enter the prompt.
+              ABI sits between the AI and the money. The model can ask to pay. Fixed rules and a
+              separate signer decide whether it happens. The keys never go into the chat prompt.
             </p>
           </div>
         </div>
@@ -39,8 +38,8 @@ export default function AboutPage() {
           <AboutPane
             n="01"
             title="What we are"
-            lead="An authorization layer and treasury for autonomous spend."
-            body="Wallets, policies, approvals, x402 rails, and audit. Operators fund a vault, push stipends to agents, and set the rules those agents must clear before a cent moves. Settlement is USDC on Base; custody can sit on Coinbase CDP so private keys stay out of your app and out of the model."
+            lead="A place to hold company funds for agents, set rules, and approve big spends."
+            body="Wallets, spending rules, approvals, API payments (x402), and an audit log. You fund a vault, give agents budgets, and set what they must clear before a cent moves. Payments can settle as USDC on Base. Coinbase CDP can hold the keys so they stay out of your app and out of the model."
             flip={false}
             src="/about/we-are.png"
             alt="AB vault mark with propose, authorize, and settle symbols"
@@ -48,8 +47,8 @@ export default function AboutPage() {
           <AboutPane
             n="02"
             title="What we are not"
-            lead="Not a bank. Not a trading wallet. Not a chat that moves money."
-            body="Not a consumer bank. Not FDIC insured. Not a crypto trading wallet. Not an LLM that interprets free-text money intents. We do not hold retail deposits, and we do not ask you to trust a chat transcript as your ledger of record."
+            lead="Not a consumer bank. Not a trading app. Not a chat that moves money."
+            body="We are not FDIC insured. We do not hold retail deposits. We are not a crypto trading wallet. We do not treat free-text chat as the way money moves. Your ledger of record is the journal — not a conversation transcript."
             flip
             src="/about/we-are-not.png"
             alt="Bank and chat icons cancelled by a prohibition mark"
@@ -57,8 +56,8 @@ export default function AboutPage() {
           <AboutPane
             n="03"
             title="How we build"
-            lead="One money spine — intent, policy, custody, settle, journal."
-            body="Extension points for compliance and notifications. Ship what fits today without blocking the next pillars: more rails, richer approvals, deeper analytics. The path agents take to spend should stay the same even as the surface around it grows."
+            lead="One path for money: ask → check rules → move → write it down."
+            body="We ship what works today without boxing in what comes next — more payment rails, richer approvals, deeper reports. Agents should keep using the same spend path even as the product grows around it."
             flip={false}
             src="/about/how-we-build.png"
             alt="Person building at a laptop on a clean desk"
@@ -66,8 +65,8 @@ export default function AboutPage() {
           <AboutPane
             n="04"
             title="Who it is for"
-            lead="Teams that want agents to spend — under budget, with a human still able to park large spends."
-            body="If you need a playground today and production rails when agents earn their keep, that is the path we designed for. Guardians set policy. Agents call the same API your production fleet will use."
+            lead="Teams that want agents to spend — under budget, with a human able to stop large payments."
+            body="Start in the playground. Move to production when the agents prove useful. People set the rules. Agents call the same API you will use in production."
             flip
             src="/about/who-for.png"
             alt="Operators reviewing a shared spend-control card"
@@ -77,7 +76,7 @@ export default function AboutPage() {
         <div className="mkt-page-inner">
           <div className="mkt-doc-cta">
             <Link className="btn-primary" href="/console">
-              Launch console <Icon name="arrowRight" size={14} />
+              Open the console <Icon name="arrowRight" size={14} />
             </Link>
             <Link className="btn-ghost" href="/docs">
               Read the docs

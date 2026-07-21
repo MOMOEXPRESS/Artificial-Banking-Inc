@@ -79,7 +79,7 @@ export function MarketingNav({
         </nav>
         <div className="marketing-nav-cta">
           <Link className="btn-primary-line" href="/console" onClick={close}>
-            Launch console
+            Open console
           </Link>
           <button
             type="button"
@@ -103,8 +103,8 @@ export function MarketingFooter() {
         <div className="marketing-footer-brand">
           <ABWordmark size={28} tone="#fff" />
           <p>
-            The authorization layer between AI agents and real money. Programmable, auditable and
-            enterprise-safe.
+            Controls so AI agents can spend money — with budgets you set, approvals when it
+            matters, and a record you can show people.
           </p>
         </div>
         <div className="marketing-footer-cols">
@@ -187,10 +187,10 @@ export function MarketingCta() {
   return (
     <section className="cta-band">
       <div className="cta-open">
-        <h2>Ship an autonomous agent this afternoon.</h2>
+        <h2>Try an agent that can spend — this afternoon.</h2>
         <p>
-          The console is free while it&rsquo;s in development. Bring an OpenAI, Anthropic, or any
-          pay-per-use API — your agent starts spending under policy in minutes.
+          The console is free while we&rsquo;re building. Bring an OpenAI, Anthropic, or any
+          pay-per-use API key. Your agent can start paying under your rules in a few minutes.
         </p>
       </div>
       <div className="cta-lockup" aria-hidden>
@@ -199,13 +199,13 @@ export function MarketingCta() {
       <div className="cta-action-row">
         <Link className="cta-action-card" href="/console">
           <span className="cta-action-kicker">Console</span>
-          <strong>Launch console</strong>
-          <span className="cta-action-sub">Guardian desk, live balances, policy.</span>
+          <strong>Open the console</strong>
+          <span className="cta-action-sub">Balances, approvals, and rules.</span>
         </Link>
         <Link className="cta-action-card" href="/console?demo=1">
           <span className="cta-action-kicker">Demo</span>
-          <strong>Try demo org</strong>
-          <span className="cta-action-sub">$100 float, two agents, real ledger.</span>
+          <strong>Try a demo org</strong>
+          <span className="cta-action-sub">$100 to play with, two agents, real ledger.</span>
         </Link>
       </div>
     </section>

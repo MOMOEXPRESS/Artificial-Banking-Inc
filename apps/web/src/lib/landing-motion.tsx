@@ -94,13 +94,15 @@ export function LandingMotion() {
         ease: "power2.out",
       });
 
-      gsap.from(".home-interstitial-inner > *", {
-        scrollTrigger: { trigger: ".home-interstitial", start: "top 82%" },
-        y: 24,
-        opacity: 0,
-        duration: 0.6,
-        stagger: 0.1,
-        ease: "power2.out",
+      gsap.utils.toArray<HTMLElement>(".home-interstitial").forEach((el) => {
+        gsap.from(el.querySelectorAll(".home-interstitial-inner > *"), {
+          scrollTrigger: { trigger: el, start: "top 82%" },
+          y: 24,
+          opacity: 0,
+          duration: 0.6,
+          stagger: 0.1,
+          ease: "power2.out",
+        });
       });
 
       gsap.from(".home-float-token", {
