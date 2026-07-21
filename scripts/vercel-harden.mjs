@@ -2,10 +2,13 @@
 /**
  * Once-and-for-all Vercel access harden for Artificial Banking Inc.
  *
- * Fixes the two dashboard issues that surface as “404 NOT_FOUND” / a Vercel
- * login wall instead of the Next app:
- *   1. Deployment Protection (SSO) on Production → disable it
- *   2. Print the only canonical *.vercel.app URL for this team project
+ * Fixes dashboard issues that surface as “404 NOT_FOUND” / a Vercel login wall
+ * / ignored Project Settings:
+ *   1. rootDirectory → apps/web (so dashboard Build settings apply; no legacy
+ *      root vercel.json `builds` key)
+ *   2. sourceFilesOutsideRootDirectory → true (npm workspaces / packages/*)
+ *   3. Deployment Protection (SSO) on Production → disable it
+ *   4. Print the only canonical *.vercel.app URL for this team project
  *
  * Short names like artificial-banking-inc.vercel.app are NOT assigned to team
  * projects (slug is project-team) and will keep returning platform 404 — do
@@ -22,6 +25,7 @@
 const TOKEN = process.env.VERCEL_TOKEN;
 const TEAM_SLUG = process.env.VERCEL_TEAM_SLUG ?? "gaia10";
 const PROJECT = process.env.VERCEL_PROJECT ?? "artificial-banking-inc";
+const ROOT_DIRECTORY = "apps/web";
 const API = "https://api.vercel.com";
 
 if (!TOKEN) {
@@ -32,9 +36,9 @@ Create one: https://vercel.com/account/tokens
 Then:
   VERCEL_TOKEN=… npm run vercel:harden
 
-Without the token this script cannot disable Deployment Protection — that is
-the usual reason the real production URL looks “broken” (SSO login) while
-artificial-banking-inc.vercel.app returns x-vercel-error: NOT_FOUND.
+Without the token this script cannot set Root Directory / disable Deployment
+Protection — those are the usual reasons builds ignore Project Settings or the
+real production URL looks “broken” (SSO login).
 `);
   process.exit(1);
 }
@@ -85,24 +89,41 @@ async function main() {
   const teamId = team.id;
   const q = `teamId=${encodeURIComponent(teamId)}`;
 
-  const project = await api(`/v9/projects/${encodeURIComponent(PROJECT)}?${q}`);
+  let project = await api(`/v9/projects/${encodeURIComponent(PROJECT)}?${q}`);
   console.log(`Project id: ${project.id}`);
   console.log(`Framework:  ${project.framework ?? "(unset)"}`);
   console.log(`Root dir:   ${project.rootDirectory ?? "(repo root)"}`);
+  console.log(
+    `Outside root files: ${project.sourceFilesOutsideRootDirectory ?? "(default)"}`,
+  );
 
-  const before = project.ssoProtection ?? null;
-  console.log(`SSO protection before: ${JSON.stringify(before)}`);
+  const patch = {};
+  if (project.rootDirectory !== ROOT_DIRECTORY) {
+    patch.rootDirectory = ROOT_DIRECTORY;
+  }
+  if (project.sourceFilesOutsideRootDirectory !== true) {
+    patch.sourceFilesOutsideRootDirectory = true;
+  }
+  const beforeSso = project.ssoProtection ?? null;
+  console.log(`SSO protection before: ${JSON.stringify(beforeSso)}`);
+  if (beforeSso) {
+    patch.ssoProtection = null;
+  }
 
-  if (before) {
-    console.log("Disabling Vercel Authentication (ssoProtection → null)…");
+  if (Object.keys(patch).length) {
+    console.log(`Patching project: ${JSON.stringify(patch)}`);
     await api(`/v9/projects/${encodeURIComponent(project.id)}?${q}`, {
       method: "PATCH",
-      body: { ssoProtection: null },
+      body: patch,
     });
-    const after = await api(`/v9/projects/${encodeURIComponent(project.id)}?${q}`);
-    console.log(`SSO protection after:  ${JSON.stringify(after.ssoProtection ?? null)}`);
+    project = await api(`/v9/projects/${encodeURIComponent(project.id)}?${q}`);
+    console.log(`Root dir after:  ${project.rootDirectory ?? "(repo root)"}`);
+    console.log(
+      `Outside root after: ${project.sourceFilesOutsideRootDirectory ?? "(default)"}`,
+    );
+    console.log(`SSO protection after:  ${JSON.stringify(project.ssoProtection ?? null)}`);
   } else {
-    console.log("SSO protection already off — nothing to change.");
+    console.log("Root directory, monorepo sources, and SSO already correct.");
   }
 
   const domains = await api(`/v9/projects/${encodeURIComponent(project.id)}/domains?${q}`);
@@ -134,6 +155,10 @@ async function main() {
 Canonical production URL (use this, bookmark this):
 
   ${url}
+
+Project Settings now apply (no legacy root vercel.json "builds").
+Root Directory must stay: ${ROOT_DIRECTORY}
+Config file used: apps/web/vercel.json
 
 Wrong (platform 404 — not assigned to team gaia10):
   https://${PROJECT}.vercel.app
