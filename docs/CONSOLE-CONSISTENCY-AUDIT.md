@@ -201,9 +201,9 @@ Also: merchant tip honesty (C2); ops-label Freeze members copy (A2 partial).
 
 ### P2 — Nice cleanup
 
-11. Search bar real or remove.  
-12. Sound pref or delete.  
-13. Calendar marks, CSV tip, liquid-total foot, pricing “shared vault” copy.
+11. ~~Search bar real or remove.~~ **Fixed 2026-07-21** — topbar is Command palette; denial jumps seed Activity filters (I1–I2)  
+12. ~~Sound pref or delete.~~ **Fixed 2026-07-21** — removed dead `sound` from prefs  
+13. ~~Calendar marks, CSV tip, liquid-total foot, pricing “shared vault” copy.~~ **Fixed 2026-07-21** (M10, M22, I3, pricing)
 
 ---
 
@@ -220,7 +220,7 @@ Also: merchant tip honesty (C2); ops-label Freeze members copy (A2 partial).
 | Policy limits/allowlists | High | Real engine |
 | Policy “budget” automation | High | Renamed to `daily_cap_exceeded` (alias kept) |
 | Playground presets | High | Live path |
-| Insights | Med–High | APIs real; search weak |
+| Insights | High | APIs real; palette → Activity deny filter; CSV tip honest |
 | Chat / Work | High | Fine for now |
 
 ---
