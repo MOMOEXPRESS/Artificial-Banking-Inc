@@ -466,7 +466,7 @@ export default function Console() {
       </button>
       {railOpen && <button type="button" className="rail-scrim" aria-label="Close navigation" onClick={() => setRailOpen(false)} />}
       <Sidebar className="rail rail-folders" label="Console navigation">
-        <Link href="/" className="rail-logo" title="Back to landing" style={{ textDecoration: "none" }}>
+        <Link href="/" className="rail-logo" title="Back to home" style={{ textDecoration: "none" }}>
           <ABAppIcon size={38} />
         </Link>
         {NAV_GROUPS.map((group) => {
