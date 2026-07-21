@@ -10,7 +10,7 @@ const STORAGE_KEY = "abi_page_tours_v1";
 
 const TOURS: Record<string, string> = {
   overview:
-    "Your command center: vault balance, agent spend, where money went, and quick allocate/freeze. Deposit more under Treasury → Fund.",
+    "Your command center: vault balance, agent spend, where money went, and quick stipend moves (HITL) / freeze. Deposit more under Treasury → Fund.",
   treasury:
     "Fund the org vault (demo deposit or vault address), withdraw, then move money across org / dept / shared / agent wallets. Cash flow + runway live under Cash & forecast.",
   agents:
