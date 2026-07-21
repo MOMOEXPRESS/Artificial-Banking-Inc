@@ -42,16 +42,35 @@ That script:
 - Attempts to claim short aliases (usually rejected for team projects — OK)
 - Prints the canonical production URL
 
-Or in the dashboard (same effect):
+### Dashboard click path (Root Directory is NOT a repo folder)
 
-1. https://vercel.com → team **gaia10** → **artificial-banking-inc**
-2. **Settings → Deployment Protection** → turn **off** Vercel Authentication
-   for Production (and Preview if you want public previews)
-3. Open **https://artificial-banking-inc-gaia10.vercel.app**
+“Root Directory” does **not** appear in GitHub / your file tree. It is a
+**Vercel Project Setting**. The value you type is the real monorepo path
+`apps/web` (that folder exists in the repo).
+
+Exact path in the Vercel UI:
+
+1. Open https://vercel.com and switch the team picker (top-left) to **gaia10**
+2. Click the project **artificial-banking-inc**
+3. Left sidebar → **Settings**
+4. Under Settings, open **Build and Deployment**  
+   (sometimes listed under **General** → scroll to *Build and Development Settings*)
+5. Scroll to **Root Directory** → **Edit**
+6. Enter: `apps/web`
+7. Leave **Include source files outside of the Root Directory in the Build Step** **checked** (on)
+8. **Save**
+9. Still under Settings → **Deployment Protection** → turn **off** Vercel Authentication
+10. **Deployments** → ⋯ on latest → **Redeploy**
+11. Open **https://artificial-banking-inc-gaia10.vercel.app**
+
+If you do not see **Root Directory**:
+
+- You may be on the **team** settings page, not the **project** settings page — go into the project first.
+- Or an old root `vercel.json` `"builds"` block is still on `main` (ignored Project Settings warning). Merge PR #21 / the branch that deleted root `vercel.json`, then refresh Settings.
 
 Optional CI: add repo secret `VERCEL_TOKEN`, then
 **Actions → Vercel harden → Run workflow** (also runs on pushes that touch the
-harden script).
+harden script). That API call sets Root Directory without using the UI.
 
 ## Why builds used to 404 / red ✕ / “unused-build-settings”
 
@@ -67,7 +86,7 @@ the old builder path and Vercel prints:
 Current setup (Project Settings **do** apply):
 
 1. **No root `vercel.json`** — removed so dashboard settings are not ignored.
-2. **Root Directory** = `apps/web` (set via dashboard or `npm run vercel:harden`).
+2. **Root Directory** = `apps/web` (Vercel setting → real path `apps/web/` in the repo).
 3. **Include source files outside Root Directory** = on (monorepo `packages/*`).
 4. **`apps/web/vercel.json`** — `framework: nextjs` + workspace install/build.
 5. **Output Directory** empty (never `.next`).
