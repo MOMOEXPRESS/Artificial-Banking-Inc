@@ -71,7 +71,7 @@ const TIPS: Record<string, string[]> = {
   ],
   settings: [
     "Go-live checklist splits Demo-ready vs Production — finish Demo without CDP first.",
-    "Merchant allowlists here pair with Policy destination rules.",
+    "Merchant directory is labels only — Policy → Allowlists gates pay_api destinations.",
     "The org kill switch freezes all agent spend immediately.",
   ],
 };

@@ -10,7 +10,8 @@
 ## Executive verdict
 
 Picture A is **started** (Treasury Budgets, ops-label fund-from-budget, ADR).  
-The rest of the console still has **many same-class inconsistencies**: dual funding paths, HITL claims that don’t park money, policy words that don’t mean Treasury budgets, decorative session scopes, and approval UX that jumps to three different places.
+**P0 console honesty items from this audit are fixed** (Overview fund path, HITL claims, daily_cap naming, session scopes, Approvals landing).  
+Remaining work is mostly **P1 polish**: soft-deprecate shared create, Schedule/Subs unify, playground paste-key id, twin label+budget guardrails.
 
 Nothing below means “the product is broken end-to-end.” It means **operators can still be taught the wrong mental model** the way they were with dept/pool/group.
 
@@ -182,11 +183,13 @@ Commerce / Governance / Security / Ops are **Playground mission filters**, not S
 
 ### P0 — Same class as dept/pool/group (do next)
 
-1. Overview: kill department/shared copy; route funding via Budget → agent (`wallets/move`).  
-2. Align HITL claims with code (withdraw, payment hold, schedule→Approvals).  
-3. Rename `budget_exceeded` → `daily_cap_exceeded` (UI + automation).  
-4. Enforce session scopes **or** remove from UI.  
-5. One approval landing (Chat *or* Approvals — pick one and wire all tips/settings/auto-jump).  
+1. ~~Overview: kill department/shared copy; route funding via Budget → agent (`wallets/move`).~~ **Fixed 2026-07-21** (M1–M3, M18)  
+2. ~~Align HITL claims with code (withdraw, payment hold, schedule→Approvals).~~ **Fixed 2026-07-21** — withdraw/hold copy honest; subscription/schedule `review` now creates Approvals (M4–M6)  
+3. ~~Rename `budget_exceeded` → `daily_cap_exceeded` (UI + automation).~~ **Fixed 2026-07-21** (C1; deprecated alias kept)  
+4. ~~Enforce session scopes **or** remove from UI.~~ **Fixed 2026-07-21** — `authAgent` enforces read/pay/escrow; mint UI picks scopes (A3–A4)  
+5. ~~One approval landing (Chat *or* Approvals — pick one and wire all tips/settings/auto-jump).~~ **Fixed 2026-07-21** — auto-jump → Approvals; mobile `/approvals` parses `{ approvals }` (M7, M21)  
+
+Also: merchant tip honesty (C2); ops-label Freeze members copy (A2 partial).
 
 ### P1 — Consistency polish
 
@@ -210,12 +213,12 @@ Commerce / Governance / Security / Ops are **Playground mission filters**, not S
 |------|-----------|-------|
 | Treasury Budgets + Move | High | Picture A home base |
 | Ops label fund-from-budget | High | If source selected correctly |
-| Overview allocate | Low | Teaches wrong path |
-| Payments Approvals | Med | Works; held/quorum copy soft |
-| Schedule / Subs HITL | Low | Promise broken |
-| Session scopes | Low | Decorative |
+| Overview allocate | High | Routes via `wallets/move`; fund from org or budget |
+| Payments Approvals | Med–High | Works; hold copy honest; mobile parse fixed |
+| Schedule / Subs HITL | High | `review` creates Approvals (same as live pay) |
+| Session scopes | High | Enforced on agent routes; mint UI picks scopes |
 | Policy limits/allowlists | High | Real engine |
-| Policy “budget” automation | Low | Naming trap |
+| Policy “budget” automation | High | Renamed to `daily_cap_exceeded` (alias kept) |
 | Playground presets | High | Live path |
 | Insights | Med–High | APIs real; search weak |
 | Chat / Work | High | Fine for now |

@@ -246,18 +246,43 @@ function bearer(req: express.Request): string | null {
   return header.slice("Bearer ".length).trim();
 }
 
-function authAgent(req: express.Request): { orgId: string; agentId: string } | null {
+type AgentAuth = { orgId: string; agentId: string; scopes: string[] };
+
+function authAgent(req: express.Request): AgentAuth | null {
   const key = bearer(req);
   if (!key) return null;
-  const agent = key.startsWith("pv_sess_")
-    ? store.getAgentBySessionToken(key)
-    : key.startsWith("pv_agent_")
-      ? store.getAgentByKey(key)
-      : undefined;
-  if (!agent) return null;
-  // Frozen / archived agents still authenticate: their intents hit the policy
-  // engine and produce an explainable agent_frozen/org_frozen deny in the trace.
-  return { orgId: agent.orgId, agentId: agent.id };
+  if (key.startsWith("pv_sess_")) {
+    const session = store.getSessionByToken(key);
+    if (!session) return null;
+    // Frozen / archived agents still authenticate: their intents hit the policy
+    // engine and produce an explainable agent_frozen/org_frozen deny in the trace.
+    return {
+      orgId: session.agent.orgId,
+      agentId: session.agent.id,
+      scopes: session.scopes,
+    };
+  }
+  if (key.startsWith("pv_agent_")) {
+    const agent = store.getAgentByKey(key);
+    if (!agent) return null;
+    // Full agent keys carry all scopes.
+    return { orgId: agent.orgId, agentId: agent.id, scopes: ["read", "pay", "escrow"] };
+  }
+  return null;
+}
+
+/** Returns true when the caller may proceed; otherwise writes 403 and returns false. */
+function requireAgentScope(auth: AgentAuth, scope: string, res: express.Response): boolean {
+  if (auth.scopes.includes(scope)) return true;
+  res.status(403).json({
+    error: {
+      code: "INSUFFICIENT_SCOPE",
+      message: `Session key lacks scope '${scope}'`,
+      required: scope,
+      scopes: auth.scopes,
+    },
+  });
+  return false;
 }
 
 /** Guardian auth: org is derived from the pv_guardian_ key, never from the body. */
@@ -1583,6 +1608,7 @@ app.post(
 app.get("/v1/agent/budget", (req, res) => {
   const auth = authAgent(req);
   if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  if (!requireAgentScope(auth, "read", res)) return;
   const map = store.getAccountMap(auth.orgId);
   const av = map.get(`agent:${auth.agentId}:available`);
   const held = map.get(`agent:${auth.agentId}:held`);
@@ -1600,6 +1626,7 @@ app.get("/v1/agent/budget", (req, res) => {
 app.get("/v1/agent/activity", (req, res) => {
   const auth = authAgent(req);
   if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  if (!requireAgentScope(auth, "read", res)) return;
   const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 50;
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
   res.json({
@@ -1610,6 +1637,7 @@ app.get("/v1/agent/activity", (req, res) => {
 app.get("/v1/agent/decisions/:intentId", (req, res) => {
   const auth = authAgent(req);
   if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  if (!requireAgentScope(auth, "read", res)) return;
   const decision = store.getDecision(auth.orgId, req.params.intentId);
   if (!decision || decision.agentId !== auth.agentId) {
     return res.status(404).json({ error: { code: "NOT_FOUND" } });
@@ -1631,6 +1659,7 @@ async function handlePay(req: express.Request, res: express.Response, tool: "pay
     res.status(401).json({ error: { code: "UNAUTHORIZED" } });
     return;
   }
+  if (!requireAgentScope(auth, "pay", res)) return;
   const parsed = payBody.parse(req.body);
   await handleIntent(res, {
     orgId: auth.orgId,
@@ -1651,6 +1680,7 @@ app.post("/v1/agent/pay", asyncRoute((req, res) => handlePay(req, res, "pay")));
 app.post("/v1/agent/simulate", (req, res) => {
   const auth = authAgent(req);
   if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  if (!requireAgentScope(auth, "read", res)) return;
   const body = z
     .object({
       tool: z.enum(["pay", "pay_api", "escrow_lock"]),
@@ -1678,6 +1708,7 @@ app.post("/v1/agent/simulate", (req, res) => {
 app.get("/v1/agent/approvals/:id", (req, res) => {
   const auth = authAgent(req);
   if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  if (!requireAgentScope(auth, "read", res)) return;
   sweepApprovalExpiry();
   const approval = store.getApproval(req.params.id, auth.orgId);
   if (!approval || approval.agentId !== auth.agentId) {
@@ -1694,6 +1725,7 @@ app.post(
       res.status(401).json({ error: { code: "UNAUTHORIZED" } });
       return;
     }
+    if (!requireAgentScope(auth, "escrow", res)) return;
     const body = z
       .object({
         amountUsdc: z.string(),
@@ -1734,6 +1766,7 @@ app.post(
 app.get("/v1/agent/escrow/:id", (req, res) => {
   const auth = authAgent(req);
   if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  if (!requireAgentScope(auth, "read", res)) return;
   sweepEscrowTimeouts();
   const escrow = store.getEscrow(req.params.id, auth.orgId);
   if (!escrow) return res.status(404).json({ error: { code: "NOT_FOUND" } });
@@ -1743,6 +1776,7 @@ app.get("/v1/agent/escrow/:id", (req, res) => {
 app.post("/v1/agent/escrow/:id/release", (req, res) => {
   const auth = authAgent(req);
   if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  if (!requireAgentScope(auth, "escrow", res)) return;
   const escrow = store.getEscrow(req.params.id, auth.orgId);
   if (!escrow) return res.status(404).json({ error: { code: "NOT_FOUND" } });
   if (escrow.payerAgentId !== auth.agentId) {
@@ -1765,6 +1799,7 @@ app.post("/v1/agent/escrow/:id/release", (req, res) => {
 app.post("/v1/agent/escrow/:id/refund", (req, res) => {
   const auth = authAgent(req);
   if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  if (!requireAgentScope(auth, "escrow", res)) return;
   const escrow = store.getEscrow(req.params.id, auth.orgId);
   if (!escrow) return res.status(404).json({ error: { code: "NOT_FOUND" } });
   if (escrow.payerAgentId !== auth.agentId && escrow.payeeAgentId !== auth.agentId) {
@@ -1842,6 +1877,47 @@ async function runDueSubscriptions(): Promise<void> {
       amountUsdc: formatMicroToUsdc(sub.amountMicro),
       destination: sub.vendor,
     });
+
+    if (decision.outcome === "review") {
+      const approval: ApprovalRow = {
+        id: id("apr"),
+        orgId: sub.orgId,
+        agentId: sub.agentId,
+        intentId,
+        tool: "pay_api",
+        amountMicro: sub.amountMicro,
+        amountUsdc: formatMicroToUsdc(sub.amountMicro),
+        destination: sub.vendor,
+        memo: sub.memo ?? `subscription ${sub.id}`,
+        idempotencyKey: `sub_${sub.id}_${sub.runs}`,
+        ruleIds: decision.ruleIds,
+        reasons: decision.reasons,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + APPROVAL_TTL_MINUTES * 60_000).toISOString(),
+      };
+      store.createApproval(approval);
+      void notify({ kind: "approval.pending", approval });
+      emitEvent(sub.orgId, "approval.pending", {
+        approvalId: approval.id,
+        intentId,
+        agentId: sub.agentId,
+        tool: "pay_api",
+        amountUsdc: approval.amountUsdc,
+        destination: sub.vendor,
+        reasons: decision.reasons,
+        expiresAt: approval.expiresAt,
+        source: "subscription",
+        subscriptionId: sub.id,
+      });
+      store.recordSubscriptionRun({
+        subId: sub.id,
+        chargedMicro: 0n,
+        nextRunAt,
+        error: `review: pending approval ${approval.id}`,
+      });
+      continue;
+    }
 
     if (decision.outcome !== "allow") {
       store.recordSubscriptionRun({

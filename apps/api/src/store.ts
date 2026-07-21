@@ -1081,25 +1081,25 @@ export const store = {
     return r ? rowToAgent(r) : undefined;
   },
 
-  /** Resolve a live (non-expired, non-revoked) session key to its agent. */
-  getAgentBySessionToken(token: string): AgentRow | undefined {
+  /** Resolve a live session token to agent + scopes (for scope enforcement). */
+  getSessionByToken(token: string): { agent: AgentRow; scopes: string[] } | undefined {
     if (!token.startsWith("pv_sess_")) return undefined;
     const hashed = lookupHash(token);
     let r = db
       .prepare(
-        `SELECT a.* FROM session_keys s
+        `SELECT a.*, s.scopes_json AS scopes_json FROM session_keys s
          JOIN agents a ON a.id = s.agent_id
          WHERE s.token = ? AND s.revoked_at IS NULL AND s.expires_at > ?`,
       )
-      .get(hashed, nowIso()) as Row | undefined;
+      .get(hashed, nowIso()) as (Row & { scopes_json?: string }) | undefined;
     if (!r) {
       r = db
         .prepare(
-          `SELECT a.* FROM session_keys s
+          `SELECT a.*, s.scopes_json AS scopes_json FROM session_keys s
            JOIN agents a ON a.id = s.agent_id
            WHERE s.token = ? AND s.revoked_at IS NULL AND s.expires_at > ?`,
         )
-        .get(token, nowIso()) as Row | undefined;
+        .get(token, nowIso()) as (Row & { scopes_json?: string }) | undefined;
       if (r) {
         db.prepare("UPDATE session_keys SET token = ? WHERE token = ? AND revoked_at IS NULL").run(
           hashed,
@@ -1107,7 +1107,20 @@ export const store = {
         );
       }
     }
-    return r ? rowToAgent(r) : undefined;
+    if (!r) return undefined;
+    let scopes: string[] = ["read", "pay", "escrow"];
+    try {
+      scopes = JSON.parse(String(r.scopes_json ?? "[]")) as string[];
+      if (!scopes.length) scopes = ["read", "pay", "escrow"];
+    } catch {
+      /* defaults */
+    }
+    return { agent: rowToAgent(r), scopes };
+  },
+
+  /** Resolve a live (non-expired, non-revoked) session key to its agent. */
+  getAgentBySessionToken(token: string): AgentRow | undefined {
+    return this.getSessionByToken(token)?.agent;
   },
 
   listAgents(orgId: string): AgentRow[] {

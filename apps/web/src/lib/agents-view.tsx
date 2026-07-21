@@ -95,6 +95,11 @@ export function AgentsView({
   const [ownerId, setOwnerId] = useState("owner");
   const [assignGroup, setAssignGroup] = useState("");
   const [sessionLabel, setSessionLabel] = useState("");
+  const [sessionScopes, setSessionScopes] = useState<Array<"read" | "pay" | "escrow">>([
+    "read",
+    "pay",
+    "escrow",
+  ]);
   const [revealedSession, setRevealedSession] = useState<string | null>(null);
 
   const [rosterReady, setRosterReady] = useState(false);
@@ -183,7 +188,7 @@ export function AgentsView({
     });
 
   const createGroup = () =>
-    act("Create group", async () => {
+    act("Create ops label", async () => {
       const res = await gFetch("/v1/guardian/agent-groups", {
         method: "POST",
         body: JSON.stringify({ name: groupName.trim() }),
@@ -192,7 +197,7 @@ export function AgentsView({
       if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
       setGroupName("");
       await refresh();
-      return `Group ${d.group.name} ready.`;
+      return `Ops label ${d.group.name} ready.`;
     });
 
   const selectedAgent = agents.find((a) => a.id === selected);
@@ -202,7 +207,7 @@ export function AgentsView({
       <div className="card-head" style={{ marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: 0 }}>Agents</h2>
-          <div className="sub">Identity, groups, keys, sessions, freeze audit</div>
+          <div className="sub">Identity, ops labels, keys, sessions, freeze audit</div>
         </div>
         <SegTabs
           value={tab}
@@ -552,8 +557,36 @@ export function AgentsView({
                       Unarchive
                     </Button>
                   )}
+                  <div className="field" style={{ margin: "0 0 10px", flex: "1 1 160px" }}>
+                    <label>Session label</label>
+                    <input
+                      value={sessionLabel}
+                      disabled={locked || selectedAgent?.status !== "active"}
+                      onChange={(e) => setSessionLabel(e.target.value)}
+                      placeholder="console"
+                    />
+                  </div>
+                  <div className="row" style={{ gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                    {(["read", "pay", "escrow"] as const).map((scope) => (
+                      <label key={scope} className="row" style={{ gap: 6, fontSize: 12.5 }}>
+                        <input
+                          type="checkbox"
+                          disabled={locked || selectedAgent?.status !== "active"}
+                          checked={sessionScopes.includes(scope)}
+                          onChange={(e) =>
+                            setSessionScopes((prev) =>
+                              e.target.checked
+                                ? [...prev, scope]
+                                : prev.filter((s) => s !== scope),
+                            )
+                          }
+                        />
+                        {scope}
+                      </label>
+                    ))}
+                  </div>
                   <Button size="sm"
-                    disabled={locked || selectedAgent?.status !== "active"}
+                    disabled={locked || selectedAgent?.status !== "active" || sessionScopes.length === 0}
                     onClick={() =>
                       void act("Mint session", async () => {
                         const res = await gFetch(
@@ -563,6 +596,7 @@ export function AgentsView({
                             body: JSON.stringify({
                               label: sessionLabel.trim() || "console",
                               ttlHours: 24,
+                              scopes: sessionScopes,
                             }),
                           },
                         );
@@ -571,7 +605,7 @@ export function AgentsView({
                         setRevealedSession(d.sessionKey.token);
                         setSessionLabel("");
                         await refresh();
-                        return "Session token minted — copy below.";
+                        return `Session minted with scopes: ${sessionScopes.join(", ")}.`;
                       })
                     }
                   >
@@ -730,27 +764,27 @@ export function AgentsView({
                           <Button variant="destructive" size="sm"
                             disabled={locked || !g.members.length}
                             onClick={() =>
-                              void act("Freeze desk", async () => {
+                              void act("Freeze labeled agents", async () => {
                                 const res = await gFetch(
                                   `/v1/guardian/agent-groups/${g.id}/freeze`,
                                   {
                                     method: "POST",
-                                    body: JSON.stringify({ reason: "desk_kill_switch" }),
+                                    body: JSON.stringify({ reason: "ops_label_kill_switch" }),
                                   },
                                 );
                                 const d = await res.json();
                                 if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
                                 await refresh();
-                                return `Froze ${d.frozen?.length ?? 0} agent(s) in ${g.name}.`;
+                                return `Froze ${d.frozen?.length ?? 0} agent(s) under ${g.name}.`;
                               })
                             }
                           >
-                            Freeze desk
+                            Freeze members
                           </Button>
                           <Button variant="ghost" size="sm"
                             disabled={locked || !g.members.length}
                             onClick={() =>
-                              void act("Unfreeze desk", async () => {
+                              void act("Unfreeze labeled agents", async () => {
                                 const res = await gFetch(
                                   `/v1/guardian/agent-groups/${g.id}/unfreeze`,
                                   { method: "POST", body: "{}" },
@@ -902,7 +936,8 @@ export function AgentsView({
             <div>
               <h2>Session keys</h2>
               <div className="sub">
-                Short-lived <code>pv_sess_…</code> tokens — revoked on freeze/archive
+                Short-lived <code>pv_sess_…</code> tokens — scopes enforced on agent API routes;
+                revoked on freeze/archive
               </div>
             </div>
           </div>

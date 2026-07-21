@@ -392,7 +392,10 @@ export function SettingsView({
             <div className="card-head">
               <div>
                 <h2>Merchant directory</h2>
-                <div className="sub">Metadata layered on allowlisted counterparties</div>
+                <div className="sub">
+                  Labels and categories for vendors — does not gate spend. Use Policy → Allowlists
+                  to permit pay_api destinations.
+                </div>
               </div>
             </div>
             <div className="grid g-2" style={{ gap: "0 14px" }}>

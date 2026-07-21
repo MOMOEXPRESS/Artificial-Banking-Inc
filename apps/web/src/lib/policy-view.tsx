@@ -26,7 +26,8 @@ export type Policy = {
       | { kind: "amount_above"; micro: string }
       | { kind: "balance_below"; micro: string; walletId?: string }
       | { kind: "merchant_unknown" }
-      | { kind: "budget_exceeded" };
+      | { kind: "budget_exceeded" }
+      | { kind: "daily_cap_exceeded" };
     then:
       | { kind: "notify"; channel?: string }
       | { kind: "require_approval" }
@@ -681,7 +682,7 @@ export function PolicyView({
                 <div className="field" style={{ margin: 0 }}>
                   <label>When</label>
                   <select
-                    value={rule.when.kind}
+                    value={rule.when.kind === "budget_exceeded" ? "daily_cap_exceeded" : rule.when.kind}
                     onChange={(e) => {
                       setTouched(true);
                       const kind = e.target.value;
@@ -694,8 +695,8 @@ export function PolicyView({
                           if (kind === "balance_below") {
                             return { ...r, when: { kind: "balance_below", micro: "5000000" } };
                           }
-                          if (kind === "budget_exceeded") {
-                            return { ...r, when: { kind: "budget_exceeded" } };
+                          if (kind === "daily_cap_exceeded" || kind === "budget_exceeded") {
+                            return { ...r, when: { kind: "daily_cap_exceeded" } };
                           }
                           return { ...r, when: { kind: "merchant_unknown" } };
                         }),
@@ -703,7 +704,7 @@ export function PolicyView({
                     }}
                   >
                     <option value="merchant_unknown">merchant unknown</option>
-                    <option value="budget_exceeded">budget exceeded</option>
+                    <option value="daily_cap_exceeded">daily spend cap would exceed</option>
                     <option value="amount_above">amount above (µUSDC)</option>
                     <option value="balance_below">balance below (µUSDC)</option>
                   </select>

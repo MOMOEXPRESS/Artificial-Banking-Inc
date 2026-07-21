@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AIPanel } from "./views";
 import type { InvoiceStats, Summary } from "./views";
 import { BarChart, BarLine, Calendar, Donut, Empty, Icon, Meter, Sparkline, Stat, fmtTime, fmtUsd, relTime } from "./ui";
@@ -130,41 +130,100 @@ export function Overview({
     });
 
   /**
-   * Money can move three ways, and the form adapts: treasury → agent,
-   * agent → treasury, and agent → agent (the "I funded the wrong one" fix).
+   * Money can move three ways. Allocate uses wallets/move so large amounts
+   * follow the same HITL path as Treasury, and can pull from a budget envelope.
    */
+  const [fundSource, setFundSource] = useState<"org" | string>("org");
+  const [budgets, setBudgets] = useState<{ id: string; name: string; availableUsdc: string }[]>([]);
+
+  useEffect(() => {
+    void gFetch("/v1/guardian/budgets")
+      .then((r) => r.json())
+      .then((d) => setBudgets(d.budgets ?? []))
+      .catch(() => setBudgets([]));
+  }, [gFetch, orgAvail, metrics?.balancesUsdc?.agentAvailable]);
+
   const moveMoney = () =>
     act("Move funds", async () => {
       const amount = allocAmt.trim();
       if (moveMode === "allocate") {
-        const res = await gFetch("/v1/guardian/allocate", {
+        if (!org?.org?.id) throw new Error("Org not loaded");
+        const from =
+          fundSource === "org"
+            ? { scope: "org" as const, id: org.org.id }
+            : { scope: "department" as const, id: fundSource };
+        const res = await gFetch("/v1/guardian/wallets/move", {
           method: "POST",
-          body: JSON.stringify({ agentId: allocTo, amountUsdc: amount }),
+          body: JSON.stringify({
+            from,
+            to: { scope: "agent", id: allocTo },
+            amountUsdc: amount,
+            memo: "overview_allocate",
+          }),
         });
         const d = await res.json();
         if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-        return `Allocated ${fmtUsd(amount)} from treasury to ${agentName(allocTo)}.`;
+        if (d.outcome === "review") {
+          return `Parked ${fmtUsd(amount)} for guardian approval (Treasury → Move).`;
+        }
+        const src =
+          fundSource === "org"
+            ? "org vault"
+            : budgets.find((b) => b.id === fundSource)?.name ?? "budget";
+        return `Moved ${fmtUsd(amount)} from ${src} to ${agentName(allocTo)}.`;
       }
       if (moveMode === "reclaim") {
-        const res = await gFetch("/v1/guardian/reclaim", {
+        if (!org?.org?.id) throw new Error("Org not loaded");
+        const body: Record<string, unknown> = {
+          from: { scope: "agent", id: allocFrom },
+          to: { scope: "org", id: org.org.id },
+          memo: "overview_reclaim",
+        };
+        if (amount) body.amountUsdc = amount;
+        else {
+          const bal = org.balances.find((b) => b.kind === "agent_available" && b.agentId === allocFrom);
+          body.amountUsdc = bal?.usdc ?? "0";
+        }
+        const res = await gFetch("/v1/guardian/wallets/move", {
           method: "POST",
-          body: JSON.stringify({ agentId: allocFrom, ...(amount ? { amountUsdc: amount } : {}) }),
+          body: JSON.stringify(body),
         });
         const d = await res.json();
         if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-        return `Pulled ${fmtUsd(d.amountUsdc)} back from ${agentName(allocFrom)} to the treasury.`;
+        if (d.outcome === "review") {
+          return `Parked reclaim for guardian approval (Treasury → Move).`;
+        }
+        return `Pulled funds back from ${agentName(allocFrom)} to the org vault.`;
       }
-      const res = await gFetch("/v1/guardian/transfer", {
+      if (!amount) {
+        const bal = org?.balances.find((b) => b.kind === "agent_available" && b.agentId === allocFrom);
+        const res = await gFetch("/v1/guardian/wallets/move", {
+          method: "POST",
+          body: JSON.stringify({
+            from: { scope: "agent", id: allocFrom },
+            to: { scope: "agent", id: allocTo },
+            amountUsdc: bal?.usdc ?? "0",
+            memo: "overview_transfer",
+          }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
+        if (d.outcome === "review") return `Parked transfer for guardian approval (Treasury → Move).`;
+        return `Moved funds from ${agentName(allocFrom)} to ${agentName(allocTo)}.`;
+      }
+      const res = await gFetch("/v1/guardian/wallets/move", {
         method: "POST",
         body: JSON.stringify({
-          fromAgentId: allocFrom,
-          toAgentId: allocTo,
-          ...(amount ? { amountUsdc: amount } : {}),
+          from: { scope: "agent", id: allocFrom },
+          to: { scope: "agent", id: allocTo },
+          amountUsdc: amount,
+          memo: "overview_transfer",
         }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-      return `Moved ${fmtUsd(d.amountUsdc)} from ${d.from} to ${d.to}.`;
+      if (d.outcome === "review") return `Parked transfer for guardian approval (Treasury → Move).`;
+      return `Moved ${fmtUsd(amount)} from ${agentName(allocFrom)} to ${agentName(allocTo)}.`;
     });
 
   const rotateKey = (agentId: string) =>
@@ -394,7 +453,7 @@ export function Overview({
           <div className="card-head">
             <div>
               <h2>Agents</h2>
-              <div className="sub">Each agent holds its own stipend and spends only through the vault</div>
+              <div className="sub">Each agent has its own stipend wallet and pays under policy</div>
             </div>
             <div className="row">
               <input
@@ -501,13 +560,30 @@ export function Overview({
             onValueChange={(v) => setMoveMode(v as typeof moveMode)}
             items={
               [
-                { value: "allocate", label: "Treasury → agent" },
-                { value: "reclaim", label: "Agent → treasury" },
+                { value: "allocate", label: "Budget / org → agent" },
+                { value: "reclaim", label: "Agent → org" },
                 { value: "transfer", label: "Agent → agent" },
               ] as const
             }
           />
           <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
+            {moveMode === "allocate" && (
+              <label className="field" style={{ margin: 0 }}>
+                <span className="muted" style={{ fontSize: 12 }}>From</span>
+                <select
+                  value={fundSource}
+                  disabled={readOnly}
+                  onChange={(e) => setFundSource(e.target.value)}
+                >
+                  <option value="org">Org vault · {fmtUsd(orgAvail)}</option>
+                  {budgets.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      Budget · {b.name} · {fmtUsd(b.availableUsdc)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {moveMode !== "allocate" && (
               <label className="field" style={{ margin: 0 }}>
                 <span className="muted" style={{ fontSize: 12 }}>From agent</span>
@@ -571,8 +647,12 @@ export function Overview({
                   : "Transfer between agents"}
             </Button>
             <p className="faint" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.55 }}>
-              Org treasury has <b className="mono">{fmtUsd(orgAvail)}</b>. For department /
-              shared wallets and on-chain deposit address, open <Button variant="bare" style={{ fontSize: 11.5 }} onClick={() => setView("treasury")}>Treasury</Button>.
+              Org vault has <b className="mono">{fmtUsd(orgAvail)}</b>. Large moves may park under
+              Treasury → Move. Create budgets and the deposit address in{" "}
+              <Button variant="bare" style={{ fontSize: 11.5 }} onClick={() => setView("treasury")}>
+                Treasury
+              </Button>
+              .
             </p>
           </div>
         </div>

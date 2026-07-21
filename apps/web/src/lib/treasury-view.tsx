@@ -341,7 +341,8 @@ export function TreasuryView({
               <div>
                 <h2 style={{ margin: "0 0 6px" }}>Withdraw</h2>
                 <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
-                  Pull USDC from the org vault. Large amounts park for guardian approval.
+                  Pull USDC from the org vault now (ledger debit). Destination is a memo label only —
+                  not an on-chain payout.
                 </p>
               </div>
             </div>
@@ -383,7 +384,7 @@ export function TreasuryView({
                   name="destination"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Destination (optional)</FormLabel>
+                      <FormLabel>Memo / label (optional)</FormLabel>
                       <FormControl>
                         <Input {...field} disabled={readOnly} placeholder="0x… or external label" data-shortcut-ignore />
                       </FormControl>

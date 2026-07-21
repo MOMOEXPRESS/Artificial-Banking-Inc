@@ -58,7 +58,9 @@ export type AutomationCondition =
   | { kind: "amount_above"; micro: MicroUsdc }
   | { kind: "balance_below"; micro: MicroUsdc; /** reserved: wallet id when multi-wallet lands */ walletId?: string }
   | { kind: "merchant_unknown" }
-  | { kind: "budget_exceeded" };
+  /** @deprecated use daily_cap_exceeded — kept for stored policies */
+  | { kind: "budget_exceeded" }
+  | { kind: "daily_cap_exceeded" };
 
 export type AutomationAction =
   | { kind: "notify"; channel?: "in_app" | "telegram" | "email" | "slack" }
@@ -347,6 +349,7 @@ function conditionMatches(
       return !rules.knownCounterparties.map(norm).includes(key);
     }
     case "budget_exceeded":
+    case "daily_cap_exceeded":
       return rules.spentLast24hMicro + intent.amountMicro > rules.dailyMaxMicro;
     default:
       return false;

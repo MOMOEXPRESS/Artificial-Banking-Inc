@@ -80,9 +80,9 @@ export function Approvals({
           foot="agents replanned without the spend"
         />
         <Stat
-          label="Total value held"
+          label="Pending value"
           value={fmtUsd(pending.reduce((a, p) => a + Number(p.amountUsdc), 0))}
-          foot="frozen until you decide"
+          foot="awaiting your decision — not reserved yet"
         />
       </div>
 
@@ -91,7 +91,8 @@ export function Approvals({
           <div>
             <h2>Pending decisions</h2>
             <div className="sub">
-              Agents are blocked here. Approving runs the payment immediately; denying makes them replan.
+              Agents are waiting here. Approving runs the payment; denying makes them replan.
+              Funds are not locked until you approve.
             </div>
           </div>
         </div>

@@ -55,7 +55,8 @@ export default function MobileApprovalsPage() {
   const refresh = useCallback(async () => {
     if (!session) return;
     const [aRes, oRes] = await Promise.all([gFetch("/v1/guardian/approvals"), gFetch("/v1/guardian/org")]);
-    const approvals = (await aRes.json()) as Approval[];
+    const body = (await aRes.json()) as { approvals?: Approval[] } | Approval[];
+    const approvals = Array.isArray(body) ? body : (body.approvals ?? []);
     const org = await oRes.json();
     const map: Record<string, string> = {};
     for (const ag of org.agents ?? []) map[ag.id] = ag.name;

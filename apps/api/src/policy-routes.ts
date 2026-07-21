@@ -246,6 +246,7 @@ export function registerPolicyRoutes(
                   }),
                   z.object({ kind: z.literal("merchant_unknown") }),
                   z.object({ kind: z.literal("budget_exceeded") }),
+                  z.object({ kind: z.literal("daily_cap_exceeded") }),
                 ]),
                 then: z.union([
                   z.object({

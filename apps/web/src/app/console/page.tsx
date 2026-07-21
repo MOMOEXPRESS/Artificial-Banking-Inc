@@ -407,8 +407,8 @@ export default function Console() {
         kind: "fund",
         tone: "info",
         title: `${broke.length} agent${broke.length > 1 ? "s have" : " has"} no funds`,
-        body: `${broke.map((b) => b.name).join(", ")} can't pay for anything — allocate a stipend`,
-        goto: "overview",
+        body: `${broke.map((b) => b.name).join(", ")} can't pay — fund them from a budget in Treasury`,
+        goto: "treasury",
       });
     }
     return out;
@@ -438,10 +438,16 @@ export default function Console() {
     };
     setBanner(alert);
     // Don't yank you off the Playground — it already shows inline Approve/Deny
-    // right where you're watching the agent. Jump from anywhere else.
-    if (prefsRef.current.autoJump && viewRef.current !== "approvals" && viewRef.current !== "playground" && viewRef.current !== "chat") {
-      setView("chat");
-      setToast(`Agent parked a ${fmtUsd(a.amountUsdc)} payment — opened ABI Chat.`, "info");
+    // right where you're watching the agent. Jump from anywhere else to Approvals.
+    if (
+      prefsRef.current.autoJump &&
+      viewRef.current !== "approvals" &&
+      viewRef.current !== "playground" &&
+      viewRef.current !== "payments" &&
+      viewRef.current !== "chat"
+    ) {
+      setView("approvals");
+      setToast(`Agent parked a ${fmtUsd(a.amountUsdc)} payment — opened Approvals.`, "info");
     } else if (viewRef.current === "playground") {
       setToast(`Agent parked ${fmtUsd(a.amountUsdc)} — approve or deny it right in the timeline.`, "info");
     } else if (viewRef.current === "chat") {
