@@ -36,3 +36,23 @@ That’s Cursor’s `.gaia` preview host, not Vercel. Fix Vercel using the steps
 ## API
 
 Vercel hosts the **web console only**. Point `NEXT_PUBLIC_API_URL` at your API host under **Settings → Environment Variables**, then Redeploy.
+
+## Which URL to open
+
+| URL | Meaning |
+| --- | --- |
+| `https://artificial-banking-inc-gaia10.vercel.app` | Project production alias (team `gaia10`) |
+| `https://artificial-banking-inc-git-main-gaia10.vercel.app` | `main` branch alias |
+| `https://artificialbankinginc.vercel.app` | **Not** assigned to this project today → platform `DEPLOYMENT_NOT_FOUND` |
+| `https://artificial-banking-inc.vercel.app` | Also unassigned / 404 right now |
+
+Add the domain you want under **Project → Settings → Domains**.
+
+## “It loads but asks me to log in” / looks like Vercel UI
+
+**Deployment Protection** (SSO) is on. Anonymous visitors get redirected to `vercel.com/login` instead of the Next app.
+
+Disable it: **Project → Settings → Deployment Protection** → turn off protection for Production (and Preview if you want public previews), then save.
+
+Or stay logged into the Vercel account that owns team `gaia10` and open the production alias above.
+
