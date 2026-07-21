@@ -10,8 +10,8 @@
 ## Executive verdict
 
 Picture A is **started** (Treasury Budgets, ops-label fund-from-budget, ADR).  
-**P0 console honesty items from this audit are fixed** (Overview fund path, HITL claims, daily_cap naming, session scopes, Approvals landing).  
-Remaining work is mostly **P1 polish**: soft-deprecate shared create, Schedule/Subs unify, playground paste-key id, twin label+budget guardrails.
+**P0 and P1 console honesty items from this audit are fixed.**  
+Remaining work is **P2 cleanup**: search bar, sound pref, calendar marks, CSV tip, liquid-total foot, pricing “shared vault” copy.
 
 Nothing below means “the product is broken end-to-end.” It means **operators can still be taught the wrong mental model** the way they were with dept/pool/group.
 
@@ -193,11 +193,11 @@ Also: merchant tip honesty (C2); ops-label Freeze members copy (A2 partial).
 
 ### P1 — Consistency polish
 
-6. Freeze desk → Freeze labeled agents; create-group toasts → ops label.  
-7. Soft-deprecate shared create API; Move history says “budget”.  
-8. Merchant tip honesty; expose `treasuryHitlUsdc`.  
-9. Playground paste key → resolve real agent id.  
-10. Unify Schedule/Subs or fix HITL into Approvals.  
+6. ~~Freeze desk → Freeze labeled agents; create-group toasts → ops label.~~ **Fixed 2026-07-21** (A2)  
+7. ~~Soft-deprecate shared create API; Move history says “budget”.~~ **Fixed 2026-07-21** — `POST /shared-wallets` → 410; move history uses Budget/Agent labels (M8–M9)  
+8. ~~Merchant tip honesty; expose `treasuryHitlUsdc`.~~ **Fixed 2026-07-21** (C2, M14)  
+9. ~~Playground paste key → resolve real agent id.~~ **Fixed 2026-07-21** — `/v1/agent/budget` returns `agentId`/`agentName` (P1)  
+10. ~~Unify Schedule/Subs or fix HITL into Approvals.~~ **Fixed 2026-07-21** — one Payments → Scheduled tab; HITL already parks Approvals (M19)  
 
 ### P2 — Nice cleanup
 
