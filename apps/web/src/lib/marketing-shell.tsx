@@ -29,32 +29,42 @@ export function MarketingNav({
   active?: "landing" | "docs" | "pricing" | "about" | "console";
 }) {
   const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
     window.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
+  const close = () => setMenuOpen(false);
   return (
-    <header className={`marketing-nav ${scrolled ? "on-scroll" : ""}`}>
+    <header className={`marketing-nav ${scrolled ? "on-scroll" : ""} ${menuOpen ? "menu-open" : ""}`}>
       <div className="marketing-nav-inner">
-        <Link href="/" aria-label="Artificial Banking Incorporated home">
+        <Link href="/" aria-label="Artificial Banking Incorporated home" onClick={close}>
           <ABWordmark size={26} tone="#0a0a0c" />
         </Link>
         <nav className="marketing-links">
-          <Link href="/" className={active === "landing" ? "is-active" : undefined}>
+          <Link href="/" className={active === "landing" ? "is-active" : undefined} onClick={close}>
             Landing
           </Link>
-          <Link href="/console" className={active === "console" ? "is-active" : undefined}>
+          <Link href="/console" className={active === "console" ? "is-active" : undefined} onClick={close}>
             Console
           </Link>
-          <Link href="/docs" className={active === "docs" ? "is-active" : undefined}>
+          <Link href="/docs" className={active === "docs" ? "is-active" : undefined} onClick={close}>
             Docs
           </Link>
-          <Link href="/pricing" className={active === "pricing" ? "is-active" : undefined}>
+          <Link href="/pricing" className={active === "pricing" ? "is-active" : undefined} onClick={close}>
             Pricing
           </Link>
-          <Link href="/about" className={active === "about" ? "is-active" : undefined}>
+          <Link href="/about" className={active === "about" ? "is-active" : undefined} onClick={close}>
             About
           </Link>
           <a
@@ -66,9 +76,18 @@ export function MarketingNav({
           </a>
         </nav>
         <div className="marketing-nav-cta">
-          <Link className="btn-primary-line" href="/console">
+          <Link className="btn-primary-line" href="/console" onClick={close}>
             Launch console
           </Link>
+          <button
+            type="button"
+            className="marketing-burger"
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <Icon name="list" size={18} />
+          </button>
         </div>
       </div>
     </header>

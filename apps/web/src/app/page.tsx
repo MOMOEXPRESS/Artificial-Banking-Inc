@@ -206,18 +206,18 @@ function MetricsBand() {
   const metrics = [
     { label: "Policy probe", value: "0ms", sub: "mock rail latency" },
     { label: "Guardian round-trip", value: "55ms", sub: "local dev median" },
-    { label: "Console views", value: "14", sub: "money · agents · records" },
+    { label: "Console surfaces", value: "10", sub: "money · agents · records" },
     { label: "Playground missions", value: "7", sub: "real API, real ledger" },
   ];
   return (
     <section className="metrics-band section tight">
-      <div className="metrics-grid">
+      <div className="metrics-strip">
         {metrics.map((m) => (
-          <article key={m.label} className="metric-card">
+          <div key={m.label} className="metric-inline">
             <span className="metric-label">{m.label}</span>
             <strong className="metric-value">{m.value}</strong>
             <span className="metric-sub">{m.sub}</span>
-          </article>
+          </div>
         ))}
       </div>
     </section>
@@ -323,14 +323,21 @@ function Features() {
         title="A financial operating system for AI agents"
         sub="Programmable wallets and safety rails, wired straight into on-chain settlement."
       />
-      <div className="feat-grid">
-        {FEATURES.map((f) => (
-          <article key={f.title} className="feat-card">
-            <div className="feat-icon">
-              <Icon name={f.icon} />
+      <div className="feat-flow">
+        {FEATURES.map((f, i) => (
+          <article key={f.title} className="feat-row">
+            <div className="feat-row-index" aria-hidden>
+              {String(i + 1).padStart(2, "0")}
             </div>
-            <h3>{f.title}</h3>
-            <p>{f.body}</p>
+            <div className="feat-row-copy">
+              <div className="feat-row-title">
+                <span className="feat-icon inline">
+                  <Icon name={f.icon} />
+                </span>
+                <h3>{f.title}</h3>
+              </div>
+              <p>{f.body}</p>
+            </div>
           </article>
         ))}
       </div>
@@ -371,13 +378,14 @@ function HowItWorks() {
         title="From zero to a paying agent in four steps"
         sub="No smart contracts to deploy. No keys for your agents to leak. No custom infrastructure."
       />
-      <ol className="steps-track">
-        {STEPS.map((s, i) => (
-          <li key={s.n} className="step-card">
+      <ol className="steps-flow">
+        {STEPS.map((s) => (
+          <li key={s.n} className="step-row">
             <span className="step-n">{s.n}</span>
-            <h3>{s.title}</h3>
-            <p>{s.body}</p>
-            {i < STEPS.length - 1 && <span className="step-connector" aria-hidden />}
+            <div className="step-row-copy">
+              <h3>{s.title}</h3>
+              <p>{s.body}</p>
+            </div>
           </li>
         ))}
       </ol>
