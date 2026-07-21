@@ -77,12 +77,38 @@ export function LandingMotion() {
         });
       });
 
-      gsap.from(".cta-actions-card", {
+      gsap.from(".cta-action-card", {
         scrollTrigger: { trigger: ".cta-band", start: "top 85%" },
         y: 20,
         opacity: 0,
         duration: 0.55,
+        stagger: 0.08,
         ease: "power2.out",
+      });
+
+      gsap.from(".cta-lockup", {
+        scrollTrigger: { trigger: ".cta-band", start: "top 85%" },
+        y: 16,
+        opacity: 0,
+        duration: 0.6,
+        ease: "power2.out",
+      });
+
+      gsap.from(".home-interstitial-inner > *", {
+        scrollTrigger: { trigger: ".home-interstitial", start: "top 82%" },
+        y: 24,
+        opacity: 0,
+        duration: 0.6,
+        stagger: 0.1,
+        ease: "power2.out",
+      });
+
+      gsap.from(".home-float-token", {
+        scrollTrigger: { trigger: ".metrics-band", start: "top 90%" },
+        scale: 0.7,
+        opacity: 0,
+        duration: 0.7,
+        ease: "back.out(1.5)",
       });
 
       gsap.utils.toArray<HTMLElement>(".hero-meta b").forEach((el) => {

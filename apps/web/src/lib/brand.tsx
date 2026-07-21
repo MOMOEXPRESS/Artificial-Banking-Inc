@@ -73,7 +73,8 @@ export function ABLockup({
   tone?: Tone;
 }) {
   const light = isLightTone(tone) && tone !== "currentColor";
-  const src = light ? "/abi-lockup-light.png" : "/abi-lockup.png";
+  // Dark-on-light uses a transparent cut so paper white never boxes against the canvas.
+  const src = light ? "/abi-lockup-light.png" : "/abi-lockup-clear.png";
   // Official lockup aspect ≈ 1024×765
   const height = Math.round(size * (765 / 1024));
   return (
@@ -84,7 +85,7 @@ export function ABLockup({
         alt="Artificial Banking Incorporated"
         width={size}
         height={height}
-        style={{ width: size, height: "auto", display: "block" }}
+        style={{ width: size, height: "auto", display: "block", background: "transparent" }}
         draggable={false}
       />
     </div>

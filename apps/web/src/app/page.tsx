@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import {
   MarketingCta,
@@ -24,6 +25,7 @@ export default function HomePage() {
       <MetricsBand />
       <TrustStrip />
       <Features />
+      <HomeInterstitial />
       <ProductTour />
       <HowItWorks />
       <Enterprise />
@@ -211,14 +213,56 @@ function MetricsBand() {
   ];
   return (
     <section className="metrics-band section tight">
-      <div className="metrics-strip">
-        {metrics.map((m) => (
-          <div key={m.label} className="metric-inline">
-            <span className="metric-label">{m.label}</span>
-            <strong className="metric-value">{m.value}</strong>
-            <span className="metric-sub">{m.sub}</span>
-          </div>
-        ))}
+      <div className="metrics-band-inner">
+        <div className="metrics-strip">
+          {metrics.map((m) => (
+            <div key={m.label} className="metric-inline">
+              <span className="metric-label">{m.label}</span>
+              <strong className="metric-value">{m.value}</strong>
+              <span className="metric-sub">{m.sub}</span>
+            </div>
+          ))}
+        </div>
+        <div className="home-float-token" aria-hidden>
+          <Image
+            src="/home/accent-token.png"
+            alt=""
+            width={112}
+            height={112}
+            className="home-float-token-img"
+            priority={false}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Soft editorial pause between feature panes and the product tour. */
+function HomeInterstitial() {
+  return (
+    <section className="home-interstitial" aria-label="Authorize then settle">
+      <div className="home-interstitial-inner">
+        <div className="home-interstitial-copy">
+          <span className="eyebrow">
+            <span className="dot" /> Vault → policy → wallet
+          </span>
+          <h2>Authorize first. Settle second.</h2>
+          <p>
+            Stipends leave the vault only after policy clears — then land in an agent wallet
+            ready to pay under the same rules.
+          </p>
+        </div>
+        <div className="home-interstitial-art">
+          <Image
+            src="/home/interstitial-vault.png"
+            alt="Vault, policy shield, and wallet connected in sequence"
+            width={1200}
+            height={675}
+            className="home-interstitial-img"
+            sizes="(max-width: 900px) 100vw, 720px"
+          />
+        </div>
       </div>
     </section>
   );
