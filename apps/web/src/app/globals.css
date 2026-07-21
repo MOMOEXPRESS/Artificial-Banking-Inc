@@ -16,12 +16,12 @@
   --color-ink-muted: #6b6b76;
   --color-ink-faint: #9a9aa3;
 
-  /* Translucent panes so liquid-glass blur has something to refract */
-  --color-surface: rgba(12, 12, 14, 0.72);
+  /* Solid grey console panes — opaque charcoal, soft radius elsewhere */
+  --color-surface: #0c0c0e;
   --color-surface-solid: #0c0c0e;
-  --color-surface-2: rgba(20, 20, 22, 0.62);
-  --color-surface-3: rgba(28, 28, 32, 0.55);
-  --color-surface-hover: rgba(38, 38, 44, 0.6);
+  --color-surface-2: #141416;
+  --color-surface-3: #1c1c20;
+  --color-surface-hover: #26262c;
 
   --color-fg: #f4f4f6;
   --color-fg-secondary: #c8c8d0;
@@ -50,8 +50,8 @@
   --color-seg-active-bg: #fff;
   --color-seg-active-fg: #101014;
 
-  --color-glass-top: inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  --blur: saturate(150%) blur(22px);
+  --color-glass-top: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --blur: saturate(140%) blur(18px);
 
   --font-mono-stack: var(--font-mono, "JetBrains Mono"), ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-sans-stack: var(--font-sans, "Sora"), "Segoe UI", system-ui, sans-serif;
@@ -59,8 +59,8 @@
   --radius-lg: 22px;
   --radius-md: 16px;
   --radius-sm: 11px;
-  --shadow-elevated: 0 2px 6px rgba(0, 0, 0, 0.28), 0 18px 48px rgba(0, 0, 0, 0.28);
-  --shadow-glass: var(--color-glass-top), 0 20px 46px rgba(0, 0, 0, 0.4);
+  --shadow-elevated: 0 1px 2px rgba(0, 0, 0, 0.2), 0 16px 40px rgba(0, 0, 0, 0.22);
+  --shadow-glass: var(--color-glass-top), 0 12px 32px rgba(0, 0, 0, 0.28);
 
   /* ---- Legacy aliases (prefer --color-* / --radius-* / --font-* going forward) ---- */
   --bg: var(--color-canvas);
@@ -128,11 +128,11 @@
   --color-border-canvas: rgba(10, 10, 12, 0.12);
 
   /* Console surfaces stay dark on light canvas (terminal-on-page) */
-  --color-surface: rgba(12, 12, 14, 0.72);
+  --color-surface: #0c0c0e;
   --color-surface-solid: #0c0c0e;
-  --color-surface-2: rgba(20, 20, 22, 0.62);
-  --color-surface-3: rgba(28, 28, 32, 0.55);
-  --color-surface-hover: rgba(38, 38, 44, 0.6);
+  --color-surface-2: #141416;
+  --color-surface-3: #1c1c20;
+  --color-surface-hover: #26262c;
   --color-fg: #f4f4f6;
   --color-fg-secondary: #c8c8d0;
   --color-fg-muted: #8e8e99;
@@ -153,11 +153,11 @@
   --color-ink-faint: #6b6b76;
   --color-border-canvas: rgba(255, 255, 255, 0.1);
 
-  --color-surface: rgba(18, 18, 20, 0.74);
+  --color-surface: #121214;
   --color-surface-solid: #121214;
-  --color-surface-2: rgba(26, 26, 30, 0.64);
-  --color-surface-3: rgba(34, 34, 40, 0.58);
-  --color-surface-hover: rgba(44, 44, 52, 0.62);
+  --color-surface-2: #1a1a1e;
+  --color-surface-3: #222228;
+  --color-surface-hover: #2c2c34;
   --color-fg: #f4f4f6;
   --color-fg-secondary: #c8c8d0;
   --color-fg-muted: #8e8e99;
@@ -312,9 +312,7 @@ body::after {
 .rail {
   background: var(--color-surface);
   color: var(--color-fg);
-  backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-soft);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-glass);
   display: flex;
