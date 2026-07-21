@@ -24,6 +24,7 @@ type GroupRow = {
   status: string;
   memberCount: number;
   members: { id: string; name: string; status: string }[];
+  budgetId?: string;
 };
 
 type FreezeRow = {
@@ -692,10 +693,10 @@ export function AgentsView({
             <div>
               <h2>Ops labels</h2>
               <div className="sub">
-                Optional tags for freeze / bulk stipend — <b>not wallets</b>. Money lives in
-                Treasury budgets and each agent&apos;s own spend balance. Prefer separate agents
-                per job (e.g. writer-finance vs writer-research) instead of one agent in many money
-                clubs.
+                Roster tags paired with Treasury budgets for freeze / bulk stipend —{" "}
+                <b>not wallets</b>. Creating a budget auto-creates a matching label. Prefer
+                separate agents per job (writer-finance vs writer-research) instead of one agent
+                in many money clubs.
               </div>
             </div>
             <div className="row" style={{ gap: 8 }}>
@@ -718,12 +719,10 @@ export function AgentsView({
             style={{ marginBottom: 14 }}
           >
             <span className="txt">
-              <b>Budgets ≠ labels</b>
+              <b>Budget → ops label</b>
               <span>
-                Create Finance / Research under Treasury → Budgets. Fund members from a budget (or
-                the org vault). See{" "}
-                <span className="mono">docs/decisions/2026-07-21-budgets-vs-team-membership.md</span>
-                .
+                Create Finance under Treasury → Budgets — a Finance ops label is created and linked
+                automatically. Assign agents here, then fund them from that budget.
               </span>
             </span>
           </div>
@@ -732,27 +731,37 @@ export function AgentsView({
               No ops labels yet — optional. Create agents and fund them from a budget in Treasury.
             </Empty>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {groups.map((g) => {
                 const ungrouped = agents.filter(
                   (a) => a.status !== "archived" && a.groupName !== g.name,
                 );
+                const linkedBudget = g.budgetId
+                  ? budgets.find((b) => b.id === g.budgetId)
+                  : budgets.find((b) => b.name.toLowerCase() === g.name.toLowerCase());
+                const defaultFund = linkedBudget?.id ?? "org";
+                const fundSrc = fundFrom[g.id] ?? defaultFund;
                 return (
                   <div
                     key={g.id}
                     style={{
-                      padding: "14px 16px",
-                      borderRadius: 10,
+                      padding: "12px 14px",
+                      borderRadius: 8,
                       border: "1px solid var(--border)",
                       background: "var(--surface-2)",
                     }}
                   >
-                    <div className="between" style={{ marginBottom: 10, gap: 10 }}>
+                    <div className="between" style={{ marginBottom: 8, gap: 10 }}>
                       <div>
                         <b style={{ fontSize: 14 }}>{g.name}</b>{" "}
                         <span className={`pill ${statusTone(g.status)}`}>
                           <i /> {g.status}
                         </span>
+                        {linkedBudget && (
+                          <span className="pill mute" style={{ marginLeft: 6 }}>
+                            <i /> budget · {linkedBudget.name}
+                          </span>
+                        )}
                         <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
                           {g.members.length
                             ? g.members.map((m) => m.name).join(", ")
@@ -779,7 +788,7 @@ export function AgentsView({
                               })
                             }
                           >
-                            Freeze labeled agents
+                            Freeze
                           </Button>
                           <Button variant="ghost" size="sm"
                             disabled={locked || !g.members.length}
@@ -796,7 +805,7 @@ export function AgentsView({
                               })
                             }
                           >
-                            Unfreeze labeled agents
+                            Unfreeze
                           </Button>
                           <Button size="sm"
                             disabled={
@@ -808,7 +817,7 @@ export function AgentsView({
                               void act("Fund members", async () => {
                                 const each = (fundAmounts[g.id] ?? "10").trim();
                                 if (!each) return;
-                                const src = fundFrom[g.id] ?? "org";
+                                const src = fundFrom[g.id] ?? defaultFund;
                                 const body: {
                                   amountUsdcEach: string;
                                   fromScope: "org" | "department";
@@ -832,13 +841,13 @@ export function AgentsView({
                               })
                             }
                           >
-                            Fund members
+                            Fund
                           </Button>
                           <select
                             className="sm"
                             style={{ minWidth: 140 }}
                             disabled={locked || !g.members.length}
-                            value={fundFrom[g.id] ?? "org"}
+                            value={fundSrc}
                             onChange={(e) =>
                               setFundFrom((m) => ({ ...m, [g.id]: e.target.value }))
                             }
@@ -1002,13 +1011,14 @@ export function AgentsView({
         <div className="card">
           <div className="card-head">
             <div>
-              <h2>Freeze & key audit</h2>
+              <h2>Freeze audit</h2>
               <div className="sub">Kill-switch events, rotations, revokes, archives</div>
             </div>
-            <Icon name="clock" />
           </div>
           {freezes.length === 0 ? (
-            <Empty icon="clock">No freeze events yet.</Empty>
+            <p className="faint" style={{ margin: "8px 0 4px", fontSize: 13 }}>
+              No freeze events yet. Freeze an agent from the Roster tab.
+            </p>
           ) : (
             <table>
               <thead>

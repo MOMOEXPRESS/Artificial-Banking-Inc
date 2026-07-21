@@ -53,6 +53,15 @@ Prefer **role instances**:
 Same job title, different spend identities.  
 If one agent must bill two budgets later, add “charge this payment to budget X” — **without** multi-pool membership.
 
+### Budget ↔ ops label pairing (2026-07-21 addendum)
+
+Creating a **Budget** also creates a linked **ops label** (same name) for roster / freeze / bulk fund.
+Bulk fund from that label defaults to the linked budget. The label is still **not a wallet** —
+money stays in the budget envelope and agent stipends.
+
+Agents still have **one primary ops label** (`profile.groupId`). Multi-label membership is not
+required for the budget pair workflow.
+
 ### Explicitly rejected for now (can revisit)
 
 - **Picture B:** Agents spend directly from a department/shared desk balance (harder attribution; big engine change).  

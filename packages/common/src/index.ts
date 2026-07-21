@@ -126,13 +126,15 @@ export interface AgentProfileHints {
   reputationScore?: number;
 }
 
-/** Org-scoped agent group (swarm / desk / team). */
+/** Org-scoped ops label (freeze / bulk fund roster). Optional link to a Treasury budget. */
 export interface AgentGroupRecord {
   id: string;
   orgId: string;
   name: string;
   status: "active" | "archived";
   createdAt: string;
+  /** When set, bulk fund defaults to this budget envelope (Picture A pair). */
+  budgetId?: string;
 }
 
 /**

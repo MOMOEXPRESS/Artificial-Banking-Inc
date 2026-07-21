@@ -6,6 +6,42 @@ import { Icon, fmtUsd } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
 
+/** Live UTC quiet-window status for the Schedule & rules panel. */
+function quietWindowStatus(
+  quiet: { startHour: number; endHour: number },
+  now = new Date(),
+): { inQuiet: boolean; label: string } {
+  const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const start = quiet.startHour * 60;
+  const end = quiet.endHour * 60;
+  if (start === end) {
+    return { inQuiet: false, label: "Window disabled (start = end)" };
+  }
+  const inQuiet = start < end ? nowMin >= start && nowMin < end : nowMin >= start || nowMin < end;
+  const minsUntil = (target: number) => {
+    let d = target - nowMin;
+    if (d <= 0) d += 24 * 60;
+    return d;
+  };
+  const fmtDur = (mins: number) => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h <= 0) return `${m}m`;
+    if (m === 0) return `${h}h`;
+    return `${h}h ${m}m`;
+  };
+  if (inQuiet) {
+    return {
+      inQuiet: true,
+      label: `In quiet hours now · ends in ${fmtDur(minsUntil(end))} (UTC)`,
+    };
+  }
+  return {
+    inQuiet: false,
+    label: `Outside quiet hours · starts in ${fmtDur(minsUntil(start))} (UTC)`,
+  };
+}
+
 export type Policy = {
   perTxMaxUsdc: string;
   dailyMaxUsdc: string;
@@ -199,6 +235,16 @@ export function PolicyView({
     policy.quietHours ?? { startHour: 22, endHour: 6, action: "review" as const },
   );
   const [quietOn, setQuietOn] = useState(!!policy.quietHours);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  const quietLive = useMemo(
+    () => (quietOn ? quietWindowStatus(quiet, new Date(nowTick)) : null),
+    [quietOn, quiet, nowTick],
+  );
+  useEffect(() => {
+    if (!quietOn) return;
+    const t = window.setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => window.clearInterval(t);
+  }, [quietOn]);
   const [automation, setAutomation] = useState(policy.automation ?? []);
   const [touched, setTouched] = useState(false);
   const [versions, setVersions] = useState<
@@ -570,6 +616,21 @@ export function PolicyView({
                 aria-label="Toggle quiet hours"
               />
             </div>
+            {quietOn && quietLive && (
+              <div
+                className={`banner ${quietLive.inQuiet ? "warn" : "info"}`}
+                style={{ marginBottom: 12 }}
+                role="status"
+              >
+                <span className="txt">
+                  <b style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <Icon name="clock" size={14} />
+                    {quietLive.inQuiet ? "Quiet now" : "Live"}
+                  </b>
+                  <span>{quietLive.label}</span>
+                </span>
+              </div>
+            )}
             {quietOn && (
               <div className="row" style={{ gap: 14, flexWrap: "wrap" }}>
                 <div className="field" style={{ margin: 0 }}>
@@ -637,7 +698,10 @@ export function PolicyView({
             <div className="card-head">
               <div>
                 <h2>Automation (IF / THEN)</h2>
-                <div className="sub">Notify, require approval, deny, or freeze.</div>
+                <div className="sub">
+                  Rules you add here stay on this tab until Save. “Require approval” parks payments
+                  under Payments → Approvals for guardians.
+                </div>
               </div>
               <Button variant="ghost" size="sm"
                 onClick={() => {

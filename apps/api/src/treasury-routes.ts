@@ -230,6 +230,19 @@ export function registerTreasuryRoutes(
     guardianRoute((org, req, res) => {
       const body = z.object({ name: z.string().min(1).max(80) }).parse(req.body);
       const dept = store.createDepartment(org.id, body.name);
+      // Picture A pair: every budget gets a matching ops label for roster/freeze/fund.
+      let opsLabel = store.findAgentGroupByBudget(org.id, dept.id);
+      if (!opsLabel) {
+        const sameName = store
+          .listAgentGroups(org.id)
+          .find((g) => g.status === "active" && g.name.toLowerCase() === dept.name.toLowerCase());
+        if (sameName) {
+          store.setAgentGroupBudget(sameName.id, dept.id);
+          opsLabel = store.getAgentGroup(sameName.id);
+        } else {
+          opsLabel = store.createAgentGroup(org.id, dept.name, dept.id);
+        }
+      }
       res.status(201).json({
         budget: {
           id: dept.id,
@@ -241,6 +254,9 @@ export function registerTreasuryRoutes(
           heldUsdc: "0",
           scope: "department" as const,
         },
+        opsLabel: opsLabel
+          ? { id: opsLabel.id, name: opsLabel.name, budgetId: opsLabel.budgetId ?? dept.id }
+          : undefined,
       });
     }, { ownerOnly: true }),
   );

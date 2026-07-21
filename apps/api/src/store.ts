@@ -709,7 +709,8 @@ CREATE TABLE IF NOT EXISTS agent_groups (
   org_id TEXT NOT NULL REFERENCES orgs(id),
   name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  budget_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_agent_groups_org ON agent_groups(org_id);
 
@@ -728,6 +729,13 @@ CREATE INDEX IF NOT EXISTS idx_session_keys_org ON session_keys(org_id);
 CREATE INDEX IF NOT EXISTS idx_session_keys_agent ON session_keys(agent_id);
 CREATE INDEX IF NOT EXISTS idx_session_keys_token ON session_keys(token);
 `);
+
+// Existing DBs created agent_groups before budget_id existed.
+try {
+  db.exec("ALTER TABLE agent_groups ADD COLUMN budget_id TEXT");
+} catch {
+  /* column already exists */
+}
 
 migrateSecretsAtRest();
 
@@ -2123,17 +2131,18 @@ export const store = {
   },
 
   // ---------------------------------------------------------- agent groups
-  createAgentGroup(orgId: string, name: string): AgentGroupRecord {
+  createAgentGroup(orgId: string, name: string, budgetId?: string): AgentGroupRecord {
     const row: AgentGroupRecord = {
       id: id("agrp"),
       orgId,
       name,
       status: "active",
       createdAt: nowIso(),
+      budgetId,
     };
     db.prepare(
-      "INSERT INTO agent_groups (id, org_id, name, status, created_at) VALUES (?, ?, ?, ?, ?)",
-    ).run(row.id, row.orgId, row.name, row.status, row.createdAt);
+      "INSERT INTO agent_groups (id, org_id, name, status, created_at, budget_id) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(row.id, row.orgId, row.name, row.status, row.createdAt, budgetId ?? null);
     return row;
   },
 
@@ -2145,6 +2154,7 @@ export const store = {
         name: r.name as string,
         status: r.status as "active" | "archived",
         createdAt: r.created_at as string,
+        budgetId: (r.budget_id as string | null) ?? undefined,
       }),
     );
   },
@@ -2158,6 +2168,28 @@ export const store = {
       name: r.name as string,
       status: r.status as "active" | "archived",
       createdAt: r.created_at as string,
+      budgetId: (r.budget_id as string | null) ?? undefined,
+    };
+  },
+
+  setAgentGroupBudget(groupId: string, budgetId: string | null): void {
+    db.prepare("UPDATE agent_groups SET budget_id = ? WHERE id = ?").run(budgetId, groupId);
+  },
+
+  findAgentGroupByBudget(orgId: string, budgetId: string): AgentGroupRecord | undefined {
+    const r = db
+      .prepare(
+        "SELECT * FROM agent_groups WHERE org_id = ? AND budget_id = ? AND status = 'active' LIMIT 1",
+      )
+      .get(orgId, budgetId) as Row | undefined;
+    if (!r) return undefined;
+    return {
+      id: r.id as string,
+      orgId: r.org_id as string,
+      name: r.name as string,
+      status: r.status as "active" | "archived",
+      createdAt: r.created_at as string,
+      budgetId: (r.budget_id as string | null) ?? undefined,
     };
   },
 

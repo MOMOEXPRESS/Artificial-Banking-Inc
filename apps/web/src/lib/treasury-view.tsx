@@ -500,7 +500,8 @@ export function TreasuryView({
                     if (!res.ok) throw new Error(j.error?.message ?? "Failed");
                     setDeptName("");
                     await refresh();
-                    return `Budget ${j.budget.name} created`;
+                    return `Budget ${j.budget.name} created` +
+                      (j.opsLabel ? ` · ops label “${j.opsLabel.name}” ready under Agents` : "");
                   })
                 }
               >
