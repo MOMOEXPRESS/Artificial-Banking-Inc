@@ -4,7 +4,12 @@
   "version": "0.1.0",
   "description": "Artificial Banking Incorporated — Financial OS for AI agents",
   "workspaces": [
-    "apps/*",
+    "apps/web",
+    "apps/api",
+    "apps/mcp-server",
+    "apps/worker",
+    "apps/demo-agent",
+    "apps/x402-seller",
     "packages/*"
   ],
   "scripts": {

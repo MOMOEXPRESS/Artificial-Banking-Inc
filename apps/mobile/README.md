@@ -10,6 +10,8 @@ Guardian companion for **approve-on-the-go**. Same `/v1/guardian/approvals` API 
 
 ## Quick start
 
+`apps/mobile` is **not** in the root npm workspaces (keeps Vercel/web installs free of Expo). Install deps inside this folder:
+
 ```bash
 cd apps/mobile
 npm install
