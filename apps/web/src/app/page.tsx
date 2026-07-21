@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { ABAppIcon } from "../lib/brand";
 import {
   MarketingCta,
   MarketingShell,
@@ -82,76 +81,63 @@ function Hero() {
   );
 }
 
-/**
- * Abstract animated visual — orbiting hexagons around a central vault dial.
- * Pure inline SVG so it costs nothing and scales cleanly.
- */
+/** Product-shaped hero frame — shows what the console looks like before Launch. */
 function HeroGraphic() {
   return (
     <div className="hero-graphic">
       <div className="hero-graphic-frame">
-        <svg viewBox="0 0 520 520" className="orbit">
-          <defs>
-            <radialGradient id="halo" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(59,130,246,0.18)" />
-              <stop offset="60%" stopColor="rgba(59,130,246,0.04)" />
-              <stop offset="100%" stopColor="rgba(59,130,246,0)" />
-            </radialGradient>
-            <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#2563eb" stopOpacity="0.55" />
-              <stop offset="100%" stopColor="#0a0a0c" stopOpacity="0.12" />
-            </linearGradient>
-          </defs>
-          <circle cx="260" cy="260" r="240" fill="url(#halo)" />
-          {/* Outer dashed orbit */}
-          <circle
-            cx="260"
-            cy="260"
-            r="210"
-            fill="none"
-            stroke="url(#ring)"
-            strokeWidth="1"
-            strokeDasharray="4 8"
-            className="orbit-spin-slow"
-          />
-          {/* Middle orbit */}
-          <circle
-            cx="260"
-            cy="260"
-            r="160"
-            fill="none"
-            stroke="rgba(10,10,12,0.12)"
-            strokeWidth="1"
-            className="orbit-spin-mid"
-          />
-          {/* Inner orbit */}
-          <circle
-            cx="260"
-            cy="260"
-            r="110"
-            fill="none"
-            stroke="rgba(10,10,12,0.16)"
-            strokeWidth="1"
-            className="orbit-spin-fast"
-          />
-          {/* Orbit nodes */}
-          <g className="orbit-spin-slow" style={{ transformOrigin: "260px 260px" }}>
-            <Node cx={470} cy={260} label="agent" />
-            <Node cx={50} cy={260} label="agent" />
-          </g>
-          <g className="orbit-spin-mid" style={{ transformOrigin: "260px 260px" }}>
-            <Node cx={420} cy={160} label="wallet" />
-            <Node cx={100} cy={360} label="wallet" />
-          </g>
-          <g className="orbit-spin-fast" style={{ transformOrigin: "260px 260px" }}>
-            <Node cx={370} cy={260} label="x402" small />
-            <Node cx={150} cy={260} label="usdc" small />
-          </g>
-        </svg>
-        <div className="hero-graphic-mark">
-          <ABAppIcon size={128} />
+        <div className="hero-console-mock" aria-hidden>
+          <div className="hero-console-chrome">
+            <span className="hero-console-dot" />
+            <span className="hero-console-dot" />
+            <span className="hero-console-dot" />
+            <span>Console · Overview</span>
+          </div>
+          <div className="hero-console-body">
+            <div className="hero-console-rail">
+              <span className="on" />
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="hero-console-main">
+              <div className="hero-console-kpis">
+                <div className="hero-console-kpi">
+                  <span>Treasury</span>
+                  <b>$12,480</b>
+                </div>
+                <div className="hero-console-kpi">
+                  <span>Agents</span>
+                  <b>8 live</b>
+                </div>
+                <div className="hero-console-kpi">
+                  <span>Approvals</span>
+                  <b>2 open</b>
+                </div>
+              </div>
+              <div className="hero-console-card">
+                <div className="row">
+                  <span className="title">Recent activity</span>
+                  <span className="meta">live</span>
+                </div>
+                <p className="meta">ops-bot settled $1.20 · x402 · api.openai.com</p>
+                <div className="hero-console-pills">
+                  <i className="ok">allowed</i>
+                  <i className="warn">awaiting</i>
+                  <i>$45 pending</i>
+                </div>
+              </div>
+              <div className="hero-console-card">
+                <div className="row">
+                  <span className="title">Move funds</span>
+                  <span className="meta">guardian</span>
+                </div>
+                <p className="meta">Deposit · Withdraw · Agent stipend — policy checked first.</p>
+              </div>
+            </div>
+          </div>
         </div>
-        {/* Floating status chips */}
         <div className="chip-float chip-a">
           <span className="pill ok">
             <i /> allowed
@@ -172,26 +158,6 @@ function HeroGraphic() {
         </div>
       </div>
     </div>
-  );
-}
-
-function Node({ cx, cy, label, small }: { cx: number; cy: number; label: string; small?: boolean }) {
-  const r = small ? 8 : 14;
-  return (
-    <g>
-      <circle cx={cx} cy={cy} r={r + 6} fill="rgba(37,99,235,0.1)" />
-      <circle cx={cx} cy={cy} r={r} fill="rgba(37,99,235,0.95)" />
-      <text
-        x={cx}
-        y={cy - r - 8}
-        textAnchor="middle"
-        fill="rgba(10,10,12,0.55)"
-        fontSize="10"
-        fontFamily="var(--mono)"
-      >
-        {label}
-      </text>
-    </g>
   );
 }
 
@@ -233,11 +199,6 @@ const FEATURES: { icon: string; title: string; body: string }[] = [
     body: "Any payment past your threshold parks and waits for you. Approve from the console, chat or Telegram.",
   },
   {
-    icon: "zap",
-    title: "Coinbase CDP integration",
-    body: "Managed custody with a professional signer — no seed phrases, no browser wallets, no missing keys.",
-  },
-  {
     icon: "swap",
     title: "x402 payments",
     body: "Speak the machine-payment standard natively. Agents can pay any x402 seller under policy, on-chain.",
@@ -248,24 +209,9 @@ const FEATURES: { icon: string; title: string; body: string }[] = [
     body: "Every intent, denial, approval and settlement is journaled. Replayable from genesis, exportable to CSV.",
   },
   {
-    icon: "book",
-    title: "Organization treasury",
-    body: "A single vault funds every agent. Move money in three directions with balanced double-entry bookkeeping.",
-  },
-  {
-    icon: "clock",
-    title: "Agent budgets",
-    body: "Per-agent daily caps, running spend meters, burn-rate forecasts and hard ceilings the agent cannot cross.",
-  },
-  {
-    icon: "spark",
-    title: "Real-time analytics",
-    body: "Vendor concentration, cost-per-deliverable P&L, anomaly detection — computed from your own ledger.",
-  },
-  {
     icon: "shield",
-    title: "Secure on-chain payments",
-    body: "EIP-712 signed transfers, per-request idempotency, kill-switch that stops in-flight intents at the engine.",
+    title: "Keys never enter the model",
+    body: "LLMs propose. Policy and signer authorize. EIP-712 transfers, idempotency, and a kill-switch on in-flight intents.",
   },
 ];
 

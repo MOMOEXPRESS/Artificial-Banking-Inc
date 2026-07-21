@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ABAppIcon, ABLockup } from "../../lib/brand";
 import {
   BarChart,
@@ -35,6 +35,21 @@ import {
 import { AgentsView } from "../../lib/agents-view";
 import { PaymentsView } from "../../lib/payments-view";
 import { TreasuryView } from "../../lib/treasury-view";
+import {
+  KeyboardHelp,
+  useConsoleShortcuts,
+  useKeyboardHelp,
+  type ShortcutView,
+} from "../../lib/keyboard-shortcuts";
+import { ConsoleCommandPalette } from "../../lib/command-palette";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
 const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
@@ -155,21 +170,28 @@ type View =
   | "activity"
   | "settings";
 
-const NAV: { key: View; label: string; icon: string }[] = [
-  { key: "overview", label: "Overview", icon: "home" },
-  { key: "treasury", label: "Treasury", icon: "wallet" },
-  { key: "agents", label: "Agents", icon: "robot" },
-  { key: "payments", label: "Payments", icon: "zap" },
-  { key: "playground", label: "Agent Playground", icon: "play" },
-  { key: "chat", label: "ABI Chat", icon: "bell" },
-  { key: "work", label: "Work & deliverables", icon: "book" },
-  { key: "approvals", label: "Approvals", icon: "check" },
-  { key: "insights", label: "Insights", icon: "spark" },
-  { key: "ledger", label: "Ledger", icon: "list" },
-  { key: "policy", label: "Policy", icon: "sliders" },
-  { key: "webhooks", label: "Webhooks", icon: "zap" },
-  { key: "activity", label: "Activity", icon: "clock" },
+const NAV: { key: View; label: string; icon: string; group: string }[] = [
+  { key: "overview", label: "Overview", icon: "home", group: "Money" },
+  { key: "treasury", label: "Treasury", icon: "wallet", group: "Money" },
+  { key: "payments", label: "Payments", icon: "zap", group: "Money" },
+  { key: "approvals", label: "Approvals", icon: "check", group: "Money" },
+  { key: "agents", label: "Agents", icon: "robot", group: "Agents" },
+  { key: "playground", label: "Agent Playground", icon: "play", group: "Agents" },
+  { key: "chat", label: "ABI Chat", icon: "bell", group: "Agents" },
+  { key: "work", label: "Work & deliverables", icon: "book", group: "Agents" },
+  { key: "ledger", label: "Ledger", icon: "list", group: "Records" },
+  { key: "insights", label: "Insights", icon: "spark", group: "Records" },
+  { key: "activity", label: "Activity", icon: "clock", group: "Records" },
+  { key: "policy", label: "Policy", icon: "sliders", group: "Config" },
+  { key: "webhooks", label: "Webhooks", icon: "zap", group: "Config" },
 ];
+
+const NAV_GROUPS = ["Money", "Agents", "Records", "Config"] as const;
+
+function navGroupOf(view: View): string {
+  if (view === "settings") return "Config";
+  return NAV.find((n) => n.key === view)?.group ?? "Console";
+}
 
 type Alert = {
   id: string;
@@ -217,6 +239,9 @@ export default function Console() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [banner, setBanner] = useState<Alert | null>(null);
   const [query, setQuery] = useState("");
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const help = useKeyboardHelp();
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   // Mission state lives in the shell so a run survives navigating between
   // views — the agent keeps working while you go approve something.
@@ -508,81 +533,135 @@ export default function Console() {
     }
   }
 
+  const goView = useCallback((v: ShortcutView) => {
+    setView(v as View);
+  }, []);
+
+  useConsoleShortcuts({
+    enabled: hydrated && Boolean(session),
+    onGo: goView,
+    onOpenPalette: () => setPaletteOpen(true),
+    onToggleHelp: help.toggle,
+  });
+
   if (!hydrated) return null;
   if (!session)
     return <Login onLogin={saveSession} setToast={setToast} toast={toast} clear={() => setToastRaw(null)} />;
 
   const readOnly = org?.actor?.role === "viewer";
   const shared = { busy, act, gFetch, agentName, org, setToast, setView, readOnly };
+  const viewLabel = view === "settings" ? "Settings" : NAV.find((n) => n.key === view)?.label ?? view;
+  const groupLabel = navGroupOf(view);
 
   return (
     <div className="app">
-      <nav className="rail">
+      <nav className="rail" aria-label="Console navigation">
         <Link href="/" className="rail-logo" title="Back to landing" style={{ textDecoration: "none" }}>
           <ABAppIcon size={38} />
         </Link>
-        {NAV.map((n) => (
-          <button
-            key={n.key}
-            className={`rail-btn ${view === n.key ? "active" : ""}`}
-            onClick={() => setView(n.key)}
-            aria-label={n.label}
-          >
-            <Icon name={n.icon} />
-            {n.key === "approvals" && pending.length > 0 && <span className="dot-badge" />}
-            {n.key === "chat" && pending.length > 0 && <span className="dot-badge" />}
-            {n.key === "playground" && mission.running && (
-              <span className="dot-badge" style={{ background: "var(--accent)" }} />
-            )}
-            <span className="rail-tip">
-              {n.label}
-              {n.key === "playground" && mission.running ? " · running" : ""}
-            </span>
-          </button>
+        {NAV_GROUPS.map((group) => (
+          <Fragment key={group}>
+            <div className="rail-sep" aria-hidden title={group}>
+              <span className="rail-sep-label">{group[0]}</span>
+            </div>
+            {NAV.filter((n) => n.group === group).map((n) => (
+              <button
+                key={n.key}
+                type="button"
+                className={`rail-btn ${view === n.key ? "active" : ""}`}
+                onClick={() => setView(n.key)}
+                aria-label={n.label}
+                aria-current={view === n.key ? "page" : undefined}
+              >
+                <Icon name={n.icon} />
+                {n.key === "approvals" && pending.length > 0 && <span className="dot-badge" />}
+                {n.key === "chat" && pending.length > 0 && <span className="dot-badge" />}
+                {n.key === "playground" && mission.running && (
+                  <span className="dot-badge" style={{ background: "var(--accent)" }} />
+                )}
+                <span className="rail-tip">
+                  {n.label}
+                  {n.key === "playground" && mission.running ? " · running" : ""}
+                </span>
+              </button>
+            ))}
+          </Fragment>
         ))}
         <div className="rail-spacer" />
         <button
+          type="button"
           className={`rail-btn ${view === "settings" ? "active" : ""}`}
           onClick={() => setView("settings")}
           aria-label="Settings"
+          aria-current={view === "settings" ? "page" : undefined}
         >
           <Icon name="gear" />
           <span className="rail-tip">Settings</span>
-        </button>
-        <button className="rail-btn" onClick={() => saveSession(null)} aria-label="Sign out">
-          <Icon name="logout" />
-          <span className="rail-tip">Sign out</span>
         </button>
       </nav>
 
       <main className="main">
         <header className="topbar">
-          <h1>{view === "settings" ? "Settings" : NAV.find((n) => n.key === view)?.label}</h1>
-          <div className="spacer" />
-          <div className="search">
-            <Icon name="search" />
-            <input
-              placeholder="Search agents, destinations…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
-          <div className="user-chip" onClick={() => setView("settings")}>
-            <div className="avatar">{(org?.org.name ?? "PV").slice(0, 2).toUpperCase()}</div>
-            <div className="who">
-              <b>{org?.org.name ?? "Loading…"}</b>
-              <span>
-                {org?.actor?.role === "viewer"
-                  ? "Viewer · read-only"
-                  : org?.actor?.role === "approver"
-                    ? "Approver · live"
-                    : connected
-                      ? "Guardian · live"
-                      : "reconnecting…"}
-                {org?.org.status === "frozen" ? " · FROZEN" : ""}
+          <div className="topbar-title-block">
+            <nav className="crumb" aria-label="Breadcrumb">
+              <span className="crumb-group">{groupLabel}</span>
+              <span className="crumb-sep" aria-hidden>
+                /
               </span>
-            </div>
+              <span className="crumb-current">{viewLabel}</span>
+            </nav>
+            <h1>{viewLabel}</h1>
           </div>
+          <div className="spacer" />
+          <button
+            type="button"
+            className="search search-btn"
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Open command palette"
+          >
+            <Icon name="search" />
+            <span className="search-placeholder">
+              {query || "Search agents, destinations…"}
+            </span>
+            <kbd className="search-kbd">⌘K</kbd>
+          </button>
+          <input
+            ref={searchRef}
+            className="visually-hidden"
+            tabIndex={-1}
+            aria-hidden
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="user-chip" aria-label="Account menu">
+                <div className="avatar">{(org?.org.name ?? "PV").slice(0, 2).toUpperCase()}</div>
+                <div className="who">
+                  <b>{org?.org.name ?? "Loading…"}</b>
+                  <span>
+                    {org?.actor?.role === "viewer"
+                      ? "Viewer · read-only"
+                      : org?.actor?.role === "approver"
+                        ? "Approver · live"
+                        : connected
+                          ? "Guardian · live"
+                          : "reconnecting…"}
+                    {org?.org.status === "frozen" ? " · FROZEN" : ""}
+                  </span>
+                </div>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>{org?.org.name ?? "Organization"}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setView("settings")}>Settings</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setPaletteOpen(true)}>Command palette</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => help.setOpen(true)}>Keyboard shortcuts</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => saveSession(null)}>Sign out</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <div style={{ position: "relative" }}>
             <button className="icon-btn" onClick={() => setNotifOpen((v) => !v)} aria-label="Alerts">
               <Icon name="bell" />
@@ -797,6 +876,16 @@ export default function Console() {
           {toast.msg}
         </div>
       )}
+
+      <ConsoleCommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        agents={(org?.agents ?? []).map((a) => ({ id: a.id, name: a.name, status: a.status }))}
+        onGo={goView}
+        onSelectAgent={() => setView("agents")}
+        onFocusSearch={() => searchRef.current?.focus()}
+      />
+      <KeyboardHelp open={help.open} onClose={() => help.setOpen(false)} />
     </div>
   );
 }

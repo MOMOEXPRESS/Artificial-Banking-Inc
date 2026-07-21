@@ -66,9 +66,6 @@ export function MarketingNav({
           </a>
         </nav>
         <div className="marketing-nav-cta">
-          <Link className="btn-ghost-line" href="/console">
-            Sign in
-          </Link>
           <Link className="btn-primary-line" href="/console">
             Launch console
           </Link>
