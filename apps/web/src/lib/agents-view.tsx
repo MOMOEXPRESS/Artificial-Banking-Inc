@@ -796,7 +796,7 @@ export function AgentsView({
                               })
                             }
                           >
-                            Unfreeze
+                            Unfreeze labeled agents
                           </Button>
                           <Button size="sm"
                             disabled={
