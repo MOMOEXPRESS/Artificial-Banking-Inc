@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 
 /** View keys the console can jump to via `g <letter>`. */
 export type ShortcutView =
@@ -160,9 +161,9 @@ export function KeyboardHelp({
             <h2>Keyboard shortcuts</h2>
             <p className="pv-help-sub">Press <kbd>?</kbd> anytime · Esc to close</p>
           </div>
-          <button type="button" className="ghost sm" onClick={onClose}>
+          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
         <div className="pv-help-grid">
           <section>

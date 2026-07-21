@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { PolicySimulator } from "./analytics";
 import { Icon, fmtUsd } from "./ui";
+import { Button } from "@/components/ui/button";
 
 export type Policy = {
   perTxMaxUsdc: string;
@@ -82,9 +83,9 @@ function ListEditor({
             }
           }}
         />
-        <button className="ghost sm" disabled={!draft.trim()} onClick={add}>
+        <Button variant="ghost" size="sm" disabled={!draft.trim()} onClick={add}>
           <Icon name="plus" size={12} /> Add
-        </button>
+        </Button>
       </div>
       <div className="row" style={{ gap: 6 }}>
         {items.map((v) => (
@@ -94,14 +95,13 @@ function ListEditor({
             style={{ paddingRight: 5 }}
           >
             {v}
-            <button
-              className="bare"
+            <Button variant="bare"
               style={{ padding: "0 2px", lineHeight: 1, color: "inherit" }}
               onClick={() => onChange(items.filter((x) => x !== v))}
               aria-label={`Remove ${v}`}
             >
               <Icon name="x" size={11} />
-            </button>
+            </Button>
           </span>
         ))}
         {!items.length && (
@@ -339,16 +339,15 @@ export function PolicyView({
               <span className="pill warn">
                 <i /> unsaved changes
               </span>
-              <button className="ghost sm" onClick={reset}>
+              <Button variant="ghost" size="sm" onClick={reset}>
                 Discard
-              </button>
-              <button
-                className="sm"
+              </Button>
+              <Button size="sm"
                 disabled={locked || bandsInvalid || dailyInvalid}
                 onClick={() => void save()}
               >
                 Save policy
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -414,8 +413,7 @@ export function PolicyView({
               value={quorum}
               onChange={(e) => setQuorum(Number(e.target.value) || 1)}
             />
-            <button
-              className="sm"
+            <Button size="sm"
               disabled={locked}
               onClick={() =>
                 void act("Set quorum", async () => {
@@ -430,7 +428,7 @@ export function PolicyView({
               }
             >
               Save quorum
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -640,8 +638,7 @@ export function PolicyView({
             <h2>Automation (IF / THEN)</h2>
             <div className="sub">Declarative side-effects — notify, require approval, deny, or freeze.</div>
           </div>
-          <button
-            className="ghost sm"
+          <Button variant="ghost" size="sm"
             onClick={() => {
               setTouched(true);
               setAutomation((a) => [
@@ -656,7 +653,7 @@ export function PolicyView({
             }}
           >
             <Icon name="plus" size={12} /> Add rule
-          </button>
+          </Button>
         </div>
         {!automation.length && (
           <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
@@ -762,15 +759,14 @@ export function PolicyView({
                 <option value="freeze_agent">freeze agent</option>
               </select>
             </div>
-            <button
-              className="ghost sm"
+            <Button variant="ghost" size="sm"
               onClick={() => {
                 setTouched(true);
                 setAutomation((rows) => rows.filter((_, i) => i !== idx));
               }}
             >
               Remove
-            </button>
+            </Button>
           </div>
         ))}
       </div>
@@ -789,8 +785,7 @@ export function PolicyView({
                 <b style={{ fontSize: 13 }}>{t.name}</b>
                 <div className="faint" style={{ fontSize: 12 }}>{t.description}</div>
               </div>
-              <button
-                className="sm ghost"
+              <Button variant="ghost" size="sm"
                 disabled={locked}
                 onClick={() =>
                   void act("Apply template", async () => {
@@ -806,7 +801,7 @@ export function PolicyView({
                 }
               >
                 Apply
-              </button>
+              </Button>
             </div>
           ))}
         </div>
@@ -825,8 +820,7 @@ export function PolicyView({
                   {v.note && <span className="faint"> · {v.note}</span>}
                   <div className="faint">{new Date(v.createdAt).toLocaleString()}</div>
                 </div>
-                <button
-                  className="ghost sm"
+                <Button variant="ghost" size="sm"
                   disabled={locked}
                   onClick={() =>
                     void act("Restore policy", async () => {
@@ -841,7 +835,7 @@ export function PolicyView({
                   }
                 >
                   Restore
-                </button>
+                </Button>
               </div>
             ))}
             {!versions.length && <div className="faint">No versions yet — save a policy to start history.</div>}
@@ -881,12 +875,12 @@ export function PolicyView({
             <b>Unsaved policy changes.</b> Agents are still being judged by the old rules.
           </span>
           <div className="row">
-            <button className="ghost sm" onClick={reset}>
+            <Button variant="ghost" size="sm" onClick={reset}>
               Discard
-            </button>
-            <button className="sm" disabled={locked || bandsInvalid || dailyInvalid} onClick={() => void save()}>
+            </Button>
+            <Button size="sm" disabled={locked || bandsInvalid || dailyInvalid} onClick={() => void save()}>
               Save policy
-            </button>
+            </Button>
           </div>
         </div>
       )}

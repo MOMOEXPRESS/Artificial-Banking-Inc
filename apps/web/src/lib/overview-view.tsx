@@ -6,6 +6,8 @@ import type { InvoiceStats, Summary } from "./views";
 import { BarChart, BarLine, Calendar, Donut, Empty, Icon, Meter, Sparkline, Stat, fmtTime, fmtUsd, relTime } from "./ui";
 import type { AgentKey, Alert, Approval, Decision, Escrow, Metrics, Session, Shared, View } from "./console-types";
 import type { Policy } from "./policy-view";
+import { Button } from "@/components/ui/button";
+import { SegTabs } from "@/components/ui/seg-tabs";
 
 export function Overview({
   org,
@@ -222,13 +224,17 @@ export function Overview({
                 {fmtUsd(totalSpend)} across {windowed.length} settled payments
               </div>
             </div>
-            <div className="seg">
-              {(["24h", "7d", "all"] as const).map((r) => (
-                <button key={r} className={range === r ? "on" : ""} onClick={() => setRange(r)}>
-                  {r === "24h" ? "24 hours" : r === "7d" ? "7 days" : "All time"}
-                </button>
-              ))}
-            </div>
+            <SegTabs
+              value={range}
+              onValueChange={(v) => setRange(v as typeof range)}
+              items={
+                [
+                  { value: "24h", label: "24 hours" },
+                  { value: "7d", label: "7 days" },
+                  { value: "all", label: "All time" },
+                ] as const
+              }
+            />
           </div>
           <div style={{ flex: 1, minHeight: 220 }}>
             {buckets.length ? (
@@ -394,9 +400,9 @@ export function Overview({
                 onChange={(e) => setNewAgent(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && newAgent.trim() && void createAgent()}
               />
-              <button className="sm" disabled={busy || readOnly || !newAgent.trim()} onClick={() => void createAgent()}>
+              <Button size="sm" disabled={busy || readOnly || !newAgent.trim()} onClick={() => void createAgent()}>
                 <Icon name="plus" size={13} /> Create
-              </button>
+              </Button>
             </div>
           </div>
           {revealed && (
@@ -404,9 +410,9 @@ export function Overview({
               <b style={{ color: "var(--text)" }}>{revealed.name}</b> API key — shown once, already
               loaded into the Playground:
               <div style={{ marginTop: 6, color: "var(--accent)" }}>{revealed.key}</div>
-              <button className="ghost sm" style={{ marginTop: 9 }} onClick={() => setRevealed(null)}>
+              <Button variant="ghost" size="sm" style={{ marginTop: 9 }} onClick={() => setRevealed(null)}>
                 I saved it
-              </button>
+              </Button>
             </div>
           )}
           <div className="tbl-wrap" style={{ flex: 1 }}>
@@ -460,14 +466,13 @@ export function Overview({
                           >
                             {frozen ? "Unfreeze" : "Freeze"}
                           </button>
-                          <button
-                            className="bare sm"
+                          <Button variant="bare" size="sm"
                             disabled={busy || readOnly}
                             title="Issue a new API key — the old one stops working immediately"
                             onClick={() => void rotateKey(a.id)}
                           >
                             Rotate
-                          </button>
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -485,19 +490,18 @@ export function Overview({
               <div className="sub">Treasury ↔ agents · double-entry</div>
             </div>
           </div>
-          <div className="seg" style={{ marginBottom: 14 }}>
-            {(
+          <SegTabs
+            className="mb-3.5"
+            value={moveMode}
+            onValueChange={(v) => setMoveMode(v as typeof moveMode)}
+            items={
               [
-                ["allocate", "Treasury → agent"],
-                ["reclaim", "Agent → treasury"],
-                ["transfer", "Agent → agent"],
+                { value: "allocate", label: "Treasury → agent" },
+                { value: "reclaim", label: "Agent → treasury" },
+                { value: "transfer", label: "Agent → agent" },
               ] as const
-            ).map(([k, label]) => (
-              <button key={k} className={moveMode === k ? "on" : ""} onClick={() => setMoveMode(k)}>
-                {label}
-              </button>
-            ))}
-          </div>
+            }
+          />
           <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
             {moveMode !== "allocate" && (
               <label className="field" style={{ margin: 0 }}>
@@ -544,8 +548,7 @@ export function Overview({
                 aria-label="Amount USDC"
               />
             </label>
-            <button
-              className="sm"
+            <Button size="sm"
               style={{ alignSelf: "stretch" }}
               disabled={
                 busy ||
@@ -561,10 +564,10 @@ export function Overview({
                 : moveMode === "reclaim"
                   ? "Pull back to treasury"
                   : "Transfer between agents"}
-            </button>
+            </Button>
             <p className="faint" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.55 }}>
               Org treasury has <b className="mono">{fmtUsd(orgAvail)}</b>. For department /
-              shared wallets and on-chain deposit address, open <button className="bare" style={{ fontSize: 11.5 }} onClick={() => setView("treasury")}>Treasury</button>.
+              shared wallets and on-chain deposit address, open <Button variant="bare" style={{ fontSize: 11.5 }} onClick={() => setView("treasury")}>Treasury</Button>.
             </p>
           </div>
         </div>

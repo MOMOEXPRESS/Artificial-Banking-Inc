@@ -5,12 +5,12 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const alertVariants = cva(
-  "relative w-full rounded-[var(--r-sm)] border px-4 py-3 text-sm [&>svg~*]:pl-7 [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4",
+  "relative w-full rounded-[var(--radius-sm)] border px-4 py-3 text-sm [&>svg~*]:pl-7 [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4",
   {
     variants: {
       variant: {
-        default: "bg-[var(--surface-2)] text-[var(--text)] border-[var(--border)]",
-        info: "border-[var(--accent-soft)] bg-[var(--accent-soft)] text-[var(--text)]",
+        default: "bg-[var(--color-surface-2)] text-[var(--color-fg)] border-[var(--color-border)]",
+        info: "border-[var(--accent-soft)] bg-[var(--accent-soft)] text-[var(--color-fg)]",
       },
     },
     defaultVariants: { variant: "default" },

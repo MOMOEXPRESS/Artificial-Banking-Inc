@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Icon } from "./ui";
+import { Button } from "@/components/ui/button";
 
 const STORAGE_KEY = "abi_page_tours_v1";
 
@@ -61,9 +62,9 @@ export function PageTour({ view }: { view: string }) {
     return (
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
-          <button className="bare sm" style={{ marginBottom: 10, fontSize: 11.5, opacity: 0.75 }}>
+          <Button variant="bare" size="sm" style={{ marginBottom: 10, fontSize: 11.5, opacity: 0.75 }}>
             Show page guide
-          </button>
+          </Button>
         </CollapsibleTrigger>
         <CollapsibleContent>
           <Alert variant="info" className="mb-3">
@@ -85,9 +86,10 @@ export function PageTour({ view }: { view: string }) {
         <AlertTitle>How this page works</AlertTitle>
         <AlertDescription>{body}</AlertDescription>
       </div>
-      <button
-        type="button"
-        className="ghost sm shrink-0"
+      <Button type="button"
+ variant="ghost"
+ size="sm"
+        className="shrink-0"
         onClick={() => {
           const next = { ...dismissed, [view]: true };
           setDismissed(next);
@@ -95,7 +97,7 @@ export function PageTour({ view }: { view: string }) {
         }}
       >
         Got it
-      </button>
+      </Button>
     </Alert>
   );
 }

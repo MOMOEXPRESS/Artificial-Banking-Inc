@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Empty, Icon, Stat, relTime } from "./ui";
 import type { Shared, Webhook, Delivery } from "./console-types";
+import { Button } from "@/components/ui/button";
 
 export function Webhooks({
   webhooks,
@@ -83,18 +84,18 @@ export function Webhooks({
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && url.trim() && void add()}
             />
-            <button className="sm" disabled={locked || !url.trim()} onClick={() => void add()}>
+            <Button size="sm" disabled={locked || !url.trim()} onClick={() => void add()}>
               <Icon name="plus" size={13} /> Add
-            </button>
+            </Button>
           </div>
         </div>
         {secret && (
           <div className="code" style={{ marginBottom: 14 }}>
             Signing secret (shown once) — verify <b style={{ color: "var(--text)" }}>x-policyvault-signature</b> with it:
             <div style={{ marginTop: 6, color: "var(--accent)" }}>{secret}</div>
-            <button className="ghost sm" style={{ marginTop: 9 }} onClick={() => setSecret(null)}>
+            <Button variant="ghost" size="sm" style={{ marginTop: 9 }} onClick={() => setSecret(null)}>
               I saved it
-            </button>
+            </Button>
           </div>
         )}
         {webhooks.length === 0 ? (
@@ -118,15 +119,15 @@ export function Webhooks({
                     <td className="faint mono">{relTime(w.createdAt)}</td>
                     <td>
                       <div className="row" style={{ flexWrap: "nowrap" }}>
-                        <button className="ghost sm" disabled={locked} onClick={() => void test(w.id)}>
+                        <Button variant="ghost" size="sm" disabled={locked} onClick={() => void test(w.id)}>
                           Send test
-                        </button>
-                        <button className="ghost sm" disabled={locked} onClick={() => void rotate(w.id)}>
+                        </Button>
+                        <Button variant="ghost" size="sm" disabled={locked} onClick={() => void rotate(w.id)}>
                           Rotate secret
-                        </button>
-                        <button className="danger sm" disabled={locked} onClick={() => void del(w.id)}>
+                        </Button>
+                        <Button variant="destructive" size="sm" disabled={locked} onClick={() => void del(w.id)}>
                           Delete
-                        </button>
+                        </Button>
                       </div>
                     </td>
                   </tr>

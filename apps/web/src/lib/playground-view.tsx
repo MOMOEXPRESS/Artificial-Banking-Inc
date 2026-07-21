@@ -7,6 +7,8 @@ import { MISSIONS, runMission, missionsForMode, RUN_MODES, type Mission, type Ru
 import type { Approval, Session, Shared } from "./console-types";
 import type { Policy } from "./policy-view";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import { Button } from "@/components/ui/button";
+import { SegTabs } from "@/components/ui/seg-tabs";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
@@ -183,19 +185,18 @@ export function Playground({
             </div>
             <div className="row">
               {running ? (
-                <button
-                  className="danger sm"
+                <Button variant="destructive" size="sm"
                   onClick={() => {
                     cancelRef.current = true;
                     setToast("Mission cancelled.", "info");
                   }}
                 >
                   Stop
-                </button>
+                </Button>
               ) : (
-                <button className="sm" disabled={!actor || busy || readOnly} onClick={() => void start()}>
+                <Button size="sm" disabled={!actor || busy || readOnly} onClick={() => void start()}>
                   <Icon name="play" size={13} /> Run mission
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -212,12 +213,12 @@ export function Playground({
                   Approvals screen.
                 </span>
               </span>
-              <button className="light sm" disabled={busy || readOnly} onClick={() => void resolveInline(blockedStep.approvalId!, true)}>
+              <Button variant="secondary" size="sm" disabled={busy || readOnly} onClick={() => void resolveInline(blockedStep.approvalId!, true)}>
                 Approve
-              </button>
-              <button className="danger sm" disabled={busy || readOnly} onClick={() => void resolveInline(blockedStep.approvalId!, false)}>
+              </Button>
+              <Button variant="destructive" size="sm" disabled={busy || readOnly} onClick={() => void resolveInline(blockedStep.approvalId!, false)}>
                 Deny
-              </button>
+              </Button>
             </div>
           )}
 
@@ -293,9 +294,9 @@ export function Playground({
                 <span className="faint" style={{ fontSize: 11.5 }}>
                   Run archived — the deliverable and full step history are in Work &amp; deliverables.
                 </span>
-                <button className="ghost sm" onClick={() => setView("work")}>
+                <Button variant="ghost" size="sm" onClick={() => setView("work")}>
                   Open deliverable <Icon name="arrowRight" size={12} />
-                </button>
+                </Button>
               </div>
             </>
           )}
@@ -309,26 +310,22 @@ export function Playground({
                 <div className="sub">{mission.persona}</div>
               </div>
             </div>
-            <div className="seg" style={{ marginBottom: 12, flexWrap: "wrap" }}>
-              {(
+            <SegTabs
+              className="mb-3"
+              value={catFilter}
+              onValueChange={(v) => {
+                if (!running) setCatFilter(v as typeof catFilter);
+              }}
+              items={
                 [
-                  ["all", "All"],
-                  ["commerce", "Commerce"],
-                  ["governance", "Governance"],
-                  ["security", "Security"],
-                  ["ops", "Ops"],
+                  { value: "all", label: "All" },
+                  { value: "commerce", label: "Commerce" },
+                  { value: "governance", label: "Governance" },
+                  { value: "security", label: "Security" },
+                  { value: "ops", label: "Ops" },
                 ] as const
-              ).map(([k, label]) => (
-                <button
-                  key={k}
-                  className={catFilter === k ? "on" : ""}
-                  disabled={running}
-                  onClick={() => setCatFilter(k)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+              }
+            />
             <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
               {visibleMissions.map((m) => (
                 <button
@@ -382,9 +379,9 @@ export function Playground({
                     value={pasteKey}
                     onChange={(e) => setPasteKey(e.target.value)}
                   />
-                  <button className="ghost sm" disabled={!pasteKey.trim() || busy || readOnly} onClick={() => void addKey()}>
+                  <Button variant="ghost" size="sm" disabled={!pasteKey.trim() || busy || readOnly} onClick={() => void addKey()}>
                     Add
-                  </button>
+                  </Button>
                 </div>
               </>
             ) : (
@@ -426,9 +423,9 @@ export function Playground({
             <div className="card-head">
               <h2>Agent log</h2>
               {pending.length > 0 && (
-                <button className="ghost sm" onClick={() => setView("approvals")}>
+                <Button variant="ghost" size="sm" onClick={() => setView("approvals")}>
                   {pending.length} pending <Icon name="arrowRight" size={12} />
-                </button>
+                </Button>
               )}
             </div>
             <div

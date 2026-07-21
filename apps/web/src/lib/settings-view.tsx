@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Icon } from "./ui";
+import { Button } from "@/components/ui/button";
 
 export type Setup = {
   custody: string;
@@ -331,8 +332,7 @@ export function SettingsView({
                   placeholder="demo / growth / enterprise"
                 />
               </div>
-              <button
-                className="sm"
+              <Button size="sm"
                 disabled={busy || readOnly}
                 onClick={() =>
                   void act("Save settings", async () => {
@@ -348,7 +348,7 @@ export function SettingsView({
                 }
               >
                 Save settings
-              </button>
+              </Button>
               <pre className="code" style={{ marginTop: 12, fontSize: 11 }}>
                 {JSON.stringify(orgSettings, null, 2)}
               </pre>
@@ -423,8 +423,7 @@ export function SettingsView({
                 />
               </div>
             </div>
-            <button
-              className="sm"
+            <Button size="sm"
               disabled={busy || readOnly || !merchantForm.key.trim()}
               onClick={() =>
                 void act("Upsert merchant", async () => {
@@ -445,7 +444,7 @@ export function SettingsView({
               }
             >
               Save merchant
-            </button>
+            </Button>
             <table style={{ marginTop: 14 }}>
               <thead>
                 <tr>
@@ -462,8 +461,7 @@ export function SettingsView({
                     <td>{m.label ?? "—"}</td>
                     <td className="faint">{m.category ?? "—"}</td>
                     <td>
-                      <button
-                        className="ghost sm"
+                      <Button variant="ghost" size="sm"
                         disabled={busy || readOnly}
                         onClick={() =>
                           void act("Delete merchant", async () => {
@@ -476,7 +474,7 @@ export function SettingsView({
                         }
                       >
                         Delete
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -540,18 +538,18 @@ export function SettingsView({
                     <option value="approver">approver</option>
                     <option value="viewer">viewer</option>
                   </select>
-                  <button className="sm" disabled={busy || readOnly || !newGuardian.trim()} onClick={() => void addGuardian()}>
+                  <Button size="sm" disabled={busy || readOnly || !newGuardian.trim()} onClick={() => void addGuardian()}>
                     <Icon name="plus" size={12} /> Invite
-                  </button>
+                  </Button>
                 </div>
               </div>
               {revealedKey && (
                 <div className="code" style={{ marginBottom: 12 }}>
                   Guardian key (shown once):
                   <div style={{ marginTop: 6, color: "var(--accent)" }}>{revealedKey}</div>
-                  <button className="ghost sm" style={{ marginTop: 8 }} onClick={() => setRevealedKey(null)}>
+                  <Button variant="ghost" size="sm" style={{ marginTop: 8 }} onClick={() => setRevealedKey(null)}>
                     I saved it
-                  </button>
+                  </Button>
                 </div>
               )}
               <div className="kv">
@@ -566,9 +564,9 @@ export function SettingsView({
                   <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     {g.role}
                     {!g.revokedAt && (
-                      <button className="bare sm" disabled={busy || readOnly} onClick={() => void revoke(g.id)}>
+                      <Button variant="bare" size="sm" disabled={busy || readOnly} onClick={() => void revoke(g.id)}>
                         revoke
-                      </button>
+                      </Button>
                     )}
                   </span>
                 </div>
@@ -592,9 +590,9 @@ export function SettingsView({
                 </div>
               </div>
             </div>
-            <button className="sm" onClick={() => onGoto?.("payments")}>
+            <Button size="sm" onClick={() => onGoto?.("payments")}>
               Open Payments → Subscriptions
-            </button>
+            </Button>
           </div>
         )}
 
@@ -609,9 +607,9 @@ export function SettingsView({
                 </div>
               </div>
             </div>
-            <button className="sm" onClick={() => onGoto?.("webhooks")}>
+            <Button size="sm" onClick={() => onGoto?.("webhooks")}>
               Open Webhooks
-            </button>
+            </Button>
           </div>
         )}
 
