@@ -73,7 +73,7 @@ export function Login({
     <div className="login-wrap">
       <div className="login-card">
         <div className="brand" style={{ flexDirection: "column", gap: 14 }}>
-          <ABLockup size={56} tone="#fff" />
+          <ABLockup size={200} tone="#fff" />
         </div>
         <p className="login-sub">
           Financial infrastructure for autonomous AI. Programmable wallets, spending policies and

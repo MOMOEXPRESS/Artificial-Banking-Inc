@@ -194,7 +194,7 @@ export function MarketingCta() {
         </p>
       </div>
       <div className="cta-lockup" aria-hidden>
-        <ABLockup size={72} tone="#0a0a0c" />
+        <ABLockup size={220} tone="#0a0a0c" />
       </div>
       <div className="cta-action-row">
         <Link className="cta-action-card" href="/console">

@@ -678,12 +678,18 @@ body::after {
 
 /* ----------------------------------------------------------- page tips */
 
+.page-tip-slot {
+  /* Reserved height so tip rotation never shoves the page layout */
+  min-height: 76px;
+  margin-bottom: 14px;
+}
+
 .page-tip {
   position: relative;
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  margin-bottom: 14px;
+  min-height: 76px;
   padding: 14px 16px 16px;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
@@ -697,7 +703,7 @@ body::after {
 }
 
 .page-tip-out {
-  animation: tip-out 0.36s cubic-bezier(0.4, 0, 1, 1) both;
+  animation: tip-out 0.32s cubic-bezier(0.4, 0, 1, 1) both;
   pointer-events: none;
 }
 
@@ -719,12 +725,22 @@ body::after {
 }
 
 .page-tip-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-fg-muted);
   margin-bottom: 4px;
+}
+
+.page-tip-count {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  font-weight: 600;
 }
 
 .page-tip-body p {
@@ -742,7 +758,7 @@ body::after {
   height: 2px;
   background: var(--color-fg-faint);
   transform-origin: left center;
-  animation: tip-bar 6.5s linear both;
+  animation: tip-bar 7s linear both;
 }
 
 @keyframes tip-bar {

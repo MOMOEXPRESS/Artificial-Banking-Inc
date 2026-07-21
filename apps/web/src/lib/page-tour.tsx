@@ -1,103 +1,147 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "./ui";
 
-const STORAGE_KEY = "abi_page_tours_v1";
-const SHOW_MS = 6500;
-const EXIT_MS = 380;
+const ROTATE_MS = 7000;
+const EXIT_MS = 320;
 
-const TOURS: Record<string, string> = {
-  overview:
-    "Your command center: vault balance, agent spend, where money went, and quick allocate/freeze. Deposit more under Treasury → Fund.",
-  treasury:
-    "Fund the org vault (demo deposit or vault address), withdraw, then move money across org / dept / shared / agent wallets. Cash flow + runway live under Cash & forecast.",
-  agents:
-    "Roster, profiles, session keys, and groups. Groups are real desks — freeze the whole swarm or fund every member equally.",
-  payments:
-    "Recent settlements, invoices, escrows, one-shot schedules, subscriptions, and which payment rails are live (x402 + transfer-mock today).",
-  playground:
-    "Pick a persona / use-case mission and run mode. Every step hits the real agent API, policy engine, and ledger — nothing is faked.",
-  chat: "ABI Assistant answers with facts from your org and can surface approvals inline. It never moves money by itself.",
-  work: "Deliverables and run history from Playground missions — the paper trail for what spend bought.",
-  approvals: "Parked payments waiting on a human. Approve or deny; agents resume or replan.",
-  insights: "Burn, anomalies, vendor spend, and economics rollups — read-only analytics.",
-  ledger: "Double-entry journals that prove every USDC move balanced.",
-  policy: "Caps, allowlists, HITL, quiet hours, automation, versions, and starter templates.",
-  webhooks: "HMAC-signed money events into your systems. Rotate secrets when needed.",
-  activity: "Full decision audit trail — export CSV from Settings or the Activity header.",
-  settings: "Go-live checklist, org settings, merchants, team / quorum, and the org kill switch.",
+/** Multiple tips per console page — rotates in a reserved slot (no layout jump). */
+const TIPS: Record<string, string[]> = {
+  overview: [
+    "Vault balance, agent spend, and where money went — deposit more under Treasury → Fund.",
+    "Use Move funds for treasury → agent, agent → treasury, or agent → agent transfers.",
+    "Freeze an agent from Overview when spend looks off — they stay frozen until you thaw.",
+    "Switch 24h / 7d / all time to change the spend window on the charts.",
+  ],
+  agents: [
+    "Open an agent profile for session keys, wallet balance, and freeze controls.",
+    "Groups are real desks — freeze the whole swarm or fund every member equally.",
+    "Rotate an agent API key anytime from the agent profile if a key may have leaked.",
+    "Create agents here first — Treasury and Playground need them to allocate and run.",
+  ],
+  payments: [
+    "Settlements, invoices, escrows, schedules, and live rails (x402 + transfer-mock).",
+    "Open an invoice or escrow row for status, counterparties, and next actions.",
+    "Subscriptions and one-shot schedules live here — pause or cancel before the next pull.",
+    "Parked HITL payments also show under Approvals when a human must decide.",
+  ],
+  playground: [
+    "Pick a preset mission and run mode — every step hits the real API, policy, and ledger.",
+    "Run as a specific agent key to see how that persona spends under your policy.",
+    "Stress and smoke modes replay the mission so you can watch policy bands fire.",
+    "Custom missions (your own conditions) are next — presets prove the rails today.",
+  ],
+  chat: [
+    "ABI Assistant answers from your org facts and can surface approvals inline.",
+    "It never moves money by itself — you approve anything that needs a human.",
+    "Ask about balances, recent denies, or which agent burned budget today.",
+  ],
+  work: [
+    "Deliverables and run history from Playground missions — the spend paper trail.",
+    "Open a run to see steps, payments attempted, and policy outcomes.",
+  ],
+  approvals: [
+    "Parked payments waiting on a human — approve or deny so agents can resume.",
+    "Large or unknown-counterparty spends land here based on your Policy bands.",
+    "Quorum may need more than one guardian vote before a move executes.",
+  ],
+  insights: [
+    "Burn, anomalies, vendor spend, and economics rollups — read-only analytics.",
+    "Use Insights to spot a noisy agent before you tighten Policy caps.",
+  ],
+  ledger: [
+    "Double-entry journals prove every USDC move balanced — drill into a journal for lines.",
+    "Demo deposits, allocations, and withdrawals all leave a trail here.",
+  ],
+  policy: [
+    "Caps, allowlists, HITL, quiet hours, automation, and templates — save before they apply.",
+    "The judgment bands move when you drag limits — nothing is live until Save.",
+    "Use Simulate to dry-run a payment against the draft policy before you commit.",
+    "Starter templates are a fast baseline — then tune allowlists for your vendors.",
+  ],
+  webhooks: [
+    "HMAC-signed money events into your systems — rotate secrets when needed.",
+    "Subscribe only to the event kinds your backend cares about.",
+  ],
+  activity: [
+    "Full decision audit trail — export CSV from Settings or the Activity header.",
+    "Filter by agent or outcome when debugging a refuse or review.",
+  ],
+  settings: [
+    "Go-live checklist, org settings, merchants, team / quorum, and the kill switch.",
+    "Merchant allowlists here pair with Policy destination rules.",
+    "The org kill switch freezes all agent spend immediately.",
+  ],
 };
 
-function loadDismissed(): Record<string, boolean> {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, boolean>;
-  } catch {
-    return {};
-  }
-}
-
-function saveDismissed(map: Record<string, boolean>) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
-}
-
 /**
- * First-visit tip: slides in once, auto-dismisses with exit motion.
- * No “Got it” required — tips reappear only after resetAllPageTours().
+ * Always-on tip rail for console pages (Treasury excluded).
+ * Fixed-height slot so rotating tips never shove the page up/down.
  */
 export function PageTour({ view }: { view: string }) {
-  const body = TOURS[view];
-  const [phase, setPhase] = useState<"idle" | "enter" | "exit" | "gone">("idle");
-  const timers = useRef<number[]>([]);
+  const tips = TIPS[view];
+  const [index, setIndex] = useState(0);
+  const [phase, setPhase] = useState<"in" | "out">("in");
 
   useEffect(() => {
-    timers.current.forEach((id) => window.clearTimeout(id));
-    timers.current = [];
-    setPhase("idle");
+    setIndex(0);
+    setPhase("in");
+  }, [view]);
 
-    if (!body) return;
-
-    const dismissed = loadDismissed();
-    if (dismissed[view]) {
-      setPhase("gone");
-      return;
-    }
-
-    const enterId = window.setTimeout(() => setPhase("enter"), 40);
-    const exitId = window.setTimeout(() => setPhase("exit"), SHOW_MS);
-    const goneId = window.setTimeout(() => {
-      const next = { ...loadDismissed(), [view]: true };
-      saveDismissed(next);
-      setPhase("gone");
-    }, SHOW_MS + EXIT_MS);
-    timers.current = [enterId, exitId, goneId];
-
+  useEffect(() => {
+    if (!tips || tips.length <= 1) return;
+    let exitTimer = 0;
+    const tick = window.setInterval(() => {
+      setPhase("out");
+      exitTimer = window.setTimeout(() => {
+        setIndex((i) => (i + 1) % tips.length);
+        setPhase("in");
+      }, EXIT_MS);
+    }, ROTATE_MS);
     return () => {
-      timers.current.forEach((id) => window.clearTimeout(id));
-      timers.current = [];
+      window.clearInterval(tick);
+      window.clearTimeout(exitTimer);
     };
-  }, [view, body]);
+  }, [tips, view]);
 
-  if (!body || phase === "idle" || phase === "gone") return null;
+  // Treasury (and unknown views): no tip content, no reserved gap.
+  if (!tips?.length) return null;
+
+  const body = tips[index % tips.length];
 
   return (
-    <div
-      className={`page-tip ${phase === "exit" ? "page-tip-out" : "page-tip-in"}`}
-      role="status"
-      aria-live="polite"
-    >
-      <span className="page-tip-icon" aria-hidden>
-        <Icon name="spark" size={15} />
-      </span>
-      <div className="page-tip-body">
-        <div className="page-tip-title">Tip</div>
-        <p>{body}</p>
+    <div className="page-tip-slot" aria-live="polite">
+      <div
+        key={`${view}-${index}`}
+        className={`page-tip ${phase === "out" ? "page-tip-out" : "page-tip-in"}`}
+        role="status"
+      >
+        <span className="page-tip-icon" aria-hidden>
+          <Icon name="spark" size={15} />
+        </span>
+        <div className="page-tip-body">
+          <div className="page-tip-title">
+            Tip
+            {tips.length > 1 && (
+              <span className="page-tip-count">
+                {index + 1}/{tips.length}
+              </span>
+            )}
+          </div>
+          <p>{body}</p>
+        </div>
+        {tips.length > 1 && <div className="page-tip-bar" aria-hidden />}
       </div>
-      <div className="page-tip-bar" aria-hidden />
     </div>
   );
 }
 
 export function resetAllPageTours() {
-  localStorage.removeItem(STORAGE_KEY);
+  // Kept for Settings / debug — tips no longer persist-dismiss.
+  try {
+    localStorage.removeItem("abi_page_tours_v1");
+  } catch {
+    /* ignore */
+  }
 }
