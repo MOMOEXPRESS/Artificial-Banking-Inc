@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "./ui";
 
-const ROTATE_MS = 7000;
+const ROTATE_MS = 12000;
 const EXIT_MS = 280;
 
 /** Multiple tips per console page — rotates in a reserved slot (no layout jump). */

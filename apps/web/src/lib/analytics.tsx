@@ -135,7 +135,9 @@ export function InsightsView({
 
   useEffect(() => {
     let alive = true;
+    const sig = { current: "" };
     const load = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
       try {
         const [v, b, a, e] = await Promise.all([
           gFetch("/v1/guardian/vendors").then((r) => r.json()),
@@ -144,22 +146,38 @@ export function InsightsView({
           gFetch("/v1/guardian/economics").then((r) => r.json()),
         ]);
         if (!alive) return;
-        setVendors(v.vendors ?? []);
-        setConcentration(v.concentrationPct ?? 0);
-        setBurn(b.forecast ?? null);
-        setAnomalies(a.anomalies ?? []);
-        setScanned(a.scanned ?? 0);
-        setEcon(e.economics ?? null);
+        const next = {
+          vendors: v.vendors ?? [],
+          concentrationPct: v.concentrationPct ?? 0,
+          burn: b.forecast ?? null,
+          anomalies: a.anomalies ?? [],
+          scanned: a.scanned ?? 0,
+          econ: e.economics ?? null,
+        };
+        const fingerprint = JSON.stringify(next);
+        if (fingerprint === sig.current) return;
+        sig.current = fingerprint;
+        setVendors(next.vendors);
+        setConcentration(next.concentrationPct);
+        setBurn(next.burn);
+        setAnomalies(next.anomalies);
+        setScanned(next.scanned);
+        setEcon(next.econ);
         setLoaded(true);
       } catch {
         /* the shell owns the connection indicator */
       }
     };
     void load();
-    const t = setInterval(load, 15000);
+    const t = setInterval(load, 20000);
+    const onVis = () => {
+      if (!document.hidden) void load();
+    };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       alive = false;
       clearInterval(t);
+      document.removeEventListener("visibilitychange", onVis);
     };
   }, [gFetch]);
 

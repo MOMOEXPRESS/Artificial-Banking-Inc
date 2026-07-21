@@ -330,13 +330,14 @@ body::after {
 /* ---------------------------------------------------------------- rail */
 
 .rail {
-  background: var(--color-surface);
+  background: var(--color-surface-solid);
   color: var(--color-fg);
-  backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
+  /* Solid fill — stacked backdrop-filter on rail+main+cards was a big GPU cost */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow-elevated);
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -518,13 +519,13 @@ body::after {
 /* --------------------------------------------------------------- main */
 
 .main {
-  background: var(--color-surface);
+  background: var(--color-surface-solid);
   color: var(--color-fg);
-  backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow-elevated);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -698,8 +699,8 @@ body::after {
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background: linear-gradient(160deg, var(--color-surface-3) 0%, var(--color-surface-2) 100%);
-  backdrop-filter: saturate(140%) blur(12px);
-  -webkit-backdrop-filter: saturate(140%) blur(12px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow: var(--glass-top);
   overflow: hidden;
 }
@@ -808,11 +809,11 @@ body::after {
 .card {
   background: var(--color-surface-2);
   color: var(--color-fg);
-  backdrop-filter: saturate(140%) blur(14px);
-  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow-elevated);
   padding: 20px 22px;
   min-width: 0;
   transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;

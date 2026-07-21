@@ -50,18 +50,31 @@ export function ChatView({
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const bottom = useRef<HTMLDivElement>(null);
+  const msgSig = useRef("");
 
   async function refresh() {
+    if (typeof document !== "undefined" && document.hidden) return;
     const res = await gFetch("/v1/guardian/chat");
     if (!res.ok) return;
     const d = await res.json();
-    setMessages(d.messages ?? []);
+    const next = d.messages ?? [];
+    const sig = JSON.stringify(next);
+    if (sig === msgSig.current) return;
+    msgSig.current = sig;
+    setMessages(next);
   }
 
   useEffect(() => {
     void refresh().finally(() => setLoading(false));
-    const t = setInterval(() => void refresh(), 4000);
-    return () => clearInterval(t);
+    const t = setInterval(() => void refresh(), 6000);
+    const onVis = () => {
+      if (!document.hidden) void refresh();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

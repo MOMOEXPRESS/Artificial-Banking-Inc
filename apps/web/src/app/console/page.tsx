@@ -229,13 +229,28 @@ export default function Console() {
   }, []);
 
   /**
-   * Two-tier polling. The fast tier carries anything that drives reactivity —
-   * a parked approval must surface within seconds. The slow tier carries
-   * analytics and config, which are expensive to compute and rarely change.
-   * Refetching everything every 4s was pointless load on both ends.
+   * Two-tier polling. Fast = approvals/activity; slow = journals/config.
+   * We fingerprint payloads and skip setState when nothing changed — otherwise
+   * every 4s rebuilds the whole console tree with new object identities.
+   * Polling pauses while the tab is hidden.
    */
+  const snapRef = useRef<Record<string, string>>({});
+  const setIfChanged = useCallback(<T,>(key: string, value: T, setter: (v: T) => void) => {
+    let sig: string;
+    try {
+      sig = JSON.stringify(value);
+    } catch {
+      setter(value);
+      return;
+    }
+    if (snapRef.current[key] === sig) return;
+    snapRef.current[key] = sig;
+    setter(value);
+  }, []);
+
   const refreshFast = useCallback(async () => {
     if (!sessionRef.current) return;
+    if (typeof document !== "undefined" && document.hidden) return;
     try {
       const res = await Promise.all(
         ["/v1/guardian/org", "/v1/guardian/approvals", "/v1/guardian/activity", "/v1/guardian/escrows"].map(
@@ -249,18 +264,19 @@ export default function Console() {
       }
       const [o, ap, a, es] = await Promise.all(res.map((r) => r.json()));
       setConnected(true);
-      setOrg(o);
-      setApprovals(ap.approvals ?? []);
-      setDecisions(a.decisions ?? []);
-      setEscrows(es.escrows ?? []);
+      setIfChanged("org", o, setOrg);
+      setIfChanged("approvals", ap.approvals ?? [], setApprovals);
+      setIfChanged("decisions", a.decisions ?? [], setDecisions);
+      setIfChanged("escrows", es.escrows ?? [], setEscrows);
       setLoading(false);
     } catch {
       setConnected(false);
     }
-  }, [gFetch, saveSession, setToast]);
+  }, [gFetch, saveSession, setToast, setIfChanged]);
 
   const refreshSlow = useCallback(async () => {
     if (!sessionRef.current) return;
+    if (typeof document !== "undefined" && document.hidden) return;
     try {
       const res = await Promise.all(
         [
@@ -270,28 +286,26 @@ export default function Console() {
           "/v1/guardian/webhooks/deliveries",
           "/v1/guardian/metrics",
           "/v1/guardian/setup",
-          "/v1/guardian/reconcile",
           "/v1/guardian/summary",
           "/v1/guardian/invoices",
           "/v1/guardian/runs",
         ].map((p) => gFetch(p)),
       );
-      const [jo, po, wh, de, me, st, rc, su, inv, rn] = await Promise.all(res.map((r) => r.json()));
-      setJournals(jo.journals ?? []);
-      setPolicy(po.policy ?? null);
-      setWebhooks(wh.webhooks ?? []);
-      setDeliveries(de.deliveries ?? []);
-      setMetrics(me.metrics ?? null);
-      setSetup(st.setup ?? null);
-      setRecon(rc.reconciliation ?? null);
-      setSummary(su.summary ?? null);
-      setInvoices(inv.invoices ?? []);
-      setInvStats(inv.stats ?? null);
-      setRuns(rn.runs ?? []);
+      const [jo, po, wh, de, me, st, su, inv, rn] = await Promise.all(res.map((r) => r.json()));
+      setIfChanged("journals", jo.journals ?? [], setJournals);
+      setIfChanged("policy", po.policy ?? null, setPolicy);
+      setIfChanged("webhooks", wh.webhooks ?? [], setWebhooks);
+      setIfChanged("deliveries", de.deliveries ?? [], setDeliveries);
+      setIfChanged("metrics", me.metrics ?? null, setMetrics);
+      setIfChanged("setup", st.setup ?? null, setSetup);
+      setIfChanged("summary", su.summary ?? null, setSummary);
+      setIfChanged("invoices", inv.invoices ?? [], setInvoices);
+      setIfChanged("invStats", inv.stats ?? null, setInvStats);
+      setIfChanged("runs", rn.runs ?? [], setRuns);
     } catch {
       /* the fast tier owns the connection indicator */
     }
-  }, [gFetch]);
+  }, [gFetch, setIfChanged]);
 
   /** After a mutation, pull both tiers so the whole console reflects it at once. */
   const refreshAll = useCallback(async () => {
@@ -301,13 +315,34 @@ export default function Console() {
   useEffect(() => {
     if (!session) return;
     void refreshAll();
-    const fast = setInterval(() => void refreshFast(), 4000);
-    const slow = setInterval(() => void refreshSlow(), 15000);
+    const fast = setInterval(() => void refreshFast(), 5000);
+    const slow = setInterval(() => void refreshSlow(), 20000);
+    const onVis = () => {
+      if (!document.hidden) void refreshAll();
+    };
+    document.addEventListener("visibilitychange", onVis);
+
+    /** Reconcile is expensive server-side — keep it rare, not on every slow tick. */
+    const refreshRecon = async () => {
+      if (document.hidden || !sessionRef.current) return;
+      try {
+        const r = await gFetch("/v1/guardian/reconcile");
+        const d = await r.json();
+        setIfChanged("recon", d.reconciliation ?? null, setRecon);
+      } catch {
+        /* ignore */
+      }
+    };
+    void refreshRecon();
+    const reconTimer = setInterval(() => void refreshRecon(), 60000);
+
     return () => {
       clearInterval(fast);
       clearInterval(slow);
+      clearInterval(reconTimer);
+      document.removeEventListener("visibilitychange", onVis);
     };
-  }, [session, refreshAll, refreshFast, refreshSlow]);
+  }, [session, refreshAll, refreshFast, refreshSlow, gFetch, setIfChanged]);
 
   const pending = useMemo(() => approvals.filter((a) => a.status === "pending"), [approvals]);
   const agentName = useCallback(

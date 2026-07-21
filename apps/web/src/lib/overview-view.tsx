@@ -48,11 +48,16 @@ export function Overview({
   const [moveMode, setMoveMode] = useState<"allocate" | "reclaim" | "transfer">("allocate");
 
   const orgAvail = org?.balances.find((b) => b.kind === "org_available")?.usdc;
-  const spendDecisions = decisions.filter((d) => d.outcome === "allow" && Number(d.amountUsdc) > 0);
+  const spendDecisions = useMemo(
+    () => decisions.filter((d) => d.outcome === "allow" && Number(d.amountUsdc) > 0),
+    [decisions],
+  );
 
-  const cutoff =
-    range === "24h" ? Date.now() - 864e5 : range === "7d" ? Date.now() - 6048e5 : 0;
-  const windowed = spendDecisions.filter((d) => new Date(d.at).getTime() >= cutoff);
+  const windowed = useMemo(() => {
+    const cut =
+      range === "24h" ? Date.now() - 864e5 : range === "7d" ? Date.now() - 6048e5 : 0;
+    return spendDecisions.filter((d) => new Date(d.at).getTime() >= cut);
+  }, [spendDecisions, range]);
 
   // Spend grouped into 12 buckets across the observed window
   const buckets = useMemo(() => {
