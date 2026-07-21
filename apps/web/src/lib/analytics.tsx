@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { BarLine, Empty, Icon, Sparkline, Stat, fmtUsd, relTime } from "./ui";
 import { Activity } from "./activity-view";
 import type { Decision } from "./console-types";
+import { Button } from "@/components/ui/button";
+import { SegTabs } from "@/components/ui/seg-tabs";
 
 /* ==================================================================== types */
 
@@ -208,21 +210,19 @@ export function InsightsView({
       </div>
 
       <div className="card-head" style={{ marginBottom: 12, padding: 0, border: "none", background: "transparent" }}>
-        <div className="seg">
-          {(
+        <SegTabs
+          value={tab}
+          onValueChange={(v) => setTab(v as typeof tab)}
+          items={
             [
-              ["economics", "P&L"],
-              ["vendors", "Vendors"],
-              ["burn", "Forecast"],
-              ["anomalies", "Anomalies"],
-              ["trail", "Activity"],
+              { value: "economics", label: "P&L" },
+              { value: "vendors", label: "Vendors" },
+              { value: "burn", label: "Forecast" },
+              { value: "anomalies", label: "Anomalies" },
+              { value: "trail", label: "Activity" },
             ] as const
-          ).map(([k, label]) => (
-            <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>
-              {label}
-            </button>
-          ))}
-        </div>
+          }
+        />
       </div>
 
       {tab === "trail" && decisions && agentName && setToast ? (
@@ -301,9 +301,9 @@ export function InsightsView({
                             {r.invoiceNumber}
                           </span>
                         ) : (
-                          <button className="bare sm" onClick={() => setView("work")}>
+                          <Button variant="bare" size="sm" onClick={() => setView("work")}>
                             bill it
-                          </button>
+                          </Button>
                         )}
                       </td>
                     </tr>
@@ -574,9 +574,9 @@ export function PolicySimulator({
             Replays the last 7 days of real decisions against your edits — nothing is saved.
           </div>
         </div>
-        <button className="ghost sm" disabled={busy} onClick={() => void run()}>
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run()}>
           {busy ? "Replaying…" : dirty ? "Simulate my changes" : "Simulate current rules"}
-        </button>
+        </Button>
       </div>
 
       {err && (

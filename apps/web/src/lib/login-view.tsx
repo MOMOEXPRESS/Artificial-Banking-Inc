@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ABLockup } from "./brand";
 import { Icon } from "./ui";
 import type { Session } from "./console-types";
+import { Button } from "@/components/ui/button";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 
@@ -86,9 +87,9 @@ export function Login({
           Open console
         </button>
         <div className="or">or</div>
-        <button className="ghost" style={{ width: "100%" }} disabled={busy} onClick={() => void bootstrap()}>
+        <Button variant="ghost" style={{ width: "100%" }} disabled={busy} onClick={() => void bootstrap()}>
           Launch demo org with $100 float
-        </button>
+        </Button>
         <p className="faint" style={{ fontSize: 11.5, marginTop: 20, lineHeight: 1.6 }}>
           The demo wipes the local database and seeds a fresh org with two agents and keys loaded
           into the Playground. Not a bank. Not FDIC insured.

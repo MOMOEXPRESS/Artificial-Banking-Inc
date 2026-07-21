@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { fmtUsd, relTime } from "../../lib/ui";
+import { Button } from "@/components/ui/button";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 
@@ -109,7 +110,7 @@ export default function MobileApprovalsPage() {
       <header className="mobile-approvals-head">
         <div className="between">
           <h1>Approvals</h1>
-          <Link className="bare sm" href="/console">
+          <Link className="text-xs text-[var(--color-fg-muted)]" href="/console">
             Console
           </Link>
         </div>
@@ -134,12 +135,12 @@ export default function MobileApprovalsPage() {
               <div className="faint">{a.reasons.join(" · ")}</div>
               <div className="faint">expires {relTime(a.expiresAt)}</div>
               <div className="mobile-approval-actions">
-                <button disabled={busy === a.id} onClick={() => void resolve(a.id, true)}>
+                <Button size="sm" disabled={busy === a.id} onClick={() => void resolve(a.id, true)}>
                   Approve
-                </button>
-                <button className="danger" disabled={busy === a.id} onClick={() => void resolve(a.id, false)}>
+                </Button>
+                <Button variant="destructive" size="sm" disabled={busy === a.id} onClick={() => void resolve(a.id, false)}>
                   Deny
-                </button>
+                </Button>
               </div>
             </li>
           ))}

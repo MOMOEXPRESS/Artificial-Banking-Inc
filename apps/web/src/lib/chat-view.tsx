@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Empty, Icon, fmtUsd, relTime } from "./ui";
+import { Button } from "@/components/ui/button";
 
 type ChatMsg = {
   id: string;
@@ -124,12 +125,12 @@ export function ChatView({
                 <div style={{ fontSize: 12, marginTop: 4 }}>{a.reasons[0]}</div>
               </div>
               <div className="row" style={{ gap: 8 }}>
-                <button className="sm" disabled={locked} onClick={() => void resolve(a.id, true)}>
+                <Button size="sm" disabled={locked} onClick={() => void resolve(a.id, true)}>
                   Approve
-                </button>
-                <button className="sm danger" disabled={locked} onClick={() => void resolve(a.id, false)}>
+                </Button>
+                <Button variant="destructive" size="sm" disabled={locked} onClick={() => void resolve(a.id, false)}>
                   Reject
-                </button>
+                </Button>
               </div>
             </div>
           ))}
@@ -154,26 +155,24 @@ export function ChatView({
               <div className="chat-body">{m.body}</div>
               {m.kind === "approval_request" && m.approvalId && (
                 <div className="row" style={{ marginTop: 10, gap: 8 }}>
-                  <button
-                    className="sm"
+                  <Button size="sm"
                     disabled={locked || !pending.some((p) => p.id === m.approvalId)}
                     onClick={() => void resolve(m.approvalId!, true)}
                   >
                     Approve
-                  </button>
-                  <button
-                    className="sm danger"
+                  </Button>
+                  <Button variant="destructive" size="sm"
                     disabled={locked || !pending.some((p) => p.id === m.approvalId)}
                     onClick={() => void resolve(m.approvalId!, false)}
                   >
                     Reject
-                  </button>
+                  </Button>
                 </div>
               )}
               {typeof m.meta?.goto === "string" && (
-                <button className="ghost sm" style={{ marginTop: 8 }} onClick={() => onGoto(String(m.meta!.goto))}>
+                <Button variant="ghost" size="sm" style={{ marginTop: 8 }} onClick={() => onGoto(String(m.meta!.goto))}>
                   Open {String(m.meta.goto)} <Icon name="arrowRight" size={12} />
-                </button>
+                </Button>
               )}
             </div>
           ))

@@ -7,6 +7,8 @@ import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Empty, Icon, Stat } from "./ui";
+import { Button } from "@/components/ui/button";
+import { SegTabs } from "@/components/ui/seg-tabs";
 
 type Scope = "org" | "department" | "agent" | "shared";
 
@@ -189,21 +191,19 @@ export function TreasuryView({
               {wallets?.asset.symbol ?? "USDC"} on {wallets?.asset.chain ?? "base-sepolia"}
             </div>
           </div>
-          <div className="seg">
-            {(
+          <SegTabs
+            value={tab}
+            onValueChange={(v) => setTab(v as typeof tab)}
+            items={
               [
-                ["fund", "Fund"],
-                ["wallets", "Wallets"],
-                ["move", "Move"],
-                ["analytics", "Cash & forecast"],
-                ["recovery", "Recovery"],
+                { value: "fund", label: "Fund" },
+                { value: "wallets", label: "Wallets" },
+                { value: "move", label: "Move" },
+                { value: "analytics", label: "Cash & forecast" },
+                { value: "recovery", label: "Recovery" },
               ] as const
-            ).map(([k, label]) => (
-              <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>
-                {label}
-              </button>
-            ))}
-          </div>
+            }
+          />
         </div>
       </div>
 
@@ -254,9 +254,9 @@ export function TreasuryView({
                 <code className="mono" style={{ fontSize: 13, wordBreak: "break-all", flex: 1 }}>
                   {vault || "Generating…"}
                 </code>
-                <button className="ghost sm" disabled={!vault} onClick={() => void copyVault()}>
+                <Button variant="ghost" size="sm" disabled={!vault} onClick={() => void copyVault()}>
                   {copied ? "Copied" : "Copy"}
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -292,9 +292,9 @@ export function TreasuryView({
                   )}
                 />
                 <div style={{ display: "flex", alignItems: "flex-end" }}>
-                  <button type="submit" className="sm" style={{ width: "100%" }} disabled={locked}>
+                  <Button type="submit" size="sm" style={{ width: "100%" }} disabled={locked}>
                     <Icon name="plus" size={13} /> Credit org vault
-                  </button>
+                  </Button>
                 </div>
               </form>
             </Form>
@@ -354,9 +354,9 @@ export function TreasuryView({
                     </FormItem>
                   )}
                 />
-                <button type="submit" className="danger sm" disabled={locked}>
+                <Button type="submit" variant="destructive" size="sm" disabled={locked}>
                   Withdraw from vault
-                </button>
+                </Button>
               </form>
             </Form>
             <p className="faint" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.55 }}>
@@ -384,8 +384,7 @@ export function TreasuryView({
                   placeholder="Engineering"
                   style={{ flex: 1 }}
                 />
-                <button
-                  className="sm"
+                <Button size="sm"
                   disabled={locked || !deptName.trim()}
                   onClick={() =>
                     void act("Create department", async () => {
@@ -402,7 +401,7 @@ export function TreasuryView({
                   }
                 >
                   Create
-                </button>
+                </Button>
               </div>
               {(wallets?.departments.length ?? 0) === 0 ? (
                 <Empty icon="wallet">No departments yet.</Empty>
@@ -445,8 +444,7 @@ export function TreasuryView({
                   placeholder="Ops pool"
                   style={{ flex: 1, minWidth: 120 }}
                 />
-                <button
-                  className="sm"
+                <Button size="sm"
                   disabled={locked || !sharedName.trim()}
                   onClick={() =>
                     void act("Create shared wallet", async () => {
@@ -467,7 +465,7 @@ export function TreasuryView({
                   }
                 >
                   Create
-                </button>
+                </Button>
               </div>
               {(wallets?.agents.length ?? 0) > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
@@ -543,8 +541,7 @@ export function TreasuryView({
                             );
                           })}
                         </div>
-                        <button
-                          className="sm"
+                        <Button size="sm"
                           disabled={locked}
                           onClick={() =>
                             void act("Update shared members", async () => {
@@ -563,7 +560,7 @@ export function TreasuryView({
                           }
                         >
                           Save members ({members.length})
-                        </button>
+                        </Button>
                       </div>
                     );
                   })}
@@ -657,8 +654,7 @@ export function TreasuryView({
                   placeholder="25"
                 />
               </label>
-              <button
-                className="sm"
+              <Button size="sm"
                 disabled={locked || !from || !to || !amount.trim()}
                 onClick={() =>
                   void act("Move funds", async () => {
@@ -684,7 +680,7 @@ export function TreasuryView({
                 }
               >
                 <Icon name="swap" size={13} /> Execute move
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -713,8 +709,7 @@ export function TreasuryView({
                         <i /> {m.status}
                       </span>
                       {m.status === "pending" && (
-                        <button
-                          className="sm"
+                        <Button size="sm"
                           disabled={locked}
                           onClick={() =>
                             void act("Approve move", async () => {
@@ -735,7 +730,7 @@ export function TreasuryView({
                           }
                         >
                           Approve
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -823,8 +818,7 @@ export function TreasuryView({
               </div>
             </div>
             <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-              <button
-                className="ghost sm"
+              <Button variant="ghost" size="sm"
                 disabled={locked}
                 onClick={() =>
                   void act("Rotate vault key", async () => {
@@ -840,7 +834,7 @@ export function TreasuryView({
                 }
               >
                 Rotate vault key
-              </button>
+              </Button>
               <select
                 value={rotateAgentId}
                 disabled={readOnly}
@@ -854,8 +848,7 @@ export function TreasuryView({
                   </option>
                 ))}
               </select>
-              <button
-                className="ghost sm"
+              <Button variant="ghost" size="sm"
                 disabled={locked || !rotateAgentId}
                 onClick={() =>
                   void act("Rotate agent API key", async () => {
@@ -870,7 +863,7 @@ export function TreasuryView({
                 }
               >
                 Rotate agent key
-              </button>
+              </Button>
             </div>
             <p className="faint" style={{ fontSize: 12, lineHeight: 1.6, margin: 0 }}>
               Current vault:{" "}

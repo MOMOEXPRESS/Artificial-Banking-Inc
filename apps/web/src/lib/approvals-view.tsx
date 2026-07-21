@@ -5,6 +5,7 @@ import gsap from "gsap";
 import { Flip } from "gsap/Flip";
 import { Empty, Stat, fmtUsd, relTime } from "./ui";
 import type { Approval, Shared } from "./console-types";
+import { Button } from "@/components/ui/button";
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(Flip);
@@ -98,9 +99,9 @@ export function Approvals({
           <Empty
             icon="shield"
             action={
-              <button type="button" className="ghost sm" onClick={() => setView("playground")}>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setView("playground")}>
                 Run a playground mission
-              </button>
+              </Button>
             }
           >
             Inbox zero — nothing is waiting on you. Anything above your approval threshold will
@@ -137,13 +138,12 @@ export function Approvals({
                     <button disabled={busy || readOnly} onClick={() => void resolve(a.id, true)}>
                       Approve payment
                     </button>
-                    <button
-                      className="danger"
+                    <Button variant="destructive"
                       disabled={busy || readOnly}
                       onClick={() => void resolve(a.id, false)}
                     >
                       Deny
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>

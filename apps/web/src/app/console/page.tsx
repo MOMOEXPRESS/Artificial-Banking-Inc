@@ -58,6 +58,7 @@ import { Overview } from "../../lib/overview-view";
 import { Playground } from "../../lib/playground-view";
 import { Ledger } from "../../lib/ledger-view";
 import { Webhooks } from "../../lib/webhooks-view";
+import { Button } from "@/components/ui/button";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
@@ -615,9 +616,9 @@ export default function Console() {
               <div className="notif-head">
                 <span>Needs attention ({alerts.length})</span>
                 {alerts.length > 0 && (
-                  <button type="button" className="bare sm" onClick={() => setNotifOpen(false)}>
+                  <Button type="button" variant="bare" size="sm" onClick={() => setNotifOpen(false)}>
                     Mark reviewed
-                  </button>
+                  </Button>
                 )}
               </div>
               <ScrollArea className="max-h-80">
@@ -667,12 +668,12 @@ export default function Console() {
                 <b>{banner.title}</b>
                 <span>{banner.body}</span>
               </span>
-              <button className="light sm" onClick={() => setView(banner.goto)}>
+              <Button variant="secondary" size="sm" onClick={() => setView(banner.goto)}>
                 Review now
-              </button>
-              <button className="bare sm" onClick={() => setBanner(null)}>
+              </Button>
+              <Button variant="bare" size="sm" onClick={() => setBanner(null)}>
                 <Icon name="x" size={14} />
-              </button>
+              </Button>
             </div>
           )}
 

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Empty, Icon } from "./ui";
+import { Button } from "@/components/ui/button";
+import { SegTabs } from "@/components/ui/seg-tabs";
 
 type AgentRow = {
   id: string;
@@ -198,20 +200,18 @@ export function AgentsView({
           <h2 style={{ margin: 0 }}>Agents</h2>
           <div className="sub">Identity, groups, keys, sessions, freeze audit</div>
         </div>
-        <div className="seg">
-          {(
+        <SegTabs
+          value={tab}
+          onValueChange={(v) => setTab(v as typeof tab)}
+          items={
             [
-              ["roster", "Roster"],
-              ["groups", "Groups"],
-              ["sessions", "Sessions"],
-              ["freezes", "Freezes"],
+              { value: "roster", label: "Roster" },
+              { value: "groups", label: "Groups" },
+              { value: "sessions", label: "Sessions" },
+              { value: "freezes", label: "Freezes" },
             ] as const
-          ).map(([k, label]) => (
-            <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>
-              {label}
-            </button>
-          ))}
-        </div>
+          }
+        />
       </div>
 
       {tab === "roster" && (
@@ -229,13 +229,12 @@ export function AgentsView({
                   onChange={(e) => setNewName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && newName.trim() && void createAgent()}
                 />
-                <button
-                  className="sm"
+                <Button size="sm"
                   disabled={locked || !newName.trim()}
                   onClick={() => void createAgent()}
                 >
                   Create
-                </button>
+                </Button>
               </div>
             </div>
             {agents.length === 0 ? (
@@ -257,13 +256,12 @@ export function AgentsView({
                   {agents.map((a) => (
                     <tr key={a.id} className={selected === a.id ? "on" : undefined}>
                       <td>
-                        <button
-                          className="ghost sm"
+                        <Button variant="ghost" size="sm"
                           style={{ padding: 0, fontWeight: 600 }}
                           onClick={() => void loadDetail(a.id)}
                         >
                           {a.name}
-                        </button>
+                        </Button>
                       </td>
                       <td>
                         <span className={`pill ${statusTone(a.status)}`}>
@@ -277,8 +275,7 @@ export function AgentsView({
                       <td>
                         <div className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
                           {a.status === "active" && (
-                            <button
-                              className="sm ghost"
+                            <Button variant="ghost" size="sm"
                               disabled={locked}
                               onClick={() =>
                                 void act("Freeze", async () => {
@@ -292,11 +289,10 @@ export function AgentsView({
                               }
                             >
                               Freeze
-                            </button>
+                            </Button>
                           )}
                           {a.status === "frozen" && (
-                            <button
-                              className="sm ghost"
+                            <Button variant="ghost" size="sm"
                               disabled={locked}
                               onClick={() =>
                                 void act("Unfreeze", async () => {
@@ -310,11 +306,10 @@ export function AgentsView({
                               }
                             >
                               Unfreeze
-                            </button>
+                            </Button>
                           )}
                           {a.status !== "archived" && (
-                            <button
-                              className="sm ghost"
+                            <Button variant="ghost" size="sm"
                               disabled={locked}
                               onClick={() =>
                                 void act("Rotate key", async () => {
@@ -335,7 +330,7 @@ export function AgentsView({
                               }
                             >
                               Rotate
-                            </button>
+                            </Button>
                           )}
                         </div>
                       </td>
@@ -496,8 +491,7 @@ export function AgentsView({
                 </div>
 
                 <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-                  <button
-                    className="sm ghost"
+                  <Button variant="ghost" size="sm"
                     disabled={locked || selectedAgent?.status === "archived"}
                     onClick={() =>
                       void act("Revoke keys", async () => {
@@ -513,10 +507,9 @@ export function AgentsView({
                     }
                   >
                     Revoke all keys
-                  </button>
+                  </Button>
                   {selectedAgent?.status !== "archived" ? (
-                    <button
-                      className="sm ghost"
+                    <Button variant="ghost" size="sm"
                       disabled={locked}
                       onClick={() =>
                         void act("Archive", async () => {
@@ -530,10 +523,9 @@ export function AgentsView({
                       }
                     >
                       Archive
-                    </button>
+                    </Button>
                   ) : (
-                    <button
-                      className="sm"
+                    <Button size="sm"
                       disabled={locked}
                       onClick={() =>
                         void act("Unarchive", async () => {
@@ -554,10 +546,9 @@ export function AgentsView({
                       }
                     >
                       Unarchive
-                    </button>
+                    </Button>
                   )}
-                  <button
-                    className="sm"
+                  <Button size="sm"
                     disabled={locked || selectedAgent?.status !== "active"}
                     onClick={() =>
                       void act("Mint session", async () => {
@@ -581,7 +572,7 @@ export function AgentsView({
                     }
                   >
                     Mint 24h session
-                  </button>
+                  </Button>
                 </div>
 
                 {revealedSession && (
@@ -674,13 +665,12 @@ export function AgentsView({
                 disabled={readOnly}
                 onChange={(e) => setGroupName(e.target.value)}
               />
-              <button
-                className="sm"
+              <Button size="sm"
                 disabled={locked || !groupName.trim()}
                 onClick={() => void createGroup()}
               >
                 Create group
-              </button>
+              </Button>
             </div>
           </div>
           <div
@@ -731,8 +721,7 @@ export function AgentsView({
                       </div>
                       {g.status === "active" && (
                         <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-                          <button
-                            className="sm danger"
+                          <Button variant="destructive" size="sm"
                             disabled={locked || !g.members.length}
                             onClick={() =>
                               void act("Freeze desk", async () => {
@@ -751,9 +740,8 @@ export function AgentsView({
                             }
                           >
                             Freeze desk
-                          </button>
-                          <button
-                            className="sm ghost"
+                          </Button>
+                          <Button variant="ghost" size="sm"
                             disabled={locked || !g.members.length}
                             onClick={() =>
                               void act("Unfreeze desk", async () => {
@@ -769,9 +757,8 @@ export function AgentsView({
                             }
                           >
                             Unfreeze
-                          </button>
-                          <button
-                            className="sm"
+                          </Button>
+                          <Button size="sm"
                             disabled={
                               locked ||
                               !g.members.length ||
@@ -796,7 +783,7 @@ export function AgentsView({
                             }
                           >
                             Fund members
-                          </button>
+                          </Button>
                           <input
                             className="sm"
                             style={{ width: 72 }}
@@ -808,8 +795,7 @@ export function AgentsView({
                             placeholder="USDC"
                             title="USDC per member"
                           />
-                          <button
-                            className="sm ghost"
+                          <Button variant="ghost" size="sm"
                             disabled={locked}
                             onClick={() =>
                               void act("Archive group", async () => {
@@ -822,7 +808,7 @@ export function AgentsView({
                             }
                           >
                             Archive
-                          </button>
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -841,8 +827,7 @@ export function AgentsView({
                             </option>
                           ))}
                         </select>
-                        <button
-                          className="sm ghost"
+                        <Button variant="ghost" size="sm"
                           disabled={locked}
                           onClick={() =>
                             void act("Assign to group", async () => {
@@ -867,7 +852,7 @@ export function AgentsView({
                           }
                         >
                           Assign
-                        </button>
+                        </Button>
                       </div>
                     )}
                   </div>
@@ -921,8 +906,7 @@ export function AgentsView({
                       </td>
                       <td>
                         {!s.revokedAt && (
-                          <button
-                            className="sm ghost"
+                          <Button variant="ghost" size="sm"
                             disabled={locked}
                             onClick={() =>
                               void act("Revoke session", async () => {
@@ -934,7 +918,7 @@ export function AgentsView({
                             }
                           >
                             Revoke
-                          </button>
+                          </Button>
                         )}
                       </td>
                     </tr>

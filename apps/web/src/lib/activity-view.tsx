@@ -5,6 +5,7 @@ import { Empty, Icon, Stat, fmtTime, fmtUsd, relTime } from "./ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Decision } from "./console-types";
+import { Button } from "@/components/ui/button";
 
 export function Activity({
   decisions,
@@ -131,9 +132,9 @@ export function Activity({
                 ))}
               </TabsList>
             </Tabs>
-            <button className="ghost sm" onClick={() => void exportCsv()} disabled={!decisions.length}>
+            <Button variant="ghost" size="sm" onClick={() => void exportCsv()} disabled={!decisions.length}>
               <Icon name="download" size={13} /> CSV
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -178,8 +179,7 @@ export function Activity({
             </SelectContent>
           </Select>
           {filtersActive && (
-            <button
-              className="bare sm"
+            <Button variant="bare" size="sm"
               onClick={() => {
                 setFilter("all");
                 setAgentF("all");
@@ -188,7 +188,7 @@ export function Activity({
               }}
             >
               <Icon name="x" size={12} /> Clear filters
-            </button>
+            </Button>
           )}
         </div>
         {rows.length === 0 ? (

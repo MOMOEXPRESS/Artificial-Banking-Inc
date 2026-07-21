@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 
 /* ============================================================== formatters */
 
@@ -332,14 +333,13 @@ export function Calendar({ marks }: { marks: number[] }) {
             <Icon name="arrowRight" />
           </span>
         </button>
-        <button
-          className="bare"
+        <Button variant="bare"
           onClick={() => setOffset(0)}
           title={offset === 0 ? "Current month" : "Back to this month"}
           style={{ fontSize: 14.5, fontWeight: 600, color: "var(--text)" }}
         >
           {first.toLocaleDateString([], { month: "long", year: "numeric" })}
-        </button>
+        </Button>
         <button
           className="round"
           aria-label="Next month"

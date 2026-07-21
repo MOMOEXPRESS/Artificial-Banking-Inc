@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Empty, Icon, Meter, Stat, fmtDate, fmtTime, fmtUsd, relTime } from "./ui";
+import { Button } from "@/components/ui/button";
 
 /* ============================================================ markdown */
 
@@ -214,9 +215,9 @@ export function AIPanel({
           {answer.answer}
           {answer.goto && (
             <div style={{ marginTop: 9 }}>
-              <button className="ghost sm" onClick={() => onGoto(answer.goto!)}>
+              <Button variant="ghost" size="sm" onClick={() => onGoto(answer.goto!)}>
                 Open {answer.goto} <Icon name="arrowRight" size={12} />
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -356,9 +357,9 @@ export function InvoicesView({
                 the treasury as revenue.
               </div>
             </div>
-            <button className="sm" disabled={readOnly} onClick={() => setOpen((v) => !v)}>
+            <Button size="sm" disabled={readOnly} onClick={() => setOpen((v) => !v)}>
               <Icon name="plus" size={13} /> New invoice
-            </button>
+            </Button>
           </div>
 
           {open && (
@@ -406,9 +407,9 @@ export function InvoicesView({
                 >
                   Raise invoice
                 </button>
-                <button className="ghost" onClick={() => setOpen(false)}>
+                <Button variant="ghost" onClick={() => setOpen(false)}>
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -443,12 +444,12 @@ export function InvoicesView({
                   <div className="inv-amt">{fmtUsd(inv.amountUsdc)}</div>
                   {inv.status !== "paid" && inv.status !== "void" ? (
                     <div className="row" style={{ flexWrap: "nowrap" }}>
-                      <button className="sm" disabled={locked} onClick={() => void pay(inv.id)}>
+                      <Button size="sm" disabled={locked} onClick={() => void pay(inv.id)}>
                         Mark paid
-                      </button>
-                      <button className="ghost sm" disabled={locked} onClick={() => void voidIt(inv.id)}>
+                      </Button>
+                      <Button variant="ghost" size="sm" disabled={locked} onClick={() => void voidIt(inv.id)}>
                         Void
-                      </button>
+                      </Button>
                     </div>
                   ) : (
                     <span className="faint" style={{ fontSize: 11.5, minWidth: 78, textAlign: "right" }}>
@@ -600,12 +601,12 @@ export function WorkView({
                 <div className="row">
                   {sel.deliverableMd && (
                     <>
-                      <button className="ghost sm" onClick={() => download(sel)}>
+                      <Button variant="ghost" size="sm" onClick={() => download(sel)}>
                         <Icon name="download" size={13} /> Markdown
-                      </button>
-                      <button className="sm" disabled={busy} onClick={() => void bill(sel)}>
+                      </Button>
+                      <Button size="sm" disabled={busy} onClick={() => void bill(sel)}>
                         Bill this work
-                      </button>
+                      </Button>
                     </>
                   )}
                 </div>

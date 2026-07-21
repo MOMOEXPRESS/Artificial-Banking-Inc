@@ -5,6 +5,8 @@ import { Empty, Icon, fmtUsd, relTime } from "./ui";
 import { InvoicesView, type Invoice, type InvoiceStats } from "./views";
 import { Approvals } from "./approvals-view";
 import type { Approval, OrgView, View } from "./console-types";
+import { Button } from "@/components/ui/button";
+import { SegTabs } from "@/components/ui/seg-tabs";
 
 type Agent = { id: string; name: string; status: string };
 type Rail = { id: string; tools: string[]; description: string; status: string };
@@ -145,24 +147,25 @@ export function PaymentsView({
             {readOnly ? " · viewer read-only" : ""}
           </div>
         </div>
-        <div className="seg">
-          {(
+        <SegTabs
+          value={tab}
+          onValueChange={(v) => setTab(v as typeof tab)}
+          items={
             [
-              ["approvals", pending.length ? `Approvals (${pending.length})` : "Approvals"],
-              ["recent", "Recent"],
-              ["invoices", "Invoices"],
-              ["escrows", "Escrows"],
-              ["schedule", "Schedule"],
-              ["batch", "Batch"],
-              ["subs", "Subscriptions"],
-              ["rails", "Rails"],
+              {
+                value: "approvals",
+                label: pending.length ? `Approvals (${pending.length})` : "Approvals",
+              },
+              { value: "recent", label: "Recent" },
+              { value: "invoices", label: "Invoices" },
+              { value: "escrows", label: "Escrows" },
+              { value: "schedule", label: "Schedule" },
+              { value: "batch", label: "Batch" },
+              { value: "subs", label: "Subscriptions" },
+              { value: "rails", label: "Rails" },
             ] as const
-          ).map(([k, label]) => (
-            <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>
-              {label}
-            </button>
-          ))}
-        </div>
+          }
+        />
       </div>
 
       {tab === "approvals" && setToast && setView && agentName ? (
@@ -199,8 +202,7 @@ export function PaymentsView({
             style={{ width: "100%", fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
           />
           <div className="row" style={{ marginTop: 12, gap: 8 }}>
-            <button
-              className="sm"
+            <Button size="sm"
               disabled={locked}
               onClick={() =>
                 void act("Batch enqueue", async () => {
@@ -229,9 +231,8 @@ export function PaymentsView({
               }
             >
               Enqueue batch
-            </button>
-            <button
-              className="sm ghost"
+            </Button>
+            <Button variant="ghost" size="sm"
               disabled={readOnly || !agents[0]}
               onClick={() => {
                 const a = agents[0]!;
@@ -241,7 +242,7 @@ export function PaymentsView({
               }}
             >
               Prefill sample
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -305,20 +306,18 @@ export function PaymentsView({
                       <td>
                         {e.state === "locked" ? (
                           <div className="row" style={{ flexWrap: "nowrap" }}>
-                            <button
-                              className="sm"
+                            <Button size="sm"
                               disabled={locked}
                               onClick={() => void resolveEscrow(e.id, "release")}
                             >
                               Release
-                            </button>
-                            <button
-                              className="danger sm"
+                            </Button>
+                            <Button variant="destructive" size="sm"
                               disabled={locked}
                               onClick={() => void resolveEscrow(e.id, "refund")}
                             >
                               Refund
-                            </button>
+                            </Button>
                           </div>
                         ) : e.state === "settling" ? (
                           <span className="faint">settling…</span>
@@ -339,9 +338,9 @@ export function PaymentsView({
         <div className="card">
           <div className="card-head">
             <h2>Settled payments</h2>
-            <button className="ghost sm" disabled={busy} onClick={() => void refresh()}>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => void refresh()}>
               Refresh
-            </button>
+            </Button>
           </div>
           {!recent.length ? (
             <Empty icon="zap">
@@ -575,8 +574,7 @@ export function PaymentsView({
                       </td>
                       <td>
                         {s.status === "active" && (
-                          <button
-                            className="ghost sm"
+                          <Button variant="ghost" size="sm"
                             disabled={locked}
                             onClick={() =>
                               void act("Pause", async () => {
@@ -588,11 +586,10 @@ export function PaymentsView({
                             }
                           >
                             Pause
-                          </button>
+                          </Button>
                         )}
                         {s.status === "paused" && (
-                          <button
-                            className="ghost sm"
+                          <Button variant="ghost" size="sm"
                             disabled={locked}
                             onClick={() =>
                               void act("Resume", async () => {
@@ -604,11 +601,10 @@ export function PaymentsView({
                             }
                           >
                             Resume
-                          </button>
+                          </Button>
                         )}
                         {s.status !== "cancelled" && (
-                          <button
-                            className="ghost sm"
+                          <Button variant="ghost" size="sm"
                             disabled={locked}
                             onClick={() =>
                               void act("Cancel", async () => {
@@ -620,7 +616,7 @@ export function PaymentsView({
                             }
                           >
                             Cancel
-                          </button>
+                          </Button>
                         )}
                       </td>
                     </tr>
