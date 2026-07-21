@@ -53,20 +53,26 @@ Optional CI: add repo secret `VERCEL_TOKEN`, then
 **Actions → Vercel harden → Run workflow** (also runs on pushes that touch the
 harden script).
 
-## Why builds used to 404 / red ✕
+## Why builds used to 404 / red ✕ / “unused-build-settings”
 
 A red ✕ on GitHub Deployments means the build **failed** or was **blocked**.
 Until a deploy is **Ready**, no URL serves the app.
 
-Repo guards already in place:
+**Do not put a legacy `"builds"` array in a root `vercel.json`.** That forces
+the old builder path and Vercel prints:
 
-1. **Root `vercel.json`** points `@vercel/next` at `apps/web/package.json` so
-   deploys work even if Root Directory is blank.
-2. **Zod ≥ 3.25** for `@hookform/resolvers`.
-3. Prefer still setting **Root Directory** = `apps/web` in the dashboard.
-4. **Output Directory** must stay **empty** (never `.next`).
-5. Production only updates from **Production Branch** `main`.
-6. Hobby may **block** agent commits — **Redeploy** as the account owner.
+> Due to `builds` existing in your configuration file, the Build and
+> Development Settings defined in your Project Settings will not apply.
+
+Current setup (Project Settings **do** apply):
+
+1. **No root `vercel.json`** — removed so dashboard settings are not ignored.
+2. **Root Directory** = `apps/web` (set via dashboard or `npm run vercel:harden`).
+3. **Include source files outside Root Directory** = on (monorepo `packages/*`).
+4. **`apps/web/vercel.json`** — `framework: nextjs` + workspace install/build.
+5. **Output Directory** empty (never `.next`).
+6. **Zod ≥ 3.25** for `@hookform/resolvers`.
+7. Production Branch = `main`. Hobby may **block** agent commits — Redeploy as owner.
 
 ## API on Vercel (no more opaque `/abi-api` 404)
 
