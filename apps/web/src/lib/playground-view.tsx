@@ -8,7 +8,7 @@ import type { Approval, Session, Shared } from "./console-types";
 import type { Policy } from "./policy-view";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
 
 export type MissionState = {

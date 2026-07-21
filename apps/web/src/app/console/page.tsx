@@ -61,7 +61,7 @@ import { Ledger } from "../../lib/ledger-view";
 import { Webhooks } from "../../lib/webhooks-view";
 import { Activity } from "../../lib/activity-view";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
 
 const NAV: { key: View; label: string; icon: string; group: string }[] = [
