@@ -99,14 +99,18 @@ export function AgentsView({
 
   const [rosterReady, setRosterReady] = useState(false);
   const [fundAmounts, setFundAmounts] = useState<Record<string, string>>({});
+  const [fundFrom, setFundFrom] = useState<Record<string, string>>({});
+  const [budgets, setBudgets] = useState<{ id: string; name: string; availableUsdc: string }[]>([]);
 
   const refreshRoster = useCallback(async () => {
-    const [a, g] = await Promise.all([
+    const [a, g, b] = await Promise.all([
       gFetch("/v1/guardian/agents").then((x) => x.json()),
       gFetch("/v1/guardian/agent-groups").then((x) => x.json()),
+      gFetch("/v1/guardian/budgets").then((x) => x.json()).catch(() => ({ budgets: [] })),
     ]);
     setAgents(a.agents ?? []);
     setGroups(g.groups ?? []);
+    setBudgets(b.budgets ?? []);
     setRosterReady(true);
   }, [gFetch]);
 
@@ -206,7 +210,7 @@ export function AgentsView({
           items={
             [
               { value: "roster", label: "Roster" },
-              { value: "groups", label: "Groups" },
+              { value: "groups", label: "Ops labels" },
               { value: "sessions", label: "Sessions" },
               { value: "freezes", label: "Freezes" },
             ] as const
@@ -652,15 +656,17 @@ export function AgentsView({
           )}
           <div className="card-head">
             <div>
-              <h2>Agent groups</h2>
+              <h2>Ops labels</h2>
               <div className="sub">
-                Desks / swarms with real controls — freeze the whole desk, fund members equally,
-                or assign agents in bulk. Membership is stored on each agent&apos;s profile.
+                Optional tags for freeze / bulk stipend — <b>not wallets</b>. Money lives in
+                Treasury budgets and each agent&apos;s own spend balance. Prefer separate agents
+                per job (e.g. writer-finance vs writer-research) instead of one agent in many money
+                clubs.
               </div>
             </div>
             <div className="row" style={{ gap: 8 }}>
               <input
-                placeholder="e.g. Research Desk"
+                placeholder="e.g. research-ops"
                 value={groupName}
                 disabled={readOnly}
                 onChange={(e) => setGroupName(e.target.value)}
@@ -669,7 +675,7 @@ export function AgentsView({
                 disabled={locked || !groupName.trim()}
                 onClick={() => void createGroup()}
               >
-                Create group
+                Create label
               </Button>
             </div>
           </div>
@@ -678,18 +684,18 @@ export function AgentsView({
             style={{ marginBottom: 14 }}
           >
             <span className="txt">
-              <b>Why groups exist</b>
+              <b>Budgets ≠ labels</b>
               <span>
-                A group is an operating unit: one kill-switch for every member, one stipend split
-                when you fund the desk, and a label for Insights / activity. Without actions it
-                would only be a tag — use Freeze desk / Fund members below.
+                Create Finance / Research under Treasury → Budgets. Fund members from a budget (or
+                the org vault). See{" "}
+                <span className="mono">docs/decisions/2026-07-21-budgets-vs-team-membership.md</span>
+                .
               </span>
             </span>
           </div>
           {groups.length === 0 ? (
             <Empty icon="robot">
-              No groups yet — create <b>Research Desk</b> or <b>Writer Swarm</b>, then assign
-              agents from a profile or with Assign here.
+              No ops labels yet — optional. Create agents and fund them from a budget in Treasury.
             </Empty>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -765,25 +771,52 @@ export function AgentsView({
                               !Number(fundAmounts[g.id] ?? "10")
                             }
                             onClick={() =>
-                              void act("Fund desk", async () => {
+                              void act("Fund members", async () => {
                                 const each = (fundAmounts[g.id] ?? "10").trim();
                                 if (!each) return;
+                                const src = fundFrom[g.id] ?? "org";
+                                const body: {
+                                  amountUsdcEach: string;
+                                  fromScope: "org" | "department";
+                                  fromId?: string;
+                                } = {
+                                  amountUsdcEach: each,
+                                  fromScope: src === "org" ? "org" : "department",
+                                };
+                                if (src !== "org") body.fromId = src;
                                 const res = await gFetch(
                                   `/v1/guardian/agent-groups/${g.id}/fund`,
                                   {
                                     method: "POST",
-                                    body: JSON.stringify({ amountUsdcEach: each }),
+                                    body: JSON.stringify(body),
                                   },
                                 );
                                 const d = await res.json();
                                 if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
                                 await refresh();
-                                return `Funded ${d.funded?.length ?? 0} agents · $${d.amountUsdcEach} each ($${d.totalUsdc} total).`;
+                                return `Funded ${d.funded?.length ?? 0} agents · $${d.amountUsdcEach} each from ${d.sourceLabel} ($${d.totalUsdc} total).`;
                               })
                             }
                           >
                             Fund members
                           </Button>
+                          <select
+                            className="sm"
+                            style={{ minWidth: 140 }}
+                            disabled={locked || !g.members.length}
+                            value={fundFrom[g.id] ?? "org"}
+                            onChange={(e) =>
+                              setFundFrom((m) => ({ ...m, [g.id]: e.target.value }))
+                            }
+                            title="Where the stipend comes from"
+                          >
+                            <option value="org">From org vault</option>
+                            {budgets.map((b) => (
+                              <option key={b.id} value={b.id}>
+                                From budget · {b.name} (${b.availableUsdc})
+                              </option>
+                            ))}
+                          </select>
                           <input
                             className="sm"
                             style={{ width: 72 }}

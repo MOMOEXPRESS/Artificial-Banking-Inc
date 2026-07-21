@@ -436,7 +436,7 @@ export function registerAgentRoutes(
     }, { ownerOnly: true }),
   );
 
-  /** Split an equal stipend from org treasury across all active group members. */
+  /** Split an equal stipend across group members from org vault or a budget. */
   app.post(
     "/v1/guardian/agent-groups/:id/fund",
     guardianRoute((org, req, res) => {
@@ -444,7 +444,14 @@ export function registerAgentRoutes(
       if (!group || group.orgId !== org.id || group.status !== "active") {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
       }
-      const body = z.object({ amountUsdcEach: z.string() }).parse(req.body);
+      const body = z
+        .object({
+          amountUsdcEach: z.string(),
+          /** Picture A: fund from org vault or a budget (department ledger). */
+          fromScope: z.enum(["org", "department"]).default("org"),
+          fromId: z.string().optional(),
+        })
+        .parse(req.body);
       const each = parseUsdcToMicro(body.amountUsdcEach);
       if (each <= 0n) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "amount must be positive" } });
@@ -456,12 +463,32 @@ export function registerAgentRoutes(
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "group has no members" } });
       }
       const total = each * BigInt(members.length);
-      const orgAvail = store.getAccountMap(org.id).get(accountId("org", org.id))?.balanceMicro ?? 0n;
-      if (total > orgAvail) {
+
+      let fromAvailableId: string;
+      let sourceLabel: string;
+      if (body.fromScope === "department") {
+        if (!body.fromId) {
+          return res.status(400).json({
+            error: { code: "VALIDATION_ERROR", message: "fromId (budget id) is required when fromScope is department" },
+          });
+        }
+        const dept = store.getDepartment(body.fromId);
+        if (!dept || dept.orgId !== org.id) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "budget" } });
+        }
+        fromAvailableId = accountId("department", dept.id);
+        sourceLabel = `${dept.name} budget`;
+      } else {
+        fromAvailableId = accountId("org", org.id);
+        sourceLabel = "org vault";
+      }
+
+      const sourceAvail = store.getAccountMap(org.id).get(fromAvailableId)?.balanceMicro ?? 0n;
+      if (total > sourceAvail) {
         return res.status(400).json({
           error: {
             code: "INSUFFICIENT_STIPEND",
-            message: `Need ${formatMicroToUsdc(total)}, org has ${formatMicroToUsdc(orgAvail)}`,
+            message: `Need $${formatMicroToUsdc(total)} total ($${formatMicroToUsdc(each)} × ${members.length} agents) from ${sourceLabel}; ${sourceLabel} has $${formatMicroToUsdc(sourceAvail)}`,
           },
         });
       }
@@ -471,10 +498,10 @@ export function registerAgentRoutes(
           transferAvailable({
             orgId: org.id,
             journalId: id("j"),
-            fromAvailableId: accountId("org", org.id),
+            fromAvailableId,
             toAvailableId: accountId("agent", agent.id),
             amountMicro: each,
-            memo: `group_fund:${group.id}`,
+            memo: `group_fund:${group.id}:${body.fromScope}`,
           }),
         ]);
         funded.push(agent.id);
@@ -485,6 +512,9 @@ export function registerAgentRoutes(
         funded,
         amountUsdcEach: body.amountUsdcEach,
         totalUsdc: formatMicroToUsdc(total),
+        fromScope: body.fromScope,
+        fromId: body.fromId ?? org.id,
+        sourceLabel,
       });
     }, { ownerOnly: true }),
   );

@@ -94,9 +94,6 @@ export function TreasuryView({
   const [tab, setTab] = useState<"fund" | "wallets" | "move" | "analytics" | "recovery">("fund");
 
   const [deptName, setDeptName] = useState("");
-  const [sharedName, setSharedName] = useState("");
-  const [sharedCreateMembers, setSharedCreateMembers] = useState<string[]>([]);
-  const [sharedEditMembers, setSharedEditMembers] = useState<Record<string, string[]>>({});
   const [rotateAgentId, setRotateAgentId] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -153,7 +150,7 @@ export function TreasuryView({
     for (const d of wallets.departments) {
       allTargets.push({
         key: `department:${d.id}`,
-        label: `Dept · ${d.name} · ${fmt(d.availableUsdc)}`,
+        label: `Budget · ${d.name} · ${fmt(d.availableUsdc)}`,
         ref: { scope: "department", id: d.id },
       });
     }
@@ -167,7 +164,7 @@ export function TreasuryView({
     for (const s of wallets.shared) {
       allTargets.push({
         key: `shared:${s.id}`,
-        label: `Shared · ${s.name} · ${fmt(s.availableUsdc)}`,
+        label: `Legacy pool · ${s.name} · ${fmt(s.availableUsdc)}`,
         ref: { scope: "shared", id: s.id },
       });
     }
@@ -213,8 +210,8 @@ export function TreasuryView({
                   value: "wallets",
                   label: (
                     <span className="seg-label">
-                      <Icon name="layers" size={12} /> Wallets
-                    </span>
+                  <Icon name="layers" size={12} /> Budgets
+                </span>
                   ),
                 },
                 {
@@ -248,21 +245,21 @@ export function TreasuryView({
       </div>
 
       <div className="grid g-4" style={{ marginBottom: 12 }}>
-        <Stat label="Liquid total" value={fmt(forecast?.totalLiquidUsdc)} foot="all wallets" />
+        <Stat label="Liquid total" value={fmt(forecast?.totalLiquidUsdc)} foot="org + budgets + agents" />
         <Stat
           label="Org vault"
           value={fmt(wallets?.org.availableUsdc)}
           foot={vault ? `${vault.slice(0, 8)}…${vault.slice(-4)}` : "no address"}
         />
         <Stat
-          label="With agents"
-          value={fmt(forecast?.agentAvailableUsdc)}
-          foot={`${wallets?.agents.length ?? 0} agents`}
+          label="In budgets"
+          value={fmt(forecast?.deptAvailableUsdc)}
+          foot="not spendable until funded to agents"
         />
         <Stat
-          label="Runway"
-          value={forecast?.runwayDays == null ? "∞" : `${forecast.runwayDays}d`}
-          foot={`burn ${fmt(forecast?.avgDailySpendUsdc)}/day`}
+          label="With agents"
+          value={fmt(forecast?.agentAvailableUsdc)}
+          foot={`${wallets?.agents.length ?? 0} spend wallets`}
         />
       </div>
 
@@ -414,217 +411,136 @@ export function TreasuryView({
             </div>
             <span className="treasury-scope-line" />
             <div className="treasury-scope-node">
-              <Icon name="layers" size={14} /> Depts
-            </div>
-            <span className="treasury-scope-line" />
-            <div className="treasury-scope-node">
-              <Icon name="wallet" size={14} /> Shared
+              <Icon name="layers" size={14} /> Budgets
             </div>
             <span className="treasury-scope-line" />
             <div className="treasury-scope-node">
               <Icon name="robot" size={14} /> Agents
             </div>
-          </div>
-
-          <div className="grid g-2 fill" style={{ marginBottom: 12 }}>
-            <div className="card">
-              <div className="card-head">
-                <div>
-                  <h2>Departments</h2>
-                  <div className="sub">Budgets by team — Engineering, Growth, Support…</div>
-                </div>
-              </div>
-              <div className="row" style={{ marginBottom: 12, gap: 8 }}>
-                <input
-                  value={deptName}
-                  disabled={readOnly}
-                  onChange={(e) => setDeptName(e.target.value)}
-                  placeholder="Engineering"
-                  style={{ flex: 1 }}
-                />
-                <Button size="sm"
-                  disabled={locked || !deptName.trim()}
-                  onClick={() =>
-                    void act("Create department", async () => {
-                      const res = await gFetch("/v1/guardian/departments", {
-                        method: "POST",
-                        body: JSON.stringify({ name: deptName.trim() }),
-                      });
-                      const j = await res.json();
-                      if (!res.ok) throw new Error(j.error?.message ?? "Failed");
-                      setDeptName("");
-                      await refresh();
-                      return `Department ${j.department.name} created`;
-                    })
-                  }
-                >
-                  Create
-                </Button>
-              </div>
-              {(wallets?.departments.length ?? 0) === 0 ? (
-                <Empty icon="wallet">No departments yet.</Empty>
-              ) : (
-                <div className="treasury-tile-grid">
-                  {wallets!.departments.map((d) => (
-                    <button
-                      key={d.id}
-                      type="button"
-                      className="treasury-tile"
-                      onClick={() => {
-                        setFrom(`department:${d.id}`);
-                        setTab("move");
-                      }}
-                    >
-                      <span className="treasury-tile-icon">
-                        <Icon name="layers" size={14} />
-                      </span>
-                      <span className="treasury-tile-name">{d.name}</span>
-                      <span className="treasury-tile-amt mono">{fmt(d.availableUsdc)}</span>
-                      <span className="treasury-tile-meta faint">held {fmt(d.heldUsdc)}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="card">
-              <div className="card-head">
-                <div>
-                  <h2>Shared pools</h2>
-                  <div className="sub">Multi-agent wallets — pick members on create or edit below</div>
-                </div>
-              </div>
-              <div className="row" style={{ marginBottom: 8, gap: 8, flexWrap: "wrap" }}>
-                <input
-                  value={sharedName}
-                  disabled={readOnly}
-                  onChange={(e) => setSharedName(e.target.value)}
-                  placeholder="Ops pool"
-                  style={{ flex: 1, minWidth: 120 }}
-                />
-                <Button size="sm"
-                  disabled={locked || !sharedName.trim()}
-                  onClick={() =>
-                    void act("Create shared wallet", async () => {
-                      const res = await gFetch("/v1/guardian/shared-wallets", {
-                        method: "POST",
-                        body: JSON.stringify({
-                          name: sharedName.trim(),
-                          memberAgentIds: sharedCreateMembers,
-                        }),
-                      });
-                      const j = await res.json();
-                      if (!res.ok) throw new Error(j.error?.message ?? "Failed");
-                      setSharedName("");
-                      setSharedCreateMembers([]);
-                      await refresh();
-                      return `Shared wallet ${j.wallet.name} created · ${sharedCreateMembers.length} member(s)`;
-                    })
-                  }
-                >
-                  Create
-                </Button>
-              </div>
-              {(wallets?.agents.length ?? 0) > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-                  {wallets!.agents.map((a) => {
-                    const on = sharedCreateMembers.includes(a.id);
-                    return (
-                      <button
-                        key={a.id}
-                        type="button"
-                        className={`sm ghost ${on ? "on" : ""}`}
-                        disabled={readOnly}
-                        onClick={() =>
-                          setSharedCreateMembers((ids) =>
-                            on ? ids.filter((x) => x !== a.id) : [...ids, a.id],
-                          )
-                        }
-                      >
-                        {on ? "✓ " : ""}
-                        {a.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {(wallets?.shared.length ?? 0) === 0 ? (
-                <Empty icon="wallet">No shared wallets yet.</Empty>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {wallets!.shared.map((s) => {
-                    const members =
-                      sharedEditMembers[s.id] ?? s.memberAgentIds ?? [];
-                    return (
-                      <div key={s.id} className="treasury-shared-card">
-                        <div className="between" style={{ marginBottom: 8 }}>
-                          <b>{s.name}</b>
-                          <span className="mono">{fmt(s.availableUsdc)}</span>
-                        </div>
-                        <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>
-                          Members — toggle then Save
-                        </div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-                          {(wallets?.agents ?? []).map((a) => {
-                            const on = members.includes(a.id);
-                            return (
-                              <button
-                                key={a.id}
-                                type="button"
-                                className={`sm ghost ${on ? "on" : ""}`}
-                                disabled={readOnly}
-                                onClick={() =>
-                                  setSharedEditMembers((m) => {
-                                    const cur = m[s.id] ?? s.memberAgentIds ?? [];
-                                    return {
-                                      ...m,
-                                      [s.id]: on
-                                        ? cur.filter((x) => x !== a.id)
-                                        : [...cur, a.id],
-                                    };
-                                  })
-                                }
-                              >
-                                {on ? "✓ " : ""}
-                                {a.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <Button size="sm"
-                          disabled={locked}
-                          onClick={() =>
-                            void act("Update shared members", async () => {
-                              const res = await gFetch(
-                                `/v1/guardian/shared-wallets/${s.id}/members`,
-                                {
-                                  method: "POST",
-                                  body: JSON.stringify({ memberAgentIds: members }),
-                                },
-                              );
-                              const j = await res.json();
-                              if (!res.ok) throw new Error(j.error?.message ?? "Failed");
-                              await refresh();
-                              return `Updated members on ${s.name}`;
-                            })
-                          }
-                        >
-                          Save members ({members.length})
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+            <span className="treasury-scope-line" />
+            <div className="treasury-scope-node">
+              <Icon name="zap" size={14} /> Pay
             </div>
           </div>
+
+          <div
+            className="banner info"
+            style={{ marginBottom: 12 }}
+          >
+            <span className="txt">
+              <b>How money works</b>
+              <span>
+                Budgets are cost centers (Finance, Research) — they hold money, they are not teams.
+                Fund an agent&apos;s own wallet from a budget, then the agent pays under policy.
+                Prefer <span className="mono">writer-finance</span> and{" "}
+                <span className="mono">writer-research</span> over one agent in many pools.
+              </span>
+            </span>
+          </div>
+
+          <div className="card" style={{ marginBottom: 12 }}>
+            <div className="card-head">
+              <div>
+                <h2>Budgets</h2>
+                <div className="sub">
+                  Money envelopes only — no membership. Create Finance, Research, Engineering…
+                </div>
+              </div>
+            </div>
+            <div className="row" style={{ marginBottom: 12, gap: 8 }}>
+              <input
+                value={deptName}
+                disabled={readOnly}
+                onChange={(e) => setDeptName(e.target.value)}
+                placeholder="Finance"
+                style={{ flex: 1 }}
+              />
+              <Button
+                size="sm"
+                disabled={locked || !deptName.trim()}
+                onClick={() =>
+                  void act("Create budget", async () => {
+                    const res = await gFetch("/v1/guardian/budgets", {
+                      method: "POST",
+                      body: JSON.stringify({ name: deptName.trim() }),
+                    });
+                    const j = await res.json();
+                    if (!res.ok) throw new Error(j.error?.message ?? "Failed");
+                    setDeptName("");
+                    await refresh();
+                    return `Budget ${j.budget.name} created`;
+                  })
+                }
+              >
+                Create budget
+              </Button>
+            </div>
+            {(wallets?.departments.length ?? 0) === 0 ? (
+              <Empty icon="wallet">No budgets yet — create Finance or Research to park money.</Empty>
+            ) : (
+              <div className="treasury-tile-grid">
+                {wallets!.departments.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    className="treasury-tile"
+                    onClick={() => {
+                      setFrom(`department:${d.id}`);
+                      setTab("move");
+                    }}
+                  >
+                    <span className="treasury-tile-icon">
+                      <Icon name="layers" size={14} />
+                    </span>
+                    <span className="treasury-tile-name">{d.name}</span>
+                    <span className="treasury-tile-amt mono">{fmt(d.availableUsdc)}</span>
+                    <span className="treasury-tile-meta faint">held {fmt(d.heldUsdc)} · click to move</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {(wallets?.shared.length ?? 0) > 0 && (
+            <div className="card" style={{ marginBottom: 12 }}>
+              <div className="card-head">
+                <div>
+                  <h2>Legacy shared pools</h2>
+                  <div className="sub">
+                    Not spendable and not required anymore. Move any balance into a Budget (or an
+                    agent), then ignore these.
+                  </div>
+                </div>
+              </div>
+              <div className="treasury-tile-grid">
+                {wallets!.shared.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    className="treasury-tile"
+                    onClick={() => {
+                      setFrom(`shared:${s.id}`);
+                      setTab("move");
+                    }}
+                  >
+                    <span className="treasury-tile-icon">
+                      <Icon name="wallet" size={14} />
+                    </span>
+                    <span className="treasury-tile-name">{s.name}</span>
+                    <span className="treasury-tile-amt mono">{fmt(s.availableUsdc)}</span>
+                    <span className="treasury-tile-meta faint">legacy · click to empty</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="card">
             <div className="card-head">
               <div>
                 <h2>Agent wallets</h2>
                 <div className="sub">
-                  Stipends from the org vault · {wallets?.asset.symbol ?? "USDC"} (
+                  The only balances agents can spend from · {wallets?.asset.symbol ?? "USDC"} (
                   {wallets?.asset.chain ?? "—"})
                 </div>
               </div>
@@ -639,7 +555,7 @@ export function TreasuryView({
                     type="button"
                     className="treasury-tile"
                     onClick={() => {
-                      setFrom(`agent:${a.id}`);
+                      setTo(`agent:${a.id}`);
                       setTab("move");
                     }}
                   >
@@ -669,7 +585,7 @@ export function TreasuryView({
               <div>
                 <h2 style={{ margin: "0 0 6px" }}>Move between wallets</h2>
                 <div className="sub" style={{ margin: 0 }}>
-                  Org ↔ dept ↔ shared ↔ agent. Large moves may need multi-guardian votes.
+                  Org → budget → agent stipend. Large moves may need multi-guardian votes.
                 </div>
               </div>
             </div>

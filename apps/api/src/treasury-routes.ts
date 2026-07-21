@@ -169,6 +169,14 @@ export function registerTreasuryRoutes(
           status: d.status,
           ...bal("department", d.id),
         })),
+        /** Picture A: budgets === departments (cost-center envelopes). */
+        budgets: store.listDepartments(org.id).map((d) => ({
+          scope: "department" as const,
+          id: d.id,
+          name: d.name,
+          status: d.status,
+          ...bal("department", d.id),
+        })),
         agents: store.listAgents(org.id).map((a) => ({
           scope: "agent" as const,
           id: a.id,
@@ -206,8 +214,58 @@ export function registerTreasuryRoutes(
           availableUsdc: "0",
           heldUsdc: "0",
         },
+        /** Picture A alias — departments are budgets (money envelopes). */
+        budget: {
+          ...dept,
+          availableUsdc: "0",
+          heldUsdc: "0",
+        },
       });
     }, { ownerOnly: true }),
+  );
+
+  /** Alias: create a budget (same ledger as department). See docs/decisions/2026-07-21-budgets-vs-team-membership.md */
+  app.post(
+    "/v1/guardian/budgets",
+    guardianRoute((org, req, res) => {
+      const body = z.object({ name: z.string().min(1).max(80) }).parse(req.body);
+      const dept = store.createDepartment(org.id, body.name);
+      res.status(201).json({
+        budget: {
+          id: dept.id,
+          orgId: dept.orgId,
+          name: dept.name,
+          status: dept.status,
+          createdAt: dept.createdAt,
+          availableUsdc: "0",
+          heldUsdc: "0",
+          scope: "department" as const,
+        },
+      });
+    }, { ownerOnly: true }),
+  );
+
+  app.get(
+    "/v1/guardian/budgets",
+    guardianRoute((org, _req, res) => {
+      const accounts = store.getAccountMap(org.id);
+      res.json({
+        budgets: store.listDepartments(org.id).map((d) => ({
+          id: d.id,
+          orgId: d.orgId,
+          name: d.name,
+          status: d.status,
+          createdAt: d.createdAt,
+          scope: "department" as const,
+          availableUsdc: formatMicroToUsdc(
+            accounts.get(accountId("department", d.id))?.balanceMicro ?? 0n,
+          ),
+          heldUsdc: formatMicroToUsdc(
+            accounts.get(accountId("department", d.id, "held"))?.balanceMicro ?? 0n,
+          ),
+        })),
+      });
+    }),
   );
 
   app.get(

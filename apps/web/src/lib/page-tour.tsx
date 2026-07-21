@@ -16,9 +16,10 @@ const TIPS: Record<string, string[]> = {
   ],
   agents: [
     "Open an agent profile for session keys, wallet balance, and freeze controls.",
-    "Groups are real desks — freeze the whole swarm or fund every member equally.",
+    "Ops labels are optional tags for freeze/bulk fund — money lives in Treasury budgets.",
     "Rotate an agent API key anytime from the agent profile if a key may have leaked.",
-    "Create agents here first — Treasury and Playground need them to allocate and run.",
+    "Create agents here first — fund them from a budget under Treasury → Budgets → Move.",
+    "Prefer writer-finance and writer-research over one agent in many money pools.",
   ],
   payments: [
     "Settlements, invoices, escrows, schedules, and live rails (x402 + transfer-mock).",
