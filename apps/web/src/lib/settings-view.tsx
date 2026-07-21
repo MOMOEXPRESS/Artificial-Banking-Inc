@@ -30,6 +30,7 @@ const SECTIONS = [
   { key: "merchants", label: "Merchants", icon: "wallet" },
   { key: "team", label: "Team & quorum", icon: "check" },
   { key: "recurring", label: "Recurring spend", icon: "clock" },
+  { key: "webhooks", label: "Webhooks", icon: "zap" },
   { key: "console", label: "Console", icon: "sliders" },
   { key: "connect", label: "Connect an agent", icon: "robot" },
   { key: "danger", label: "Danger zone", icon: "alert" },
@@ -593,6 +594,23 @@ export function SettingsView({
             </div>
             <button className="sm" onClick={() => onGoto?.("payments")}>
               Open Payments → Subscriptions
+            </button>
+          </div>
+        )}
+
+        {section === "webhooks" && (
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <h2>Webhooks</h2>
+                <div className="sub">
+                  Delivery endpoints live with the rest of org config. Open the dedicated surface to
+                  add URLs and inspect the delivery log.
+                </div>
+              </div>
+            </div>
+            <button className="sm" onClick={() => onGoto?.("webhooks")}>
+              Open Webhooks
             </button>
           </div>
         )}

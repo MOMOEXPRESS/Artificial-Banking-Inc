@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { BarLine, Empty, Icon, Sparkline, Stat, fmtUsd, relTime } from "./ui";
+import { Activity } from "./activity-view";
+import type { Decision } from "./console-types";
 
 /* ==================================================================== types */
 
@@ -100,11 +102,23 @@ type GFetch = (p: string, i?: RequestInit) => Promise<Response>;
 export function InsightsView({
   gFetch,
   setView,
+  decisions,
+  agentName,
+  setToast,
+  query,
+  initialTab,
 }: {
   gFetch: GFetch;
   setView: (v: string) => void;
+  decisions?: Decision[];
+  agentName?: (id: string) => string;
+  setToast?: (m: string, k?: "ok" | "err" | "info") => void;
+  query?: string;
+  initialTab?: "economics" | "vendors" | "burn" | "anomalies" | "trail";
 }) {
-  const [tab, setTab] = useState<"economics" | "vendors" | "burn" | "anomalies">("economics");
+  const [tab, setTab] = useState<"economics" | "vendors" | "burn" | "anomalies" | "trail">(
+    initialTab ?? "economics",
+  );
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [concentration, setConcentration] = useState(0);
   const [burn, setBurn] = useState<Burn | null>(null);
@@ -112,6 +126,10 @@ export function InsightsView({
   const [scanned, setScanned] = useState(0);
   const [econ, setEcon] = useState<Economics | null>(null);
   const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (initialTab) setTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     let alive = true;
@@ -189,6 +207,33 @@ export function InsightsView({
         />
       </div>
 
+      <div className="card-head" style={{ marginBottom: 12, padding: 0, border: "none", background: "transparent" }}>
+        <div className="seg">
+          {(
+            [
+              ["economics", "P&L"],
+              ["vendors", "Vendors"],
+              ["burn", "Forecast"],
+              ["anomalies", "Anomalies"],
+              ["trail", "Activity"],
+            ] as const
+          ).map(([k, label]) => (
+            <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {tab === "trail" && decisions && agentName && setToast ? (
+        <Activity
+          decisions={decisions}
+          agentName={agentName}
+          setToast={setToast}
+          query={query ?? ""}
+          gFetch={gFetch}
+        />
+      ) : (
       <div className="card fill" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div className="card-head">
           <div>
@@ -210,20 +255,6 @@ export function InsightsView({
                     ? burn?.note
                     : "Payments that passed policy but stand out — tighten a rule if warranted"}
             </div>
-          </div>
-          <div className="seg">
-            {(
-              [
-                ["economics", "P&L"],
-                ["vendors", "Vendors"],
-                ["burn", "Forecast"],
-                ["anomalies", "Anomalies"],
-              ] as const
-            ).map(([k, label]) => (
-              <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>
-                {label}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -443,6 +474,7 @@ export function InsightsView({
             </div>
           ))}
       </div>
+      )}
     </>
   );
 }

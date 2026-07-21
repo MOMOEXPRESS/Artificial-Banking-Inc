@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Empty, Icon, fmtUsd, relTime } from "./ui";
 import { InvoicesView, type Invoice, type InvoiceStats } from "./views";
+import { Approvals } from "./approvals-view";
+import type { Approval, OrgView, View } from "./console-types";
 
 type Agent = { id: string; name: string; status: string };
 type Rail = { id: string; tools: string[]; description: string; status: string };
@@ -49,6 +51,12 @@ export function PaymentsView({
   invStats = null,
   escrows = [],
   initialTab,
+  approvals = [],
+  pending = [],
+  agentName: agentNameProp,
+  setToast,
+  setView,
+  org = null,
 }: {
   gFetch: (path: string, init?: RequestInit) => Promise<Response>;
   busy: boolean;
@@ -58,15 +66,21 @@ export function PaymentsView({
   invoices?: Invoice[];
   invStats?: InvoiceStats | null;
   escrows?: Escrow[];
-  initialTab?: "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows" | "batch";
+  initialTab?: "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows" | "batch" | "approvals";
+  approvals?: Approval[];
+  pending?: Approval[];
+  agentName?: (id: string) => string;
+  setToast?: (m: string, k?: "ok" | "err" | "info") => void;
+  setView?: (v: View) => void;
+  org?: OrgView | null;
 }) {
   const locked = busy || readOnly;
   const [rails, setRails] = useState<Rail[]>([]);
   const [subs, setSubs] = useState<Sub[]>([]);
   const [recent, setRecent] = useState<PayRow[]>([]);
   const [tab, setTab] = useState<
-    "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows" | "batch"
-  >(initialTab === "batch" ? "batch" : (initialTab ?? "recent"));
+    "approvals" | "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows" | "batch"
+  >(initialTab === "batch" ? "batch" : (initialTab ?? (pending && pending.length > 0 ? "approvals" : "recent")));
   const [form, setForm] = useState({
     agentId: "",
     vendor: "",
@@ -101,7 +115,7 @@ export function PaymentsView({
     if (!form.agentId && agents[0]) setForm((f) => ({ ...f, agentId: agents[0].id }));
   }, [agents, form.agentId]);
 
-  const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id.slice(0, 8);
+  const agentName = agentNameProp ?? ((id: string) => agents.find((a) => a.id === id)?.name ?? id.slice(0, 8));
 
   const resolveEscrow = (id: string, action: "release" | "refund") =>
     act("Escrow", async () => {
@@ -127,13 +141,14 @@ export function PaymentsView({
         <div>
           <h2 style={{ margin: 0 }}>Payments</h2>
           <div className="sub">
-            USDC rails, invoices, escrows, schedules — every charge still hits policy
+            Approvals, USDC rails, invoices, escrows — every charge still hits policy
             {readOnly ? " · viewer read-only" : ""}
           </div>
         </div>
         <div className="seg">
           {(
             [
+              ["approvals", pending.length ? `Approvals (${pending.length})` : "Approvals"],
               ["recent", "Recent"],
               ["invoices", "Invoices"],
               ["escrows", "Escrows"],
@@ -149,6 +164,21 @@ export function PaymentsView({
           ))}
         </div>
       </div>
+
+      {tab === "approvals" && setToast && setView && agentName ? (
+        <Approvals
+          gFetch={gFetch}
+          busy={busy}
+          act={act}
+          setToast={setToast}
+          setView={setView}
+          readOnly={readOnly}
+          org={org ?? null}
+          approvals={approvals}
+          pending={pending}
+          agentName={agentName}
+        />
+      ) : null}
 
       {tab === "batch" && (
         <div className="card fill">

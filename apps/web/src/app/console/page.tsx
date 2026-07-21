@@ -26,7 +26,7 @@ import { useTheme } from "../../lib/theme-provider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Sidebar, SidebarGroup, SidebarItem } from "@/components/ui/sidebar";
+import { Sidebar, SidebarFolder, SidebarItem } from "@/components/ui/sidebar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,10 +56,8 @@ import type { MissionState } from "../../lib/playground-view";
 import { Login } from "../../lib/login-view";
 import { Overview } from "../../lib/overview-view";
 import { Playground } from "../../lib/playground-view";
-import { Approvals } from "../../lib/approvals-view";
 import { Ledger } from "../../lib/ledger-view";
 import { Webhooks } from "../../lib/webhooks-view";
-import { Activity } from "../../lib/activity-view";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
@@ -68,23 +66,40 @@ const NAV: { key: View; label: string; icon: string; group: string }[] = [
   { key: "overview", label: "Overview", icon: "home", group: "Money" },
   { key: "treasury", label: "Treasury", icon: "wallet", group: "Money" },
   { key: "payments", label: "Payments", icon: "zap", group: "Money" },
-  { key: "approvals", label: "Approvals", icon: "check", group: "Money" },
   { key: "agents", label: "Agents", icon: "robot", group: "Agents" },
-  { key: "playground", label: "Agent Playground", icon: "play", group: "Agents" },
+  { key: "playground", label: "Playground", icon: "play", group: "Agents" },
   { key: "chat", label: "ABI Chat", icon: "bell", group: "Agents" },
-  { key: "work", label: "Work & deliverables", icon: "book", group: "Agents" },
+  { key: "work", label: "Work", icon: "book", group: "Agents" },
   { key: "ledger", label: "Ledger", icon: "list", group: "Records" },
   { key: "insights", label: "Insights", icon: "spark", group: "Records" },
-  { key: "activity", label: "Activity", icon: "clock", group: "Records" },
   { key: "policy", label: "Policy", icon: "sliders", group: "Config" },
-  { key: "webhooks", label: "Webhooks", icon: "zap", group: "Config" },
 ];
 
 const NAV_GROUPS = ["Money", "Agents", "Records", "Config"] as const;
 
+/** Alias views still deep-link; they open a parent surface + tab. */
+function canonicalView(view: View): View {
+  if (view === "approvals" || view === "invoices" || view === "escrows") return "payments";
+  if (view === "activity") return "insights";
+  if (view === "webhooks") return "webhooks";
+  return view;
+}
+
 function navGroupOf(view: View): string {
-  if (view === "settings") return "Config";
+  if (view === "settings" || view === "webhooks") return "Config";
+  if (view === "approvals" || view === "invoices" || view === "escrows") return "Money";
+  if (view === "activity") return "Records";
   return NAV.find((n) => n.key === view)?.group ?? "Console";
+}
+
+function viewLabelOf(view: View): string {
+  if (view === "settings") return "Settings";
+  if (view === "approvals") return "Payments · Approvals";
+  if (view === "activity") return "Insights · Activity";
+  if (view === "webhooks") return "Webhooks";
+  if (view === "invoices") return "Payments · Invoices";
+  if (view === "escrows") return "Payments · Escrows";
+  return NAV.find((n) => n.key === view)?.label ?? view;
 }
 
 /* ===================================================================== page */
@@ -118,6 +133,12 @@ export default function Console() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [navContext, setNavContext] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(false);
+  const [folderOpen, setFolderOpen] = useState<Record<string, boolean>>({
+    Money: true,
+    Agents: true,
+    Records: true,
+    Config: true,
+  });
   const help = useKeyboardHelp();
   const searchRef = useRef<HTMLInputElement | null>(null);
   const theme = useTheme();
@@ -427,8 +448,9 @@ export default function Console() {
 
   const readOnly = org?.actor?.role === "viewer";
   const shared = { busy, act, gFetch, agentName, org, setToast, setView, readOnly };
-  const viewLabel = view === "settings" ? "Settings" : NAV.find((n) => n.key === view)?.label ?? view;
+  const viewLabel = viewLabelOf(view);
   const groupLabel = navGroupOf(view);
+  const railActive = canonicalView(view);
 
   return (
     <TooltipProvider delayDuration={250}>
@@ -442,53 +464,71 @@ export default function Console() {
         <Icon name="list" />
       </button>
       {railOpen && <button type="button" className="rail-scrim" aria-label="Close navigation" onClick={() => setRailOpen(false)} />}
-      <Sidebar className="rail" label="Console navigation">
+      <Sidebar className="rail rail-folders" label="Console navigation">
         <Link href="/" className="rail-logo" title="Back to landing" style={{ textDecoration: "none" }}>
           <ABAppIcon size={38} />
         </Link>
-        {NAV_GROUPS.map((group) => (
-          <SidebarGroup key={group} title={group}>
-            {NAV.filter((n) => n.group === group).map((n) => (
-              <Tooltip key={n.key}>
-                <TooltipTrigger asChild>
-                  <SidebarItem
-                    active={view === n.key}
-                    label={n.label}
-                    onClick={() => {
-                      setView(n.key);
-                      if (n.key !== "agents") setNavContext(null);
-                      setRailOpen(false);
-                    }}
-                  >
-                    <Icon name={n.icon} />
-                    {n.key === "approvals" && pending.length > 0 && <span className="dot-badge" />}
-                    {n.key === "chat" && pending.length > 0 && <span className="dot-badge" />}
-                    {n.key === "playground" && mission.running && (
-                      <span className="dot-badge" style={{ background: "var(--accent)" }} />
-                    )}
-                  </SidebarItem>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  {n.label}
-                  {n.key === "playground" && mission.running ? " · running" : ""}
-                </TooltipContent>
-              </Tooltip>
-            ))}
-          </SidebarGroup>
-        ))}
-        <div className="rail-spacer" />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <SidebarItem
-              active={view === "settings"}
-              label="Settings"
-              onClick={() => setView("settings")}
+        {NAV_GROUPS.map((group) => {
+          const items = NAV.filter((n) => n.group === group);
+          const groupActive = items.some((n) => n.key === railActive);
+          const showBadge =
+            (group === "Money" && pending.length > 0) ||
+            (group === "Agents" && (pending.length > 0 || mission.running));
+          return (
+            <SidebarFolder
+              key={group}
+              title={group}
+              open={folderOpen[group] ?? true}
+              onOpenChange={(open) => setFolderOpen((f) => ({ ...f, [group]: open }))}
+              active={groupActive}
+              badge={showBadge}
             >
-              <Icon name="gear" />
-            </SidebarItem>
-          </TooltipTrigger>
-          <TooltipContent side="right">Settings</TooltipContent>
-        </Tooltip>
+              {items.map((n) => (
+                <SidebarItem
+                  key={n.key}
+                  nested
+                  active={railActive === n.key}
+                  label={n.label}
+                  onClick={() => {
+                    setView(n.key);
+                    if (n.key !== "agents") setNavContext(null);
+                    setRailOpen(false);
+                  }}
+                >
+                  <Icon name={n.icon} />
+                  {n.key === "payments" && pending.length > 0 && <span className="dot-badge" />}
+                  {n.key === "chat" && pending.length > 0 && <span className="dot-badge" />}
+                  {n.key === "playground" && mission.running && (
+                    <span className="dot-badge" style={{ background: "var(--accent)" }} />
+                  )}
+                </SidebarItem>
+              ))}
+            </SidebarFolder>
+          );
+        })}
+        <div className="rail-spacer" />
+        <SidebarItem
+          nested
+          active={view === "webhooks"}
+          label="Webhooks"
+          onClick={() => {
+            setView("webhooks");
+            setRailOpen(false);
+          }}
+        >
+          <Icon name="zap" />
+        </SidebarItem>
+        <SidebarItem
+          nested
+          active={view === "settings"}
+          label="Settings"
+          onClick={() => {
+            setView("settings");
+            setRailOpen(false);
+          }}
+        >
+          <Icon name="gear" />
+        </SidebarItem>
       </Sidebar>
 
       <main className="main">
@@ -683,6 +723,12 @@ export default function Console() {
                   invoices={invoices}
                   invStats={invStats}
                   escrows={escrows}
+                  approvals={approvals}
+                  pending={pending}
+                  agentName={agentName}
+                  setToast={setToast}
+                  setView={(v) => setView(v)}
+                  org={org}
                   agents={(org?.agents ?? []).map((a) => ({
                     id: a.id,
                     name: a.name,
@@ -690,7 +736,7 @@ export default function Console() {
                   }))}
                 />
               )}
-              {(view === "invoices" || view === "escrows") && (
+              {(view === "invoices" || view === "escrows" || view === "approvals") && (
                 <PaymentsView
                   gFetch={gFetch}
                   busy={busy}
@@ -699,7 +745,13 @@ export default function Console() {
                   invoices={invoices}
                   invStats={invStats}
                   escrows={escrows}
-                  initialTab={view}
+                  approvals={approvals}
+                  pending={pending}
+                  agentName={agentName}
+                  setToast={setToast}
+                  setView={(v) => setView(v)}
+                  org={org}
+                  initialTab={view === "approvals" ? "approvals" : view}
                   agents={(org?.agents ?? []).map((a) => ({
                     id: a.id,
                     name: a.name,
@@ -733,23 +785,21 @@ export default function Console() {
               {view === "work" && (
                 <WorkView runs={runs} busy={busy} act={act} gFetch={gFetch} />
               )}
-              {view === "insights" && (
-                <InsightsView gFetch={gFetch} setView={(v) => setView(v as View)} />
-              )}
-{view === "approvals" && <Approvals {...shared} approvals={approvals} pending={pending} />}
-{view === "ledger" && <Ledger journals={journals} metrics={metrics} recon={recon} />}
-              {view === "policy" &&
-                (policy ? <PolicyView {...shared} policy={policy} /> : <ConsoleSkeleton />)}
-              {view === "webhooks" && <Webhooks {...shared} webhooks={webhooks} deliveries={deliveries} />}
-              {view === "activity" && (
-                <Activity
+              {(view === "insights" || view === "activity") && (
+                <InsightsView
+                  gFetch={gFetch}
+                  setView={(v) => setView(v as View)}
                   decisions={decisions}
                   agentName={agentName}
                   setToast={setToast}
                   query={query}
-                  gFetch={gFetch}
+                  initialTab={view === "activity" ? "trail" : undefined}
                 />
               )}
+              {view === "ledger" && <Ledger journals={journals} metrics={metrics} recon={recon} />}
+              {view === "policy" &&
+                (policy ? <PolicyView {...shared} policy={policy} /> : <ConsoleSkeleton />)}
+              {view === "webhooks" && <Webhooks {...shared} webhooks={webhooks} deliveries={deliveries} />}
               {view === "settings" && (
                 <SettingsView
                   setup={setup}

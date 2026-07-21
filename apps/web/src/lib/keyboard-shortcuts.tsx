@@ -27,12 +27,12 @@ export const GO_MAP: { key: string; view: ShortcutView; label: string }[] = [
   { key: "m", view: "playground", label: "Playground (missions)" },
   { key: "c", view: "chat", label: "ABI Chat" },
   { key: "w", view: "work", label: "Work" },
-  { key: "r", view: "approvals", label: "Approvals (review)" },
+  { key: "r", view: "approvals", label: "Approvals (in Payments)" },
   { key: "i", view: "insights", label: "Insights" },
   { key: "l", view: "ledger", label: "Ledger" },
   { key: "y", view: "policy", label: "Policy" },
   { key: "h", view: "webhooks", label: "Webhooks" },
-  { key: "v", view: "activity", label: "Activity" },
+  { key: "v", view: "activity", label: "Activity (in Insights)" },
   { key: "s", view: "settings", label: "Settings" },
 ];
 
