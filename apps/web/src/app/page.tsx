@@ -10,15 +10,15 @@ import { LandingMotion } from "../lib/landing-motion";
 import { Icon } from "../lib/ui";
 
 /**
- * Artificial Banking Incorporated — public landing page.
+ * Artificial Banking Incorporated — public home page.
  *
  * Sits at "/". The console lives at "/console" and is reached via the
  * "Launch Console" CTAs. This page has no dependency on the console's live
  * session or API polling, so it renders instantly and stays cheap.
  */
-export default function LandingPage() {
+export default function HomePage() {
   return (
-    <MarketingShell active="landing">
+    <MarketingShell active="home">
       <LandingMotion />
       <Hero />
       <MetricsBand />
@@ -282,66 +282,133 @@ function ProductTour() {
 
 /* =============================================================== features */
 
-const FEATURES: { icon: string; title: string; body: string }[] = [
+const FEATURES: {
+  icon: string;
+  title: string;
+  lead: string;
+  body: string;
+  visual: { label: string; lines: string[] };
+}[] = [
   {
     icon: "wallet",
     title: "AI agent wallets",
-    body: "Every agent gets a programmable stipend account with its own balance, spend history and identity.",
+    lead: "Every agent gets its own programmable stipend — not a shared org card.",
+    body: "Balances, spend history, and identity live on the agent. You fund the vault once, then push stipends down. Agents never share a private key with each other, and you can freeze one without pausing the fleet.",
+    visual: {
+      label: "Stipend · ops-bot",
+      lines: ["Available  $420.00", "Held       $12.40", "Spent today  $38.10"],
+    },
   },
   {
     icon: "sliders",
     title: "Spending policies",
-    body: "Deterministic bands, allowlists, blocklists, velocity brakes, quiet hours — all edited live with a policy simulator.",
+    lead: "Caps, allowlists, quiet hours — deterministic rules the model cannot talk around.",
+    body: "Edit bands live and probe them in the simulator before production. Velocity brakes and blocklists sit in the same engine that authorizes every intent, so policy and payment stay one path.",
+    visual: {
+      label: "Policy probe",
+      lines: ["daily_cap  $500  → allow", "host  api.openai.com  → allow", "quiet_hours  02:00  → park"],
+    },
   },
   {
     icon: "check",
     title: "Human approvals",
-    body: "Any payment past your threshold parks and waits for you. Approve from the console, chat or Telegram.",
+    lead: "Anything past your threshold parks until a person says yes.",
+    body: "Approve from the console, chat, or Telegram. Denials write the same journal as allows, so you can see who blocked what and why — without digging through model logs.",
+    visual: {
+      label: "Awaiting you",
+      lines: ["$45.00  api.openai.com", "threshold  $25", "route  Telegram · console"],
+    },
   },
   {
     icon: "swap",
     title: "x402 payments",
-    body: "Speak the machine-payment standard natively. Agents can pay any x402 seller under policy, on-chain.",
+    lead: "Speak the machine-payment standard natively — under the same policy.",
+    body: "Agents can pay any x402 seller on-chain without a custom integrator per API. Authorization still runs first; settlement is USDC on Base when the intent clears.",
+    visual: {
+      label: "x402 settle",
+      lines: ["seller  data.example", "paid  $1.20 of $5 auth", "rail  Base · USDC"],
+    },
   },
   {
     icon: "list",
     title: "Immutable audit log",
-    body: "Every intent, denial, approval and settlement is journaled. Replayable from genesis, exportable to CSV.",
+    lead: "Every intent, denial, approval, and settlement is journaled.",
+    body: "Replay from genesis, export to CSV, or stream signed webhooks into your SIEM. When finance asks what an agent spent last Tuesday, you have receipts — not chat transcripts.",
+    visual: {
+      label: "Journal",
+      lines: ["intent  pay.x402  allowed", "hold  $1.20  → settle", "export  CSV · webhook"],
+    },
   },
   {
     icon: "shield",
     title: "Keys never enter the model",
-    body: "LLMs propose. Policy and signer authorize. EIP-712 transfers, idempotency, and a kill-switch on in-flight intents.",
+    lead: "LLMs propose. Policy and signer authorize.",
+    body: "EIP-712 transfers, idempotency keys, and a kill-switch on in-flight intents keep custody outside the prompt. The model can ask to spend; it cannot hold the wallet.",
+    visual: {
+      label: "Custody boundary",
+      lines: ["model  propose only", "policy  decide", "CDP signer  execute"],
+    },
   },
 ];
 
 function Features() {
   return (
-    <section id="features" className="section">
-      <SectionHead
-        eyebrow="Everything you need"
-        title="A financial operating system for AI agents"
-        sub="Programmable wallets and safety rails, wired straight into on-chain settlement."
-      />
-      <div className="feat-flow">
-        {FEATURES.map((f, i) => (
-          <article key={f.title} className="feat-row">
-            <div className="feat-row-index" aria-hidden>
-              {String(i + 1).padStart(2, "0")}
-            </div>
-            <div className="feat-row-copy">
-              <div className="feat-row-title">
+    <div id="features" className="pane-stack">
+      <section className="section pane-intro">
+        <SectionHead
+          eyebrow="Everything you need"
+          title="A financial operating system for AI agents"
+          sub="Programmable wallets and safety rails, wired straight into on-chain settlement. One capability at a time."
+        />
+      </section>
+      {FEATURES.map((f, i) => (
+        <section
+          key={f.title}
+          className={`pane-block ${i % 2 === 1 ? "pane-flip" : ""}`}
+          aria-labelledby={`feat-${i}`}
+        >
+          <div className="pane-inner">
+            <div className="pane-copy">
+              <span className="pane-index" aria-hidden>
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <div className="pane-kicker">
                 <span className="feat-icon inline">
                   <Icon name={f.icon} />
                 </span>
-                <h3>{f.title}</h3>
+                <h3 id={`feat-${i}`}>{f.title}</h3>
               </div>
-              <p>{f.body}</p>
+              <p className="pane-lead">{f.lead}</p>
+              <p className="pane-body">{f.body}</p>
             </div>
-          </article>
-        ))}
+            <div className="pane-visual" aria-hidden>
+              <PaneVisual label={f.visual.label} lines={f.visual.lines} />
+            </div>
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function PaneVisual({ label, lines }: { label: string; lines: string[] }) {
+  return (
+    <div className="pane-frame">
+      <div className="pane-frame-chrome">
+        <span />
+        <span />
+        <span />
+        <em>{label}</em>
       </div>
-    </section>
+      <ul className="pane-frame-lines">
+        {lines.map((line) => (
+          <li key={line}>
+            <code>{line}</code>
+          </li>
+        ))}
+      </ul>
+      <div className="pane-frame-glow" />
+    </div>
   );
 }
 
@@ -351,45 +418,77 @@ const STEPS = [
   {
     n: "01",
     title: "Connect your organization",
-    body: "Create an org, get a guardian key, fund the vault with USDC. Coinbase CDP handles custody.",
+    lead: "Stand up an org, a guardian key, and a funded vault.",
+    body: "Create the organization, issue a guardian credential, and fund the vault with USDC. Coinbase CDP holds custody — you are not wiring private keys into app configs or agent prompts.",
+    visual: {
+      label: "Org bootstrap",
+      lines: ["org  demo-corp", "guardian  gsk_…", "vault  +$1,000 USDC"],
+    },
   },
   {
     n: "02",
     title: "Create AI agents",
-    body: "Each agent gets an API key and a stipend account. Plug the key into your Python, Node or MCP runtime.",
+    lead: "Each agent gets an API key and its own stipend account.",
+    body: "Spin agents from the console, then drop the key into Python, Node, or MCP. Identity and balance are per-agent from the first call, so spend attribution is not a later cleanup project.",
+    visual: {
+      label: "New agent",
+      lines: ["name  research-bot", "key  agk_…", "stipend  $100"],
+    },
   },
   {
     n: "03",
     title: "Assign budget & policy",
-    body: "Set daily caps, per-payment ceilings, approval thresholds and allowlists. Test edits in the simulator first.",
+    lead: "Caps, ceilings, thresholds, and allowlists — tested before they bite.",
+    body: "Set daily caps, per-payment ceilings, approval thresholds, and host allowlists. Run the simulator against real-looking intents so production is the second place a rule fires, not the first.",
+    visual: {
+      label: "Policy draft",
+      lines: ["cap  $200 / day", "HITL  > $25", "allow  *.openai.com"],
+    },
   },
   {
     n: "04",
     title: "Agents complete paid tasks",
-    body: "Agents call pay verbs; the policy engine authorizes, the CDP wallet signs, USDC settles on Base.",
+    lead: "Pay verbs hit policy first, then signer, then Base.",
+    body: "Agents call pay verbs; the policy engine authorizes, the CDP wallet signs, and USDC settles on Base. Holds, refunds, and denials all land in the same journal you can export.",
+    visual: {
+      label: "Live payment",
+      lines: ["intent  allowed", "sign  CDP", "settle  Base · USDC"],
+    },
   },
 ];
 
 function HowItWorks() {
   return (
-    <section id="how" className="section how">
-      <SectionHead
-        eyebrow="How it works"
-        title="From zero to a paying agent in four steps"
-        sub="No smart contracts to deploy. No keys for your agents to leak. No custom infrastructure."
-      />
-      <ol className="steps-flow">
-        {STEPS.map((s) => (
-          <li key={s.n} className="step-row">
-            <span className="step-n">{s.n}</span>
-            <div className="step-row-copy">
-              <h3>{s.title}</h3>
-              <p>{s.body}</p>
+    <div id="how" className="pane-stack how">
+      <section className="section pane-intro">
+        <SectionHead
+          eyebrow="How it works"
+          title="From zero to a paying agent in four steps"
+          sub="No smart contracts to deploy. No keys for your agents to leak. No custom infrastructure. Scroll each step."
+        />
+      </section>
+      {STEPS.map((s, i) => (
+        <section
+          key={s.n}
+          className={`pane-block ${i % 2 === 1 ? "pane-flip" : ""}`}
+          aria-labelledby={`step-${s.n}`}
+        >
+          <div className="pane-inner">
+            <div className="pane-copy">
+              <span className="pane-index accent" aria-hidden>
+                {s.n}
+              </span>
+              <h3 id={`step-${s.n}`}>{s.title}</h3>
+              <p className="pane-lead">{s.lead}</p>
+              <p className="pane-body">{s.body}</p>
             </div>
-          </li>
-        ))}
-      </ol>
-    </section>
+            <div className="pane-visual" aria-hidden>
+              <PaneVisual label={s.visual.label} lines={s.visual.lines} />
+            </div>
+          </div>
+        </section>
+      ))}
+    </div>
   );
 }
 
