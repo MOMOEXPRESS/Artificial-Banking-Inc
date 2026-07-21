@@ -71,6 +71,29 @@ function fmt(u?: string) {
   });
 }
 
+/** Human labels for move history — never show raw ledger scopes like `department`. */
+function moveEndpointLabel(ref: { scope: Scope; id: string }, wallets: WalletsPayload | null): string {
+  if (!wallets) {
+    if (ref.scope === "department") return "Budget";
+    if (ref.scope === "shared") return "Legacy pool";
+    return ref.scope;
+  }
+  if (ref.scope === "org") return "Org treasury";
+  if (ref.scope === "department") {
+    const name = wallets.departments.find((d) => d.id === ref.id)?.name;
+    return name ? `Budget · ${name}` : "Budget";
+  }
+  if (ref.scope === "agent") {
+    const name = wallets.agents.find((a) => a.id === ref.id)?.name;
+    return name ? `Agent · ${name}` : "Agent";
+  }
+  if (ref.scope === "shared") {
+    const name = wallets.shared.find((s) => s.id === ref.id)?.name;
+    return name ? `Legacy pool · ${name}` : "Legacy pool";
+  }
+  return ref.scope;
+}
+
 export function TreasuryView({
   gFetch,
   busy,
@@ -676,7 +699,7 @@ export function TreasuryView({
                     <div style={{ minWidth: 0 }}>
                       <b className="mono">{fmt(m.amountUsdc)}</b>
                       <div className="faint" style={{ fontSize: 11.5 }}>
-                        {m.from.scope} → {m.to.scope}
+                        {moveEndpointLabel(m.from, wallets)} → {moveEndpointLabel(m.to, wallets)}
                       </div>
                     </div>
                     <div className="row" style={{ gap: 8, flexShrink: 0 }}>

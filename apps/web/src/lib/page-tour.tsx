@@ -24,7 +24,7 @@ const TIPS: Record<string, string[]> = {
   payments: [
     "Settlements, invoices, escrows, schedules, and live rails (x402 + transfer-mock).",
     "Open an invoice or escrow row for status, counterparties, and next actions.",
-    "Subscriptions and one-shot schedules live here — pause or cancel before the next pull.",
+    "Subscriptions and one-shot schedules share Payments → Scheduled — review outcomes park in Approvals.",
     "Parked HITL payments also show under Approvals when a human must decide.",
   ],
   playground: [

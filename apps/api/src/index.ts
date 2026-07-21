@@ -1616,6 +1616,8 @@ app.get("/v1/agent/budget", (req, res) => {
   const spent = store.spentLast24h(auth.agentId);
   const remaining = rules.dailyMaxMicro - spent;
   res.json({
+    agentId: auth.agentId,
+    agentName: store.getAgent(auth.agentId)?.name ?? auth.agentId,
     availableUsdc: formatMicroToUsdc(av?.balanceMicro ?? 0n),
     heldUsdc: formatMicroToUsdc(held?.balanceMicro ?? 0n),
     dailyRemainingUsdc: formatMicroToUsdc(remaining < 0n ? 0n : remaining),

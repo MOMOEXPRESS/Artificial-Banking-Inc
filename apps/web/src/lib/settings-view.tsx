@@ -81,6 +81,7 @@ export function SettingsView({
   const [inviteRole, setInviteRole] = useState<"approver" | "viewer">("approver");
   const [orgSettings, setOrgSettings] = useState<Record<string, unknown>>({});
   const [planDraft, setPlanDraft] = useState("");
+  const [treasuryHitlDraft, setTreasuryHitlDraft] = useState("50");
   const [compliance, setCompliance] = useState<{ screener?: string; denylistConfigured?: boolean; denylistCount?: number } | null>(null);
   const [obs, setObs] = useState<{ sink?: string } | null>(null);
   const [merchants, setMerchants] = useState<{ id: string; key: string; label?: string; category?: string }[]>([]);
@@ -107,6 +108,7 @@ export function SettingsView({
       ]);
       setOrgSettings(settings.settings ?? {});
       setPlanDraft(String((settings.settings ?? {}).plan ?? ""));
+      setTreasuryHitlDraft(String((settings.settings ?? {}).treasuryHitlUsdc ?? "50"));
       setCompliance(comp);
       setObs(ob);
       setMerchants(merch.merchants ?? []);
@@ -332,17 +334,42 @@ export function SettingsView({
                   placeholder="demo / growth / enterprise"
                 />
               </div>
+              <div className="field">
+                <label>Treasury move approval threshold (USDC)</label>
+                <input
+                  value={treasuryHitlDraft}
+                  disabled={readOnly}
+                  onChange={(e) => setTreasuryHitlDraft(e.target.value)}
+                  placeholder="50"
+                  inputMode="decimal"
+                />
+                <p className="faint" style={{ margin: "6px 0 0", fontSize: 11.5, lineHeight: 1.5 }}>
+                  Moves above this amount park in Treasury → Move (multi-guardian queue) — not
+                  Payments → Approvals.
+                </p>
+              </div>
               <Button size="sm"
                 disabled={busy || readOnly}
                 onClick={() =>
                   void act("Save settings", async () => {
+                    const hitl = treasuryHitlDraft.trim();
+                    if (hitl && (Number.isNaN(Number(hitl)) || Number(hitl) < 0)) {
+                      throw new Error("Treasury HITL threshold must be a non-negative USDC amount");
+                    }
                     const res = await gFetch("/v1/guardian/settings", {
                       method: "PATCH",
-                      body: JSON.stringify({ settings: { plan: planDraft.trim() || undefined } }),
+                      body: JSON.stringify({
+                        settings: {
+                          plan: planDraft.trim() || undefined,
+                          treasuryHitlUsdc: hitl || "50",
+                        },
+                      }),
                     });
                     const d = await res.json();
                     if (!res.ok) throw new Error(d.error?.message ?? "failed");
                     setOrgSettings(d.settings ?? {});
+                    setPlanDraft(String((d.settings ?? {}).plan ?? ""));
+                    setTreasuryHitlDraft(String((d.settings ?? {}).treasuryHitlUsdc ?? "50"));
                     return "Org settings saved.";
                   })
                 }
@@ -594,7 +621,7 @@ export function SettingsView({
               </div>
             </div>
             <Button size="sm" onClick={() => onGoto?.("payments")}>
-              Open Payments → Subscriptions
+              Open Payments → Scheduled
             </Button>
           </div>
         )}

@@ -154,18 +154,26 @@ export function Playground({
 
   const addKey = () =>
     act("Add key", async () => {
+      const key = pasteKey.trim();
       const res = await fetch(`${API}/v1/agent/budget`, {
-        headers: { Authorization: `Bearer ${pasteKey.trim()}` },
+        headers: { Authorization: `Bearer ${key}` },
       });
       if (!res.ok) throw new Error("That agent key was rejected by the API");
+      const d = (await res.json()) as { agentId?: string; agentName?: string };
+      if (!d.agentId) throw new Error("API did not return agentId — redeploy API and retry");
       updateSession({
         agentKeys: [
-          ...session.agentKeys,
-          { agentId: `manual_${session.agentKeys.length}`, name: "Pasted agent", key: pasteKey.trim() },
+          ...session.agentKeys.filter((k) => k.agentId !== d.agentId && k.key !== key),
+          {
+            agentId: d.agentId,
+            name: d.agentName ?? "Pasted agent",
+            key,
+          },
         ],
       });
+      patch({ actorId: d.agentId });
       setPasteKey("");
-      return "Agent key added to the Playground.";
+      return `Added ${d.agentName ?? d.agentId} to the Playground.`;
     });
 
   const resolveInline = (approvalId: string, approve: boolean) =>

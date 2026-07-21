@@ -254,7 +254,7 @@ export function AgentsView({
                   <tr>
                     <th>Name</th>
                     <th>Status</th>
-                    <th>Group</th>
+                    <th>Ops label</th>
                     <th>Available</th>
                     <th>24h</th>
                     <th>Key</th>
@@ -455,7 +455,7 @@ export function AgentsView({
                     <input value={ownerId} disabled={readOnly} onChange={(e) => setOwnerId(e.target.value)} />
                   </label>
                   <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-                    Group
+                    Ops label
                     <select value={assignGroup} disabled={readOnly} onChange={(e) => setAssignGroup(e.target.value)}>
                       <option value="">— none —</option>
                       {groups
@@ -779,7 +779,7 @@ export function AgentsView({
                               })
                             }
                           >
-                            Freeze members
+                            Freeze labeled agents
                           </Button>
                           <Button variant="ghost" size="sm"
                             disabled={locked || !g.members.length}
@@ -865,7 +865,7 @@ export function AgentsView({
                           <Button variant="ghost" size="sm"
                             disabled={locked}
                             onClick={() =>
-                              void act("Archive group", async () => {
+                              void act("Archive ops label", async () => {
                                 await gFetch(`/v1/guardian/agent-groups/${g.id}/archive`, {
                                   method: "POST",
                                 });
@@ -897,7 +897,7 @@ export function AgentsView({
                         <Button variant="ghost" size="sm"
                           disabled={locked}
                           onClick={() =>
-                            void act("Assign to group", async () => {
+                            void act("Assign to ops label", async () => {
                               const el = document.getElementById(
                                 `assign-${g.id}`,
                               ) as HTMLSelectElement | null;

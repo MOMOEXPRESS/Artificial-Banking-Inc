@@ -288,21 +288,19 @@ export function registerTreasuryRoutes(
 
   app.post(
     "/v1/guardian/shared-wallets",
-    guardianRoute((org, req, res) => {
-      const body = z
-        .object({
-          name: z.string().min(1).max(80),
-          memberAgentIds: z.array(z.string()).default([]),
-        })
-        .parse(req.body);
-      for (const agentId of body.memberAgentIds) {
-        const a = store.getAgent(agentId);
-        if (!a || a.orgId !== org.id) {
-          return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-        }
-      }
-      const wallet = store.createSharedWallet(org.id, body.name, body.memberAgentIds);
-      res.status(201).json({ wallet });
+    guardianRoute((_org, _req, res) => {
+      // Soft-deprecated: Picture A uses budgets (envelopes) instead of shared pools.
+      // Existing pools remain readable/movable for drain; new creates are refused.
+      res.setHeader("Deprecation", "true");
+      res.setHeader("Link", '</v1/guardian/budgets>; rel="successor-version"');
+      return res.status(410).json({
+        error: {
+          code: "DEPRECATED",
+          message:
+            "Shared pools are legacy. Create a budget with POST /v1/guardian/budgets, then move funds to agents.",
+          successor: "/v1/guardian/budgets",
+        },
+      });
     }, { ownerOnly: true }),
   );
 

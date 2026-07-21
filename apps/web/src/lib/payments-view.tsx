@@ -80,9 +80,17 @@ export function PaymentsView({
   const [rails, setRails] = useState<Rail[]>([]);
   const [subs, setSubs] = useState<Sub[]>([]);
   const [recent, setRecent] = useState<PayRow[]>([]);
+  const resolveTab = (
+    t?: typeof initialTab,
+  ): "approvals" | "recent" | "subs" | "rails" | "invoices" | "escrows" | "batch" => {
+    if (!t) return pending && pending.length > 0 ? "approvals" : "recent";
+    if (t === "schedule") return "subs"; // one-shots live under Scheduled & recurring
+    if (t === "batch") return "batch";
+    return t;
+  };
   const [tab, setTab] = useState<
-    "approvals" | "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows" | "batch"
-  >(initialTab === "batch" ? "batch" : (initialTab ?? (pending && pending.length > 0 ? "approvals" : "recent")));
+    "approvals" | "recent" | "subs" | "rails" | "invoices" | "escrows" | "batch"
+  >(resolveTab(initialTab));
   const [form, setForm] = useState({
     agentId: "",
     vendor: "",
@@ -95,7 +103,8 @@ export function PaymentsView({
   );
 
   useEffect(() => {
-    if (initialTab) setTab(initialTab);
+    if (initialTab) setTab(resolveTab(initialTab));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTab]);
 
   const refresh = useCallback(async () => {
@@ -159,9 +168,8 @@ export function PaymentsView({
               { value: "recent", label: "Recent" },
               { value: "invoices", label: "Invoices" },
               { value: "escrows", label: "Escrows" },
-              { value: "schedule", label: "Schedule" },
+              { value: "subs", label: "Scheduled" },
               { value: "batch", label: "Batch" },
-              { value: "subs", label: "Subscriptions" },
               { value: "rails", label: "Rails" },
             ] as const
           }
@@ -375,94 +383,97 @@ export function PaymentsView({
         </div>
       )}
 
-      {tab === "schedule" && (
-        <div className="card">
-          <div className="card-head">
-            <div>
-              <h2>Schedule one-shot</h2>
-              <div className="sub">Runs once through policy at the chosen time, then stops.</div>
-            </div>
-          </div>
-          <div className="grid g-2" style={{ gap: "0 14px" }}>
-            <div className="field">
-              <label>Agent</label>
-              <select
-                value={form.agentId}
-                disabled={readOnly}
-                onChange={(e) => setForm({ ...form, agentId: e.target.value })}
-              >
-                {agents.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label>Vendor / destination</label>
-              <input
-                value={form.vendor}
-                disabled={readOnly}
-                onChange={(e) => setForm({ ...form, vendor: e.target.value })}
-                placeholder="api.openai.com"
-              />
-            </div>
-            <div className="field">
-              <label>Amount (USDC)</label>
-              <input
-                value={form.amountUsdc}
-                disabled={readOnly}
-                onChange={(e) => setForm({ ...form, amountUsdc: e.target.value })}
-                placeholder="5"
-              />
-            </div>
-            <div className="field">
-              <label>Run at (local → ISO)</label>
-              <input
-                type="datetime-local"
-                value={form.runAt}
-                disabled={readOnly}
-                onChange={(e) => setForm({ ...form, runAt: e.target.value })}
-              />
-            </div>
-          </div>
-          <button
-            disabled={locked || !form.agentId || !form.vendor.trim() || !form.amountUsdc.trim()}
-            onClick={() =>
-              void act("Schedule payment", async () => {
-                const runAt = form.runAt
-                  ? new Date(form.runAt).toISOString()
-                  : new Date(Date.now() + 60_000).toISOString();
-                const res = await gFetch("/v1/guardian/payments/schedule", {
-                  method: "POST",
-                  body: JSON.stringify({
-                    agentId: form.agentId,
-                    vendor: form.vendor.trim(),
-                    amountUsdc: form.amountUsdc.trim(),
-                    runAt,
-                  }),
-                });
-                const d = await res.json();
-                if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-                setForm((f) => ({ ...f, amountUsdc: "", vendor: "" }));
-                await refresh();
-                setTab("subs");
-                return `Scheduled ${fmtUsd(d.scheduled.amountUsdc)} for ${runAt}.`;
-              })
-            }
-          >
-            Schedule
-          </button>
-        </div>
-      )}
-
       {tab === "subs" && (
         <>
           <div className="card">
             <div className="card-head">
               <div>
+                <h2>Schedule one-shot</h2>
+                <div className="sub">
+                  Runs once through policy at the chosen time. If policy returns review, the charge
+                  parks in Approvals — same as live pay.
+                </div>
+              </div>
+            </div>
+            <div className="grid g-2" style={{ gap: "0 14px" }}>
+              <div className="field">
+                <label>Agent</label>
+                <select
+                  value={form.agentId}
+                  disabled={readOnly}
+                  onChange={(e) => setForm({ ...form, agentId: e.target.value })}
+                >
+                  {agents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>Vendor / destination</label>
+                <input
+                  value={form.vendor}
+                  disabled={readOnly}
+                  onChange={(e) => setForm({ ...form, vendor: e.target.value })}
+                  placeholder="api.openai.com"
+                />
+              </div>
+              <div className="field">
+                <label>Amount (USDC)</label>
+                <input
+                  value={form.amountUsdc}
+                  disabled={readOnly}
+                  onChange={(e) => setForm({ ...form, amountUsdc: e.target.value })}
+                  placeholder="5"
+                />
+              </div>
+              <div className="field">
+                <label>Run at (local → ISO)</label>
+                <input
+                  type="datetime-local"
+                  value={form.runAt}
+                  disabled={readOnly}
+                  onChange={(e) => setForm({ ...form, runAt: e.target.value })}
+                />
+              </div>
+            </div>
+            <button
+              disabled={locked || !form.agentId || !form.vendor.trim() || !form.amountUsdc.trim()}
+              onClick={() =>
+                void act("Schedule payment", async () => {
+                  const runAt = form.runAt
+                    ? new Date(form.runAt).toISOString()
+                    : new Date(Date.now() + 60_000).toISOString();
+                  const res = await gFetch("/v1/guardian/payments/schedule", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      agentId: form.agentId,
+                      vendor: form.vendor.trim(),
+                      amountUsdc: form.amountUsdc.trim(),
+                      runAt,
+                    }),
+                  });
+                  const d = await res.json();
+                  if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
+                  setForm((f) => ({ ...f, amountUsdc: "", vendor: "" }));
+                  await refresh();
+                  return `Scheduled ${fmtUsd(d.scheduled.amountUsdc)} for ${runAt}.`;
+                })
+              }
+            >
+              Schedule
+            </button>
+          </div>
+
+          <div className="card">
+            <div className="card-head">
+              <div>
                 <h2>New subscription</h2>
-                <div className="sub">Recurring charge — every run is still policy-gated.</div>
+                <div className="sub">
+                  Recurring charge — every run is still policy-gated. Review outcomes park in
+                  Approvals.
+                </div>
               </div>
             </div>
             <div className="grid g-2" style={{ gap: "0 14px" }}>
