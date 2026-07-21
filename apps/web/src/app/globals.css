@@ -2627,6 +2627,25 @@ input[type="range"].slider::-moz-range-thumb {
   z-index: 0;
 }
 
+.vault.is-playing .vault-glow {
+  animation: vault-glow-pulse 1.2s ease 2.7s forwards;
+}
+
+@keyframes vault-glow-pulse {
+  0% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.35);
+  }
+  100% {
+    opacity: 0.15;
+    transform: scale(1.6);
+  }
+}
+
 .vault-scene {
   position: relative;
   width: min(280px, 72vw);
@@ -2803,7 +2822,7 @@ input[type="range"].slider::-moz-range-thumb {
 }
 
 .login-wrap.is-ready .login-card {
-  animation: login-card-in 0.65s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
+  animation: login-card-in 0.65s cubic-bezier(0.22, 1, 0.36, 1) 0.28s both;
 }
 
 @keyframes login-card-in {
