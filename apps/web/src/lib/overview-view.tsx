@@ -127,39 +127,56 @@ export function Overview({
   /**
    * Money can move three ways, and the form adapts: treasury → agent,
    * agent → treasury, and agent → agent (the "I funded the wrong one" fix).
+   * All three go through wallets/move so Overview and Treasury share HITL.
    */
   const moveMoney = () =>
     act("Move funds", async () => {
-      const amount = allocAmt.trim();
-      if (moveMode === "allocate") {
-        const res = await gFetch("/v1/guardian/allocate", {
-          method: "POST",
-          body: JSON.stringify({ agentId: allocTo, amountUsdc: amount }),
-        });
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-        return `Allocated ${fmtUsd(amount)} from treasury to ${agentName(allocTo)}.`;
+      if (!org?.org.id) throw new Error("Org not loaded");
+      const orgId = org.org.id;
+
+      const agentAvailable = (agentId: string) =>
+        org.balances.find((b) => b.kind === "agent_available" && b.agentId === agentId)?.usdc ?? "0";
+
+      let amount = allocAmt.trim();
+      // Legacy reclaim/transfer allowed blank = all available; wallets/move requires > 0.
+      if (!amount && (moveMode === "reclaim" || moveMode === "transfer")) {
+        amount = agentAvailable(allocFrom);
       }
-      if (moveMode === "reclaim") {
-        const res = await gFetch("/v1/guardian/reclaim", {
-          method: "POST",
-          body: JSON.stringify({ agentId: allocFrom, ...(amount ? { amountUsdc: amount } : {}) }),
-        });
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-        return `Pulled ${fmtUsd(d.amountUsdc)} back from ${agentName(allocFrom)} to the treasury.`;
+      if (!amount || Number(amount) <= 0) {
+        throw new Error(
+          moveMode === "reclaim" || moveMode === "transfer"
+            ? "Nothing available to move"
+            : "Enter a positive amount",
+        );
       }
-      const res = await gFetch("/v1/guardian/transfer", {
+
+      const from =
+        moveMode === "allocate"
+          ? { scope: "org" as const, id: orgId }
+          : { scope: "agent" as const, id: allocFrom };
+      const to =
+        moveMode === "reclaim"
+          ? { scope: "org" as const, id: orgId }
+          : { scope: "agent" as const, id: allocTo };
+
+      const res = await gFetch("/v1/guardian/wallets/move", {
         method: "POST",
-        body: JSON.stringify({
-          fromAgentId: allocFrom,
-          toAgentId: allocTo,
-          ...(amount ? { amountUsdc: amount } : {}),
-        }),
+        body: JSON.stringify({ from, to, amountUsdc: amount, memo: "overview_move" }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-      return `Moved ${fmtUsd(d.amountUsdc)} from ${d.from} to ${d.to}.`;
+
+      const moved = d.move?.amountUsdc ?? amount;
+      if (d.outcome === "review") {
+        return `Parked ${fmtUsd(moved)} for multi-guardian approval — resolve under Treasury → Moves.`;
+      }
+      if (moveMode === "allocate") {
+        return `Allocated ${fmtUsd(moved)} from treasury to ${agentName(allocTo)}.`;
+      }
+      if (moveMode === "reclaim") {
+        return `Pulled ${fmtUsd(moved)} back from ${agentName(allocFrom)} to the treasury.`;
+      }
+      return `Moved ${fmtUsd(moved)} from ${agentName(allocFrom)} to ${agentName(allocTo)}.`;
     });
 
   const rotateKey = (agentId: string) =>
@@ -487,7 +504,7 @@ export function Overview({
           <div className="card-head">
             <div>
               <h2>Move funds</h2>
-              <div className="sub">Treasury ↔ agents · double-entry</div>
+              <div className="sub">Treasury ↔ agents · same HITL path as Treasury</div>
             </div>
           </div>
           <SegTabs
@@ -566,8 +583,12 @@ export function Overview({
                   : "Transfer between agents"}
             </Button>
             <p className="faint" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.55 }}>
-              Org treasury has <b className="mono">{fmtUsd(orgAvail)}</b>. For department /
-              shared wallets and on-chain deposit address, open <Button variant="bare" style={{ fontSize: 11.5 }} onClick={() => setView("treasury")}>Treasury</Button>.
+              Org treasury has <b className="mono">{fmtUsd(orgAvail)}</b>. Large moves park for
+              multi-guardian approval. Department / shared wallets live under{" "}
+              <Button variant="bare" style={{ fontSize: 11.5 }} onClick={() => setView("treasury")}>
+                Treasury
+              </Button>
+              .
             </p>
           </div>
         </div>
