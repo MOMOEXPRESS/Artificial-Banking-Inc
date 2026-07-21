@@ -10,8 +10,8 @@
 ## Executive verdict
 
 Picture A is **started** (Treasury Budgets, ops-label fund-from-budget, ADR).  
-**P0 and P1 console honesty items from this audit are fixed.**  
-Remaining work is **P2 cleanup**: search bar, sound pref, calendar marks, CSV tip, liquid-total foot, pricing “shared vault” copy.
+**P0–P2 console honesty items from this audit are fixed.**  
+Re-open this doc when something “feels like the Finance department bug again.”
 
 Nothing below means “the product is broken end-to-end.” It means **operators can still be taught the wrong mental model** the way they were with dept/pool/group.
 

@@ -109,6 +109,7 @@ export function InsightsView({
   setToast,
   query,
   initialTab,
+  activitySeed,
 }: {
   gFetch: GFetch;
   setView: (v: string) => void;
@@ -117,6 +118,11 @@ export function InsightsView({
   setToast?: (m: string, k?: "ok" | "err" | "info") => void;
   query?: string;
   initialTab?: "economics" | "vendors" | "burn" | "anomalies" | "trail";
+  activitySeed?: {
+    filter?: "all" | "allow" | "deny" | "review";
+    dest?: string;
+    key: number;
+  };
 }) {
   const [tab, setTab] = useState<"economics" | "vendors" | "burn" | "anomalies" | "trail">(
     initialTab ?? "economics",
@@ -132,6 +138,10 @@ export function InsightsView({
   useEffect(() => {
     if (initialTab) setTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    if (activitySeed?.key) setTab("trail");
+  }, [activitySeed?.key]);
 
   useEffect(() => {
     let alive = true;
@@ -250,6 +260,9 @@ export function InsightsView({
           setToast={setToast}
           query={query ?? ""}
           gFetch={gFetch}
+          seedFilter={activitySeed?.filter}
+          seedDest={activitySeed?.dest}
+          seedKey={activitySeed?.key}
         />
       ) : (
       <div className="card fill" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>

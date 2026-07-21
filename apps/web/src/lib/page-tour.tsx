@@ -66,7 +66,7 @@ const TIPS: Record<string, string[]> = {
     "Subscribe only to the event kinds your backend cares about.",
   ],
   activity: [
-    "Full decision audit trail — export CSV from Settings or the Activity header.",
+    "Full decision audit trail — export CSV from the Activity header.",
     "Filter by agent or outcome when debugging a refuse or review.",
   ],
   settings: [

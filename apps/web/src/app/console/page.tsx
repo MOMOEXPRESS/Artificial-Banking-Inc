@@ -107,7 +107,7 @@ function viewLabelOf(view: View): string {
 
 export default function Console() {
   const [session, setSession] = useState<Session | null>(null);
-  const [prefs, setPrefs] = useState<Prefs>({ autoJump: true, sound: false });
+  const [prefs, setPrefs] = useState<Prefs>({ autoJump: true });
   const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View>("overview");
@@ -131,6 +131,11 @@ export default function Console() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [banner, setBanner] = useState<ConsoleAlert | null>(null);
   const [query, setQuery] = useState("");
+  const [activitySeed, setActivitySeed] = useState<{
+    filter?: "all" | "allow" | "deny" | "review";
+    dest?: string;
+    key: number;
+  } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [navContext, setNavContext] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(false);
@@ -141,7 +146,6 @@ export default function Console() {
     Config: true,
   });
   const help = useKeyboardHelp();
-  const searchRef = useRef<HTMLInputElement | null>(null);
   const theme = useTheme();
 
   // Mission state lives in the shell so a run survives navigating between
@@ -175,7 +179,10 @@ export default function Console() {
       const raw = localStorage.getItem("pv_session");
       if (raw) setSession(JSON.parse(raw));
       const p = localStorage.getItem("pv_prefs");
-      if (p) setPrefs(JSON.parse(p));
+      if (p) {
+        const parsed = JSON.parse(p) as Partial<Prefs> & { sound?: boolean };
+        setPrefs({ autoJump: parsed.autoJump ?? true });
+      }
     } catch {
       /* ignore */
     }
@@ -601,19 +608,9 @@ export default function Console() {
             aria-label="Open command palette"
           >
             <Icon name="search" />
-            <span className="search-placeholder">
-              {query || "Search agents, destinations…"}
-            </span>
+            <span className="search-placeholder">Command palette…</span>
             <kbd className="search-kbd">⌘K</kbd>
           </button>
-          <input
-            ref={searchRef}
-            className="visually-hidden"
-            tabIndex={-1}
-            aria-hidden
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button type="button" className="user-chip" aria-label="Account menu">
@@ -836,6 +833,7 @@ export default function Console() {
                   setToast={setToast}
                   query={query}
                   initialTab={view === "activity" ? "trail" : undefined}
+                  activitySeed={activitySeed ?? undefined}
                 />
               )}
               {view === "ledger" && <Ledger journals={journals} metrics={metrics} recon={recon} />}
@@ -873,7 +871,16 @@ export default function Console() {
         decisions={decisions}
         onGo={goView}
         onSelectAgent={() => setView("agents")}
-        onFocusSearch={() => searchRef.current?.focus()}
+        onJumpToDenial={(d) => {
+          const dest = d.destination.replace(/^https?:\/\//, "").split("/")[0] ?? d.destination;
+          setQuery(d.destination);
+          setActivitySeed({
+            filter: "deny",
+            dest,
+            key: Date.now(),
+          });
+          setView("activity");
+        }}
       />
       <KeyboardHelp open={help.open} onClose={() => help.setOpen(false)} />
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Empty, Icon, Stat, fmtTime, fmtUsd, relTime } from "./ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,17 +13,30 @@ export function Activity({
   setToast,
   query,
   gFetch,
+  seedFilter,
+  seedDest,
+  seedKey,
 }: {
   decisions: Decision[];
   agentName: (id: string) => string;
   setToast: (m: string, k?: "ok" | "err" | "info") => void;
   query: string;
   gFetch: (path: string, init?: RequestInit) => Promise<Response>;
+  seedFilter?: "all" | "allow" | "deny" | "review";
+  seedDest?: string;
+  /** Bumps when palette jumps to a denial so filters re-apply. */
+  seedKey?: number;
 }) {
-  const [filter, setFilter] = useState<"all" | "allow" | "deny" | "review">("all");
+  const [filter, setFilter] = useState<"all" | "allow" | "deny" | "review">(seedFilter ?? "all");
   const [agentF, setAgentF] = useState("all");
   const [toolF, setToolF] = useState("all");
-  const [destF, setDestF] = useState("all");
+  const [destF, setDestF] = useState(seedDest ?? "all");
+
+  useEffect(() => {
+    if (seedKey === undefined) return;
+    if (seedFilter) setFilter(seedFilter);
+    if (seedDest) setDestF(seedDest);
+  }, [seedKey, seedFilter, seedDest]);
 
   // Facet options come from the data itself, so they always match what exists.
   const agentOpts = useMemo(
@@ -78,7 +91,7 @@ export function Activity({
       a.download = `abi-audit-${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
       URL.revokeObjectURL(a.href);
-      setToast("Exported server audit CSV (decisions + freezes).", "ok");
+      setToast("Exported server audit CSV (policy decisions).", "ok");
     } catch {
       // Fallback to filtered client CSV if the server export is unavailable.
       const head = "time,agent,outcome,tool,amount_usdc,destination,rules,reasons";

@@ -268,7 +268,15 @@ export function TreasuryView({
       </div>
 
       <div className="grid g-4" style={{ marginBottom: 12 }}>
-        <Stat label="Liquid total" value={fmt(forecast?.totalLiquidUsdc)} foot="org + budgets + agents" />
+        <Stat
+          label="Liquid total"
+          value={fmt(forecast?.totalLiquidUsdc)}
+          foot={
+            Number(forecast?.sharedAvailableUsdc ?? 0) > 0
+              ? "org + budgets + agents + legacy pools"
+              : "org + budgets + agents"
+          }
+        />
         <Stat
           label="Org vault"
           value={fmt(wallets?.org.availableUsdc)}
@@ -814,7 +822,15 @@ export function TreasuryView({
                 </div>
               </div>
               <div className="grid g-2" style={{ gap: 14 }}>
-                <Stat label="Liquid now" value={fmt(forecast.totalLiquidUsdc)} />
+                <Stat
+                  label="Liquid now"
+                  value={fmt(forecast.totalLiquidUsdc)}
+                  foot={
+                    Number(forecast.sharedAvailableUsdc ?? 0) > 0
+                      ? "includes legacy shared pools"
+                      : undefined
+                  }
+                />
                 <Stat
                   label="Runway"
                   value={forecast.runwayDays == null ? "∞" : `${forecast.runwayDays}d`}

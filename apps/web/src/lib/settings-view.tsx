@@ -58,8 +58,8 @@ export function SettingsView({
 }: {
   setup: Setup | null;
   recon: Recon | null;
-  prefs: { autoJump: boolean; sound: boolean };
-  savePrefs: (p: { autoJump: boolean; sound: boolean }) => void;
+  prefs: { autoJump: boolean };
+  savePrefs: (p: { autoJump: boolean }) => void;
   session: { guardianKey: string; agentKeys: { agentId: string; name: string; key: string }[] };
   org: { org: { name: string; status: string }; vaultAddress: string } | null;
   metrics: { agents: number } | null;

@@ -7,7 +7,7 @@ export type Session = {
   agentKeys: AgentKey[];
 };
 
-export type Prefs = { autoJump: boolean; sound: boolean };
+export type Prefs = { autoJump: boolean };
 
 export type OrgView = {
   org: { id: string; name: string; status: string; settings?: Record<string, unknown> };

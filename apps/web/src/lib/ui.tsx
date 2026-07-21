@@ -331,7 +331,7 @@ export function Sparkline({ values, highlightLast = true }: { values: number[]; 
   );
 }
 
-export function Calendar({ marks }: { marks: number[] }) {
+export function Calendar({ marks }: { marks: string[] }) {
   // Offset in months from the current month, so the arrows actually navigate.
   const [offset, setOffset] = useState(0);
   const now = new Date();
@@ -348,6 +348,7 @@ export function Calendar({ marks }: { marks: number[] }) {
     ...Array.from({ length: days }, (_, i) => i + 1),
   ];
   while (cells.length % 7 !== 0) cells.push(null);
+  const markSet = useMemo(() => new Set(marks), [marks]);
   return (
     <>
       <div className="between" style={{ marginBottom: 14 }}>
@@ -383,7 +384,11 @@ export function Calendar({ marks }: { marks: number[] }) {
           </div>
         ))}
         {cells.map((d, i) => {
-          const active = d !== null && marks.includes(d);
+          const key =
+            d === null
+              ? ""
+              : `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+          const active = d !== null && markSet.has(key);
           // Past days with no agent activity get the etched-line treatment.
           const quiet = d !== null && !active && d < today;
           return (

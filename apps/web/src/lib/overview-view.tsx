@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AIPanel } from "./views";
 import type { InvoiceStats, Summary } from "./views";
-import { BarChart, BarLine, Calendar, Donut, Empty, Icon, Meter, Sparkline, Stat, fmtTime, fmtUsd, relTime } from "./ui";
+import { BarChart, BarLine, Calendar, Donut, Empty, Icon, Stat, fmtTime, fmtUsd } from "./ui";
 import type { AgentKey, Alert, Approval, Decision, Escrow, Metrics, Session, Shared, View } from "./console-types";
 import type { Policy } from "./policy-view";
 import { Button } from "@/components/ui/button";
@@ -110,7 +110,7 @@ export function Overview({
   }, [windowed]);
 
   const marks = useMemo(
-    () => [...new Set(decisions.map((d) => new Date(d.at).getDate()))],
+    () => [...new Set(decisions.map((d) => d.at.slice(0, 10)).filter(Boolean))],
     [decisions],
   );
 

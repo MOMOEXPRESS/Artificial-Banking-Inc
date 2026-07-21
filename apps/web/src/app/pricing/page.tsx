@@ -24,7 +24,7 @@ const TIERS = [
     price: "Contact",
     note: "more than one approver",
     points: [
-      "Shared vault + agent budgets",
+      "Org vault + treasury budgets",
       "Multi-person approvals",
       "Signed webhooks",
       "Spend & vendor reports",
@@ -56,7 +56,7 @@ const COMPARE_ROWS: { feature: string; developer: Cell; team: Cell; enterprise: 
   { feature: "Policy simulator", developer: true, team: true, enterprise: true },
   { feature: "x402 + mock rails", developer: true, team: true, enterprise: true },
   { feature: "Production USDC settlement", developer: false, team: true, enterprise: true },
-  { feature: "Shared vault & agent stipends", developer: false, team: true, enterprise: true },
+  { feature: "Org vault & agent stipends", developer: false, team: true, enterprise: true },
   { feature: "Multi-guardian quorum", developer: false, team: true, enterprise: true },
   { feature: "Signed webhooks", developer: false, team: true, enterprise: true },
   { feature: "Burn & vendor analytics", developer: false, team: true, enterprise: true },

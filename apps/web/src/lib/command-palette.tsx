@@ -31,7 +31,7 @@ export function ConsoleCommandPalette({
   decisions = [],
   onGo,
   onSelectAgent,
-  onFocusSearch,
+  onJumpToDenial,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -39,7 +39,7 @@ export function ConsoleCommandPalette({
   decisions?: DecisionHit[];
   onGo: (view: ShortcutView) => void;
   onSelectAgent?: (agentId: string) => void;
-  onFocusSearch?: () => void;
+  onJumpToDenial?: (d: DecisionHit) => void;
 }) {
   const views = useMemo(() => GO_MAP, []);
   const denials = useMemo(
@@ -97,6 +97,7 @@ export function ConsoleCommandPalette({
                 key={`${d.intentId}-${d.at}`}
                 value={`denied $${d.amountUsdc} ${d.destination} ${d.reasons.join(" ")} ${d.tool} why deny`}
                 onSelect={() => {
+                  onJumpToDenial?.(d);
                   onGo("activity");
                   onOpenChange(false);
                 }}
@@ -129,15 +130,6 @@ export function ConsoleCommandPalette({
           >
             Open payments — simulate x402 settle
             <CommandShortcut>g p</CommandShortcut>
-          </CommandItem>
-          <CommandItem
-            value="focus search"
-            onSelect={() => {
-              onFocusSearch?.();
-              onOpenChange(false);
-            }}
-          >
-            Focus topbar search
           </CommandItem>
           <CommandItem
             value="approvals review pending"
