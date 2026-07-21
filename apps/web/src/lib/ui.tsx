@@ -160,6 +160,32 @@ const PATHS: Record<string, ReactNode> = {
       <path d="M12 7v5.2l3.3 2" />
     </>
   ),
+  vault: (
+    <>
+      <rect x="4" y="8" width="16" height="12" rx="2.5" />
+      <path d="M8 8V6.5a4 4 0 0 1 8 0V8" />
+      <circle cx="12" cy="14" r="1.6" />
+    </>
+  ),
+  layers: (
+    <>
+      <path d="M12 3.5 3.5 8 12 12.5 20.5 8 12 3.5z" />
+      <path d="M3.5 12 12 16.5 20.5 12" />
+      <path d="M3.5 16 12 20.5 20.5 16" />
+    </>
+  ),
+  chart: (
+    <>
+      <path d="M4 19.5h16" />
+      <path d="M7 16.5V11M12 16.5V7.5M17 16.5v-3.5" />
+    </>
+  ),
+  key: (
+    <>
+      <circle cx="8" cy="14" r="3.5" />
+      <path d="M11 12.5h9.5v3H17v2h-2.5v-2H14" />
+    </>
+  ),
 };
 
 export function Icon({ name, size }: { name: string; size?: number }) {

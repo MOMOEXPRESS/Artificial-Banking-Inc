@@ -10,7 +10,7 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: "bg-[var(--color-surface-2)] text-[var(--color-fg)] border-[var(--color-border)]",
-        info: "border-[var(--accent-soft)] bg-[var(--accent-soft)] text-[var(--color-fg)]",
+        info: "border-[var(--color-border)] bg-[var(--color-surface-3)] text-[var(--color-fg)]",
       },
     },
     defaultVariants: { variant: "default" },

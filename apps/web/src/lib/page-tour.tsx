@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "./ui";
-import { Button } from "@/components/ui/button";
 
 const STORAGE_KEY = "abi_page_tours_v1";
+const SHOW_MS = 6500;
+const EXIT_MS = 380;
 
 const TOURS: Record<string, string> = {
   overview:
@@ -42,63 +41,60 @@ function saveDismissed(map: Record<string, boolean>) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
 }
 
-/** First-visit explainer — shadcn Alert + Collapsible, localStorage-dismissed. */
+/**
+ * First-visit tip: slides in once, auto-dismisses with exit motion.
+ * No “Got it” required — tips reappear only after resetAllPageTours().
+ */
 export function PageTour({ view }: { view: string }) {
   const body = TOURS[view];
-  const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
-  const [hydrated, setHydrated] = useState(false);
-  const [open, setOpen] = useState(true);
+  const [phase, setPhase] = useState<"idle" | "enter" | "exit" | "gone">("idle");
+  const timers = useRef<number[]>([]);
 
   useEffect(() => {
-    setDismissed(loadDismissed());
-    setHydrated(true);
-  }, []);
+    timers.current.forEach((id) => window.clearTimeout(id));
+    timers.current = [];
+    setPhase("idle");
 
-  if (!body || !hydrated) return null;
+    if (!body) return;
 
-  const hidden = !!dismissed[view];
+    const dismissed = loadDismissed();
+    if (dismissed[view]) {
+      setPhase("gone");
+      return;
+    }
 
-  if (hidden) {
-    return (
-      <Collapsible open={open} onOpenChange={setOpen}>
-        <CollapsibleTrigger asChild>
-          <Button variant="bare" size="sm" style={{ marginBottom: 10, fontSize: 11.5, opacity: 0.75 }}>
-            Show page guide
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <Alert variant="info" className="mb-3">
-            <Icon name="spark" size={16} />
-            <AlertTitle>How this page works</AlertTitle>
-            <AlertDescription>{body}</AlertDescription>
-          </Alert>
-        </CollapsibleContent>
-      </Collapsible>
-    );
-  }
+    const enterId = window.setTimeout(() => setPhase("enter"), 40);
+    const exitId = window.setTimeout(() => setPhase("exit"), SHOW_MS);
+    const goneId = window.setTimeout(() => {
+      const next = { ...loadDismissed(), [view]: true };
+      saveDismissed(next);
+      setPhase("gone");
+    }, SHOW_MS + EXIT_MS);
+    timers.current = [enterId, exitId, goneId];
+
+    return () => {
+      timers.current.forEach((id) => window.clearTimeout(id));
+      timers.current = [];
+    };
+  }, [view, body]);
+
+  if (!body || phase === "idle" || phase === "gone") return null;
 
   return (
-    <Alert variant="info" className="mb-3.5 flex items-start gap-3">
-      <span className="mt-0.5 shrink-0">
-        <Icon name="spark" size={16} />
+    <div
+      className={`page-tip ${phase === "exit" ? "page-tip-out" : "page-tip-in"}`}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="page-tip-icon" aria-hidden>
+        <Icon name="spark" size={15} />
       </span>
-      <div className="min-w-0 flex-1">
-        <AlertTitle>How this page works</AlertTitle>
-        <AlertDescription>{body}</AlertDescription>
+      <div className="page-tip-body">
+        <div className="page-tip-title">Tip</div>
+        <p>{body}</p>
       </div>
-      <Button type="button"
- variant="ghost"
- size="sm"
-        className="shrink-0"
-        onClick={() => {
-          const next = { ...dismissed, [view]: true };
-          setDismissed(next);
-          saveDismissed(next);
-        }}
-      >
-        Got it
-      </Button>
-    </Alert>
+      <div className="page-tip-bar" aria-hidden />
+    </div>
   );
 }
 

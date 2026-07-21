@@ -182,13 +182,18 @@ export function TreasuryView({
 
   return (
     <>
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div className="card-head">
-          <div>
-            <h2 style={{ margin: 0 }}>Treasury</h2>
-            <div className="sub">
-              Fund the org vault, allocate to agents, withdraw to allowlisted destinations ·{" "}
-              {wallets?.asset.symbol ?? "USDC"} on {wallets?.asset.chain ?? "base-sepolia"}
+      <div className="card treasury-hero">
+        <div className="card-head" style={{ marginBottom: 0 }}>
+          <div className="treasury-hero-copy">
+            <div className="treasury-hero-badge" aria-hidden>
+              <Icon name="vault" size={18} />
+            </div>
+            <div>
+              <h2 style={{ margin: 0 }}>Treasury</h2>
+              <div className="sub">
+                Fund · allocate · withdraw ·{" "}
+                {wallets?.asset.symbol ?? "USDC"} on {wallets?.asset.chain ?? "base-sepolia"}
+              </div>
             </div>
           </div>
           <SegTabs
@@ -196,11 +201,46 @@ export function TreasuryView({
             onValueChange={(v) => setTab(v as typeof tab)}
             items={
               [
-                { value: "fund", label: "Fund" },
-                { value: "wallets", label: "Wallets" },
-                { value: "move", label: "Move" },
-                { value: "analytics", label: "Cash & forecast" },
-                { value: "recovery", label: "Recovery" },
+                {
+                  value: "fund",
+                  label: (
+                    <span className="seg-label">
+                      <Icon name="plus" size={12} /> Fund
+                    </span>
+                  ),
+                },
+                {
+                  value: "wallets",
+                  label: (
+                    <span className="seg-label">
+                      <Icon name="layers" size={12} /> Wallets
+                    </span>
+                  ),
+                },
+                {
+                  value: "move",
+                  label: (
+                    <span className="seg-label">
+                      <Icon name="swap" size={12} /> Move
+                    </span>
+                  ),
+                },
+                {
+                  value: "analytics",
+                  label: (
+                    <span className="seg-label">
+                      <Icon name="chart" size={12} /> Cash
+                    </span>
+                  ),
+                },
+                {
+                  value: "recovery",
+                  label: (
+                    <span className="seg-label">
+                      <Icon name="key" size={12} /> Recovery
+                    </span>
+                  ),
+                },
               ] as const
             }
           />
@@ -228,27 +268,23 @@ export function TreasuryView({
 
       {tab === "fund" && (
         <div className="grid g-main fill">
-          <div className="card" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div>
-              <h2 style={{ margin: "0 0 6px" }}>Deposit USDC</h2>
-              <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
-                Today the console can record a <b>demo ledger deposit</b> (off-chain credit).
-                For go-live with CDP, fund the <b>existent vault address</b> below with USDC on{" "}
-                {wallets?.asset.chain ?? "base-sepolia"} — custody signs via that vault when{" "}
-                <code>CDP_API_KEY_*</code> is set.
-              </p>
+          <div className="card treasury-panel">
+            <div className="treasury-panel-head">
+              <span className="treasury-glyph" aria-hidden>
+                <Icon name="plus" size={16} />
+              </span>
+              <div>
+                <h2 style={{ margin: "0 0 6px" }}>Deposit USDC</h2>
+                <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
+                  Record a <b>demo ledger deposit</b>, or fund the vault address on-chain for CDP
+                  custody.
+                </p>
+              </div>
             </div>
 
-            <div
-              style={{
-                padding: "14px 16px",
-                borderRadius: 10,
-                background: "var(--surface-3)",
-                border: "1px solid var(--border)",
-              }}
-            >
+            <div className="treasury-vault-chip">
               <div className="muted" style={{ fontSize: 11.5, marginBottom: 6 }}>
-                Org vault address ({wallets?.asset.chain ?? "base-sepolia"})
+                Org vault · {wallets?.asset.chain ?? "base-sepolia"}
               </div>
               <div className="row" style={{ gap: 8, alignItems: "center" }}>
                 <code className="mono" style={{ fontSize: 13, wordBreak: "break-all", flex: 1 }}>
@@ -300,13 +336,17 @@ export function TreasuryView({
             </Form>
           </div>
 
-          <div className="card" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div>
-              <h2 style={{ margin: "0 0 6px" }}>Withdraw</h2>
-              <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
-                Pull USDC out of the org vault. Above your policy threshold this parks for
-                guardian approval. Destination should be an allowlisted address once live.
-              </p>
+          <div className="card treasury-panel">
+            <div className="treasury-panel-head">
+              <span className="treasury-glyph warn" aria-hidden>
+                <Icon name="download" size={16} />
+              </span>
+              <div>
+                <h2 style={{ margin: "0 0 6px" }}>Withdraw</h2>
+                <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
+                  Pull USDC from the org vault. Large amounts park for guardian approval.
+                </p>
+              </div>
             </div>
             <Form {...withdrawForm}>
               <form
@@ -360,7 +400,7 @@ export function TreasuryView({
               </form>
             </Form>
             <p className="faint" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.55 }}>
-              Available to withdraw: <b className="mono">{fmt(wallets?.org.availableUsdc)}</b>
+              Available: <b className="mono">{fmt(wallets?.org.availableUsdc)}</b>
             </p>
           </div>
         </div>
@@ -368,6 +408,24 @@ export function TreasuryView({
 
       {tab === "wallets" && (
         <>
+          <div className="treasury-scope-row" aria-hidden>
+            <div className="treasury-scope-node">
+              <Icon name="vault" size={14} /> Org
+            </div>
+            <span className="treasury-scope-line" />
+            <div className="treasury-scope-node">
+              <Icon name="layers" size={14} /> Depts
+            </div>
+            <span className="treasury-scope-line" />
+            <div className="treasury-scope-node">
+              <Icon name="wallet" size={14} /> Shared
+            </div>
+            <span className="treasury-scope-line" />
+            <div className="treasury-scope-node">
+              <Icon name="robot" size={14} /> Agents
+            </div>
+          </div>
+
           <div className="grid g-2 fill" style={{ marginBottom: 12 }}>
             <div className="card">
               <div className="card-head">
@@ -406,25 +464,25 @@ export function TreasuryView({
               {(wallets?.departments.length ?? 0) === 0 ? (
                 <Empty icon="wallet">No departments yet.</Empty>
               ) : (
-                <div className="tbl-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th className="num">Available</th>
-                        <th className="num">Held</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {wallets!.departments.map((d) => (
-                        <tr key={d.id}>
-                          <td>{d.name}</td>
-                          <td className="num mono">{fmt(d.availableUsdc)}</td>
-                          <td className="num mono faint">{fmt(d.heldUsdc)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="treasury-tile-grid">
+                  {wallets!.departments.map((d) => (
+                    <button
+                      key={d.id}
+                      type="button"
+                      className="treasury-tile"
+                      onClick={() => {
+                        setFrom(`department:${d.id}`);
+                        setTab("move");
+                      }}
+                    >
+                      <span className="treasury-tile-icon">
+                        <Icon name="layers" size={14} />
+                      </span>
+                      <span className="treasury-tile-name">{d.name}</span>
+                      <span className="treasury-tile-amt mono">{fmt(d.availableUsdc)}</span>
+                      <span className="treasury-tile-meta faint">held {fmt(d.heldUsdc)}</span>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -498,15 +556,7 @@ export function TreasuryView({
                     const members =
                       sharedEditMembers[s.id] ?? s.memberAgentIds ?? [];
                     return (
-                      <div
-                        key={s.id}
-                        style={{
-                          padding: 12,
-                          border: "1px solid var(--border)",
-                          borderRadius: 8,
-                          background: "var(--surface-2)",
-                        }}
-                      >
+                      <div key={s.id} className="treasury-shared-card">
                         <div className="between" style={{ marginBottom: 8 }}>
                           <b>{s.name}</b>
                           <span className="mono">{fmt(s.availableUsdc)}</span>
@@ -574,52 +624,64 @@ export function TreasuryView({
               <div>
                 <h2>Agent wallets</h2>
                 <div className="sub">
-                  Stipends from the org vault · asset {wallets?.asset.symbol ?? "USDC"} (
+                  Stipends from the org vault · {wallets?.asset.symbol ?? "USDC"} (
                   {wallets?.asset.chain ?? "—"})
                 </div>
               </div>
             </div>
-            <div className="tbl-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Agent</th>
-                    <th className="num">Available</th>
-                    <th className="num">Held</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(wallets?.agents ?? []).map((a) => (
-                    <tr key={a.id}>
-                      <td>{a.name}</td>
-                      <td className="num mono">{fmt(a.availableUsdc)}</td>
-                      <td className="num mono faint">{fmt(a.heldUsdc)}</td>
-                      <td>
-                        <span className={`pill ${a.status === "frozen" ? "bad" : "ok"}`}>
-                          <i /> {a.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {(wallets?.agents.length ?? 0) === 0 ? (
+              <Empty icon="robot">No agents yet — create some under Agents.</Empty>
+            ) : (
+              <div className="treasury-tile-grid agents">
+                {(wallets?.agents ?? []).map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    className="treasury-tile"
+                    onClick={() => {
+                      setFrom(`agent:${a.id}`);
+                      setTab("move");
+                    }}
+                  >
+                    <span className="treasury-tile-icon">
+                      <Icon name="robot" size={14} />
+                    </span>
+                    <span className="treasury-tile-name">{a.name}</span>
+                    <span className="treasury-tile-amt mono">{fmt(a.availableUsdc)}</span>
+                    <span className={`pill ${a.status === "frozen" ? "bad" : "ok"}`}>
+                      <i /> {a.status}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}
 
       {tab === "move" && (
         <div className="grid g-main fill">
-          <div className="card">
-            <div className="card-head">
+          <div className="card treasury-panel">
+            <div className="treasury-panel-head">
+              <span className="treasury-glyph" aria-hidden>
+                <Icon name="swap" size={16} />
+              </span>
               <div>
-                <h2>Move between wallets</h2>
-                <div className="sub">
+                <h2 style={{ margin: "0 0 6px" }}>Move between wallets</h2>
+                <div className="sub" style={{ margin: 0 }}>
                   Org ↔ dept ↔ shared ↔ agent. Large moves may need multi-guardian votes.
                 </div>
               </div>
             </div>
+
+            <div className="treasury-flow" aria-hidden>
+              <span>From</span>
+              <span className="treasury-flow-arrow">→</span>
+              <span>To</span>
+              <span className="treasury-flow-arrow">→</span>
+              <span>Ledger</span>
+            </div>
+
             <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 420 }}>
               <label className="field" style={{ margin: 0 }}>
                 <span>From</span>
@@ -693,7 +755,7 @@ export function TreasuryView({
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
                 {moves.slice(0, 12).map((m) => (
-                  <div key={m.id} className="between" style={{ gap: 10 }}>
+                  <div key={m.id} className="treasury-move-row">
                     <div style={{ minWidth: 0 }}>
                       <b className="mono">{fmt(m.amountUsdc)}</b>
                       <div className="faint" style={{ fontSize: 11.5 }}>
@@ -786,11 +848,29 @@ export function TreasuryView({
           </div>
 
           {forecast && (
-            <div className="card">
+            <div className="card treasury-panel">
               <div className="card-head">
                 <div>
                   <h2>Forecast</h2>
                   <div className="sub">{forecast.note}</div>
+                </div>
+              </div>
+              <div className="treasury-runway" aria-hidden>
+                <div className="treasury-runway-track">
+                  <div
+                    className="treasury-runway-fill"
+                    style={{
+                      width:
+                        forecast.runwayDays == null
+                          ? "100%"
+                          : `${Math.min(100, Math.max(8, (forecast.runwayDays / 90) * 100))}%`,
+                    }}
+                  />
+                </div>
+                <div className="treasury-runway-label">
+                  {forecast.runwayDays == null
+                    ? "Runway unlimited at current burn"
+                    : `${forecast.runwayDays} days of runway at ${fmt(forecast.avgDailySpendUsdc)}/day`}
                 </div>
               </div>
               <div className="grid g-2" style={{ gap: 14 }}>
@@ -810,11 +890,16 @@ export function TreasuryView({
 
       {tab === "recovery" && (
         <div className="grid g-2 fill">
-          <div className="card">
-            <div className="card-head">
+          <div className="card treasury-panel">
+            <div className="treasury-panel-head">
+              <span className="treasury-glyph" aria-hidden>
+                <Icon name="key" size={16} />
+              </span>
               <div>
-                <h2>Custody recovery</h2>
-                <div className="sub">Rotate vault or agent signing material · audited</div>
+                <h2 style={{ margin: "0 0 6px" }}>Custody recovery</h2>
+                <div className="sub" style={{ margin: 0 }}>
+                  Rotate vault or agent signing material · audited
+                </div>
               </div>
             </div>
             <div className="row" style={{ gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
@@ -879,7 +964,7 @@ export function TreasuryView({
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {recovery!.events.slice(0, 12).map((e) => (
-                  <div key={e.id} className="between" style={{ fontSize: 12.5 }}>
+                  <div key={e.id} className="treasury-move-row" style={{ fontSize: 12.5 }}>
                     <span>
                       <b>{e.kind}</b>
                       {e.note ? ` · ${e.note}` : ""}
