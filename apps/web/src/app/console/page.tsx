@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ABAppIcon, ABLockup } from "../../lib/brand";
 import {
   BarChart,
@@ -42,6 +42,21 @@ import {
   type ShortcutView,
 } from "../../lib/keyboard-shortcuts";
 import { ConsoleCommandPalette } from "../../lib/command-palette";
+import { toast } from "../../lib/toast";
+import { useTheme } from "../../lib/theme-provider";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Sidebar, SidebarGroup, SidebarItem } from "@/components/ui/sidebar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -233,15 +248,16 @@ export default function Console() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invStats, setInvStats] = useState<InvoiceStats | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
-  const [toast, setToastRaw] = useState<{ msg: string; kind: "ok" | "err" | "info" } | null>(null);
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(true);
   const [notifOpen, setNotifOpen] = useState(false);
   const [banner, setBanner] = useState<Alert | null>(null);
   const [query, setQuery] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [navContext, setNavContext] = useState<string | null>(null);
   const help = useKeyboardHelp();
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const theme = useTheme();
 
   // Mission state lives in the shell so a run survives navigating between
   // views — the agent keeps working while you go approve something.
@@ -259,7 +275,6 @@ export default function Console() {
   prefsRef.current = prefs;
   const viewRef = useRef<View>(view);
   viewRef.current = view;
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seenApprovals = useRef<Set<string>>(new Set());
   /** Approvals already pending at sign-in are not "new" — do not hijack the view. */
   const firstApprovalLoad = useRef(true);
@@ -267,9 +282,7 @@ export default function Console() {
   const missionCancel = useRef(false);
 
   const setToast = useCallback((msg: string, kind: "ok" | "err" | "info" = "info") => {
-    setToastRaw({ msg, kind });
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToastRaw(null), kind === "err" ? 11000 : 6000);
+    toast(msg, kind);
   }, []);
 
   useEffect(() => {
@@ -535,6 +548,7 @@ export default function Console() {
 
   const goView = useCallback((v: ShortcutView) => {
     setView(v as View);
+    if (v !== "agents") setNavContext(null);
   }, []);
 
   useConsoleShortcuts({
@@ -546,7 +560,7 @@ export default function Console() {
 
   if (!hydrated) return null;
   if (!session)
-    return <Login onLogin={saveSession} setToast={setToast} toast={toast} clear={() => setToastRaw(null)} />;
+    return <Login onLogin={saveSession} setToast={setToast} />;
 
   const readOnly = org?.actor?.role === "viewer";
   const shared = { busy, act, gFetch, agentName, org, setToast, setView, readOnly };
@@ -554,51 +568,55 @@ export default function Console() {
   const groupLabel = navGroupOf(view);
 
   return (
+    <TooltipProvider delayDuration={250}>
     <div className="app">
-      <nav className="rail" aria-label="Console navigation">
+      <Sidebar className="rail" label="Console navigation">
         <Link href="/" className="rail-logo" title="Back to landing" style={{ textDecoration: "none" }}>
           <ABAppIcon size={38} />
         </Link>
         {NAV_GROUPS.map((group) => (
-          <Fragment key={group}>
-            <div className="rail-sep" aria-hidden title={group}>
-              <span className="rail-sep-label">{group[0]}</span>
-            </div>
+          <SidebarGroup key={group} title={group}>
             {NAV.filter((n) => n.group === group).map((n) => (
-              <button
-                key={n.key}
-                type="button"
-                className={`rail-btn ${view === n.key ? "active" : ""}`}
-                onClick={() => setView(n.key)}
-                aria-label={n.label}
-                aria-current={view === n.key ? "page" : undefined}
-              >
-                <Icon name={n.icon} />
-                {n.key === "approvals" && pending.length > 0 && <span className="dot-badge" />}
-                {n.key === "chat" && pending.length > 0 && <span className="dot-badge" />}
-                {n.key === "playground" && mission.running && (
-                  <span className="dot-badge" style={{ background: "var(--accent)" }} />
-                )}
-                <span className="rail-tip">
+              <Tooltip key={n.key}>
+                <TooltipTrigger asChild>
+                  <SidebarItem
+                    active={view === n.key}
+                    label={n.label}
+                    onClick={() => {
+                      setView(n.key);
+                      if (n.key !== "agents") setNavContext(null);
+                    }}
+                  >
+                    <Icon name={n.icon} />
+                    {n.key === "approvals" && pending.length > 0 && <span className="dot-badge" />}
+                    {n.key === "chat" && pending.length > 0 && <span className="dot-badge" />}
+                    {n.key === "playground" && mission.running && (
+                      <span className="dot-badge" style={{ background: "var(--accent)" }} />
+                    )}
+                  </SidebarItem>
+                </TooltipTrigger>
+                <TooltipContent side="right">
                   {n.label}
                   {n.key === "playground" && mission.running ? " · running" : ""}
-                </span>
-              </button>
+                </TooltipContent>
+              </Tooltip>
             ))}
-          </Fragment>
+          </SidebarGroup>
         ))}
         <div className="rail-spacer" />
-        <button
-          type="button"
-          className={`rail-btn ${view === "settings" ? "active" : ""}`}
-          onClick={() => setView("settings")}
-          aria-label="Settings"
-          aria-current={view === "settings" ? "page" : undefined}
-        >
-          <Icon name="gear" />
-          <span className="rail-tip">Settings</span>
-        </button>
-      </nav>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <SidebarItem
+              active={view === "settings"}
+              label="Settings"
+              onClick={() => setView("settings")}
+            >
+              <Icon name="gear" />
+            </SidebarItem>
+          </TooltipTrigger>
+          <TooltipContent side="right">Settings</TooltipContent>
+        </Tooltip>
+      </Sidebar>
 
       <main className="main">
         <header className="topbar">
@@ -609,6 +627,14 @@ export default function Console() {
                 /
               </span>
               <span className="crumb-current">{viewLabel}</span>
+              {navContext ? (
+                <>
+                  <span className="crumb-sep" aria-hidden>
+                    /
+                  </span>
+                  <span className="crumb-drill">{navContext}</span>
+                </>
+              ) : null}
             </nav>
             <h1>{viewLabel}</h1>
           </div>
@@ -658,29 +684,36 @@ export default function Console() {
               <DropdownMenuItem onSelect={() => setView("settings")}>Settings</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setPaletteOpen(true)}>Command palette</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => help.setOpen(true)}>Keyboard shortcuts</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => theme.toggle()}>
+                Theme: {theme.resolved === "dark" ? "Dark" : "Light"} (toggle)
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => saveSession(null)}>Sign out</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <div style={{ position: "relative" }}>
-            <button className="icon-btn" onClick={() => setNotifOpen((v) => !v)} aria-label="Alerts">
-              <Icon name="bell" />
-              {alerts.length > 0 && <span className="ping" />}
-            </button>
-            {notifOpen && (
-              <div className="notif-panel">
-                <div className="notif-head">
-                  <span>Needs attention ({alerts.length})</span>
-                  <button className="bare sm" onClick={() => setNotifOpen(false)}>
-                    <Icon name="x" size={13} />
+          <Popover open={notifOpen} onOpenChange={setNotifOpen}>
+            <PopoverTrigger asChild>
+              <button className="icon-btn" aria-label="Alerts">
+                <Icon name="bell" />
+                {alerts.length > 0 && <span className="ping" />}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-[min(360px,calc(100vw-24px))] p-0">
+              <div className="notif-head">
+                <span>Needs attention ({alerts.length})</span>
+                {alerts.length > 0 && (
+                  <button type="button" className="bare sm" onClick={() => setNotifOpen(false)}>
+                    Mark reviewed
                   </button>
-                </div>
+                )}
+              </div>
+              <ScrollArea className="max-h-80">
                 {alerts.length === 0 ? (
                   <div style={{ padding: 26, textAlign: "center", fontSize: 12.5 }} className="muted">
                     All clear. Nothing is waiting on you.
                   </div>
                 ) : (
-                  alerts.slice(0, 6).map((al) => (
+                  alerts.slice(0, 8).map((al) => (
                     <button
                       key={al.id}
                       className="notif-item"
@@ -706,9 +739,9 @@ export default function Console() {
                     </button>
                   ))
                 )}
-              </div>
-            )}
-          </div>
+              </ScrollArea>
+            </PopoverContent>
+          </Popover>
         </header>
 
         <div className="scroll">
@@ -757,6 +790,7 @@ export default function Console() {
                   busy={busy}
                   act={act}
                   readOnly={readOnly}
+                  onContextChange={setNavContext}
                   onKeyRevealed={(entry) => {
                     updateSession({
                       agentKeys: [
@@ -867,16 +901,6 @@ export default function Console() {
         </div>
       </main>
 
-      {toast && (
-        <div
-          className={`toast ${toast.kind === "err" ? "err" : toast.kind === "ok" ? "ok" : ""}`}
-          onClick={() => setToastRaw(null)}
-          role="status"
-        >
-          {toast.msg}
-        </div>
-      )}
-
       <ConsoleCommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
@@ -887,6 +911,7 @@ export default function Console() {
       />
       <KeyboardHelp open={help.open} onClose={() => help.setOpen(false)} />
     </div>
+    </TooltipProvider>
   );
 }
 
@@ -911,13 +936,9 @@ function Skeleton() {
 function Login({
   onLogin,
   setToast,
-  toast,
-  clear,
 }: {
   onLogin: (s: Session) => void;
   setToast: (m: string, k?: "ok" | "err" | "info") => void;
-  toast: { msg: string; kind: string } | null;
-  clear: () => void;
 }) {
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1000,11 +1021,6 @@ function Login({
           into the Playground. Not a bank. Not FDIC insured.
         </p>
       </div>
-      {toast && (
-        <div className={`toast ${toast.kind === "err" ? "err" : ""}`} onClick={clear}>
-          {toast.msg}
-        </div>
-      )}
     </div>
   );
 }
@@ -2206,16 +2222,16 @@ function Ledger({
               </thead>
               <tbody>
                 {journals.map((j) => (
-                  <tr key={j.id}>
-                    <td className="mono faint">{fmtTime(j.createdAt)}</td>
+                  <tr key={j.id} className="ledger-row">
+                    <td className="mono faint ledger-ts">{fmtTime(j.createdAt)}</td>
                     <td>
-                      <span className="pill mute">{j.memo}</span>
+                      <span className="pill mute ledger-memo">{j.memo}</span>
                     </td>
-                    <td className="wrap">
+                    <td className="wrap ledger-lines">
                       {j.lines.map((l, i) => (
-                        <span key={i} className="mono" style={{ marginRight: 16, whiteSpace: "nowrap" }}>
+                        <span key={i} className="mono ledger-line" style={{ marginRight: 16, whiteSpace: "nowrap" }}>
                           <span className="muted">{short(l.accountId)}</span>{" "}
-                          <b style={{ color: Number(l.deltaMicro) >= 0 ? "var(--green)" : "var(--red)" }}>
+                          <b className={Number(l.deltaMicro) >= 0 ? "ledger-credit" : "ledger-debit"}>
                             {delta(l.deltaMicro)}
                           </b>
                         </span>

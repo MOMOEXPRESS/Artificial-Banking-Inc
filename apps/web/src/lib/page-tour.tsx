@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Icon } from "./ui";
 
 const STORAGE_KEY = "abi_page_tours_v1";
@@ -39,11 +41,12 @@ function saveDismissed(map: Record<string, boolean>) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
 }
 
-/** First-visit explainer for each console page — dismissible, re-openable. */
+/** First-visit explainer — shadcn Alert + Collapsible, localStorage-dismissed. */
 export function PageTour({ view }: { view: string }) {
   const body = TOURS[view];
   const [dismissed, setDismissed] = useState<Record<string, boolean>>({});
   const [hydrated, setHydrated] = useState(false);
+  const [open, setOpen] = useState(true);
 
   useEffect(() => {
     setDismissed(loadDismissed());
@@ -56,31 +59,35 @@ export function PageTour({ view }: { view: string }) {
 
   if (hidden) {
     return (
-      <button
-        className="bare sm"
-        style={{ marginBottom: 10, fontSize: 11.5, opacity: 0.75 }}
-        onClick={() => {
-          const next = { ...dismissed, [view]: false };
-          setDismissed(next);
-          saveDismissed(next);
-        }}
-      >
-        Show page guide
-      </button>
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger asChild>
+          <button className="bare sm" style={{ marginBottom: 10, fontSize: 11.5, opacity: 0.75 }}>
+            Show page guide
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <Alert variant="info" className="mb-3">
+            <Icon name="spark" size={16} />
+            <AlertTitle>How this page works</AlertTitle>
+            <AlertDescription>{body}</AlertDescription>
+          </Alert>
+        </CollapsibleContent>
+      </Collapsible>
     );
   }
 
   return (
-    <div className="banner info" style={{ marginBottom: 14 }}>
-      <span className="ico">
+    <Alert variant="info" className="mb-3.5 flex items-start gap-3">
+      <span className="mt-0.5 shrink-0">
         <Icon name="spark" size={16} />
       </span>
-      <span className="txt">
-        <b>How this page works</b>
-        <span>{body}</span>
-      </span>
+      <div className="min-w-0 flex-1">
+        <AlertTitle>How this page works</AlertTitle>
+        <AlertDescription>{body}</AlertDescription>
+      </div>
       <button
-        className="ghost sm"
+        type="button"
+        className="ghost sm shrink-0"
         onClick={() => {
           const next = { ...dismissed, [view]: true };
           setDismissed(next);
@@ -89,7 +96,7 @@ export function PageTour({ view }: { view: string }) {
       >
         Got it
       </button>
-    </div>
+    </Alert>
   );
 }
 

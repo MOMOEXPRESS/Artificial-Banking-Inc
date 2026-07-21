@@ -75,6 +75,36 @@ export function ConsoleCommandPalette({
         )}
         <CommandGroup heading="Actions">
           <CommandItem
+            value="simulate payment policy"
+            onSelect={() => {
+              onGo("policy");
+              onOpenChange(false);
+            }}
+          >
+            Simulate payment in policy engine
+            <CommandShortcut>g y</CommandShortcut>
+          </CommandItem>
+          <CommandItem
+            value="simulate x402 payment"
+            onSelect={() => {
+              onGo("payments");
+              onOpenChange(false);
+            }}
+          >
+            Open payments — simulate x402 settle
+            <CommandShortcut>g p</CommandShortcut>
+          </CommandItem>
+          <CommandItem
+            value="why denied payment"
+            onSelect={() => {
+              onGo("activity");
+              onOpenChange(false);
+            }}
+          >
+            Why was a payment denied? (activity log)
+            <CommandShortcut>g v</CommandShortcut>
+          </CommandItem>
+          <CommandItem
             value="focus search"
             onSelect={() => {
               onFocusSearch?.();
@@ -92,16 +122,6 @@ export function ConsoleCommandPalette({
           >
             Review approvals inbox
             <CommandShortcut>g r</CommandShortcut>
-          </CommandItem>
-          <CommandItem
-            value="policy simulate"
-            onSelect={() => {
-              onGo("policy");
-              onOpenChange(false);
-            }}
-          >
-            Open policy simulator
-            <CommandShortcut>g y</CommandShortcut>
           </CommandItem>
         </CommandGroup>
       </CommandList>

@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 import { Empty, Icon, Stat } from "./ui";
 
 type Scope = "org" | "department" | "agent" | "shared";
@@ -94,10 +99,27 @@ export function TreasuryView({
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
-  const [depositAmt, setDepositAmt] = useState("100");
-  const [withdrawAmt, setWithdrawAmt] = useState("");
-  const [withdrawDest, setWithdrawDest] = useState("");
   const [copied, setCopied] = useState(false);
+
+  const depositSchema = z.object({
+    amountUsdc: z
+      .string()
+      .trim()
+      .min(1, "Amount required")
+      .refine((v) => !Number.isNaN(Number(v)) && Number(v) > 0, "Enter a positive USDC amount"),
+  });
+  const withdrawSchema = depositSchema.extend({
+    destination: z.string().optional(),
+  });
+
+  const depositForm = useForm<z.infer<typeof depositSchema>>({
+    resolver: zodResolver(depositSchema),
+    defaultValues: { amountUsdc: "100" },
+  });
+  const withdrawForm = useForm<z.infer<typeof withdrawSchema>>({
+    resolver: zodResolver(withdrawSchema),
+    defaultValues: { amountUsdc: "", destination: "" },
+  });
 
   const refresh = useCallback(async () => {
     const [w, m, c, f, r] = await Promise.all([
@@ -238,38 +260,44 @@ export function TreasuryView({
               </div>
             </div>
 
-            <div className="grid g-2" style={{ gap: 14 }}>
-              <label className="field" style={{ margin: 0 }}>
-                <span>Record deposit (demo)</span>
-                <input
-                  value={depositAmt}
-                  disabled={readOnly}
-                  onChange={(e) => setDepositAmt(e.target.value)}
-                  placeholder="100"
+            <Form {...depositForm}>
+              <form
+                className="grid g-2"
+                style={{ gap: 14 }}
+                onSubmit={depositForm.handleSubmit((values) =>
+                  void act("Deposit", async () => {
+                    const res = await gFetch("/v1/guardian/treasury/deposit", {
+                      method: "POST",
+                      body: JSON.stringify({ amountUsdc: values.amountUsdc.trim() }),
+                    });
+                    const j = await res.json();
+                    if (!res.ok) throw new Error(j.error?.message ?? "Deposit failed");
+                    await refresh();
+                    depositForm.reset({ amountUsdc: "100" });
+                    return `Deposited ${j.amountUsdc} USDC into the org treasury.`;
+                  }),
+                )}
+              >
+                <FormField
+                  control={depositForm.control}
+                  name="amountUsdc"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Record deposit (demo)</FormLabel>
+                      <FormControl>
+                        <Input {...field} disabled={readOnly} placeholder="100" data-shortcut-ignore />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </label>
-              <div style={{ display: "flex", alignItems: "flex-end" }}>
-                <button
-                  className="sm"
-                  style={{ width: "100%" }}
-                  disabled={locked || !depositAmt.trim()}
-                  onClick={() =>
-                    void act("Deposit", async () => {
-                      const res = await gFetch("/v1/guardian/treasury/deposit", {
-                        method: "POST",
-                        body: JSON.stringify({ amountUsdc: depositAmt.trim() }),
-                      });
-                      const j = await res.json();
-                      if (!res.ok) throw new Error(j.error?.message ?? "Deposit failed");
-                      await refresh();
-                      return `Deposited ${j.amountUsdc} USDC into the org treasury.`;
-                    })
-                  }
-                >
-                  <Icon name="plus" size={13} /> Credit org vault
-                </button>
-              </div>
-            </div>
+                <div style={{ display: "flex", alignItems: "flex-end" }}>
+                  <button type="submit" className="sm" style={{ width: "100%" }} disabled={locked}>
+                    <Icon name="plus" size={13} /> Credit org vault
+                  </button>
+                </div>
+              </form>
+            </Form>
           </div>
 
           <div className="card" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -280,46 +308,57 @@ export function TreasuryView({
                 guardian approval. Destination should be an allowlisted address once live.
               </p>
             </div>
-            <label className="field" style={{ margin: 0 }}>
-              <span>Amount (USDC)</span>
-              <input
-                value={withdrawAmt}
-                disabled={readOnly}
-                onChange={(e) => setWithdrawAmt(e.target.value)}
-                placeholder="10"
-              />
-            </label>
-            <label className="field" style={{ margin: 0 }}>
-              <span>Destination (optional)</span>
-              <input
-                value={withdrawDest}
-                disabled={readOnly}
-                onChange={(e) => setWithdrawDest(e.target.value)}
-                placeholder="0x… or external label"
-              />
-            </label>
-            <button
-              className="danger sm"
-              disabled={locked || !withdrawAmt.trim()}
-              onClick={() =>
-                void act("Withdraw", async () => {
-                  const res = await gFetch("/v1/guardian/treasury/withdraw", {
-                    method: "POST",
-                    body: JSON.stringify({
-                      amountUsdc: withdrawAmt.trim(),
-                      destination: withdrawDest.trim() || undefined,
-                    }),
-                  });
-                  const j = await res.json();
-                  if (!res.ok) throw new Error(j.error?.message ?? "Withdraw failed");
-                  setWithdrawAmt("");
-                  await refresh();
-                  return `Withdrew ${j.amountUsdc} USDC from org treasury.`;
-                })
-              }
-            >
-              Withdraw from vault
-            </button>
+            <Form {...withdrawForm}>
+              <form
+                style={{ display: "flex", flexDirection: "column", gap: 16 }}
+                onSubmit={withdrawForm.handleSubmit((values) =>
+                  void act("Withdraw", async () => {
+                    const res = await gFetch("/v1/guardian/treasury/withdraw", {
+                      method: "POST",
+                      body: JSON.stringify({
+                        amountUsdc: values.amountUsdc.trim(),
+                        destination: values.destination?.trim() || undefined,
+                      }),
+                    });
+                    const j = await res.json();
+                    if (!res.ok) throw new Error(j.error?.message ?? "Withdraw failed");
+                    withdrawForm.reset({ amountUsdc: "", destination: "" });
+                    await refresh();
+                    return `Withdrew ${j.amountUsdc} USDC from org treasury.`;
+                  }),
+                )}
+              >
+                <FormField
+                  control={withdrawForm.control}
+                  name="amountUsdc"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Amount (USDC)</FormLabel>
+                      <FormControl>
+                        <Input {...field} disabled={readOnly} placeholder="10" data-shortcut-ignore />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={withdrawForm.control}
+                  name="destination"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Destination (optional)</FormLabel>
+                      <FormControl>
+                        <Input {...field} disabled={readOnly} placeholder="0x… or external label" data-shortcut-ignore />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <button type="submit" className="danger sm" disabled={locked}>
+                  Withdraw from vault
+                </button>
+              </form>
+            </Form>
             <p className="faint" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.55 }}>
               Available to withdraw: <b className="mono">{fmt(wallets?.org.availableUsdc)}</b>
             </p>

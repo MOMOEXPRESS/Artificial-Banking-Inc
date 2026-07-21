@@ -62,6 +62,39 @@
   --r-md: 16px;
   --r-sm: 11px;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 16px 40px rgba(0, 0, 0, 0.1);
+
+  /* Semantic layer — shared by marketing + console */
+  --bg-canvas: var(--bg);
+  --bg-elevated: var(--surface-2);
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-2);
+  --border-subtle: rgba(10, 10, 12, 0.1);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg-canvas: #f4f4f6;
+  --text-primary: #0a0a0c;
+  --text-secondary: #3a3a42;
+  --border-subtle: rgba(10, 10, 12, 0.12);
+  --bg: var(--bg-canvas);
+  --ink: var(--text-primary);
+  --ink-2: var(--text-secondary);
+  --ink-muted: #5c5c66;
+  --ink-faint: #7a7a85;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-canvas: #0a0a0c;
+  --text-primary: #f4f4f6;
+  --text-secondary: #c8c8d0;
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --bg: var(--bg-canvas);
+  --ink: var(--text-primary);
+  --ink-2: var(--text-secondary);
+  --ink-muted: #8e8e99;
+  --ink-faint: #6b6b76;
 }
 
 * {
@@ -3772,4 +3805,285 @@ button.user-chip {
   .hero-console-mock {
     animation: none !important;
   }
+}
+
+/* ========================================================= brutalist console */
+.app {
+  --r-lg: 8px;
+  --r-md: 8px;
+  --r-sm: 8px;
+  --shadow: none;
+}
+
+.app .card,
+.app .main,
+.app .rail {
+  border-width: 2px;
+  box-shadow: none;
+}
+
+.app .card {
+  border-radius: 8px;
+}
+
+.ledger-row td {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  border-bottom: 2px solid var(--border-soft);
+}
+
+.ledger-memo {
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.ledger-credit {
+  color: var(--green);
+}
+
+.ledger-debit {
+  color: var(--red);
+}
+
+.crumb-drill {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ========================================================= landing: metrics + product tour */
+.section.tight {
+  padding-top: 0;
+  padding-bottom: 32px;
+}
+
+.metrics-band {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.metric-card {
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--border-subtle);
+  border-radius: 0;
+  padding: 16px 18px;
+}
+
+.metric-label {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.metric-value {
+  display: block;
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.metric-sub {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.partner-logos {
+  gap: 20px;
+}
+
+.partner-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  opacity: 0.85;
+}
+
+.partner-mark {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  background: transparent;
+}
+
+.partner-name {
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-weight: 600;
+}
+
+.product-tour .product-frames {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.product-frame {
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.product-frame-chrome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-bottom: 2px solid var(--border);
+  font-size: 11px;
+}
+
+.product-frame-chrome span {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #3a3a42;
+}
+
+.product-frame-chrome em {
+  font-style: normal;
+  margin-left: 6px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.product-frame-body {
+  padding: 16px 18px 20px;
+}
+
+.product-frame-body h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.product-frame-body p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.product-tour-cta {
+  text-align: center;
+  margin-top: 28px;
+}
+
+/* ========================================================= mobile approvals PWA route */
+.mobile-approvals {
+  min-height: 100dvh;
+  background: var(--bg-canvas, var(--bg));
+  color: var(--text-primary, var(--ink));
+  padding: max(16px, env(safe-area-inset-top)) 16px 24px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.mobile-approvals-head h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+
+.mobile-approvals-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mobile-approval-card {
+  border: 2px solid var(--border-subtle);
+  border-radius: 0;
+  padding: 14px 16px;
+  background: #fff;
+}
+
+[data-theme="dark"] .mobile-approval-card {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+.mobile-approval-amt {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.mobile-approval-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.mobile-approval-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mobile-approvals-toast {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 2px solid var(--accent);
+  background: var(--accent-soft);
+  font-size: 13px;
+}
+
+.mobile-approvals-empty,
+.mobile-approvals-cta {
+  margin-top: 24px;
+  text-align: center;
+}
+
+@media (max-width: 820px) {
+  .metrics-grid,
+  .product-tour .product-frames {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .metrics-grid,
+  .product-tour .product-frames {
+    grid-template-columns: 1fr;
+  }
+
+  .partner-name {
+    display: none;
+  }
+}
+
+/* Pricing contrast fix — tier labels on dark cards */
+.pricing-card .tier-label,
+.pricing-card .muted {
+  color: #b8b8c4;
 }

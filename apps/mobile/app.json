@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "ABI Approvals",
+    "slug": "abi-approvals",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "abi",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#0a0a0c"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.abi.approvals"
+    },
+    "android": {
+      "package": "com.abi.approvals"
+    },
+    "extra": {
+      "webApprovalsUrl": "http://localhost:3000/approvals"
+    }
+  }
+}

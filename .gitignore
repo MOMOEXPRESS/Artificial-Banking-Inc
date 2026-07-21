@@ -15,3 +15,4 @@ packages/db/prisma/*.db
 packages/db/prisma/*.db-journal
 apps/web/out/
 apps/api/data/
+data/

@@ -1,14 +1,32 @@
 {
   "name": "Artificial Banking Incorporated",
   "short_name": "ABI",
-  "description": "Financial infrastructure for autonomous AI",
+  "description": "Financial infrastructure for autonomous AI — approve agent spend from anywhere.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait-primary",
   "background_color": "#f4f4f6",
   "theme_color": "#0a0a0c",
+  "categories": ["finance", "business", "productivity"],
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
     { "src": "/abi-app-icon.png", "sizes": "1024x1024", "type": "image/png" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Approvals inbox",
+      "short_name": "Approvals",
+      "description": "Review pending agent payments",
+      "url": "/approvals",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Console",
+      "short_name": "Console",
+      "url": "/console",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
   ]
 }

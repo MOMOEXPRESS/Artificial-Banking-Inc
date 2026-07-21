@@ -66,12 +66,14 @@ export function AgentsView({
   act,
   onKeyRevealed,
   readOnly = false,
+  onContextChange,
 }: {
   gFetch: (path: string, init?: RequestInit) => Promise<Response>;
   busy: boolean;
   act: (label: string, fn: () => Promise<string | void>) => Promise<void>;
   onKeyRevealed?: (entry: { agentId: string; name: string; key: string }) => void;
   readOnly?: boolean;
+  onContextChange?: (label: string | null) => void;
 }) {
   const locked = busy || readOnly;
   const [agents, setAgents] = useState<AgentRow[]>([]);
@@ -134,6 +136,8 @@ export function AgentsView({
   const loadDetail = useCallback(
     async (id: string) => {
       setSelected(id);
+      const agentName = agents.find((a) => a.id === id)?.name;
+      onContextChange?.(agentName ?? id.slice(0, 8));
       const [d, an] = await Promise.all([
         gFetch(`/v1/guardian/agents/${id}`).then((x) => x.json()),
         gFetch(`/v1/guardian/agents/${id}/analytics`).then((x) => x.json()),
@@ -141,6 +145,7 @@ export function AgentsView({
       setDetail(d);
       setAnalytics(an);
       const ident = d.identity as AgentRow | undefined;
+      onContextChange?.(ident?.name ?? agentName ?? id.slice(0, 8));
       setRename(ident?.name ?? "");
       const profile = (ident?.profile ?? {}) as Record<string, unknown>;
       setTags(Array.isArray(profile.tags) ? (profile.tags as string[]).join(", ") : "");
@@ -150,8 +155,12 @@ export function AgentsView({
       );
       setAssignGroup(typeof profile.groupId === "string" ? profile.groupId : "");
     },
-    [gFetch],
+    [gFetch, agents, onContextChange],
   );
+
+  useEffect(() => {
+    if (tab !== "roster" || !selected) onContextChange?.(null);
+  }, [tab, selected, onContextChange]);
 
   const createAgent = () =>
     act("Create agent", async () => {

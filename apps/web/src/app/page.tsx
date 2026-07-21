@@ -6,6 +6,7 @@ import {
   MarketingShell,
   SectionHead,
 } from "../lib/marketing-shell";
+import { LandingMotion } from "../lib/landing-motion";
 import { Icon } from "../lib/ui";
 
 /**
@@ -18,9 +19,12 @@ import { Icon } from "../lib/ui";
 export default function LandingPage() {
   return (
     <MarketingShell active="landing">
+      <LandingMotion />
       <Hero />
+      <MetricsBand />
       <TrustStrip />
       <Features />
+      <ProductTour />
       <HowItWorks />
       <Enterprise />
       <MarketingCta />
@@ -164,20 +168,105 @@ function HeroGraphic() {
 function TrustStrip() {
   return (
     <section className="trust-strip">
-      <span>Built on</span>
-      <div className="trust-logos">
-        <TrustLogo>Coinbase CDP</TrustLogo>
-        <TrustLogo>Base</TrustLogo>
-        <TrustLogo>x402</TrustLogo>
-        <TrustLogo>USDC</TrustLogo>
-        <TrustLogo>ERC-4337</TrustLogo>
+      <span>Built with</span>
+      <div className="trust-logos partner-logos">
+        <PartnerLogo abbr="CDP">Coinbase CDP</PartnerLogo>
+        <PartnerLogo abbr="BASE">Base</PartnerLogo>
+        <PartnerLogo abbr="x402">x402</PartnerLogo>
+        <PartnerLogo abbr="USDC">USDC</PartnerLogo>
+        <PartnerLogo abbr="4337">ERC-4337</PartnerLogo>
       </div>
     </section>
   );
 }
 
-function TrustLogo({ children }: { children: React.ReactNode }) {
-  return <span className="trust-logo">{children}</span>;
+function PartnerLogo({ children, abbr }: { children: React.ReactNode; abbr: string }) {
+  return (
+    <span className="partner-logo" title={String(children)}>
+      <span className="partner-mark" aria-hidden>
+        {abbr}
+      </span>
+      <span className="partner-name">{children}</span>
+    </span>
+  );
+}
+
+function MetricsBand() {
+  const metrics = [
+    { label: "Policy probe", value: "0ms", sub: "mock rail latency" },
+    { label: "Guardian round-trip", value: "55ms", sub: "local dev median" },
+    { label: "Console views", value: "14", sub: "money · agents · records" },
+    { label: "Playground missions", value: "7", sub: "real API, real ledger" },
+  ];
+  return (
+    <section className="metrics-band section tight">
+      <div className="metrics-grid">
+        {metrics.map((m) => (
+          <article key={m.label} className="metric-card">
+            <span className="metric-label">{m.label}</span>
+            <strong className="metric-value">{m.value}</strong>
+            <span className="metric-sub">{m.sub}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const PRODUCT_FRAMES = [
+  {
+    title: "Overview",
+    sub: "Treasury, agents, and move funds in one glance.",
+    chips: ["$12.4k vault", "8 agents", "2 approvals"],
+  },
+  {
+    title: "Approvals",
+    sub: "Parked payments with one-tap approve or deny.",
+    chips: ["$45 pending", "guardian HITL", "Telegram sync"],
+  },
+  {
+    title: "Policy simulator",
+    sub: "Test caps and allowlists before agents hit production.",
+    chips: ["allowlist", "daily cap", "quiet hours"],
+  },
+];
+
+function ProductTour() {
+  return (
+    <section id="product" className="section product-tour">
+      <SectionHead
+        eyebrow="Inside the console"
+        title="See the product before you sign in"
+        sub="Three frames operators actually use — not decorative orbit art."
+      />
+      <div className="product-frames">
+        {PRODUCT_FRAMES.map((f) => (
+          <article key={f.title} className="product-frame">
+            <div className="product-frame-chrome">
+              <span />
+              <span />
+              <span />
+              <em>{f.title}</em>
+            </div>
+            <div className="product-frame-body">
+              <h3>{f.title}</h3>
+              <p>{f.sub}</p>
+              <div className="hero-console-pills">
+                {f.chips.map((c) => (
+                  <i key={c}>{c}</i>
+                ))}
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="product-tour-cta">
+        <Link className="btn-primary" href="/console">
+          Launch console <Icon name="arrowRight" size={14} />
+        </Link>
+      </div>
+    </section>
+  );
 }
 
 /* =============================================================== features */
