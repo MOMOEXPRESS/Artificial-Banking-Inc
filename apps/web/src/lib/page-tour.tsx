@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "./ui";
 
 const ROTATE_MS = 7000;
-const EXIT_MS = 320;
+const EXIT_MS = 280;
 
 /** Multiple tips per console page — rotates in a reserved slot (no layout jump). */
 const TIPS: Record<string, string[]> = {
@@ -27,10 +27,10 @@ const TIPS: Record<string, string[]> = {
     "Parked HITL payments also show under Approvals when a human must decide.",
   ],
   playground: [
-    "Pick a preset mission and run mode — every step hits the real API, policy, and ledger.",
-    "Run as a specific agent key to see how that persona spends under your policy.",
-    "Stress and smoke modes replay the mission so you can watch policy bands fire.",
-    "Custom missions (your own conditions) are next — presets prove the rails today.",
+    "Run a preset scenario, or build a custom mission from real policy steps.",
+    "Every step hits the live agent API, policy engine, and ledger — nothing is faked.",
+    "Use Custom to ask: would this agent survive our policy under our conditions?",
+    "Stress and smoke modes replay so you can watch policy bands fire repeatedly.",
   ],
   chat: [
     "ABI Assistant answers from your org facts and can surface approvals inline.",
@@ -69,7 +69,7 @@ const TIPS: Record<string, string[]> = {
     "Filter by agent or outcome when debugging a refuse or review.",
   ],
   settings: [
-    "Go-live checklist, org settings, merchants, team / quorum, and the kill switch.",
+    "Go-live checklist splits Demo-ready vs Production — finish Demo without CDP first.",
     "Merchant allowlists here pair with Policy destination rules.",
     "The org kill switch freezes all agent spend immediately.",
   ],
@@ -77,7 +77,7 @@ const TIPS: Record<string, string[]> = {
 
 /**
  * Always-on tip rail for console pages (Treasury excluded).
- * Fixed-height slot so rotating tips never shove the page up/down.
+ * The card shell stays put — only the tip text crossfades.
  */
 export function PageTour({ view }: { view: string }) {
   const tips = TIPS[view];
@@ -105,18 +105,13 @@ export function PageTour({ view }: { view: string }) {
     };
   }, [tips, view]);
 
-  // Treasury (and unknown views): no tip content, no reserved gap.
   if (!tips?.length) return null;
 
   const body = tips[index % tips.length];
 
   return (
     <div className="page-tip-slot" aria-live="polite">
-      <div
-        key={`${view}-${index}`}
-        className={`page-tip ${phase === "out" ? "page-tip-out" : "page-tip-in"}`}
-        role="status"
-      >
+      <div className="page-tip" role="status">
         <span className="page-tip-icon" aria-hidden>
           <Icon name="spark" size={15} />
         </span>
@@ -129,16 +124,20 @@ export function PageTour({ view }: { view: string }) {
               </span>
             )}
           </div>
-          <p>{body}</p>
+          <p
+            key={`${view}-${index}`}
+            className={`page-tip-text ${phase === "out" ? "page-tip-text-out" : "page-tip-text-in"}`}
+          >
+            {body}
+          </p>
         </div>
-        {tips.length > 1 && <div className="page-tip-bar" aria-hidden />}
+        {tips.length > 1 && <div key={`bar-${view}-${index}`} className="page-tip-bar" aria-hidden />}
       </div>
     </div>
   );
 }
 
 export function resetAllPageTours() {
-  // Kept for Settings / debug — tips no longer persist-dismiss.
   try {
     localStorage.removeItem("abi_page_tours_v1");
   } catch {

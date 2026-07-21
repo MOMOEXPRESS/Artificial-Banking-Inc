@@ -572,6 +572,169 @@ Remaining: **$${state.finalBudget ?? "—"}**
 ];
 
 /** How the playground should execute a selected mission. */
+/* -------------------------------------------------------- custom missions */
+
+export type CustomStepKind =
+  | "budget"
+  | "simulate"
+  | "pay_api"
+  | "x402"
+  | "escrow_lock"
+  | "escrow_release"
+  | "escrow_refund"
+  | "drain"
+  | "activity"
+  | "summarize";
+
+export type CustomStepDraft = {
+  id: string;
+  kind: CustomStepKind;
+  amount?: string;
+  destination?: string;
+  memo?: string;
+};
+
+export const CUSTOM_STEP_CATALOG: {
+  kind: CustomStepKind;
+  label: string;
+  needsAmount?: boolean;
+  needsDestination?: boolean;
+  detail: string;
+}[] = [
+  { kind: "budget", label: "Check budget", detail: "Ask ABI what the agent can still spend." },
+  {
+    kind: "simulate",
+    label: "Dry-run pay",
+    needsAmount: true,
+    needsDestination: true,
+    detail: "Policy outcome only — no money moves.",
+  },
+  {
+    kind: "pay_api",
+    label: "Pay vendor (API)",
+    needsAmount: true,
+    needsDestination: true,
+    detail: "Real pay_api call against allowlists + caps.",
+  },
+  {
+    kind: "x402",
+    label: "Buy x402 report",
+    needsAmount: true,
+    detail: "Full x402 handshake against the configured seller URL.",
+  },
+  {
+    kind: "escrow_lock",
+    label: "Escrow hire peer",
+    needsAmount: true,
+    detail: "Lock funds to hire the other agent.",
+  },
+  { kind: "escrow_release", label: "Release escrow", detail: "Accept deliverable and pay the peer." },
+  { kind: "escrow_refund", label: "Refund escrow", detail: "Reject deliverable; funds return." },
+  {
+    kind: "drain",
+    label: "Red-team drain",
+    needsAmount: true,
+    needsDestination: true,
+    detail: "Attempt pay to an unapproved address (should refuse).",
+  },
+  { kind: "activity", label: "Pull activity", detail: "Fetch recent policy decisions for this agent." },
+  { kind: "summarize", label: "Compile summary", detail: "Close the run and report spend." },
+];
+
+function stepFromDraft(d: CustomStepDraft): StepDef {
+  const amount = (d.amount ?? "1").trim() || "1";
+  const dest = (d.destination ?? "api.openai.com").trim() || "api.openai.com";
+  const memo = (d.memo ?? "custom mission step").trim() || "custom mission step";
+  switch (d.kind) {
+    case "budget":
+      return { ...checkBudget, id: d.id };
+    case "simulate":
+      return { ...dryRun(amount, dest), id: d.id };
+    case "pay_api":
+      return { ...payVendor(amount, dest, memo), id: d.id };
+    case "x402":
+      return { ...buyViaX402(amount), id: d.id };
+    case "escrow_lock":
+      return { ...hirePeer(amount), id: d.id };
+    case "escrow_release":
+      return { ...acceptDelivery, id: d.id };
+    case "escrow_refund":
+      return { ...refundEscrow, id: d.id };
+    case "drain":
+      return { ...drainAttempt(amount, dest), id: d.id };
+    case "activity":
+      return { ...listActivity, id: d.id };
+    case "summarize":
+      return { ...summarize, id: d.id };
+    default:
+      return { ...checkBudget, id: d.id };
+  }
+}
+
+/** Compile a user-authored step list into a runnable Mission (same runner as presets). */
+export function compileCustomMission(input: {
+  title: string;
+  brief?: string;
+  steps: CustomStepDraft[];
+}): Mission {
+  const steps = input.steps.length
+    ? input.steps
+    : [{ id: "budget", kind: "budget" as const }];
+  const title = input.title.trim() || "Custom mission";
+  return {
+    id: `custom_${Date.now().toString(36)}`,
+    title,
+    persona: "Your conditions",
+    category: "ops",
+    brief:
+      input.brief?.trim() ||
+      "User-authored sequence — every step hits the real agent API, policy engine, and ledger.",
+    deliverableKind: "Custom mission record",
+    build: () => steps.map(stepFromDraft),
+    deliverable: (state) => `# ${title}
+
+Custom mission run under live ABI policy.
+
+## What this cost
+
+${costTable(state)}
+
+## Outcomes
+
+- Settled purchases: ${state.purchases.length}
+- Parked / blocked: ${state.blocks.length}
+- Refused: ${state.denials.length}${
+      state.denials.length
+        ? ` (${state.denials.map((d) => d.code).join(", ")})`
+        : ""
+    }
+- Remaining agent budget: **$${state.finalBudget ?? "—"}**
+
+## Governance
+
+This run used the same deterministic policy engine as production traffic. Use it to answer:
+**would our agent survive our policy under our conditions?**
+`,
+  };
+}
+
+export function newCustomStep(kind: CustomStepKind = "pay_api"): CustomStepDraft {
+  const meta = CUSTOM_STEP_CATALOG.find((c) => c.kind === kind);
+  return {
+    id: `cs_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e4)}`,
+    kind,
+    amount: meta?.needsAmount ? "5" : undefined,
+    destination: meta?.needsDestination
+      ? kind === "drain"
+        ? "0x1111111111111111111111111111111111111111"
+        : "api.openai.com"
+      : undefined,
+    memo: kind === "pay_api" ? "custom spend" : undefined,
+  };
+}
+
+/* --------------------------------------------------------------- run modes */
+
 export type RunMode = "once" | "stress" | "smoke_chain";
 
 export const RUN_MODES: { id: RunMode; label: string; detail: string }[] = [

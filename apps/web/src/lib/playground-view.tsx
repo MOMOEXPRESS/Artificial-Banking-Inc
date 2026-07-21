@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import { Empty, Icon, fmtUsd } from "./ui";
-import { MISSIONS, runMission, missionsForMode, RUN_MODES, type Mission, type RunMode, type RunStep } from "./mission";
+import { MISSIONS, runMission, missionsForMode, RUN_MODES, compileCustomMission, CUSTOM_STEP_CATALOG, newCustomStep, type Mission, type RunMode, type RunStep, type CustomStepDraft, type CustomStepKind } from "./mission";
 import type { Approval, Session, Shared } from "./console-types";
 import type { Policy } from "./policy-view";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
@@ -49,6 +49,15 @@ export function Playground({
   const [shownRaw, setShownRaw] = useState<Record<string, boolean>>({});
   const [runMode, setRunMode] = useState<RunMode>("once");
   const [catFilter, setCatFilter] = useState<"all" | Mission["category"]>("all");
+  const [source, setSource] = useState<"scenarios" | "custom">("scenarios");
+  const [customTitle, setCustomTitle] = useState("Would we survive?");
+  const [customBrief, setCustomBrief] = useState("");
+  const [customSteps, setCustomSteps] = useState<CustomStepDraft[]>(() => [
+    newCustomStep("budget"),
+    newCustomStep("simulate"),
+    newCustomStep("pay_api"),
+    newCustomStep("summarize"),
+  ]);
   const stepsRef = useRef<HTMLDivElement | null>(null);
 
   const { missionId, steps, log, running, actorId } = ms;
@@ -64,6 +73,16 @@ export function Playground({
   }, [steps]);
 
   const mission = MISSIONS.find((m) => m.id === missionId) ?? MISSIONS[0];
+  const customMission = useMemo(
+    () =>
+      compileCustomMission({
+        title: customTitle,
+        brief: customBrief,
+        steps: customSteps,
+      }),
+    [customTitle, customBrief, customSteps],
+  );
+  const activeMission = source === "custom" ? customMission : mission;
   const actor = session.agentKeys.find((k) => k.agentId === actorId) ?? session.agentKeys[0];
   const peer = session.agentKeys.find((k) => k.agentId !== actor?.agentId);
   const visibleMissions =
@@ -81,7 +100,12 @@ export function Playground({
     cancelRef.current = false;
     setShownRaw({});
     patch({ running: true, steps: [], log: [] });
-    const queue = missionsForMode(runMode, missionId);
+    const queue =
+      source === "custom"
+        ? runMode === "stress"
+          ? [activeMission, activeMission, activeMission]
+          : [activeMission]
+        : missionsForMode(runMode, missionId);
     try {
       for (let qi = 0; qi < queue.length; qi++) {
         if (cancelRef.current) break;
@@ -89,7 +113,7 @@ export function Playground({
         const runId = `run_${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
         setMission((prev) => ({
           ...prev,
-          missionId: m.id,
+          missionId: m.id.startsWith("custom_") ? prev.missionId : m.id,
           log: [
             ...prev.log,
             `${new Date().toLocaleTimeString([], { hour12: false })}  ▶ ${m.title} (${qi + 1}/${queue.length})`,
@@ -104,7 +128,7 @@ export function Playground({
           runId,
           payeeAgentId: peer?.agentId,
           sellerUrl: SELLER,
-          emit: (steps) => setMission((prev) => ({ ...prev, steps })),
+          emit: (nextSteps) => setMission((prev) => ({ ...prev, steps: nextSteps })),
           log: (line) =>
             setMission((prev) => ({
               ...prev,
@@ -225,7 +249,8 @@ export function Playground({
           <div style={{ flex: 1, overflowY: "auto", minHeight: 260 }}>
             {steps.length === 0 ? (
               <Empty icon="play">
-                Nothing running. Pick a mission on the right — <b>{mission.title}</b> is selected.
+                Nothing running. Pick a scenario or build a custom mission —{" "}
+                <b>{activeMission.title}</b> is ready.
               </Empty>
             ) : (
               <div className="steps" ref={stepsRef}>
@@ -306,60 +331,202 @@ export function Playground({
           <div className="card">
             <div className="card-head">
               <div>
-                <h2>Choose a mission</h2>
-                <div className="sub">{mission.persona}</div>
+                <h2>{source === "custom" ? "Custom mission" : "Choose a scenario"}</h2>
+                <div className="sub">
+                  {source === "custom"
+                    ? "Compose real policy steps — same runner as presets"
+                    : mission.persona}
+                </div>
               </div>
             </div>
             <SegTabs
               className="mb-3"
-              value={catFilter}
+              value={source}
               onValueChange={(v) => {
-                if (!running) setCatFilter(v as typeof catFilter);
+                if (!running) setSource(v as typeof source);
               }}
               items={
                 [
-                  { value: "all", label: "All" },
-                  { value: "commerce", label: "Commerce" },
-                  { value: "governance", label: "Governance" },
-                  { value: "security", label: "Security" },
-                  { value: "ops", label: "Ops" },
+                  { value: "scenarios", label: "Scenarios" },
+                  { value: "custom", label: "Custom" },
                 ] as const
               }
             />
-            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-              {visibleMissions.map((m) => (
-                <button
-                  key={m.id}
-                  className={`mission-card ${m.id === missionId ? "sel" : ""}`}
-                  onClick={() => patch({ missionId: m.id })}
+
+            {source === "scenarios" ? (
+              <>
+                <SegTabs
+                  className="mb-3"
+                  value={catFilter}
+                  onValueChange={(v) => {
+                    if (!running) setCatFilter(v as typeof catFilter);
+                  }}
+                  items={
+                    [
+                      { value: "all", label: "All" },
+                      { value: "commerce", label: "Commerce" },
+                      { value: "governance", label: "Governance" },
+                      { value: "security", label: "Security" },
+                      { value: "ops", label: "Ops" },
+                    ] as const
+                  }
+                />
+                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                  {visibleMissions.map((m) => (
+                    <button
+                      key={m.id}
+                      className={`mission-card ${m.id === missionId ? "sel" : ""}`}
+                      onClick={() => patch({ missionId: m.id })}
+                      disabled={running}
+                    >
+                      <b>{m.title}</b>
+                      <p>
+                        <span className="faint" style={{ display: "block", marginBottom: 4 }}>
+                          {m.persona} · {m.category}
+                        </span>
+                        {m.brief}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <label className="field" style={{ margin: 0 }}>
+                  <span>Title</span>
+                  <input
+                    value={customTitle}
+                    disabled={running}
+                    onChange={(e) => setCustomTitle(e.target.value)}
+                    placeholder="Would we survive?"
+                  />
+                </label>
+                <label className="field" style={{ margin: 0 }}>
+                  <span>Brief (optional)</span>
+                  <input
+                    value={customBrief}
+                    disabled={running}
+                    onChange={(e) => setCustomBrief(e.target.value)}
+                    placeholder="Our agent · our policy · our conditions"
+                  />
+                </label>
+                <div className="faint" style={{ fontSize: 11.5 }}>
+                  Steps ({customSteps.length}) — order is the mission timeline
+                </div>
+                {customSteps.map((step, idx) => {
+                  const meta = CUSTOM_STEP_CATALOG.find((c) => c.kind === step.kind);
+                  return (
+                    <div
+                      key={step.id}
+                      style={{
+                        padding: 12,
+                        borderRadius: 12,
+                        border: "1px solid var(--border)",
+                        background: "var(--surface-3)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 8,
+                      }}
+                    >
+                      <div className="between" style={{ gap: 8 }}>
+                        <select
+                          value={step.kind}
+                          disabled={running}
+                          onChange={(e) => {
+                            const kind = e.target.value as CustomStepKind;
+                            const next = newCustomStep(kind);
+                            setCustomSteps((rows) =>
+                              rows.map((r, i) => (i === idx ? { ...next, id: r.id } : r)),
+                            );
+                          }}
+                          style={{ flex: 1 }}
+                        >
+                          {CUSTOM_STEP_CATALOG.map((c) => (
+                            <option key={c.kind} value={c.kind}>
+                              {c.label}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={running || customSteps.length <= 1}
+                          onClick={() =>
+                            setCustomSteps((rows) => rows.filter((_, i) => i !== idx))
+                          }
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                      <div className="faint" style={{ fontSize: 11.5 }}>
+                        {meta?.detail}
+                      </div>
+                      {(meta?.needsAmount || meta?.needsDestination) && (
+                        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                          {meta.needsAmount && (
+                            <input
+                              style={{ width: 88 }}
+                              value={step.amount ?? ""}
+                              disabled={running}
+                              placeholder="Amount"
+                              onChange={(e) =>
+                                setCustomSteps((rows) =>
+                                  rows.map((r, i) =>
+                                    i === idx ? { ...r, amount: e.target.value } : r,
+                                  ),
+                                )
+                              }
+                            />
+                          )}
+                          {meta.needsDestination && (
+                            <input
+                              style={{ flex: 1, minWidth: 120 }}
+                              value={step.destination ?? ""}
+                              disabled={running}
+                              placeholder="Destination"
+                              onChange={(e) =>
+                                setCustomSteps((rows) =>
+                                  rows.map((r, i) =>
+                                    i === idx ? { ...r, destination: e.target.value } : r,
+                                  ),
+                                )
+                              }
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                <Button
+                  variant="ghost"
+                  size="sm"
                   disabled={running}
+                  onClick={() => setCustomSteps((rows) => [...rows, newCustomStep("pay_api")])}
                 >
-                  <b>{m.title}</b>
-                  <p>
-                    <span className="faint" style={{ display: "block", marginBottom: 4 }}>
-                      {m.persona} · {m.category}
-                    </span>
-                    {m.brief}
-                  </p>
-                </button>
-              ))}
-            </div>
+                  <Icon name="plus" size={12} /> Add step
+                </Button>
+              </div>
+            )}
+
             <div className="divider" />
             <div className="card-head" style={{ padding: 0, marginBottom: 8 }}>
               <h2 style={{ fontSize: 14 }}>How to run it</h2>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {RUN_MODES.map((mode) => (
-                <button
-                  key={mode.id}
-                  className={`mission-card ${runMode === mode.id ? "sel" : ""}`}
-                  disabled={running}
-                  onClick={() => setRunMode(mode.id)}
-                >
-                  <b>{mode.label}</b>
-                  <p>{mode.detail}</p>
-                </button>
-              ))}
+              {RUN_MODES.filter((mode) => !(source === "custom" && mode.id === "smoke_chain")).map(
+                (mode) => (
+                  <button
+                    key={mode.id}
+                    className={`mission-card ${runMode === mode.id ? "sel" : ""}`}
+                    disabled={running}
+                    onClick={() => setRunMode(mode.id)}
+                  >
+                    <b>{mode.label}</b>
+                    <p>{mode.detail}</p>
+                  </button>
+                ),
+              )}
             </div>
           </div>
 

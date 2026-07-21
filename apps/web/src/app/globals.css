@@ -16,12 +16,12 @@
   --color-ink-muted: #6b6b76;
   --color-ink-faint: #9a9aa3;
 
-  /* Solid charcoal console panes — soft glass lift on rail / main / cards */
-  --color-surface: #121214;
-  --color-surface-solid: #121214;
-  --color-surface-2: #1a1a1e;
-  --color-surface-3: #24242a;
-  --color-surface-hover: #2e2e36;
+  /* Translucent panes — liquid-glass blur refracts the canvas wash */
+  --color-surface: rgba(22, 22, 26, 0.78);
+  --color-surface-solid: #16161a;
+  --color-surface-2: rgba(30, 30, 36, 0.7);
+  --color-surface-3: rgba(40, 40, 48, 0.62);
+  --color-surface-hover: rgba(50, 50, 60, 0.68);
 
   --color-fg: #f4f4f6;
   --color-fg-secondary: #c8c8d0;
@@ -50,8 +50,8 @@
   --color-seg-active-bg: #f0f0f3;
   --color-seg-active-fg: #101014;
 
-  --color-glass-top: inset 0 1px 0 rgba(255, 255, 255, 0.09);
-  --blur: saturate(140%) blur(18px);
+  --color-glass-top: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --blur: saturate(150%) blur(22px);
 
   --font-mono-stack: var(--font-mono, "JetBrains Mono"), ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-sans-stack: var(--font-sans, "Sora"), "Segoe UI", system-ui, sans-serif;
@@ -59,8 +59,8 @@
   --radius-lg: 22px;
   --radius-md: 16px;
   --radius-sm: 11px;
-  --shadow-elevated: 0 1px 2px rgba(0, 0, 0, 0.06), 0 16px 40px rgba(0, 0, 0, 0.1);
-  --shadow-glass: var(--color-glass-top), 0 12px 32px rgba(0, 0, 0, 0.32);
+  --shadow-elevated: 0 2px 6px rgba(0, 0, 0, 0.28), 0 18px 48px rgba(0, 0, 0, 0.28);
+  --shadow-glass: var(--color-glass-top), 0 20px 46px rgba(0, 0, 0, 0.4);
 
   /* ---- Legacy aliases (prefer --color-* / --radius-* / --font-* going forward) ---- */
   --bg: var(--color-canvas);
@@ -127,12 +127,12 @@
   --color-ink-faint: #7a7a85;
   --color-border-canvas: rgba(10, 10, 12, 0.12);
 
-  /* Console surfaces stay deep charcoal on light canvas (terminal-on-page) */
-  --color-surface: #0c0c0e;
-  --color-surface-solid: #0c0c0e;
-  --color-surface-2: #16161a;
-  --color-surface-3: #222228;
-  --color-surface-hover: #2c2c34;
+  /* Console surfaces — greyer liquid glass on light canvas */
+  --color-surface: rgba(20, 20, 24, 0.78);
+  --color-surface-solid: #141418;
+  --color-surface-2: rgba(28, 28, 34, 0.7);
+  --color-surface-3: rgba(38, 38, 46, 0.62);
+  --color-surface-hover: rgba(48, 48, 58, 0.68);
   --color-fg: #f4f4f6;
   --color-fg-secondary: #c8c8d0;
   --color-fg-muted: #8e8e99;
@@ -153,11 +153,11 @@
   --color-ink-faint: #6b6b76;
   --color-border-canvas: rgba(255, 255, 255, 0.1);
 
-  --color-surface: #121214;
-  --color-surface-solid: #121214;
-  --color-surface-2: #1a1a1e;
-  --color-surface-3: #24242a;
-  --color-surface-hover: #2e2e36;
+  --color-surface: rgba(22, 22, 26, 0.78);
+  --color-surface-solid: #16161a;
+  --color-surface-2: rgba(30, 30, 36, 0.7);
+  --color-surface-3: rgba(40, 40, 48, 0.62);
+  --color-surface-hover: rgba(50, 50, 60, 0.68);
   --color-fg: #f4f4f6;
   --color-fg-secondary: #c8c8d0;
   --color-fg-muted: #8e8e99;
@@ -299,8 +299,8 @@ body::before {
   inset: 0;
   z-index: -2;
   background:
-    radial-gradient(1100px 620px at 82% -10%, rgba(59, 130, 246, 0.07), transparent 62%),
-    radial-gradient(820px 520px at 4% 108%, rgba(15, 15, 18, 0.03), transparent 62%),
+    radial-gradient(1100px 620px at 82% -10%, rgba(90, 90, 110, 0.08), transparent 62%),
+    radial-gradient(820px 520px at 4% 108%, rgba(15, 15, 18, 0.04), transparent 62%),
     var(--bg);
 }
 
@@ -332,7 +332,9 @@ body::after {
 .rail {
   background: var(--color-surface);
   color: var(--color-fg);
-  border: 1px solid var(--color-border-soft);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-glass);
   display: flex;
@@ -518,7 +520,9 @@ body::after {
 .main {
   background: var(--color-surface);
   color: var(--color-fg);
-  border: 1px solid var(--color-border-soft);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-glass);
   display: flex;
@@ -694,17 +698,10 @@ body::after {
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background: linear-gradient(160deg, var(--color-surface-3) 0%, var(--color-surface-2) 100%);
+  backdrop-filter: saturate(140%) blur(12px);
+  -webkit-backdrop-filter: saturate(140%) blur(12px);
   box-shadow: var(--glass-top);
   overflow: hidden;
-}
-
-.page-tip-in {
-  animation: tip-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.page-tip-out {
-  animation: tip-out 0.32s cubic-bezier(0.4, 0, 1, 1) both;
-  pointer-events: none;
 }
 
 .page-tip-icon {
@@ -750,6 +747,40 @@ body::after {
   color: var(--color-fg-secondary);
 }
 
+.page-tip-text {
+  display: block;
+}
+
+.page-tip-text-in {
+  animation: tip-text-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.page-tip-text-out {
+  animation: tip-text-out 0.28s cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes tip-text-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes tip-text-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
 .page-tip-bar {
   position: absolute;
   left: 0;
@@ -777,6 +808,8 @@ body::after {
 .card {
   background: var(--color-surface-2);
   color: var(--color-fg);
+  backdrop-filter: saturate(140%) blur(14px);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-glass);
@@ -3979,6 +4012,97 @@ input[type="range"].slider::-moz-range-thumb {
   margin: 0;
 }
 
+.about-lede {
+  max-width: 720px;
+  margin: 0;
+}
+
+.about-page .about-panes {
+  margin-top: 12px;
+}
+
+.about-page .about-pane {
+  border-top-color: rgba(10, 10, 12, 0.1);
+}
+
+.about-visual {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.about-art {
+  position: relative;
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 18px 40px rgba(0, 0, 0, 0.18);
+  transform: translateZ(0);
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease;
+}
+
+.about-pane:hover .about-art {
+  transform: translateY(-4px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 24px 48px rgba(0, 0, 0, 0.22);
+}
+
+.about-art-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.about-art-caption {
+  font-size: 12.5px;
+  font-weight: 550;
+  letter-spacing: 0.02em;
+  color: var(--ink-muted);
+  text-align: center;
+  padding: 0 8px;
+}
+
+.about-art-build .about-code-line {
+  animation: about-code-pulse 2.4s ease-in-out infinite;
+}
+
+.about-art-build .about-code-cursor {
+  animation: about-cursor-blink 1.1s steps(1) infinite;
+}
+
+@keyframes about-code-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
+@keyframes about-cursor-blink {
+  0%,
+  49% {
+    opacity: 0.9;
+  }
+  50%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .about-pane:hover .about-art {
+    transform: none;
+  }
+  .about-art-build .about-code-line,
+  .about-art-build .about-code-cursor {
+    animation: none;
+  }
+}
+
 .mkt-prose {
   max-width: 640px;
   margin: 28px 0 36px;
@@ -4811,6 +4935,19 @@ button.user-chip {
 [data-theme="dark"] body {
   background: var(--bg-canvas);
   color: var(--text-primary);
+}
+
+[data-theme="dark"] body::before {
+  background:
+    radial-gradient(1100px 620px at 78% -12%, rgba(120, 120, 140, 0.08), transparent 62%),
+    radial-gradient(820px 520px at 4% 108%, rgba(90, 90, 110, 0.06), transparent 62%),
+    var(--bg);
+}
+
+[data-theme="dark"] body::after {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
 }
 
 .empty-rich {
