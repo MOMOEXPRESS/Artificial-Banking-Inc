@@ -1,18 +1,27 @@
-# ABI Mobile Approvals (Expo v0)
+# ABI Mobile Approvals (Expo)
 
-Guardian companion for **approve-on-the-go**. Reads the same `/v1/guardian/approvals` API as the web console.
+Guardian companion for **approve-on-the-go**. Same `/v1/guardian/approvals` API as the console.
+
+## Features (v0.1)
+
+- **SecureStore** for the guardian key (device-encrypted)
+- Poll every 10s + Approve / Deny
+- Prefer the installable **PWA** at `/approvals` for most guardians
 
 ## Quick start
 
 ```bash
-cd /workspace/apps/mobile
+cd apps/mobile
 npm install
-EXPO_PUBLIC_API_URL=http://localhost:8787 EXPO_PUBLIC_GUARDIAN_KEY=pv_guardian_… npm start
+EXPO_PUBLIC_API_URL=http://localhost:8787 npm start
 ```
 
-## Production path
+Paste a `pv_guardian_…` key on first launch.
 
-1. **PWA** — install `/approvals` from the web app (see `apps/web/public/site.webmanifest` shortcuts).
-2. **Expo** — wire `expo-secure-store` for the guardian key and push notifications (deferred).
+## Push notifications (next)
 
-This v0 is read-only + approve/deny with polling every 10s.
+1. Add `expo-notifications`
+2. Register device token on `POST /v1/guardian/devices`
+3. Fan out from approval-create webhook / Telegram path
+
+Not wired yet — use Telegram or `/approvals` PWA for push-like alerts today.

@@ -1,4 +1,5 @@
 import { StatusBar } from "expo-status-bar";
+import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -7,18 +8,17 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 
 /**
- * Expo v0 — guardian approvals companion.
- * Reads pending approvals from the ABI API using a guardian key stored in
- * SecureStore in production; v0 accepts EXPO_PUBLIC_GUARDIAN_KEY for dev.
- *
- * For production, prefer the installable PWA at /approvals on the web app.
+ * Expo companion — approve-on-the-go.
+ * Guardian key lives in SecureStore (falls back to EXPO_PUBLIC_GUARDIAN_KEY for first run).
+ * Push notifications: wire expo-notifications + server webhook in a follow-up.
  */
 const API = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8787";
-const KEY = process.env.EXPO_PUBLIC_GUARDIAN_KEY ?? "";
+const KEY_STORAGE = "abi_guardian_key_v1";
 
 type Approval = {
   id: string;
@@ -30,47 +30,77 @@ type Approval = {
   status: string;
 };
 
+async function loadKey(): Promise<string> {
+  try {
+    const stored = await SecureStore.getItemAsync(KEY_STORAGE);
+    if (stored) return stored;
+  } catch {
+    /* web / unsupported */
+  }
+  return process.env.EXPO_PUBLIC_GUARDIAN_KEY ?? "";
+}
+
+async function saveKey(key: string) {
+  try {
+    await SecureStore.setItemAsync(KEY_STORAGE, key);
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function App() {
+  const [key, setKey] = useState("");
+  const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<Approval[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const headers = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${KEY}`,
-  };
+  useEffect(() => {
+    void (async () => {
+      const k = await loadKey();
+      setKey(k);
+      setDraft(k);
+      setLoading(false);
+    })();
+  }, []);
 
   const refresh = useCallback(async () => {
-    if (!KEY) {
-      setError("Set EXPO_PUBLIC_GUARDIAN_KEY to connect.");
-      setLoading(false);
+    if (!key) {
+      setError("Save a guardian key to connect.");
       return;
     }
     try {
-      const res = await fetch(`${API}/v1/guardian/approvals`, { headers });
+      const res = await fetch(`${API}/v1/guardian/approvals`, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+      });
       const data = (await res.json()) as Approval[];
       setPending(data.filter((a) => a.status === "pending"));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
     }
-  }, []);
+  }, [key]);
 
   useEffect(() => {
+    if (!key) return;
     void refresh();
     const t = setInterval(() => void refresh(), 10000);
     return () => clearInterval(t);
-  }, [refresh]);
+  }, [key, refresh]);
 
   async function resolve(id: string, approve: boolean) {
     setBusy(id);
     try {
       const res = await fetch(`${API}/v1/guardian/approvals/${id}/resolve`, {
         method: "POST",
-        headers,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
         body: JSON.stringify({ approve, resolvedBy: "guardian-expo" }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -82,18 +112,53 @@ export default function App() {
     }
   }
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <ActivityIndicator color="#3b82f6" style={{ marginTop: 40 }} />
+      </SafeAreaView>
+    );
+  }
+
+  if (!key) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <StatusBar style="light" />
+        <View style={styles.header}>
+          <Text style={styles.title}>ABI Approvals</Text>
+          <Text style={styles.sub}>Paste your guardian key — stored in SecureStore on device.</Text>
+        </View>
+        <TextInput
+          style={styles.input}
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="pv_guardian_…"
+          placeholderTextColor="#5e5e68"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Pressable
+          style={[styles.btn, styles.approve, { marginHorizontal: 20, marginTop: 12 }]}
+          onPress={() => {
+            void saveKey(draft.trim()).then(() => setKey(draft.trim()));
+          }}
+        >
+          <Text style={styles.btnText}>Save & connect</Text>
+        </Pressable>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="light" />
       <View style={styles.header}>
         <Text style={styles.title}>Approvals</Text>
-        <Text style={styles.sub}>{pending.length} waiting</Text>
+        <Text style={styles.sub}>{pending.length} waiting · SecureStore key</Text>
       </View>
-      {loading ? (
-        <ActivityIndicator color="#3b82f6" style={{ marginTop: 24 }} />
-      ) : error ? (
-        <Text style={styles.error}>{error}</Text>
-      ) : pending.length === 0 ? (
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {pending.length === 0 ? (
         <Text style={styles.empty}>Inbox zero — nothing needs you.</Text>
       ) : (
         <ScrollView contentContainerStyle={styles.list}>
@@ -131,6 +196,14 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8 },
   title: { color: "#f4f4f6", fontSize: 24, fontWeight: "700" },
   sub: { color: "#8e8e99", fontSize: 13, marginTop: 4 },
+  input: {
+    marginHorizontal: 20,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.12)",
+    padding: 12,
+    color: "#f4f4f6",
+    fontFamily: "monospace",
+  },
   list: { padding: 16, gap: 12 },
   card: {
     borderWidth: 2,

@@ -398,11 +398,33 @@ export function BarLine({ value, max }: { value: number; max: number }) {
   );
 }
 
-export function Empty({ icon = "inbox", children }: { icon?: string; children: ReactNode }) {
+export function Empty({
+  icon = "inbox",
+  children,
+  action,
+}: {
+  icon?: string;
+  children: ReactNode;
+  action?: ReactNode;
+}) {
   return (
-    <div className="empty">
-      <Icon name={icon} />
-      <div>{children}</div>
+    <div className="empty empty-rich">
+      <div className="empty-art" aria-hidden>
+        <svg viewBox="0 0 120 80" width="96" height="64" fill="none">
+          <rect x="8" y="18" width="104" height="52" rx="2" stroke="currentColor" strokeWidth="2" opacity="0.35" />
+          <path d="M8 34h104" stroke="currentColor" strokeWidth="2" opacity="0.25" />
+          <circle cx="22" cy="26" r="3" fill="currentColor" opacity="0.4" />
+          <circle cx="34" cy="26" r="3" fill="currentColor" opacity="0.4" />
+          <circle cx="46" cy="26" r="3" fill="currentColor" opacity="0.4" />
+          <rect x="28" y="44" width="64" height="8" rx="1" fill="currentColor" opacity="0.12" />
+          <rect x="40" y="56" width="40" height="6" rx="1" fill="currentColor" opacity="0.08" />
+        </svg>
+        <span className="empty-icon">
+          <Icon name={icon} />
+        </span>
+      </div>
+      <div className="empty-body">{children}</div>
+      {action ? <div className="empty-action">{action}</div> : null}
     </div>
   );
 }

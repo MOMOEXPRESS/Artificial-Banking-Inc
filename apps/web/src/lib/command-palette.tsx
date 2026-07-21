@@ -13,11 +13,22 @@ import {
 import { GO_MAP, type ShortcutView } from "@/lib/keyboard-shortcuts";
 
 type AgentOpt = { id: string; name: string; status?: string };
+type DecisionHit = {
+  intentId: string;
+  outcome: string;
+  amountUsdc: string;
+  destination: string;
+  reasons: string[];
+  agentId: string;
+  tool: string;
+  at: string;
+};
 
 export function ConsoleCommandPalette({
   open,
   onOpenChange,
   agents = [],
+  decisions = [],
   onGo,
   onSelectAgent,
   onFocusSearch,
@@ -25,15 +36,23 @@ export function ConsoleCommandPalette({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agents?: AgentOpt[];
+  decisions?: DecisionHit[];
   onGo: (view: ShortcutView) => void;
   onSelectAgent?: (agentId: string) => void;
   onFocusSearch?: () => void;
 }) {
   const views = useMemo(() => GO_MAP, []);
+  const denials = useMemo(
+    () =>
+      decisions
+        .filter((d) => d.outcome === "deny" || d.outcome === "denied")
+        .slice(0, 40),
+    [decisions],
+  );
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandInput placeholder="Jump to view, agent, or action…" />
+      <CommandInput placeholder="Jump to view, agent, or why $X was denied…" />
       <CommandList>
         <CommandEmpty>No matches.</CommandEmpty>
         <CommandGroup heading="Views">
@@ -47,9 +66,7 @@ export function ConsoleCommandPalette({
               }}
             >
               <span>{v.label}</span>
-              <CommandShortcut>
-                g {v.key}
-              </CommandShortcut>
+              <CommandShortcut>g {v.key}</CommandShortcut>
             </CommandItem>
           ))}
         </CommandGroup>
@@ -69,6 +86,25 @@ export function ConsoleCommandPalette({
                 <CommandShortcut className="font-mono text-[10px]">
                   {a.status ?? a.id.slice(0, 10)}
                 </CommandShortcut>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+        {denials.length > 0 && (
+          <CommandGroup heading="Why was this denied?">
+            {denials.map((d) => (
+              <CommandItem
+                key={`${d.intentId}-${d.at}`}
+                value={`denied $${d.amountUsdc} ${d.destination} ${d.reasons.join(" ")} ${d.tool} why deny`}
+                onSelect={() => {
+                  onGo("activity");
+                  onOpenChange(false);
+                }}
+              >
+                <span className="truncate">
+                  ${d.amountUsdc} → {d.destination.replace(/^https?:\/\//, "").slice(0, 28)}
+                  <span className="text-[var(--muted)]"> · {d.reasons[0] ?? d.outcome}</span>
+                </span>
               </CommandItem>
             ))}
           </CommandGroup>
@@ -93,16 +129,6 @@ export function ConsoleCommandPalette({
           >
             Open payments — simulate x402 settle
             <CommandShortcut>g p</CommandShortcut>
-          </CommandItem>
-          <CommandItem
-            value="why denied payment"
-            onSelect={() => {
-              onGo("activity");
-              onOpenChange(false);
-            }}
-          >
-            Why was a payment denied? (activity log)
-            <CommandShortcut>g v</CommandShortcut>
           </CommandItem>
           <CommandItem
             value="focus search"

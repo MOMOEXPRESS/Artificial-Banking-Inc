@@ -183,9 +183,20 @@ function TrustStrip() {
 function PartnerLogo({ children, abbr }: { children: React.ReactNode; abbr: string }) {
   return (
     <span className="partner-logo" title={String(children)}>
-      <span className="partner-mark" aria-hidden>
-        {abbr}
-      </span>
+      <svg className="partner-svg" viewBox="0 0 40 40" width="28" height="28" aria-hidden>
+        <rect x="2" y="2" width="36" height="36" rx="0" stroke="currentColor" strokeWidth="2" fill="none" />
+        <text
+          x="20"
+          y="24"
+          textAnchor="middle"
+          fontSize={abbr.length > 3 ? "8" : "10"}
+          fontFamily="var(--mono)"
+          fontWeight="700"
+          fill="currentColor"
+        >
+          {abbr.slice(0, 4)}
+        </text>
+      </svg>
       <span className="partner-name">{children}</span>
     </span>
   );
