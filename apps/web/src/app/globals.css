@@ -16,11 +16,11 @@
   --color-ink-muted: #6b6b76;
   --color-ink-faint: #9a9aa3;
 
-  --color-surface: #0c0c0e;
-  --color-surface-solid: #0c0c0e;
-  --color-surface-2: #141416;
-  --color-surface-3: #1c1c20;
-  --color-surface-hover: #26262c;
+  --color-surface: #161618;
+  --color-surface-solid: #161618;
+  --color-surface-2: #1e1e22;
+  --color-surface-3: #2a2a30;
+  --color-surface-hover: #34343c;
 
   --color-fg: #f4f4f6;
   --color-fg-secondary: #c8c8d0;
@@ -124,11 +124,12 @@
   --color-ink-faint: #7a7a85;
   --color-border-canvas: rgba(10, 10, 12, 0.12);
 
-  /* Console surfaces stay dark on light canvas (terminal-on-page) */
-  --color-surface: #0c0c0e;
-  --color-surface-2: #141416;
-  --color-surface-3: #1c1c20;
-  --color-surface-hover: #26262c;
+  /* Console surfaces stay charcoal-grey (not pure black) on light canvas */
+  --color-surface: #161618;
+  --color-surface-solid: #161618;
+  --color-surface-2: #1e1e22;
+  --color-surface-3: #2a2a30;
+  --color-surface-hover: #34343c;
   --color-fg: #f4f4f6;
   --color-fg-secondary: #c8c8d0;
   --color-fg-muted: #8e8e99;
@@ -149,10 +150,11 @@
   --color-ink-faint: #6b6b76;
   --color-border-canvas: rgba(255, 255, 255, 0.1);
 
-  --color-surface: #121214;
-  --color-surface-2: #1a1a1e;
-  --color-surface-3: #222228;
-  --color-surface-hover: #2c2c34;
+  --color-surface: #161618;
+  --color-surface-solid: #161618;
+  --color-surface-2: #1e1e22;
+  --color-surface-3: #2a2a30;
+  --color-surface-hover: #34343c;
   --color-fg: #f4f4f6;
   --color-fg-secondary: #c8c8d0;
   --color-fg-muted: #8e8e99;
@@ -4037,29 +4039,11 @@ button.user-chip {
   }
 }
 
-/* ========================================================= brutalist console */
-.app {
-  --r-lg: 8px;
-  --r-md: 8px;
-  --r-sm: 8px;
-  --shadow: none;
-}
-
-.app .card,
-.app .main,
-.app .rail {
-  border-width: 2px;
-  box-shadow: none;
-}
-
-.app .card {
-  border-radius: 8px;
-}
-
+/* ========================================================= ledger + drill helpers */
 .ledger-row td {
   font-family: var(--mono);
   font-size: 12.5px;
-  border-bottom: 2px solid var(--color-border-soft);
+  border-bottom: 1px solid var(--color-border-soft);
 }
 
 .ledger-memo {

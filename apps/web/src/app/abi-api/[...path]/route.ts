@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dispatchExpress } from "@/lib/express-fetch";
+import { hydrateDbFromCache, persistDbToCache } from "@/lib/vercel-db-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,8 +73,6 @@ async function proxyToOrigin(req: NextRequest, pathSegments: string[], origin: s
   }
 }
 
-let embedReady: Promise<void> | null = null;
-
 function ensureEmbedEnv() {
   // Evaluated before the API module loads — enables demo bootstrap on Vercel production.
   if (process.env.POLICYVAULT_ALLOW_BOOTSTRAP === undefined) {
@@ -88,23 +87,44 @@ function ensureEmbedEnv() {
   process.env.ABI_EMBEDDED = "1";
 }
 
+type EmbeddedApi = {
+  app: Parameters<typeof dispatchExpress>[0];
+  closeDb: () => void;
+  reloadDbFromDisk: () => void;
+  flushDbForPersist: () => void;
+  getDbPath: () => string;
+};
+
+/** Warm isolate: API module already opened SQLite; hydrate must reload from disk. */
+let embeddedApi: EmbeddedApi | null = null;
+
 async function handleEmbedded(req: NextRequest, pathSegments: string[]) {
   ensureEmbedEnv();
-  if (!embedReady) {
-    embedReady = Promise.resolve();
-  }
-  await embedReady;
+  const dbPath = process.env.POLICYVAULT_DB ?? "/tmp/policyvault.db";
 
   try {
-    const { app } = await import("@policyvault/api");
+    // Order: close (warm) → hydrate file → import (cold) or reloadDbFromDisk (warm).
+    if (embeddedApi) {
+      embeddedApi.closeDb();
+    }
+    await hydrateDbFromCache(dbPath);
+
+    if (embeddedApi) {
+      embeddedApi.reloadDbFromDisk();
+    } else {
+      const mod = await import("@policyvault/api");
+      embeddedApi = mod as unknown as EmbeddedApi;
+    }
+
     const joined = pathSegments.map(encodeURIComponent).join("/");
     const search = new URL(req.url).search;
     const pathAndQuery = `/${joined}${search}`;
-    return await dispatchExpress(
-      app as unknown as Parameters<typeof dispatchExpress>[0],
-      req,
-      pathAndQuery,
-    );
+    const response = await dispatchExpress(embeddedApi.app, req, pathAndQuery);
+
+    embeddedApi.flushDbForPersist();
+    await persistDbToCache(embeddedApi.getDbPath());
+
+    return response;
   } catch (e) {
     console.error("[abi-api embed]", e);
     return NextResponse.json(

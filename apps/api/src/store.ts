@@ -1,7 +1,10 @@
 /**
- * SQLite-backed storage layer (better-sqlite3, WAL). This is the durable
+ * SQLite-backed storage layer (better-sqlite3). This is the durable
  * source of truth: orgs, agents, double-entry accounts + journals, policies,
  * decisions, escrows, approvals, webhooks.
+ *
+ * Journal mode: WAL locally; DELETE on Vercel so a single file can sync via
+ * Runtime Cache across serverless isolates.
  *
  * Postgres/Prisma (packages/db) swaps in behind this same surface when a real
  * Postgres is available — endpoint code never touches SQL directly.
@@ -291,11 +294,40 @@ const DB_PATH =
     : join(process.cwd(), "data", "policyvault.db"));
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
-const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
 
-/** A13 — rehash any leftover plaintext secrets once at boot. */
+function applyEssentialPragmas(database: Database.Database): void {
+  // DELETE on Vercel so a single file can be synced via Runtime Cache (no -wal/-shm).
+  database.pragma(process.env.VERCEL ? "journal_mode = DELETE" : "journal_mode = WAL");
+  database.pragma("foreign_keys = ON");
+}
+
+/**
+ * Every mutating prepare bumps dataRevision. Re-installed after reloadDbFromDisk
+ * so the hook always binds the live Database handle.
+ */
+function installPrepareRevisionHook(database: Database.Database): void {
+  const rawPrepare = database.prepare.bind(database);
+  const MUTATES = /^\s*(INSERT|UPDATE|DELETE|REPLACE)/i;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (database as any).prepare = (sql: string) => {
+    const stmt = rawPrepare(sql);
+    if (MUTATES.test(sql)) {
+      const rawRun = stmt.run.bind(stmt);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (stmt as any).run = (...args: any[]) => {
+        const info = rawRun(...args);
+        bumpRevision();
+        return info;
+      };
+    }
+    return stmt;
+  };
+}
+
+let db = new Database(DB_PATH);
+applyEssentialPragmas(db);
+
+/** A13 — rehash any leftover plaintext secrets once at boot (idempotent). */
 function migrateSecretsAtRest(): void {
   const rehash = (table: string, column: string, prefix: string) => {
     const rows = db.prepare(`SELECT rowid AS rid, ${column} AS secret FROM ${table}`).all() as {
@@ -317,6 +349,41 @@ function migrateSecretsAtRest(): void {
   } catch (e) {
     console.error("A13 secret migration skipped:", e);
   }
+}
+
+export function getDbPath(): string {
+  return DB_PATH;
+}
+
+/** Release the SQLite handle so hydrate can safely replace the file on disk. */
+export function closeDb(): void {
+  try {
+    db.close();
+  } catch {
+    /* already closed */
+  }
+}
+
+/**
+ * Close and reopen SQLite from disk (after Runtime Cache hydrate on a warm isolate).
+ * Re-applies pragmas + idempotent secret migration; invalidates derived caches.
+ */
+export function reloadDbFromDisk(): void {
+  closeDb();
+  db = new Database(DB_PATH);
+  applyEssentialPragmas(db);
+  installPrepareRevisionHook(db);
+  migrateSecretsAtRest();
+  bumpRevision();
+}
+
+/** Flush WAL into the main DB file before persisting a single-file snapshot. */
+export function flushDbForPersist(): void {
+  const mode = String(db.pragma("journal_mode", { simple: true }) ?? "").toLowerCase();
+  if (mode === "wal") {
+    db.pragma("wal_checkpoint(TRUNCATE)");
+  }
+  // DELETE mode: better-sqlite3 writes sync to the main file.
 }
 
 db.exec(`
@@ -720,24 +787,7 @@ function cached<T>(key: string, compute: () => T): T {
  * revision automatically. Hand-placing bump calls in each writer would
  * eventually miss one and serve a stale balance — this cannot.
  */
-{
-  const rawPrepare = db.prepare.bind(db);
-  const MUTATES = /^\s*(INSERT|UPDATE|DELETE|REPLACE)/i;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (db as any).prepare = (sql: string) => {
-    const stmt = rawPrepare(sql);
-    if (MUTATES.test(sql)) {
-      const rawRun = stmt.run.bind(stmt);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (stmt as any).run = (...args: any[]) => {
-        const info = rawRun(...args);
-        bumpRevision();
-        return info;
-      };
-    }
-    return stmt;
-  };
-}
+installPrepareRevisionHook(db);
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;

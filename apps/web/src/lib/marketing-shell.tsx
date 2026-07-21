@@ -5,18 +5,19 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ABLockup, ABWordmark } from "./brand";
 import { Icon } from "./ui";
 
-/** Shared marketing chrome for Landing / Docs / Pricing / About. */
+/** Shared marketing chrome for Home / Docs / Pricing / About. */
 
 export function MarketingShell({
   children,
   active,
 }: {
   children: ReactNode;
-  active?: "landing" | "docs" | "pricing" | "about" | "console";
+  active?: "home" | "landing" | "docs" | "pricing" | "about" | "console";
 }) {
+  const navActive = active === "landing" ? "home" : active;
   return (
     <div className="landing">
-      <MarketingNav active={active} />
+      <MarketingNav active={navActive} />
       {children}
       <MarketingFooter />
     </div>
@@ -26,8 +27,9 @@ export function MarketingShell({
 export function MarketingNav({
   active,
 }: {
-  active?: "landing" | "docs" | "pricing" | "about" | "console";
+  active?: "home" | "landing" | "docs" | "pricing" | "about" | "console";
 }) {
+  const current = active === "landing" ? "home" : active;
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => {
@@ -52,19 +54,19 @@ export function MarketingNav({
           <ABWordmark size={26} tone="#0a0a0c" />
         </Link>
         <nav className="marketing-links">
-          <Link href="/" className={active === "landing" ? "is-active" : undefined} onClick={close}>
-            Landing
+          <Link href="/" className={current === "home" ? "is-active" : undefined} onClick={close}>
+            Home
           </Link>
-          <Link href="/console" className={active === "console" ? "is-active" : undefined} onClick={close}>
+          <Link href="/console" className={current === "console" ? "is-active" : undefined} onClick={close}>
             Console
           </Link>
-          <Link href="/docs" className={active === "docs" ? "is-active" : undefined} onClick={close}>
+          <Link href="/docs" className={current === "docs" ? "is-active" : undefined} onClick={close}>
             Docs
           </Link>
-          <Link href="/pricing" className={active === "pricing" ? "is-active" : undefined} onClick={close}>
+          <Link href="/pricing" className={current === "pricing" ? "is-active" : undefined} onClick={close}>
             Pricing
           </Link>
-          <Link href="/about" className={active === "about" ? "is-active" : undefined} onClick={close}>
+          <Link href="/about" className={current === "about" ? "is-active" : undefined} onClick={close}>
             About
           </Link>
           <a
@@ -109,7 +111,7 @@ export function MarketingFooter() {
           <FooterCol
             title="Product"
             links={[
-              ["Landing", "/"],
+              ["Home", "/"],
               ["Console", "/console"],
               ["Live demo", "/console?demo=1"],
               ["Features", "/#features"],
@@ -180,24 +182,31 @@ export function SectionHead({
   );
 }
 
+/** Closing CTA — headline open; logo alone; actions as two grey cards. */
 export function MarketingCta() {
   return (
     <section className="cta-band">
-      <div className="cta-inner">
-        <ABLockup size={80} tone="#fff" />
+      <div className="cta-open">
         <h2>Ship an autonomous agent this afternoon.</h2>
         <p>
           The console is free while it&rsquo;s in development. Bring an OpenAI, Anthropic, or any
           pay-per-use API — your agent starts spending under policy in minutes.
         </p>
-        <div className="hero-ctas" style={{ justifyContent: "center" }}>
-          <Link className="btn-primary" href="/console">
-            Launch console <Icon name="arrowRight" size={14} />
-          </Link>
-          <Link className="btn-ghost" href="/console?demo=1">
-            <Icon name="play" size={14} /> Try the demo org
-          </Link>
-        </div>
+      </div>
+      <div className="cta-lockup" aria-hidden>
+        <ABLockup size={72} tone="#0a0a0c" />
+      </div>
+      <div className="cta-action-row">
+        <Link className="cta-action-card" href="/console">
+          <span className="cta-action-kicker">Console</span>
+          <strong>Launch console</strong>
+          <span className="cta-action-sub">Guardian desk, live balances, policy.</span>
+        </Link>
+        <Link className="cta-action-card" href="/console?demo=1">
+          <span className="cta-action-kicker">Demo</span>
+          <strong>Try demo org</strong>
+          <span className="cta-action-sub">$100 float, two agents, real ledger.</span>
+        </Link>
       </div>
     </section>
   );

@@ -54,12 +54,14 @@ export function LandingMotion() {
         });
       });
 
-      gsap.utils.toArray<HTMLElement>(".step-card").forEach((el, i) => {
-        gsap.from(el, {
-          scrollTrigger: { trigger: el, start: "top 90%" },
-          x: i % 2 === 0 ? -20 : 20,
+      gsap.utils.toArray<HTMLElement>(".pane-block").forEach((el, i) => {
+        gsap.from(el.querySelectorAll(".pane-copy > *, .pane-visual"), {
+          scrollTrigger: { trigger: el, start: "top 82%" },
+          y: 28,
           opacity: 0,
           duration: 0.55,
+          stagger: 0.06,
+          delay: (i % 2) * 0.04,
           ease: "power2.out",
         });
       });
@@ -73,6 +75,14 @@ export function LandingMotion() {
           delay: i * 0.1,
           ease: "power2.out",
         });
+      });
+
+      gsap.from(".cta-actions-card", {
+        scrollTrigger: { trigger: ".cta-band", start: "top 85%" },
+        y: 20,
+        opacity: 0,
+        duration: 0.55,
+        ease: "power2.out",
       });
 
       gsap.utils.toArray<HTMLElement>(".hero-meta b").forEach((el) => {

@@ -1903,3 +1903,5 @@ if (!embedded) {
     console.log(LEGAL_FOOTER);
   });
 }
+
+export { closeDb, flushDbForPersist, getDbPath, reloadDbFromDisk } from "./store.js";
