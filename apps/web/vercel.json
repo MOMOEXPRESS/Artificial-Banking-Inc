@@ -2,5 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "cd ../.. && npm install",
-  "buildCommand": "cd ../.. && npm run build -w @policyvault/web"
+  "buildCommand": "cd ../.. && npm run build -w @policyvault/common -w @policyvault/policy -w @policyvault/ledger -w @policyvault/custody -w @policyvault/api && npm run build -w @policyvault/web"
 }

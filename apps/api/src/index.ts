@@ -1871,25 +1871,35 @@ async function runDueSubscriptions(): Promise<void> {
   }
 }
 
-setInterval(() => {
-  sweepEscrowTimeouts();
-  sweepApprovalExpiry();
-  for (const orgId of store.listOrgIds()) store.sweepOverdueInvoices(orgId);
-  void runDueSubscriptions().catch((e) => console.error("subscription sweep failed:", e));
-}, 10_000).unref();
+/** Embedded into Next `/abi-api` on Vercel — do not listen or start long polls. */
+export { app };
 
-setInterval(() => {
-  for (const orgId of store.listOrgIds()) {
-    const result = store.reconcileOrg(orgId);
-    if (!result.ok) {
-      console.error(`RECONCILE DRIFT org=${orgId}:`, JSON.stringify(result.drift));
+const embedded =
+  process.env.VERCEL === "1" ||
+  process.env.ABI_EMBEDDED === "1" ||
+  process.env.ABI_NO_LISTEN === "1";
+
+if (!embedded) {
+  setInterval(() => {
+    sweepEscrowTimeouts();
+    sweepApprovalExpiry();
+    for (const orgId of store.listOrgIds()) store.sweepOverdueInvoices(orgId);
+    void runDueSubscriptions().catch((e) => console.error("subscription sweep failed:", e));
+  }, 10_000).unref();
+
+  setInterval(() => {
+    for (const orgId of store.listOrgIds()) {
+      const result = store.reconcileOrg(orgId);
+      if (!result.ok) {
+        console.error(`RECONCILE DRIFT org=${orgId}:`, JSON.stringify(result.drift));
+      }
     }
-  }
-}, 60_000).unref();
+  }, 60_000).unref();
 
-startTelegramPolling();
+  startTelegramPolling();
 
-app.listen(PORT, () => {
-  console.log(`PolicyVault API on http://localhost:${PORT} (SQLite-backed)`);
-  console.log(LEGAL_FOOTER);
-});
+  app.listen(PORT, () => {
+    console.log(`PolicyVault API on http://localhost:${PORT} (SQLite-backed)`);
+    console.log(LEGAL_FOOTER);
+  });
+}

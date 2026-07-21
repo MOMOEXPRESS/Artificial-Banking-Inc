@@ -283,7 +283,12 @@ function id(prefix: string): string {
   return `${prefix}_${randomBytes(6).toString("hex")}`;
 }
 
-const DB_PATH = process.env.POLICYVAULT_DB ?? join(process.cwd(), "data", "policyvault.db");
+/** On Vercel serverless, only /tmp is writable — ephemeral demo DB is fine. */
+const DB_PATH =
+  process.env.POLICYVAULT_DB ??
+  (process.env.VERCEL
+    ? join("/tmp", "policyvault.db")
+    : join(process.cwd(), "data", "policyvault.db"));
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 const db = new Database(DB_PATH);

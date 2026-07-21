@@ -93,26 +93,23 @@ Current setup (Project Settings **do** apply):
 6. **Zod ≥ 3.25** for `@hookform/resolvers`.
 7. Production Branch = `main`. Hobby may **block** agent commits — Redeploy as owner.
 
-## API on Vercel (no more opaque `/abi-api` 404)
+## API on Vercel (Bootstrap works)
 
-Vercel hosts the **web console only**. The money API is a separate Node
-process (see [`DEPLOY.md`](./DEPLOY.md)).
+Vercel can run the **money API in-process** behind same-origin `/abi-api`
+(Next route embeds `@policyvault/api`, SQLite under `/tmp`). **Launch demo org /
+Bootstrap** works without a separate API host.
 
-The console calls same-origin `/abi-api/*`. That path is a Next route handler
-(`apps/web/src/app/abi-api/[...path]/route.ts`) which:
+Optional: still set `ABI_API_ORIGIN` to point at a long-lived API (Docker / VPS)
+if you do not want the ephemeral `/tmp` demo database.
 
-- **Local / Cursor** — proxies to `http://127.0.0.1:8787` (or `ABI_API_ORIGIN`)
-- **Vercel with `ABI_API_ORIGIN` set** — proxies to your API host
-- **Vercel without API origin** — returns **503 JSON** `API_NOT_CONFIGURED`
-  (not a blank Next 404)
-
-Set under **Project → Settings → Environment Variables** (Production + Preview),
-then Redeploy:
-
-| Name | Example |
+| Name | When |
 | --- | --- |
-| `ABI_API_ORIGIN` | `https://api.yourdomain.com` |
-| `NEXT_PUBLIC_API_URL` | `/abi-api` (default) or the absolute API URL |
+| *(none)* | Default on Vercel — embedded API, bootstrap enabled |
+| `ABI_API_ORIGIN` | Proxy to an external API instead of embedding |
+| `POLICYVAULT_ALLOW_BOOTSTRAP=0` | Disable demo bootstrap on the embedded API |
+| `ABI_KEY_PEPPER` | Recommended for any shared/prod deploy |
+
+Local / Cursor still uses `npm run dev:api` + proxy to `:8787` when not on Vercel.
 
 ## Local / Cursor preview
 

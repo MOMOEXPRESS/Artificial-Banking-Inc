@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { dispatchExpress } from "@/lib/express-fetch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Bootstrap + policy eval can exceed default hobby limits on cold start. */
+export const maxDuration = 60;
 
 /**
- * Same-origin API proxy for the Guardian Console.
+ * Same-origin API for the Guardian Console.
  *
- * Local / Cursor: falls back to http://127.0.0.1:8787 when ABI_API_ORIGIN is unset.
- * Vercel: requires ABI_API_ORIGIN (or POLICYVAULT_API_URL / absolute NEXT_PUBLIC_API_URL)
- * so /abi-api never returns an opaque Next/platform 404.
+ * - If ABI_API_ORIGIN (or absolute POLICYVAULT_API_URL / NEXT_PUBLIC_API_URL) is set → proxy.
+ * - Else on Vercel → embed @policyvault/api in-process (SQLite under /tmp) so Bootstrap works
+ *   without a separate API host.
+ * - Else locally → proxy to http://127.0.0.1:8787 (run `npm run dev:api`).
  */
 function resolveOrigin(): string | null {
   const candidates = [
@@ -26,25 +30,7 @@ function resolveOrigin(): string | null {
   return null;
 }
 
-async function proxy(req: NextRequest, pathSegments: string[]) {
-  const origin = resolveOrigin();
-  if (!origin) {
-    return NextResponse.json(
-      {
-        error: {
-          code: "API_NOT_CONFIGURED",
-          message:
-            "This web deployment has no API origin. Set ABI_API_ORIGIN (server) to your API host — e.g. https://api.example.com — then Redeploy. Vercel hosts the console only; the money API is a separate process.",
-          docs: "https://github.com/MOMOEXPRESS/Artificial-Banking-Inc/blob/main/docs/VERCEL.md",
-        },
-      },
-      {
-        status: 503,
-        headers: { "Cache-Control": "no-store" },
-      },
-    );
-  }
-
+async function proxyToOrigin(req: NextRequest, pathSegments: string[], origin: string) {
   const joined = pathSegments.map(encodeURIComponent).join("/");
   const incoming = new URL(req.url);
   const dest = `${origin}/${joined}${incoming.search}`;
@@ -61,14 +47,18 @@ async function proxy(req: NextRequest, pathSegments: string[]) {
     body = await req.arrayBuffer();
   }
 
-  let upstream: Response;
   try {
-    upstream = await fetch(dest, {
+    const upstream = await fetch(dest, {
       method: req.method,
       headers,
       body: body && body.byteLength > 0 ? body : undefined,
       redirect: "manual",
     });
+    const outHeaders = new Headers();
+    const ct = upstream.headers.get("content-type");
+    if (ct) outHeaders.set("content-type", ct);
+    outHeaders.set("Cache-Control", "no-store");
+    return new NextResponse(upstream.body, { status: upstream.status, headers: outHeaders });
   } catch (e) {
     return NextResponse.json(
       {
@@ -80,45 +70,90 @@ async function proxy(req: NextRequest, pathSegments: string[]) {
       { status: 502, headers: { "Cache-Control": "no-store" } },
     );
   }
+}
 
-  const outHeaders = new Headers();
-  const ct = upstream.headers.get("content-type");
-  if (ct) outHeaders.set("content-type", ct);
-  outHeaders.set("Cache-Control", "no-store");
+let embedReady: Promise<void> | null = null;
 
-  return new NextResponse(upstream.body, {
-    status: upstream.status,
-    headers: outHeaders,
-  });
+function ensureEmbedEnv() {
+  // Evaluated before the API module loads — enables demo bootstrap on Vercel production.
+  if (process.env.POLICYVAULT_ALLOW_BOOTSTRAP === undefined) {
+    process.env.POLICYVAULT_ALLOW_BOOTSTRAP = "1";
+  }
+  if (!process.env.POLICYVAULT_DB) {
+    process.env.POLICYVAULT_DB = "/tmp/policyvault.db";
+  }
+  if (!process.env.ABI_KEY_PEPPER && !process.env.POLICYVAULT_KEY_PEPPER) {
+    process.env.ABI_KEY_PEPPER = "abi-vercel-demo-pepper";
+  }
+  process.env.ABI_EMBEDDED = "1";
+}
+
+async function handleEmbedded(req: NextRequest, pathSegments: string[]) {
+  ensureEmbedEnv();
+  if (!embedReady) {
+    embedReady = Promise.resolve();
+  }
+  await embedReady;
+
+  try {
+    const { app } = await import("@policyvault/api");
+    const joined = pathSegments.map(encodeURIComponent).join("/");
+    const search = new URL(req.url).search;
+    const pathAndQuery = `/${joined}${search}`;
+    return await dispatchExpress(
+      app as unknown as Parameters<typeof dispatchExpress>[0],
+      req,
+      pathAndQuery,
+    );
+  } catch (e) {
+    console.error("[abi-api embed]", e);
+    return NextResponse.json(
+      {
+        error: {
+          code: "API_EMBED_FAILED",
+          message: e instanceof Error ? e.message : String(e),
+        },
+      },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+}
+
+async function handle(req: NextRequest, pathSegments: string[]) {
+  const origin = resolveOrigin();
+  if (origin) return proxyToOrigin(req, pathSegments, origin);
+  // Vercel with no external API → run the money API in-process.
+  if (process.env.VERCEL) return handleEmbedded(req, pathSegments);
+  return proxyToOrigin(req, pathSegments, "http://127.0.0.1:8787");
 }
 
 type Ctx = { params: Promise<{ path: string[] }> };
 
 export async function GET(req: NextRequest, ctx: Ctx) {
   const { path } = await ctx.params;
-  return proxy(req, path ?? []);
+  return handle(req, path ?? []);
 }
 export async function POST(req: NextRequest, ctx: Ctx) {
   const { path } = await ctx.params;
-  return proxy(req, path ?? []);
+  return handle(req, path ?? []);
 }
 export async function PUT(req: NextRequest, ctx: Ctx) {
   const { path } = await ctx.params;
-  return proxy(req, path ?? []);
+  return handle(req, path ?? []);
 }
 export async function PATCH(req: NextRequest, ctx: Ctx) {
   const { path } = await ctx.params;
-  return proxy(req, path ?? []);
+  return handle(req, path ?? []);
 }
 export async function DELETE(req: NextRequest, ctx: Ctx) {
   const { path } = await ctx.params;
-  return proxy(req, path ?? []);
+  return handle(req, path ?? []);
 }
 export async function HEAD(req: NextRequest, ctx: Ctx) {
   const { path } = await ctx.params;
-  return proxy(req, path ?? []);
+  return handle(req, path ?? []);
 }
 export async function OPTIONS(req: NextRequest, ctx: Ctx) {
   const { path } = await ctx.params;
-  return proxy(req, path ?? []);
+  return handle(req, path ?? []);
 }
