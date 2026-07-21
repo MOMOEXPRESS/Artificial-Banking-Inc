@@ -1,69 +1,104 @@
 # Vercel deploy (Console / Next.js)
 
-## Why `404 NOT_FOUND` / red ✕ on Preview & Production
+## Canonical URL (bookmark this)
 
-That page is **Vercel’s platform 404**, not our app (`x-vercel-error: DEPLOYMENT_NOT_FOUND`). A red ✕ on GitHub Deployments means the build **failed** or was **blocked**. Until a deploy is **Ready**, Production and Preview URLs will not load the app.
+**https://artificial-banking-inc-gaia10.vercel.app**
 
-### Common causes
+Team projects always get `{project}-{team}.vercel.app`. These short names are
+**not** assigned to this project and will keep returning Vercel platform 404
+forever unless you claim them (usually impossible on a team) or add a **custom
+domain**:
 
-1. **Root Directory blank + Next at `apps/web`** — With only `framework: nextjs` at the repo root, Vercel runs `next build` at `/` and fails (`Couldn't find any pages or app directory`). Repo `vercel.json` now points `@vercel/next` at `apps/web/package.json` so deploys work even if Root Directory is unset. Prefer still setting Root Directory to `apps/web` in the dashboard.
-2. **Build failed: `Can't resolve 'zod/v4/core'`** — `@hookform/resolvers@5` needs **Zod ≥ 3.25** (`zod` pinned to `^3.25.76`).
-3. **Blocked deploy (Hobby)** — Cursor/agent commits may be blocked. Fix: **Redeploy** as the account owner, or push a small commit yourself.
-4. **Wrong Output Directory** — do **not** set Output Directory to `.next` / `apps/web/.next`. Leave it empty for Next.js.
-5. **Production vs Preview** — Production only updates from the **Production Branch** (`main`).
+| URL | Result |
+| --- | --- |
+| `https://artificial-banking-inc-gaia10.vercel.app` | Production alias — **use this** |
+| `https://artificial-banking-inc-git-main-gaia10.vercel.app` | `main` branch alias |
+| `https://artificial-banking-inc.vercel.app` | Platform `NOT_FOUND` (unassigned) |
+| `https://artificialbankinginc.vercel.app` | Platform `DEPLOYMENT_NOT_FOUND` (unassigned) |
 
-## Fix (Vercel dashboard — still recommended)
+## Fix “404 NOT_FOUND” / login wall once
 
-1. Open **https://vercel.com** → project **artificial-banking-inc** (team `gaia10`).
-2. **Settings → Build and Deployment** (or General)
-   - **Root Directory** → `apps/web` → Save
-   - **Framework Preset** → Next.js
-   - **Build Command** → default / empty
-   - **Install Command** → default / empty
-   - **Output Directory** → **empty**
-   - **Production Branch** → `main`
-3. **Deployments** → latest → if **Error** / **Blocked**, **⋯ → Redeploy** (as account owner).
-4. Wait for **Ready**, then open the Production domain (not an old failed hash URL).
+There are **two** different failures people mix up:
 
-## After agent PRs land
+1. **Wrong hostname** → `x-vercel-error: NOT_FOUND` / `DEPLOYMENT_NOT_FOUND`  
+   You opened a short `*.vercel.app` that is not on the project. Open the
+   canonical URL above (or add your own domain under **Settings → Domains**).
 
-If Hobby blocks agent authors, **Redeploy** from your Vercel account (or push one commit yourself).
+2. **Right hostname, Vercel login / “looks broken”** → Deployment Protection SSO  
+   The deploy is fine; anonymous visitors are sent to `vercel.com/login`.
 
-## Gaia preview “looks like something went wrong”
+### One command (owner)
 
-That’s Cursor’s `.gaia` preview host, not Vercel. Fix Vercel using the steps above.
+```bash
+# https://vercel.com/account/tokens — scope: full account or the gaia10 team
+VERCEL_TOKEN=… npm run vercel:harden
+```
 
-## API
+That script:
 
-Vercel hosts the **web console only**. Point `NEXT_PUBLIC_API_URL` at your API host under **Settings → Environment Variables**, then Redeploy.
+- Disables **Vercel Authentication** (`ssoProtection: null`) on project
+  `artificial-banking-inc` (team `gaia10`)
+- Lists assigned domains
+- Attempts to claim short aliases (usually rejected for team projects — OK)
+- Prints the canonical production URL
 
-### Local / Cursor preview
+Or in the dashboard (same effect):
 
-The API listens on `:8787`. The Next app proxies same-origin `/abi-api/*` → `http://127.0.0.1:8787/*` (see `apps/web/next.config.mjs`), so the browser does not need to reach `localhost:8787` directly. Run both:
+1. https://vercel.com → team **gaia10** → **artificial-banking-inc**
+2. **Settings → Deployment Protection** → turn **off** Vercel Authentication
+   for Production (and Preview if you want public previews)
+3. Open **https://artificial-banking-inc-gaia10.vercel.app**
+
+Optional CI: add repo secret `VERCEL_TOKEN`, then
+**Actions → Vercel harden → Run workflow** (also runs on pushes that touch the
+harden script).
+
+## Why builds used to 404 / red ✕
+
+A red ✕ on GitHub Deployments means the build **failed** or was **blocked**.
+Until a deploy is **Ready**, no URL serves the app.
+
+Repo guards already in place:
+
+1. **Root `vercel.json`** points `@vercel/next` at `apps/web/package.json` so
+   deploys work even if Root Directory is blank.
+2. **Zod ≥ 3.25** for `@hookform/resolvers`.
+3. Prefer still setting **Root Directory** = `apps/web` in the dashboard.
+4. **Output Directory** must stay **empty** (never `.next`).
+5. Production only updates from **Production Branch** `main`.
+6. Hobby may **block** agent commits — **Redeploy** as the account owner.
+
+## API on Vercel (no more opaque `/abi-api` 404)
+
+Vercel hosts the **web console only**. The money API is a separate Node
+process (see [`DEPLOY.md`](./DEPLOY.md)).
+
+The console calls same-origin `/abi-api/*`. That path is a Next route handler
+(`apps/web/src/app/abi-api/[...path]/route.ts`) which:
+
+- **Local / Cursor** — proxies to `http://127.0.0.1:8787` (or `ABI_API_ORIGIN`)
+- **Vercel with `ABI_API_ORIGIN` set** — proxies to your API host
+- **Vercel without API origin** — returns **503 JSON** `API_NOT_CONFIGURED`
+  (not a blank Next 404)
+
+Set under **Project → Settings → Environment Variables** (Production + Preview),
+then Redeploy:
+
+| Name | Example |
+| --- | --- |
+| `ABI_API_ORIGIN` | `https://api.yourdomain.com` |
+| `NEXT_PUBLIC_API_URL` | `/abi-api` (default) or the absolute API URL |
+
+## Local / Cursor preview
 
 ```bash
 npm run dev:api
 npm run dev:web
 ```
 
-Then open the web port preview and use **Bootstrap demo**. Override with `NEXT_PUBLIC_API_URL` only when the API is on another host.
+Open the web port → **Bootstrap demo**.
 
-## Which URL to open
+## Gaia preview “looks like something went wrong”
 
-| URL | Meaning |
-| --- | --- |
-| `https://artificial-banking-inc-gaia10.vercel.app` | Project production alias (team `gaia10`) |
-| `https://artificial-banking-inc-git-main-gaia10.vercel.app` | `main` branch alias |
-| `https://artificialbankinginc.vercel.app` | **Not** assigned to this project today → platform `DEPLOYMENT_NOT_FOUND` |
-| `https://artificial-banking-inc.vercel.app` | Also unassigned / 404 right now |
-
-Add the domain you want under **Project → Settings → Domains**.
-
-## “It loads but asks me to log in” / looks like Vercel UI
-
-**Deployment Protection** (SSO) is on. Anonymous visitors get redirected to `vercel.com/login` instead of the Next app.
-
-Disable it: **Project → Settings → Deployment Protection** → turn off protection for Production (and Preview if you want public previews), then save.
-
-Or stay logged into the Vercel account that owns team `gaia10` and open the production alias above.
-
+That’s Cursor’s `.gaia` preview host, not Vercel. Use the canonical Vercel URL
+or local `dev:web` after fixing deploy settings above.

@@ -7,6 +7,19 @@ import { Button } from "@/components/ui/button";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 
+async function readApiError(res: Response): Promise<string> {
+  try {
+    const d = (await res.json()) as { error?: { code?: string; message?: string } };
+    if (d.error?.code === "API_NOT_CONFIGURED" || d.error?.code === "API_UNREACHABLE") {
+      return d.error.message ?? d.error.code;
+    }
+    if (d.error?.message) return d.error.message;
+  } catch {
+    /* ignore non-JSON */
+  }
+  return `HTTP ${res.status}`;
+}
+
 export function Login({
   onLogin,
   setToast,
@@ -23,11 +36,11 @@ export function Login({
       const res = await fetch(`${API}/v1/guardian/org`, {
         headers: { Authorization: `Bearer ${key.trim()}` },
       });
-      if (!res.ok) throw new Error(`Key rejected (HTTP ${res.status})`);
+      if (!res.ok) throw new Error(await readApiError(res));
       const data = await res.json();
       onLogin({ guardianKey: key.trim(), orgId: data.org.id, agentKeys: [] });
     } catch (e) {
-      setToast(`Connect failed: ${String(e)}. Is the API running on ${API}?`, "err");
+      setToast(`Connect failed: ${String(e)}. Is the API reachable via ${API}?`, "err");
     } finally {
       setBusy(false);
     }
@@ -38,6 +51,9 @@ export function Login({
     try {
       const res = await fetch(`${API}/v1/demo/bootstrap`, { method: "POST" });
       const d = await res.json();
+      if (!res.ok) {
+        throw new Error(d.error?.message ?? d.error?.code ?? `HTTP ${res.status}`);
+      }
       onLogin({
         guardianKey: d.guardianKey,
         orgId: d.orgId,
@@ -47,7 +63,7 @@ export function Login({
         ],
       });
     } catch (e) {
-      setToast(`Bootstrap failed: ${String(e)}. Is the API running on ${API}?`, "err");
+      setToast(`Bootstrap failed: ${String(e)}. Is the API reachable via ${API}?`, "err");
     } finally {
       setBusy(false);
     }

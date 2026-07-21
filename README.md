@@ -5,7 +5,10 @@ Policy-gated **USDC treasury & payments OS** for AI agents.
 > LLM proposes. Policy + signer authorize. Keys never enter the model.  
 > **Not a bank. Not FDIC insured.**
 
-Validated build rundown and all planning docs: see [`docs/INDEX.md`](C:\Users\ebale\Projects\policyvault\docs\INDEX.md) (canonical: validation rundown + full-scale build plan + this README).
+**Live console (Vercel):** https://artificial-banking-inc-gaia10.vercel.app  
+Do **not** open `artificial-banking-inc.vercel.app` — that hostname is unassigned and returns Vercel platform 404. Access harden: `VERCEL_TOKEN=… npm run vercel:harden` (see [`docs/VERCEL.md`](docs/VERCEL.md)).
+
+Validated build rundown and all planning docs: see [`docs/INDEX.md`](docs/INDEX.md) (canonical: validation rundown + full-scale build plan + this README).
 
 ## Monorepo
 

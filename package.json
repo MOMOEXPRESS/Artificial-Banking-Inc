@@ -21,7 +21,8 @@
     "demo:agent": "npm run start -w @policyvault/demo-agent",
     "test": "npm run test -w @policyvault/policy -w @policyvault/ledger -w @policyvault/api",
     "db:generate": "npm run generate -w @policyvault/db",
-    "lint": "echo \"lint: add eslint in later pass\""
+    "lint": "echo \"lint: add eslint in later pass\"",
+    "vercel:harden": "node scripts/vercel-harden.mjs"
   },
   "engines": {
     "node": ">=20"
