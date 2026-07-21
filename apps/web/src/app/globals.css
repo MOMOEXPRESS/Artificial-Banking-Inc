@@ -418,7 +418,7 @@ body::after {
   color: var(--color-fg-muted);
   cursor: pointer;
   padding: 8px 10px 4px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   text-align: left;
 }
 
