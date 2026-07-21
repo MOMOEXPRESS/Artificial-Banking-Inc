@@ -2,16 +2,17 @@
 
 ## Why `404 NOT_FOUND` on `*.vercel.app`
 
-That page is **Vercel’s platform 404**, not our app. It means Production has **no Ready deployment** to serve.
+That page is **Vercel’s platform 404**, not our app. It means Production has **no Ready deployment** to serve (`x-vercel-error: DEPLOYMENT_NOT_FOUND`).
 
-On this repo, GitHub shows Vercel status on `main` as **“Deployment was blocked”**. Until a deploy is **Ready**, every Production URL (`artificialbankinginc.vercel.app` and the Deployment URLs) will 404.
+GitHub Deployments with a **red ✕** means the Vercel build **failed** (or was blocked). Until a deploy is **Ready**, Production and Preview URLs will not load the app.
 
 ### Common causes
 
-1. **Blocked deploy (Hobby)** — commits from Cursor/cloud agents often aren’t on your Vercel team, so Vercel blocks them. GitHub shows the push; Vercel never publishes.
-2. **Wrong Output Directory** — do **not** set Output Directory to `.next` / `apps/web/.next`. Leave it empty for Next.js.
-3. **Wrong Root Directory** — Next.js lives in `apps/web`. If Root Directory is blank, Vercel may not build the app correctly.
-4. **Production vs Preview** — Production domain only updates from the **Production Branch** (`main`). Pushes on `cursor/*` do not change Production until merged.
+1. **Build failed: `Can't resolve 'zod/v4/core'`** — `@hookform/resolvers@5` imports `zod/v4/core`, which only exists in **Zod ≥ 3.25**. The web app must pin `zod` to `^3.25.76` (not `3.24.x`).
+2. **Blocked deploy (Hobby)** — commits from Cursor/cloud agents often aren’t on your Vercel team, so Vercel blocks them. GitHub shows the push; Vercel never publishes. Fix: Redeploy from your account (or push a commit yourself).
+3. **Wrong Output Directory** — do **not** set Output Directory to `.next` / `apps/web/.next`. Leave it empty for Next.js.
+4. **Wrong Root Directory** — Next.js lives in `apps/web`. If Root Directory is blank, Vercel runs `next build` at the repo root and fails (`Couldn't find any pages or app directory`).
+5. **Production vs Preview** — Production domain only updates from the **Production Branch** (`main`). Pushes on `cursor/*` do not change Production until merged.
 
 ## Fix (do this in the Vercel dashboard)
 
