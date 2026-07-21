@@ -37,6 +37,17 @@ That’s Cursor’s `.gaia` preview host, not Vercel. Fix Vercel using the steps
 
 Vercel hosts the **web console only**. Point `NEXT_PUBLIC_API_URL` at your API host under **Settings → Environment Variables**, then Redeploy.
 
+### Local / Cursor preview
+
+The API listens on `:8787`. The Next app proxies same-origin `/abi-api/*` → `http://127.0.0.1:8787/*` (see `apps/web/next.config.mjs`), so the browser does not need to reach `localhost:8787` directly. Run both:
+
+```bash
+npm run dev:api
+npm run dev:web
+```
+
+Then open the web port preview and use **Bootstrap demo**. Override with `NEXT_PUBLIC_API_URL` only when the API is on another host.
+
 ## Which URL to open
 
 | URL | Meaning |

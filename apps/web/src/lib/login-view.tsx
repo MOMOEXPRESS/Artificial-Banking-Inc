@@ -4,7 +4,7 @@ import { ABLockup } from "./brand";
 import { Icon } from "./ui";
 import type { Session } from "./console-types";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 
 export function Login({
   onLogin,

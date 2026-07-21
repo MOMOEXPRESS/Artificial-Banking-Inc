@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { fmtUsd, relTime } from "../../lib/ui";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 
 type Session = { guardianKey: string; orgId?: string };
 type Approval = {
