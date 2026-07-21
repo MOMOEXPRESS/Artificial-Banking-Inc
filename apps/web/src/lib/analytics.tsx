@@ -460,8 +460,28 @@ export function PolicySimulator({
   draft,
 }: {
   gFetch: GFetch;
-  current: { hitlAboveUsdc: string; perTxMaxUsdc: string; dailyMaxUsdc: string; maxPaysPerMinute: number };
-  draft: { hitlAboveUsdc: string; perTxMaxUsdc: string; dailyMaxUsdc: string; maxPaysPerMinute: string };
+  current: {
+    hitlAboveUsdc: string;
+    perTxMaxUsdc: string;
+    dailyMaxUsdc: string;
+    maxPaysPerMinute: number;
+    vendorAllowlist?: string[];
+    domainAllowlist?: string[];
+    addressAllowlist?: string[];
+    blocklist?: string[];
+  };
+  draft: {
+    hitlAboveUsdc: string;
+    perTxMaxUsdc: string;
+    dailyMaxUsdc: string;
+    maxPaysPerMinute: string;
+    vendorAllowlist?: string[];
+    domainAllowlist?: string[];
+    addressAllowlist?: string[];
+    blocklist?: string[];
+    newCounterpartyCooldownHours?: string;
+    quietHours?: { startHour: number; endHour: number; action: "review" | "deny" } | null;
+  };
 }) {
   const [sim, setSim] = useState<Simulation | null>(null);
   const [busy, setBusy] = useState(false);
@@ -472,7 +492,11 @@ export function PolicySimulator({
       draft.hitlAboveUsdc !== current.hitlAboveUsdc ||
       draft.perTxMaxUsdc !== current.perTxMaxUsdc ||
       draft.dailyMaxUsdc !== current.dailyMaxUsdc ||
-      Number(draft.maxPaysPerMinute) !== current.maxPaysPerMinute,
+      Number(draft.maxPaysPerMinute) !== current.maxPaysPerMinute ||
+      (draft.vendorAllowlist ?? []).join() !== (current.vendorAllowlist ?? []).join() ||
+      (draft.domainAllowlist ?? []).join() !== (current.domainAllowlist ?? []).join() ||
+      (draft.addressAllowlist ?? []).join() !== (current.addressAllowlist ?? []).join() ||
+      (draft.blocklist ?? []).join() !== (current.blocklist ?? []).join(),
     [draft, current],
   );
 
@@ -487,6 +511,15 @@ export function PolicySimulator({
           perTxMaxUsdc: draft.perTxMaxUsdc,
           dailyMaxUsdc: draft.dailyMaxUsdc,
           maxPaysPerMinute: Number(draft.maxPaysPerMinute) || 1,
+          newCounterpartyCooldownHours:
+            draft.newCounterpartyCooldownHours !== undefined
+              ? Number(draft.newCounterpartyCooldownHours) || 0
+              : undefined,
+          vendorAllowlist: draft.vendorAllowlist,
+          domainAllowlist: draft.domainAllowlist,
+          addressAllowlist: draft.addressAllowlist,
+          blocklist: draft.blocklist,
+          quietHours: draft.quietHours,
           windowHours: 24 * 7,
         }),
       });

@@ -17,10 +17,11 @@ export class PolicyVaultApiError extends Error {
   }
 }
 
-export class PolicyVaultClient {
-  private readonly baseUrl: string;
-  private readonly apiKey: string;
-  private readonly fetchImpl: typeof fetch;
+/** Shared HTTP transport for agent + guardian SDKs. */
+class AbiHttpClient {
+  protected readonly baseUrl: string;
+  protected readonly apiKey: string;
+  protected readonly fetchImpl: typeof fetch;
 
   constructor(opts: PolicyVaultClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/$/, "");
@@ -28,7 +29,7 @@ export class PolicyVaultClient {
     this.fetchImpl = opts.fetch ?? fetch;
   }
 
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
+  protected async request<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
@@ -49,7 +50,10 @@ export class PolicyVaultClient {
     }
     return body as T;
   }
+}
 
+/** Agent money verbs — authenticate with `pv_agent_…`. */
+export class PolicyVaultClient extends AbiHttpClient {
   getBudget() {
     return this.request<{
       availableUsdc: string;
@@ -139,6 +143,18 @@ export class PolicyVaultClient {
     return this.request<{ approval: ApprovalView }>(`/v1/agent/approvals/${approvalId}`);
   }
 
+  listActivity(limit = 50) {
+    return this.request<{ decisions: DecisionView[] }>(
+      `/v1/agent/activity?limit=${encodeURIComponent(String(limit))}`,
+    );
+  }
+
+  getDecision(intentId: string) {
+    return this.request<{ decision: DecisionView }>(
+      `/v1/agent/decisions/${encodeURIComponent(intentId)}`,
+    );
+  }
+
   /**
    * Poll an approval until it leaves pending state or maxWaitMs elapses.
    * Returns the final approval row; callers should treat non-approved as a
@@ -158,18 +174,337 @@ export class PolicyVaultClient {
   }
 }
 
+/** Guardian operator surface — authenticate with `pv_guardian_…`. */
+export class AbiGuardianClient extends AbiHttpClient {
+  getOrg() {
+    return this.request<{
+      org: { id: string; name: string; status: string; settings?: Record<string, unknown> };
+      agents: unknown[];
+      balances: unknown[];
+    }>("/v1/guardian/org");
+  }
+
+  listAgents() {
+    return this.request<{ agents: unknown[] }>("/v1/guardian/agents");
+  }
+
+  getAgent(agentId: string) {
+    return this.request<Record<string, unknown>>(`/v1/guardian/agents/${agentId}`);
+  }
+
+  createAgent(name: string, profile?: Record<string, unknown>) {
+    return this.request<{ agentId: string; apiKey: string; identity: unknown }>(
+      "/v1/guardian/agents",
+      { method: "POST", body: JSON.stringify({ name, profile }) },
+    );
+  }
+
+  updateAgent(agentId: string, patch: { name?: string; profile?: Record<string, unknown> }) {
+    return this.request<{ identity: unknown }>(`/v1/guardian/agents/${agentId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  }
+
+  freezeAgent(agentId: string, reason = "manual") {
+    return this.request<{ ok: boolean }>(`/v1/guardian/agents/${agentId}/freeze`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+  }
+
+  unfreezeAgent(agentId: string) {
+    return this.request<{ ok: boolean }>(`/v1/guardian/agents/${agentId}/unfreeze`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  rotateAgentKey(agentId: string) {
+    return this.request<{ agentId: string; apiKey: string }>(
+      `/v1/guardian/agents/${agentId}/rotate-key`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+  }
+
+  revokeAgentKey(agentId: string) {
+    return this.request<{ ok: boolean }>(`/v1/guardian/agents/${agentId}/revoke-key`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  listAgentGroups() {
+    return this.request<{ groups: unknown[] }>("/v1/guardian/agent-groups");
+  }
+
+  listFreezes() {
+    return this.request<{ freezes: unknown[] }>("/v1/guardian/freezes");
+  }
+
+  getPolicy() {
+    return this.request<{ policy: Record<string, unknown>; version?: string }>("/v1/guardian/policy");
+  }
+
+  updatePolicy(patch: Record<string, unknown>) {
+    return this.request<{ ok: boolean; policy: Record<string, unknown> }>("/v1/guardian/policy", {
+      method: "POST",
+      body: JSON.stringify(patch),
+    });
+  }
+
+  simulatePolicy(change: Record<string, unknown>) {
+    return this.request<{ simulation: unknown }>("/v1/guardian/policy/simulate", {
+      method: "POST",
+      body: JSON.stringify(change),
+    });
+  }
+
+  listPolicyVersions() {
+    return this.request<{ current: string; versions: unknown[] }>("/v1/guardian/policy/versions");
+  }
+
+  restorePolicyVersion(id: string) {
+    return this.request<{ ok: boolean }>(`/v1/guardian/policy/versions/${id}/restore`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  listPolicyTemplates() {
+    return this.request<{ templates: unknown[] }>("/v1/guardian/policy/templates");
+  }
+
+  applyPolicyTemplate(templateId: string, keepAllowlists = true) {
+    return this.request<{ ok: boolean }>("/v1/guardian/policy/apply-template", {
+      method: "POST",
+      body: JSON.stringify({ templateId, keepAllowlists }),
+    });
+  }
+
+  getQuorum() {
+    return this.request<{ approvalQuorum: number; seats: number }>("/v1/guardian/quorum");
+  }
+
+  setQuorum(approvalQuorum: number) {
+    return this.request<{ ok: boolean }>("/v1/guardian/quorum", {
+      method: "POST",
+      body: JSON.stringify({ approvalQuorum }),
+    });
+  }
+
+  listInvoices() {
+    return this.request<{ invoices: unknown[] }>("/v1/guardian/invoices");
+  }
+
+  listSubscriptions() {
+    return this.request<{ subscriptions: unknown[] }>("/v1/guardian/subscriptions");
+  }
+
+  listEscrows() {
+    return this.request<{ escrows: unknown[] }>("/v1/guardian/escrows");
+  }
+
+  schedulePayment(input: {
+    agentId: string;
+    vendor: string;
+    amountUsdc: string;
+    runAt?: string;
+    memo?: string;
+  }) {
+    return this.request<{ scheduled: unknown }>("/v1/guardian/payments/schedule", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  batchSchedule(items: {
+    agentId: string;
+    vendor: string;
+    amountUsdc: string;
+    runAt?: string;
+    memo?: string;
+  }[]) {
+    return this.request<{ created: unknown[]; errors: unknown[] }>(
+      "/v1/guardian/payments/batch",
+      { method: "POST", body: JSON.stringify({ items }) },
+    );
+  }
+
+  listPaymentRails() {
+    return this.request<{ rails: unknown[] }>("/v1/guardian/payments/rails");
+  }
+
+  getSettings() {
+    return this.request<{ settings: Record<string, unknown> }>("/v1/guardian/settings");
+  }
+
+  patchSettings(settings: Record<string, unknown>) {
+    return this.request<{ ok: boolean }>("/v1/guardian/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ settings }),
+    });
+  }
+
+  exportAudit(limit = 500) {
+    return this.request<{ decisions: unknown[]; freezes: unknown[] }>(
+      `/v1/guardian/audit/export?limit=${limit}`,
+    );
+  }
+
+  getCompliance() {
+    return this.request<{ screener: string }>("/v1/guardian/compliance");
+  }
+
+  listMerchants() {
+    return this.request<{ merchants: unknown[] }>("/v1/guardian/merchants");
+  }
+
+  upsertMerchant(input: { key: string; label?: string; category?: string }) {
+    return this.request<{ merchant: unknown }>("/v1/guardian/merchants", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  deleteMerchant(id: string) {
+    return this.request<{ ok: boolean }>(`/v1/guardian/merchants/${id}`, {
+      method: "DELETE",
+    });
+  }
+
+  createSubscription(input: {
+    agentId: string;
+    vendor: string;
+    amountUsdc: string;
+    intervalHours: number;
+    maxTotalUsdc?: string;
+    memo?: string;
+    startNow?: boolean;
+  }) {
+    return this.request<{ subscription: unknown }>("/v1/guardian/subscriptions", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  subscriptionAction(id: string, action: "pause" | "resume" | "cancel") {
+    return this.request<{ ok: boolean }>(`/v1/guardian/subscriptions/${id}/${action}`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  resolveEscrow(id: string, action: "release" | "refund", resolvedBy = "guardian") {
+    return this.request<{ ok: boolean }>(`/v1/guardian/escrows/${id}/resolve`, {
+      method: "POST",
+      body: JSON.stringify({ action, resolvedBy }),
+    });
+  }
+
+  getObservability() {
+    return this.request<{ sink: string }>("/v1/guardian/observability");
+  }
+
+  listWallets() {
+    return this.request<Record<string, unknown>>("/v1/guardian/wallets");
+  }
+
+  listApprovals(status?: string) {
+    const q = status ? `?status=${encodeURIComponent(status)}` : "";
+    return this.request<{ approvals: ApprovalView[] }>(`/v1/guardian/approvals${q}`);
+  }
+
+  listWebhooks() {
+    return this.request<{ webhooks: { id: string; url: string; createdAt: string }[] }>(
+      "/v1/guardian/webhooks",
+    );
+  }
+
+  createWebhook(url: string) {
+    return this.request<{ id: string; url: string; secret: string }>("/v1/guardian/webhooks", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
+  }
+
+  deleteWebhook(id: string) {
+    return this.request<{ ok: boolean }>(`/v1/guardian/webhooks/${id}`, { method: "DELETE" });
+  }
+
+  rotateWebhookSecret(id: string) {
+    return this.request<{ id: string; secret: string }>(`/v1/guardian/webhooks/${id}/rotate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  }
+
+  /** Preferred unified treasury move (HITL above threshold). */
+  moveFunds(input: {
+    from: { scope: string; id: string };
+    to: { scope: string; id: string };
+    amountUsdc: string;
+    memo?: string;
+  }) {
+    return this.request<Record<string, unknown>>("/v1/guardian/wallets/move", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  /** @deprecated Prefer {@link moveFunds} — legacy stipend allocate. */
+  allocate(agentId: string, amountUsdc: string) {
+    return this.request<Record<string, unknown>>("/v1/guardian/allocate", {
+      method: "POST",
+      body: JSON.stringify({ agentId, amountUsdc }),
+    });
+  }
+
+  /** @deprecated Prefer {@link moveFunds} — legacy stipend reclaim. */
+  reclaim(agentId: string, amountUsdc?: string) {
+    return this.request<Record<string, unknown>>("/v1/guardian/reclaim", {
+      method: "POST",
+      body: JSON.stringify({ agentId, amountUsdc }),
+    });
+  }
+
+  /** @deprecated Prefer {@link moveFunds} — legacy agent↔agent transfer. */
+  transfer(fromAgentId: string, toAgentId: string, amountUsdc: string) {
+    return this.request<Record<string, unknown>>("/v1/guardian/transfer", {
+      method: "POST",
+      body: JSON.stringify({ fromAgentId, toAgentId, amountUsdc }),
+    });
+  }
+}
+
+/** @deprecated Prefer PolicyVaultClient. */
+export { PolicyVaultClient as AbiAgentClient };
+
 export interface EscrowView {
   id: string;
   orgId: string;
   payerAgentId: string;
   payeeAgentId: string;
   amountUsdc: string;
-  state: "locked" | "released" | "refunded" | "timeout_refunded";
+  state: "locked" | "settling" | "released" | "refunded" | "timeout_refunded";
   jobId?: string;
   memo?: string;
   createdAt: string;
   timeoutAt: string;
   resolvedAt?: string;
+}
+
+export interface DecisionView {
+  intentId: string;
+  orgId: string;
+  agentId: string;
+  outcome: string;
+  ruleIds: string[];
+  reasons: string[];
+  tool: string;
+  amountUsdc: string;
+  destination: string;
+  at: string;
 }
 
 export interface ApprovalView {

@@ -12,9 +12,17 @@ Use these three first when coding or reviewing scope:
 
 | Document | Path | Description |
 |----------|------|-------------|
-| **Validation Build Rundown** | [C:\Users\ebale\Projects\policyvault\docs\VALIDATION-BUILD-RUNDOWN.md](C:\Users\ebale\Projects\policyvault\docs\VALIDATION-BUILD-RUNDOWN.md) | Sign-off-ready MVP rundown: architecture, features, UI, agent surfaces, phases, validation checklist. **Primary build checklist.** |
-| **Full-Scale Build Plan** | [C:\Users\ebale\Projects\policyvault\docs\FULL-SCALE-BUILD-PLAN.md](C:\Users\ebale\Projects\policyvault\docs\FULL-SCALE-BUILD-PLAN.md) | Master engineering/product plan: bounded contexts, data model, money flows, SDK/MCP, roadmap, NFRs, DoD. |
-| **README** | [C:\Users\ebale\Projects\policyvault\README.md](C:\Users\ebale\Projects\policyvault\README.md) | Repo overview, monorepo map, quick start, phase map. |
+| **Platform Architecture** | [`docs/PLATFORM-ARCHITECTURE.md`](./PLATFORM-ARCHITECTURE.md) | Live extension-point map for the 13 platform pillars — **read before adding features.** |
+| **Audit Findings** | [`docs/AUDIT-FINDINGS.md`](./AUDIT-FINDINGS.md) | Verified security findings: fixed / open / deferred with reasoning. |
+| **Console UX Audit** | [`docs/CONSOLE-UX-AUDIT.md`](./CONSOLE-UX-AUDIT.md) | UI/UX + stress probe + interactability ranking (Jul 2026). |
+| **Full System Review** | [`docs/FULL-SYSTEM-REVIEW.md`](./FULL-SYSTEM-REVIEW.md) | End-to-end action catalog, scores, pillar depth, live probe results. |
+| **Pillar Depth Audit** | [`docs/PILLAR-DEPTH-AUDIT.md`](./PILLAR-DEPTH-AUDIT.md) | Every sub-capability DONE/PARTIAL/STUB/DEFERRED + brainstorm beyond the 13 pillars. |
+| **Pillar 10/10 Requirements** | [`docs/PILLAR-10-REQUIREMENTS.md`](./PILLAR-10-REQUIREMENTS.md) | Why each pillar was &lt;10, what 10 means, status after depth pass. |
+| **Deploy** | [`docs/DEPLOY.md`](./DEPLOY.md) | Docker Compose, domain/TLS, SQLite vs Postgres, CDP go-live checklist. |
+| **UI Audit** | [`docs/UI-AUDIT.md`](./UI-AUDIT.md) | Full frontend audit vs design skill references (Jul 2026). |
+| **Validation Build Rundown** | [`docs/VALIDATION-BUILD-RUNDOWN.md`](./VALIDATION-BUILD-RUNDOWN.md) | Sign-off-ready MVP rundown: architecture, features, UI, agent surfaces, phases, validation checklist. |
+| **Full-Scale Build Plan** | [`docs/FULL-SCALE-BUILD-PLAN.md`](./FULL-SCALE-BUILD-PLAN.md) | Master engineering/product plan: bounded contexts, data model, money flows, SDK/MCP, roadmap, NFRs, DoD. |
+| **README** | [`README.md`](../README.md) | Repo overview, monorepo map, quick start, phase map. |
 
 ---
 

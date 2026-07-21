@@ -10,6 +10,7 @@
  */
 import { createHmac } from "node:crypto";
 import { store } from "./store.js";
+import { webhookUrlProblem } from "./webhook-url.js";
 
 export type WebhookEvent =
   | "payment.succeeded"
@@ -19,7 +20,15 @@ export type WebhookEvent =
   | "approval.resolved"
   | "escrow.locked"
   | "escrow.released"
-  | "escrow.refunded";
+  | "escrow.refunded"
+  | "agent.frozen"
+  | "agent.unfrozen"
+  | "invoice.paid"
+  | "subscription.charged"
+  | "compliance.flagged"
+  | "treasury.move.pending"
+  | "treasury.move.executed"
+  | "treasury.recovery";
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [2_000, 10_000];
@@ -37,6 +46,10 @@ async function attemptDelivery(args: {
   attempt: number;
 }): Promise<void> {
   try {
+    const problem = webhookUrlProblem(args.url);
+    if (problem) {
+      throw new Error(`SSRF_BLOCKED: ${problem}`);
+    }
     const res = await fetch(args.url, {
       method: "POST",
       headers: {
@@ -46,6 +59,7 @@ async function attemptDelivery(args: {
         "x-policyvault-signature": signPayload(args.secret, args.body),
       },
       body: args.body,
+      redirect: "error",
       signal: AbortSignal.timeout(5_000),
     });
     if (res.ok) {

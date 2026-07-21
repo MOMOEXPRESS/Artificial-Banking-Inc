@@ -8,14 +8,22 @@ export type LedgerAccountKind =
   | "escrow"
   | "external"
   /** Nominal income account. Carries a credit (negative) balance by nature. */
-  | "revenue";
+  | "revenue"
+  /**
+   * Department / shared wallet available+held accounts.
+   * Account ids: `dept:{id}:available` / `shared:{id}:available`.
+   */
+  | "dept_available"
+  | "dept_held"
+  | "shared_available"
+  | "shared_held";
 
 /**
  * Asset accounts can never go negative — that would be spending money you do
  * not have. Nominal/contra accounts (income) legitimately carry the opposite
  * sign, so they are exempt from the floor.
  */
-const CONTRA_KINDS = new Set<LedgerAccountKind>(["revenue"]);
+const CONTRA_KINDS = new Set<LedgerAccountKind>(["revenue", "external"]);
 
 export interface LedgerAccount {
   id: string;
@@ -93,6 +101,30 @@ export function allocateStipend(args: {
     ],
   };
   return { entry, apply: (m) => applyJournal(m, entry) };
+}
+
+/**
+ * Generic treasury move between any two available accounts in the same org.
+ * Used today for org↔agent; later for dept/shared without new journal shapes.
+ */
+export function transferAvailable(args: {
+  orgId: string;
+  journalId: string;
+  fromAvailableId: string;
+  toAvailableId: string;
+  amountMicro: MicroUsdc;
+  memo?: string;
+}): JournalEntry {
+  return {
+    id: args.journalId,
+    orgId: args.orgId,
+    memo: args.memo ?? "transfer_available",
+    createdAt: new Date().toISOString(),
+    lines: [
+      { accountId: args.fromAvailableId, deltaMicro: -args.amountMicro },
+      { accountId: args.toAvailableId, deltaMicro: args.amountMicro },
+    ],
+  };
 }
 
 export function holdForPayment(args: {

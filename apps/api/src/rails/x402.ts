@@ -1,7 +1,7 @@
 /**
  * x402 client rail: PolicyVault performs the HTTP 402 payment dance on behalf
- * of the agent, signing with the org's custody key. The agent never sees the
- * key — it only receives the paid resource and a receipt.
+ * of the agent, signing via the registered CustodyProvider. The agent never
+ * sees the key — it only receives the paid resource and a receipt.
  *
  * Flow (x402 "exact" scheme):
  *   1. GET resource → 402 + accepts[] payment requirements
@@ -14,8 +14,9 @@
  * and this wallet holding real USDC; the client dance below is unchanged.
  */
 import { randomBytes } from "node:crypto";
-import { privateKeyToAccount } from "viem/accounts";
+import { getCustodyProvider } from "@policyvault/custody";
 import type { MicroUsdc } from "@policyvault/common";
+import type { PaymentRail, PaymentRailContext, PaymentRailResult } from "./types.js";
 
 export interface PaymentRequirements {
   scheme: string;
@@ -45,7 +46,8 @@ export class X402Error extends Error {
       | "NO_PAYMENT_REQUIRED"
       | "UNSUPPORTED_SCHEME"
       | "SELLER_REJECTED"
-      | "RAIL_FAILED",
+      | "RAIL_FAILED"
+      | "CUSTODY_UNAVAILABLE",
     message: string,
   ) {
     super(message);
@@ -90,15 +92,25 @@ export async function payViaX402(args: {
   url: string;
   /** Policy-authorized ceiling for this intent, micro-USDC */
   authorizedMicro: MicroUsdc;
-  privateKey: `0x${string}`;
+  orgId: string;
   /** Destinations the guardian has blocked — the payee is checked against these. */
   blocklist?: string[];
   fetchImpl?: typeof fetch;
 }): Promise<{ receipt: X402Receipt; resource: unknown; contentType: string | null }> {
   const doFetch = args.fetchImpl ?? fetch;
-  const account = privateKeyToAccount(args.privateKey);
+  const custody = getCustodyProvider();
+  const addr = await custody.getAddress(args.orgId);
+  if (!addr) {
+    throw new X402Error(
+      "CUSTODY_UNAVAILABLE",
+      "Org has no custody address — recreate org or configure CDP",
+    );
+  }
 
-  const first = await doFetch(args.url, { signal: AbortSignal.timeout(10_000) });
+  const first = await doFetch(args.url, {
+    signal: AbortSignal.timeout(10_000),
+    redirect: "error",
+  });
   if (first.status !== 402) {
     if (first.ok) {
       throw new X402Error("NO_PAYMENT_REQUIRED", "Resource did not request payment (HTTP 200)");
@@ -150,19 +162,30 @@ export async function payViaX402(args: {
   // redeemable authorization alive long after we released the hold.
   const ttl = Math.min(requirement.maxTimeoutSeconds ?? 60, MAX_AUTHORIZATION_SECONDS);
   const authorization = {
-    from: account.address,
+    from: addr.address,
     to: requirement.payTo,
     value: priceMicro,
     validAfter: BigInt(nowSec - 60),
     validBefore: BigInt(nowSec + ttl),
     nonce: `0x${randomBytes(32).toString("hex")}` as `0x${string}`,
   };
-  const signature = await account.signTypedData({
-    domain: eip712Domain(requirement.network, requirement.asset),
-    types: AUTHORIZATION_TYPES,
-    primaryType: "TransferWithAuthorization",
-    message: authorization,
-  });
+  let signature: `0x${string}`;
+  try {
+    signature = await custody.signTypedData({
+      orgId: args.orgId,
+      typedData: {
+        domain: { ...eip712Domain(requirement.network, requirement.asset) },
+        types: { ...AUTHORIZATION_TYPES },
+        primaryType: "TransferWithAuthorization",
+        message: authorization as unknown as Record<string, unknown>,
+      },
+    });
+  } catch (e) {
+    throw new X402Error(
+      "CUSTODY_UNAVAILABLE",
+      e instanceof Error ? e.message : "Custody provider failed to sign",
+    );
+  }
 
   const paymentHeader = Buffer.from(
     JSON.stringify({
@@ -184,6 +207,7 @@ export async function payViaX402(args: {
   const paid = await doFetch(args.url, {
     headers: { "X-PAYMENT": paymentHeader },
     signal: AbortSignal.timeout(15_000),
+    redirect: "error",
   });
   if (!paid.ok) {
     const body = await paid.text().catch(() => "");
@@ -209,12 +233,38 @@ export async function payViaX402(args: {
     receipt: {
       amountMicro: priceMicro,
       network: requirement.network,
-      payer: account.address,
+      payer: addr.address,
       payTo: requirement.payTo,
       txHash: settlement.txHash,
-      settled: settlement.success !== false,
+      // Require an explicit success flag — missing/undefined must not book a payment.
+      settled: settlement.success === true,
     },
     resource,
     contentType,
   };
+}
+
+/** PaymentRail adapter around payViaX402. */
+export class X402Rail implements PaymentRail {
+  readonly name = "x402";
+
+  async settle(ctx: PaymentRailContext): Promise<PaymentRailResult> {
+    if (!/^https?:\/\//i.test(ctx.destination)) {
+      throw new X402Error("RAIL_FAILED", "x402 rail requires an http(s) destination URL");
+    }
+    const paid = await payViaX402({
+      url: ctx.destination,
+      authorizedMicro: ctx.authorizedMicro,
+      orgId: ctx.orgId,
+      blocklist: ctx.blocklist,
+    });
+    return {
+      chargedMicro: paid.receipt.amountMicro,
+      rail: this.name,
+      txHash: paid.receipt.txHash,
+      resource: paid.resource,
+      contentType: paid.contentType,
+      settled: paid.receipt.settled,
+    };
+  }
 }

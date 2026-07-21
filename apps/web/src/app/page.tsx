@@ -1,8 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ABLockup, ABMark, ABWordmark } from "../lib/brand";
+import {
+  MarketingCta,
+  MarketingShell,
+  SectionHead,
+} from "../lib/marketing-shell";
+import { LandingMotion } from "../lib/landing-motion";
 import { Icon } from "../lib/ui";
 
 /**
@@ -14,53 +18,17 @@ import { Icon } from "../lib/ui";
  */
 export default function LandingPage() {
   return (
-    <div className="landing">
-      <TopNav />
+    <MarketingShell active="landing">
+      <LandingMotion />
       <Hero />
+      <MetricsBand />
       <TrustStrip />
       <Features />
+      <ProductTour />
       <HowItWorks />
       <Enterprise />
-      <CtaBand />
-      <FooterBand />
-    </div>
-  );
-}
-
-/* ============================================================= navigation */
-
-function TopNav() {
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-  return (
-    <header className={`marketing-nav ${scrolled ? "on-scroll" : ""}`}>
-      <div className="marketing-nav-inner">
-        <ABWordmark size={26} />
-        <nav className="marketing-links">
-          <a href="#features">Features</a>
-          <a href="#how">How it works</a>
-          <a href="#enterprise">Enterprise</a>
-          <a href="#docs">Docs</a>
-          <a href="#pricing">Pricing</a>
-          <a href="https://github.com/MOMOEXPRESS/Artificial-Banking-Inc" target="_blank" rel="noreferrer">
-            GitHub
-          </a>
-        </nav>
-        <div className="marketing-nav-cta">
-          <Link className="btn-ghost-line" href="/console">
-            Sign in
-          </Link>
-          <Link className="btn-primary-line" href="/console">
-            Launch console
-          </Link>
-        </div>
-      </div>
-    </header>
+      <MarketingCta />
+    </MarketingShell>
   );
 }
 
@@ -117,76 +85,63 @@ function Hero() {
   );
 }
 
-/**
- * Abstract animated visual — orbiting hexagons around a central vault dial.
- * Pure inline SVG so it costs nothing and scales cleanly.
- */
+/** Product-shaped hero frame — shows what the console looks like before Launch. */
 function HeroGraphic() {
   return (
     <div className="hero-graphic">
       <div className="hero-graphic-frame">
-        <svg viewBox="0 0 520 520" className="orbit">
-          <defs>
-            <radialGradient id="halo" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(74,158,255,0.28)" />
-              <stop offset="60%" stopColor="rgba(74,158,255,0.05)" />
-              <stop offset="100%" stopColor="rgba(74,158,255,0)" />
-            </radialGradient>
-            <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#4a9eff" stopOpacity="0.6" />
-              <stop offset="100%" stopColor="#a78bfa" stopOpacity="0.15" />
-            </linearGradient>
-          </defs>
-          <circle cx="260" cy="260" r="240" fill="url(#halo)" />
-          {/* Outer dashed orbit */}
-          <circle
-            cx="260"
-            cy="260"
-            r="210"
-            fill="none"
-            stroke="url(#ring)"
-            strokeWidth="1"
-            strokeDasharray="4 8"
-            className="orbit-spin-slow"
-          />
-          {/* Middle orbit */}
-          <circle
-            cx="260"
-            cy="260"
-            r="160"
-            fill="none"
-            stroke="rgba(255,255,255,0.08)"
-            strokeWidth="1"
-            className="orbit-spin-mid"
-          />
-          {/* Inner orbit */}
-          <circle
-            cx="260"
-            cy="260"
-            r="110"
-            fill="none"
-            stroke="rgba(255,255,255,0.12)"
-            strokeWidth="1"
-            className="orbit-spin-fast"
-          />
-          {/* Orbit nodes */}
-          <g className="orbit-spin-slow" style={{ transformOrigin: "260px 260px" }}>
-            <Node cx={470} cy={260} label="agent" />
-            <Node cx={50} cy={260} label="agent" />
-          </g>
-          <g className="orbit-spin-mid" style={{ transformOrigin: "260px 260px" }}>
-            <Node cx={420} cy={160} label="wallet" />
-            <Node cx={100} cy={360} label="wallet" />
-          </g>
-          <g className="orbit-spin-fast" style={{ transformOrigin: "260px 260px" }}>
-            <Node cx={370} cy={260} label="x402" small />
-            <Node cx={150} cy={260} label="usdc" small />
-          </g>
-        </svg>
-        <div className="hero-graphic-mark">
-          <ABMark size={110} tone="#fff" />
+        <div className="hero-console-mock" aria-hidden>
+          <div className="hero-console-chrome">
+            <span className="hero-console-dot" />
+            <span className="hero-console-dot" />
+            <span className="hero-console-dot" />
+            <span>Console · Overview</span>
+          </div>
+          <div className="hero-console-body">
+            <div className="hero-console-rail">
+              <span className="on" />
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="hero-console-main">
+              <div className="hero-console-kpis">
+                <div className="hero-console-kpi">
+                  <span>Treasury</span>
+                  <b>$12,480</b>
+                </div>
+                <div className="hero-console-kpi">
+                  <span>Agents</span>
+                  <b>8 live</b>
+                </div>
+                <div className="hero-console-kpi">
+                  <span>Approvals</span>
+                  <b>2 open</b>
+                </div>
+              </div>
+              <div className="hero-console-card">
+                <div className="row">
+                  <span className="title">Recent activity</span>
+                  <span className="meta">live</span>
+                </div>
+                <p className="meta">ops-bot settled $1.20 · x402 · api.openai.com</p>
+                <div className="hero-console-pills">
+                  <i className="ok">allowed</i>
+                  <i className="warn">awaiting</i>
+                  <i>$45 pending</i>
+                </div>
+              </div>
+              <div className="hero-console-card">
+                <div className="row">
+                  <span className="title">Move funds</span>
+                  <span className="meta">guardian</span>
+                </div>
+                <p className="meta">Deposit · Withdraw · Agent stipend — policy checked first.</p>
+              </div>
+            </div>
+          </div>
         </div>
-        {/* Floating status chips */}
         <div className="chip-float chip-a">
           <span className="pill ok">
             <i /> allowed
@@ -210,43 +165,119 @@ function HeroGraphic() {
   );
 }
 
-function Node({ cx, cy, label, small }: { cx: number; cy: number; label: string; small?: boolean }) {
-  const r = small ? 8 : 14;
-  return (
-    <g>
-      <circle cx={cx} cy={cy} r={r + 6} fill="rgba(74,158,255,0.08)" />
-      <circle cx={cx} cy={cy} r={r} fill="rgba(74,158,255,0.9)" />
-      <text
-        x={cx}
-        y={cy - r - 8}
-        textAnchor="middle"
-        fill="rgba(255,255,255,0.7)"
-        fontSize="10"
-        fontFamily="var(--mono)"
-      >
-        {label}
-      </text>
-    </g>
-  );
-}
-
 function TrustStrip() {
   return (
     <section className="trust-strip">
-      <span>Built on</span>
-      <div className="trust-logos">
-        <TrustLogo>Coinbase CDP</TrustLogo>
-        <TrustLogo>Base</TrustLogo>
-        <TrustLogo>x402</TrustLogo>
-        <TrustLogo>USDC</TrustLogo>
-        <TrustLogo>ERC-4337</TrustLogo>
+      <span>Built with</span>
+      <div className="trust-logos partner-logos">
+        <PartnerLogo abbr="CDP">Coinbase CDP</PartnerLogo>
+        <PartnerLogo abbr="BASE">Base</PartnerLogo>
+        <PartnerLogo abbr="x402">x402</PartnerLogo>
+        <PartnerLogo abbr="USDC">USDC</PartnerLogo>
+        <PartnerLogo abbr="4337">ERC-4337</PartnerLogo>
       </div>
     </section>
   );
 }
 
-function TrustLogo({ children }: { children: React.ReactNode }) {
-  return <span className="trust-logo">{children}</span>;
+function PartnerLogo({ children, abbr }: { children: React.ReactNode; abbr: string }) {
+  return (
+    <span className="partner-logo" title={String(children)}>
+      <svg className="partner-svg" viewBox="0 0 40 40" width="28" height="28" aria-hidden>
+        <rect x="2" y="2" width="36" height="36" rx="0" stroke="currentColor" strokeWidth="2" fill="none" />
+        <text
+          x="20"
+          y="24"
+          textAnchor="middle"
+          fontSize={abbr.length > 3 ? "8" : "10"}
+          fontFamily="var(--mono)"
+          fontWeight="700"
+          fill="currentColor"
+        >
+          {abbr.slice(0, 4)}
+        </text>
+      </svg>
+      <span className="partner-name">{children}</span>
+    </span>
+  );
+}
+
+function MetricsBand() {
+  const metrics = [
+    { label: "Policy probe", value: "0ms", sub: "mock rail latency" },
+    { label: "Guardian round-trip", value: "55ms", sub: "local dev median" },
+    { label: "Console views", value: "14", sub: "money · agents · records" },
+    { label: "Playground missions", value: "7", sub: "real API, real ledger" },
+  ];
+  return (
+    <section className="metrics-band section tight">
+      <div className="metrics-grid">
+        {metrics.map((m) => (
+          <article key={m.label} className="metric-card">
+            <span className="metric-label">{m.label}</span>
+            <strong className="metric-value">{m.value}</strong>
+            <span className="metric-sub">{m.sub}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const PRODUCT_FRAMES = [
+  {
+    title: "Overview",
+    sub: "Treasury, agents, and move funds in one glance.",
+    chips: ["$12.4k vault", "8 agents", "2 approvals"],
+  },
+  {
+    title: "Approvals",
+    sub: "Parked payments with one-tap approve or deny.",
+    chips: ["$45 pending", "guardian HITL", "Telegram sync"],
+  },
+  {
+    title: "Policy simulator",
+    sub: "Test caps and allowlists before agents hit production.",
+    chips: ["allowlist", "daily cap", "quiet hours"],
+  },
+];
+
+function ProductTour() {
+  return (
+    <section id="product" className="section product-tour">
+      <SectionHead
+        eyebrow="Inside the console"
+        title="See the product before you sign in"
+        sub="Three frames operators actually use — not decorative orbit art."
+      />
+      <div className="product-frames">
+        {PRODUCT_FRAMES.map((f) => (
+          <article key={f.title} className="product-frame">
+            <div className="product-frame-chrome">
+              <span />
+              <span />
+              <span />
+              <em>{f.title}</em>
+            </div>
+            <div className="product-frame-body">
+              <h3>{f.title}</h3>
+              <p>{f.sub}</p>
+              <div className="hero-console-pills">
+                {f.chips.map((c) => (
+                  <i key={c}>{c}</i>
+                ))}
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="product-tour-cta">
+        <Link className="btn-primary" href="/console">
+          Launch console <Icon name="arrowRight" size={14} />
+        </Link>
+      </div>
+    </section>
+  );
 }
 
 /* =============================================================== features */
@@ -268,11 +299,6 @@ const FEATURES: { icon: string; title: string; body: string }[] = [
     body: "Any payment past your threshold parks and waits for you. Approve from the console, chat or Telegram.",
   },
   {
-    icon: "zap",
-    title: "Coinbase CDP integration",
-    body: "Managed custody with a professional signer — no seed phrases, no browser wallets, no missing keys.",
-  },
-  {
     icon: "swap",
     title: "x402 payments",
     body: "Speak the machine-payment standard natively. Agents can pay any x402 seller under policy, on-chain.",
@@ -283,24 +309,9 @@ const FEATURES: { icon: string; title: string; body: string }[] = [
     body: "Every intent, denial, approval and settlement is journaled. Replayable from genesis, exportable to CSV.",
   },
   {
-    icon: "book",
-    title: "Organization treasury",
-    body: "A single vault funds every agent. Move money in three directions with balanced double-entry bookkeeping.",
-  },
-  {
-    icon: "clock",
-    title: "Agent budgets",
-    body: "Per-agent daily caps, running spend meters, burn-rate forecasts and hard ceilings the agent cannot cross.",
-  },
-  {
-    icon: "spark",
-    title: "Real-time analytics",
-    body: "Vendor concentration, cost-per-deliverable P&L, anomaly detection — computed from your own ledger.",
-  },
-  {
     icon: "shield",
-    title: "Secure on-chain payments",
-    body: "EIP-712 signed transfers, per-request idempotency, kill-switch that stops in-flight intents at the engine.",
+    title: "Keys never enter the model",
+    body: "LLMs propose. Policy and signer authorize. EIP-712 transfers, idempotency, and a kill-switch on in-flight intents.",
   },
 ];
 
@@ -432,117 +443,4 @@ function Enterprise() {
   );
 }
 
-/* ================================================================== CTA */
-
-function CtaBand() {
-  return (
-    <section className="cta-band">
-      <div className="cta-inner">
-        <ABLockup size={80} />
-        <h2>Ship an autonomous agent this afternoon.</h2>
-        <p>
-          The console is free while it&rsquo;s in development. Bring an OpenAI, Anthropic, or any
-          pay-per-use API — your agent starts spending under policy in minutes.
-        </p>
-        <div className="hero-ctas" style={{ justifyContent: "center" }}>
-          <Link className="btn-primary" href="/console">
-            Launch console <Icon name="arrowRight" size={14} />
-          </Link>
-          <Link className="btn-ghost" href="/console?demo=1">
-            <Icon name="play" size={14} /> Try the demo org
-          </Link>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/* =============================================================== footer */
-
-function FooterBand() {
-  return (
-    <footer className="marketing-footer">
-      <div className="marketing-footer-inner">
-        <div className="marketing-footer-brand">
-          <ABWordmark size={28} />
-          <p>
-            The authorization layer between AI agents and real money. Programmable, auditable and
-            enterprise-safe.
-          </p>
-        </div>
-        <div className="marketing-footer-cols">
-          <FooterCol
-            title="Product"
-            links={[
-              ["Console", "/console"],
-              ["Live demo", "/console?demo=1"],
-              ["Features", "#features"],
-              ["How it works", "#how"],
-            ]}
-          />
-          <FooterCol
-            title="Company"
-            links={[
-              ["About", "#"],
-              ["Pricing", "#pricing"],
-              ["Docs", "#docs"],
-              ["GitHub", "https://github.com/MOMOEXPRESS/Artificial-Banking-Inc"],
-            ]}
-          />
-          <FooterCol
-            title="Ecosystem"
-            links={[
-              ["Coinbase CDP", "https://www.coinbase.com/developer-platform"],
-              ["x402", "https://x402.org"],
-              ["Base", "https://base.org"],
-              ["USDC", "https://www.circle.com/usdc"],
-            ]}
-          />
-        </div>
-      </div>
-      <div className="marketing-footer-legal">
-        <span>© {new Date().getFullYear()} Artificial Banking Incorporated</span>
-        <span>Not a bank. Not FDIC insured. Operators remain responsible for agent spend.</span>
-      </div>
-    </footer>
-  );
-}
-
-function FooterCol({ title, links }: { title: string; links: [string, string][] }) {
-  return (
-    <div>
-      <h4>{title}</h4>
-      <ul>
-        {links.map(([label, href]) => (
-          <li key={label}>
-            <a href={href} target={href.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
-              {label}
-            </a>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 /* =============================================================== helpers */
-
-function SectionHead({
-  eyebrow,
-  title,
-  sub,
-}: {
-  eyebrow: string;
-  title: string;
-  sub: string;
-}) {
-  return (
-    <div className="section-head">
-      <span className="eyebrow">
-        <span className="dot" /> {eyebrow}
-      </span>
-      <h2>{title}</h2>
-      <p>{sub}</p>
-    </div>
-  );
-}

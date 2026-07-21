@@ -1,12 +1,15 @@
 import {
   LEGAL_FOOTER,
+  accountId,
   formatMicroToUsdc,
   parseUsdcToMicro,
 } from "@policyvault/common";
-import { recogniseRevenue } from "@policyvault/ledger";
-import { evaluatePolicy } from "@policyvault/policy";
+import { DevLocalProvider, CdpVaultProvider, cdpEnvConfigured, getCustodyProvider, setCustodyProvider } from "@policyvault/custody";
+import { recogniseRevenue, transferAvailable } from "@policyvault/ledger";
+import { evaluatePolicy, matchedAutomationRules } from "@policyvault/policy";
 import cors from "cors";
 import express from "express";
+import { privateKeyToAccount } from "viem/accounts";
 import { z } from "zod";
 import {
   APPROVAL_TTL_MINUTES,
@@ -15,6 +18,7 @@ import {
   recordDecision,
   resolveApproval,
   rulesFor,
+  scopedIdempotencyKey,
   settleEscrow,
   sweepApprovalExpiry,
   sweepEscrowTimeouts,
@@ -24,7 +28,6 @@ import {
   anomalies,
   burnForecast,
   jobEconomics,
-  simulatePolicy,
   vendorLedger,
 } from "./analytics.js";
 import { answerQuestion, buildSummary } from "./insights.js";
@@ -36,8 +39,18 @@ import {
   type OrgRow,
   type RunRow,
 } from "./store.js";
-import { notifyApprovalPending, startTelegramPolling, telegramEnabled } from "./telegram.js";
+import { startTelegramPolling, telegramEnabled, registerTelegramNotifier } from "./telegram.js";
+import { notify, registerInAppNotifier, registerNotifier } from "./platform/notifier.js";
+import { presentAnswer, setFactRephraser } from "./platform/ai.js";
+import { recordObs, setObservabilitySink, PrometheusSink, getObservabilitySink } from "./platform/observability.js";
 import { emitEvent } from "./webhooks.js";
+import { openApiDocument } from "./platform/openapi.js";
+import { webhookUrlProblem } from "./webhook-url.js";
+import { registerAgentRoutes } from "./agent-routes.js";
+import { registerPaymentRoutes } from "./payment-routes.js";
+import { registerPlatformRoutes } from "./platform-routes.js";
+import { registerPolicyRoutes } from "./policy-routes.js";
+import { registerTreasuryRoutes } from "./treasury-routes.js";
 
 const app = express();
 app.use(cors());
@@ -46,6 +59,158 @@ app.use(express.json());
 const PORT = Number(process.env.PORT ?? 8787);
 const STARTED_AT = Date.now();
 
+registerInAppNotifier();
+registerTelegramNotifier();
+
+/** Prometheus + optional console JSON — scrape GET /metrics. */
+const promSink = new PrometheusSink({ consoleAlso: true });
+setObservabilitySink(promSink);
+
+function notifyOrgId(payload: Parameters<Parameters<typeof registerNotifier>[1]>[0]): string | undefined {
+  if (payload.kind === "approval.pending") return payload.approval.orgId;
+  if ("orgId" in payload) return payload.orgId as string;
+  return undefined;
+}
+
+function formatNotifyText(payload: Parameters<Parameters<typeof registerNotifier>[1]>[0]): string {
+  if (payload.kind === "approval.pending") {
+    return `ABI approval pending · $${payload.approval.amountUsdc} → ${payload.approval.destination}`;
+  }
+  if ("title" in payload) return `${payload.title}: ${payload.body}`;
+  return `ABI ${payload.kind}`;
+}
+
+/** Email — Resend API when RESEND_API_KEY + ABI_NOTIFY_EMAIL_TO set; else log stub. */
+registerNotifier("email", (payload) => {
+  const orgId = notifyOrgId(payload);
+  const to = process.env.ABI_NOTIFY_EMAIL_TO?.trim();
+  const resendKey = process.env.RESEND_API_KEY?.trim();
+  const text = formatNotifyText(payload);
+  if (resendKey && to) {
+    void fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        from: process.env.ABI_NOTIFY_EMAIL_FROM ?? "ABI <onboarding@resend.dev>",
+        to: [to],
+        subject: `[ABI] ${payload.kind}`,
+        text,
+      }),
+    }).catch((e) => console.error("email notify failed:", e));
+    return;
+  }
+  console.log(JSON.stringify({ type: "abi.notify.email", kind: payload.kind, orgId, stub: true }));
+});
+
+/** Slack — incoming webhook when SLACK_WEBHOOK_URL set; else log stub. */
+registerNotifier("slack", (payload) => {
+  const orgId = notifyOrgId(payload);
+  const url = process.env.SLACK_WEBHOOK_URL?.trim();
+  const text = formatNotifyText(payload);
+  if (url) {
+    void fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: `*ABI* ${text}` }),
+    }).catch((e) => console.error("slack notify failed:", e));
+    return;
+  }
+  console.log(JSON.stringify({ type: "abi.notify.slack", kind: payload.kind, orgId, stub: true }));
+});
+
+/** Optional phrasing layer — identity rephraser keeps facts intact by default. */
+if (process.env.ABI_FACT_REPHRASER === "echo") {
+  setFactRephraser({
+    name: "echo",
+    async rewrite({ facts }) {
+      return facts;
+    },
+  });
+}
+
+/** Webhook channel — fans notify payloads into the existing signed delivery path. */
+registerNotifier("webhook", (payload) => {
+  if (payload.kind === "approval.pending") {
+    emitEvent(payload.approval.orgId, "approval.pending", {
+      approvalId: payload.approval.id,
+      agentId: payload.approval.agentId,
+      amountUsdc: payload.approval.amountUsdc,
+      destination: payload.approval.destination,
+    });
+    return;
+  }
+  if (payload.kind === "approval.resolved") {
+    emitEvent(payload.orgId, "approval.resolved", {
+      approvalId: payload.approvalId,
+      status: payload.status,
+      resolvedBy: payload.resolvedBy,
+    });
+    return;
+  }
+  if (payload.kind === "policy.denied") {
+    emitEvent(payload.orgId, "policy.denied", { title: payload.title, body: payload.body, ...payload.meta });
+    return;
+  }
+  if (payload.kind === "agent.frozen") {
+    emitEvent(payload.orgId, "agent.frozen", { title: payload.title, body: payload.body, ...payload.meta });
+    return;
+  }
+  if (payload.kind === "compliance.flagged") {
+    emitEvent(payload.orgId, "compliance.flagged", { title: payload.title, body: payload.body, ...payload.meta });
+  }
+});
+
+/** Custody: CDP-backed existent vault when CDP_API_KEY_ID+SECRET set; else DevLocal. */
+{
+  const lookup = (orgId: string) => {
+    const privateKey = store.getVaultPrivateKey(orgId);
+    const address = store.getVaultAddress(orgId);
+    if (!privateKey || !address) return null;
+    return {
+      address: address as `0x${string}`,
+      privateKey,
+      network: (process.env.CHAIN === "base" ? "base" : "base-sepolia") as "base" | "base-sepolia",
+    };
+  };
+  const sign = async (
+    privateKey: `0x${string}`,
+    typedData: {
+      domain: Record<string, unknown>;
+      types: Record<string, unknown>;
+      primaryType: string;
+      message: Record<string, unknown>;
+    },
+  ) => {
+    const account = privateKeyToAccount(privateKey);
+    return account.signTypedData({
+      domain: typedData.domain as Parameters<typeof account.signTypedData>[0]["domain"],
+      types: typedData.types as Parameters<typeof account.signTypedData>[0]["types"],
+      primaryType: typedData.primaryType,
+      message: typedData.message as Parameters<typeof account.signTypedData>[0]["message"],
+    });
+  };
+  if (cdpEnvConfigured()) {
+    setCustodyProvider(
+      new CdpVaultProvider(lookup, sign, {
+        apiKeyId: process.env.CDP_API_KEY_ID!,
+        network: process.env.CHAIN === "base" ? "base" : "base-sepolia",
+      }),
+    );
+    console.log(
+      JSON.stringify({
+        type: "abi.custody",
+        provider: "cdp",
+        note: "Signing via existent vault; fund vaultAddress shown in Treasury → Fund",
+      }),
+    );
+  } else {
+    setCustodyProvider(new DevLocalProvider(lookup, sign));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Rate limiting: sliding window per bearer key (falls back to IP).
 // Generous dev default — this is abuse protection, not throttling.
@@ -53,7 +218,7 @@ const STARTED_AT = Date.now();
 const RATE_LIMIT_PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN ?? 5000);
 const rateWindows = new Map<string, number[]>();
 app.use((req, res, next) => {
-  if (req.path === "/health") return next();
+  if (req.path === "/health" || req.path === "/metrics") return next();
   const key = req.header("authorization") ?? req.ip ?? "anon";
   const now = Date.now();
   const hits = (rateWindows.get(key) ?? []).filter((t) => t > now - 60_000);
@@ -83,47 +248,87 @@ function bearer(req: express.Request): string | null {
 
 function authAgent(req: express.Request): { orgId: string; agentId: string } | null {
   const key = bearer(req);
-  if (!key || !key.startsWith("pv_agent_")) return null;
-  const agent = store.getAgentByKey(key);
+  if (!key) return null;
+  const agent = key.startsWith("pv_sess_")
+    ? store.getAgentBySessionToken(key)
+    : key.startsWith("pv_agent_")
+      ? store.getAgentByKey(key)
+      : undefined;
   if (!agent) return null;
-  // Frozen agents/orgs still authenticate: their intents hit the policy engine
-  // and produce an explainable agent_frozen/org_frozen deny in the trace.
+  // Frozen / archived agents still authenticate: their intents hit the policy
+  // engine and produce an explainable agent_frozen/org_frozen deny in the trace.
   return { orgId: agent.orgId, agentId: agent.id };
 }
 
 /** Guardian auth: org is derived from the pv_guardian_ key, never from the body. */
-function authGuardian(req: express.Request): OrgRow | null {
+type GuardianRole = "owner" | "approver" | "viewer";
+type GuardianCtx = { org: OrgRow; role: GuardianRole; guardianId: string };
+
+function authGuardianCtx(req: express.Request): GuardianCtx | null {
   const key = bearer(req);
   if (!key || !key.startsWith("pv_guardian_")) return null;
-  // The org's founding key, or any invited (non-revoked) guardian of that org.
   const founder = store.findOrgByGuardianKey(key);
-  if (founder) return founder;
+  if (founder) return { org: founder, role: "owner", guardianId: "owner" };
   const invited = store.findGuardianByKey(key);
-  return invited ? (store.getOrg(invited.orgId) ?? null) : null;
+  if (!invited || invited.revokedAt) return null;
+  const org = store.getOrg(invited.orgId);
+  if (!org) return null;
+  return { org, role: invited.role, guardianId: invited.id };
 }
 
 /** Identity of the acting guardian, for vote attribution under quorum. */
 function guardianIdentity(req: express.Request): string {
-  const key = bearer(req) ?? "";
-  const invited = store.findGuardianByKey(key);
-  return invited ? invited.id : "owner";
+  return authGuardianCtx(req)?.guardianId ?? "owner";
 }
 
 function guardianRoute(
   handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
+  opts?: { ownerOnly?: boolean },
 ): express.RequestHandler {
   return (req, res) => {
-    const org = authGuardian(req);
-    if (!org) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
-    Promise.resolve(handler(org, req, res)).catch((e) => {
+    const ctx = authGuardianCtx(req);
+    if (!ctx) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+    // Stash for handlers that need role (e.g. GET /org actor).
+    (req as express.Request & { guardianCtx?: GuardianCtx }).guardianCtx = ctx;
+    // Viewers may read (GET/HEAD) only — mutates require approver or owner.
+    const method = req.method.toUpperCase();
+    const isRead = method === "GET" || method === "HEAD";
+    if (ctx.role === "viewer" && !isRead) {
+      return res.status(403).json({
+        error: {
+          code: "UNAUTHORIZED",
+          message: "Viewer guardians have read-only access",
+        },
+      });
+    }
+    if (opts?.ownerOnly && ctx.role !== "owner") {
+      return res.status(403).json({
+        error: {
+          code: "UNAUTHORIZED",
+          message: "This action requires an owner guardian key",
+        },
+      });
+    }
+    Promise.resolve(handler(ctx.org, req, res)).catch((e) => {
       if (e instanceof z.ZodError) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: e.message } });
+      }
+      if (isInvalidUsdcAmount(e)) {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
+        });
       }
       console.error("guardian route error:", e);
       res.status(500).json({ error: { code: "RAIL_FAILED", message: String(e) } });
     });
   };
 }
+
+registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
+registerAgentRoutes(app, { guardianRoute });
+registerPolicyRoutes(app, { guardianRoute });
+registerPaymentRoutes(app, { guardianRoute });
+registerPlatformRoutes(app, { guardianRoute });
 
 /** Wrap an async route handler so rejections become clean HTTP errors. */
 function asyncRoute(
@@ -134,10 +339,83 @@ function asyncRoute(
       if (e instanceof z.ZodError) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: e.message } });
       }
+      if (isInvalidUsdcAmount(e)) {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
+        });
+      }
       console.error("route error:", e);
       res.status(500).json({ error: { code: "RAIL_FAILED", message: String(e) } });
     });
   };
+}
+
+function isInvalidUsdcAmount(e: unknown): boolean {
+  return e instanceof Error && e.message === "INVALID_USDC_AMOUNT";
+}
+
+/** Fire notify / freeze_agent actions for matched automation rules. */
+function applyAutomationSideEffects(
+  input: Omit<ExecInput, "intentId" | "payeeAgentId" | "timeoutMinutes"> & {
+    intentId: string;
+    idempotencyKey: string;
+    decisionRuleIds: string[];
+  },
+): void {
+  const rules = rulesFor(input.agentId, input.orgId);
+  const matched = matchedAutomationRules(
+    {
+      agentId: input.agentId,
+      orgId: input.orgId,
+      tool: input.tool,
+      amountMicro: input.amountMicro,
+      destination: input.destination,
+      jobId: input.jobId,
+      idempotencyKey: input.idempotencyKey,
+      memo: input.memo,
+    },
+    rules,
+  );
+  for (const rule of matched) {
+    if (rule.then.kind === "notify") {
+      const channel = rule.then.channel;
+      void notify(
+        {
+          kind: "info",
+          orgId: input.orgId,
+          title: `Automation: ${rule.name}`,
+          body: `${input.tool} $${input.amountUsdc} → ${input.destination}`,
+          meta: { ruleId: rule.id, intentId: input.intentId, agentId: input.agentId },
+        },
+        channel ? [channel] : undefined,
+      );
+    }
+    if (
+      rule.then.kind === "freeze_agent" &&
+      input.decisionRuleIds.includes(`automation:${rule.id}`)
+    ) {
+      store.setAgentStatus(input.agentId, "frozen");
+      store.addFreeze(input.orgId, input.agentId, `automation:${rule.id}`);
+      emitEvent(input.orgId, "agent.frozen", {
+        agentId: input.agentId,
+        reason: `automation:${rule.id}`,
+        intentId: input.intentId,
+      });
+      void notify({
+        kind: "agent.frozen",
+        orgId: input.orgId,
+        title: "Agent frozen by automation",
+        body: `Rule “${rule.name}” froze agent ${input.agentId}`,
+        meta: { ruleId: rule.id, agentId: input.agentId },
+      });
+      recordObs({
+        name: "agent.frozen",
+        orgId: input.orgId,
+        agentId: input.agentId,
+        attrs: { ruleId: rule.id },
+      });
+    }
+  }
 }
 
 function approvalView(a: ApprovalRow) {
@@ -155,10 +433,11 @@ async function handleIntent(
   res: express.Response,
   input: Omit<ExecInput, "intentId"> & { idempotencyKey: string },
 ) {
+  const idemKey = scopedIdempotencyKey(input.agentId, input.idempotencyKey);
   // Claim the key first. Anything already recorded — settled, denied, parked
   // or in flight — replays instead of executing a second time.
-  if (!store.reserveIdempotent(input.orgId, input.idempotencyKey)) {
-    const existing = store.getIdempotent(input.orgId, input.idempotencyKey) as
+  if (!store.reserveIdempotent(input.orgId, idemKey)) {
+    const existing = store.getIdempotent(input.orgId, idemKey) as
       | { status?: string; httpStatus?: number }
       | undefined;
     if (existing?.status === "in_flight") {
@@ -191,7 +470,7 @@ async function handleIntent(
       memo: input.memo,
     },
     rulesFor(input.agentId, input.orgId),
-    "demo-v0",
+    store.getPolicyVersion(input.orgId),
   );
   const intentId = id("int");
   recordDecision({
@@ -206,6 +485,21 @@ async function handleIntent(
     destination: input.destination,
   });
 
+  // Automation side-effects (notify / freeze) — money outcome already decided.
+  applyAutomationSideEffects({
+    orgId: input.orgId,
+    agentId: input.agentId,
+    intentId,
+    tool: input.tool,
+    amountMicro: input.amountMicro,
+    amountUsdc: input.amountUsdc,
+    destination: input.destination,
+    jobId: input.jobId,
+    memo: input.memo,
+    idempotencyKey: input.idempotencyKey,
+    decisionRuleIds: decision.ruleIds,
+  });
+
   if (decision.outcome === "deny") {
     const payload = {
       intentId,
@@ -213,7 +507,7 @@ async function handleIntent(
       error: { code: "POLICY_DENIED" as const, message: decision.reasons.join("; ") },
       ruleIds: decision.ruleIds,
     };
-    store.setIdempotent(input.orgId, input.idempotencyKey, { ...payload, httpStatus: 403 });
+    store.setIdempotent(input.orgId, idemKey, { ...payload, httpStatus: 403 });
     emitEvent(input.orgId, "policy.denied", {
       intentId,
       agentId: input.agentId,
@@ -222,6 +516,19 @@ async function handleIntent(
       destination: input.destination,
       ruleIds: decision.ruleIds,
       reasons: decision.reasons,
+    });
+    void notify({
+      kind: "policy.denied",
+      orgId: input.orgId,
+      title: "Policy denied",
+      body: decision.reasons.join("; "),
+      meta: { intentId, agentId: input.agentId, ruleIds: decision.ruleIds },
+    });
+    recordObs({
+      name: "policy.denied",
+      orgId: input.orgId,
+      agentId: input.agentId,
+      attrs: { ruleIds: decision.ruleIds },
     });
     return res.status(403).json(payload);
   }
@@ -260,8 +567,8 @@ async function handleIntent(
       hint: "Poll GET /v1/agent/approvals/:id until approved/denied/expired.",
       httpStatus: 202,
     };
-    store.setIdempotent(input.orgId, input.idempotencyKey, reviewPayload);
-    notifyApprovalPending(approval);
+    store.setIdempotent(input.orgId, idemKey, reviewPayload);
+    void notify({ kind: "approval.pending", approval });
     emitEvent(input.orgId, "approval.pending", {
       approvalId: approval.id,
       intentId,
@@ -285,21 +592,36 @@ async function handleIntent(
 
   const result = await executeIntent({ ...input, intentId });
   if (result.ok) {
-    store.setIdempotent(input.orgId, input.idempotencyKey, { ...result.payload, httpStatus: 200 });
+    store.setIdempotent(input.orgId, idemKey, { ...result.payload, httpStatus: 200 });
     return res.json(result.payload);
   }
   // A rail failure is transient — free the key so the caller may genuinely retry.
-  store.releaseIdempotent(input.orgId, input.idempotencyKey);
+  store.releaseIdempotent(input.orgId, idemKey);
   return res.status(result.status).json(result.payload);
 }
 
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
-    service: "policyvault-api",
+    service: "abi-api",
     uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
     legal: LEGAL_FOOTER,
+    telegram: telegramEnabled,
   });
+});
+
+/** Prometheus text exposition (Observability pillar). */
+app.get("/metrics", (_req, res) => {
+  const sink = getObservabilitySink();
+  const text =
+    typeof sink.prometheusText === "function"
+      ? sink.prometheusText()
+      : "# no prometheus sink\n";
+  res.type("text/plain; version=0.0.4; charset=utf-8").send(text);
+});
+
+app.get("/v1/openapi.json", (_req, res) => {
+  res.json(openApiDocument(`http://localhost:${PORT}`));
 });
 
 /**
@@ -333,7 +655,19 @@ app.post("/v1/demo/bootstrap", (_req, res) => {
 // ---------------------------------------------------------------------------
 
 /** Create a real org with a mock USDC deposit (on-chain deposit is a later phase). */
+const ALLOW_PUBLIC_ORG_CREATE =
+  process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE === "1" ||
+  (process.env.NODE_ENV !== "production" && process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE !== "0");
+
 app.post("/v1/guardian/orgs", (req, res) => {
+  if (!ALLOW_PUBLIC_ORG_CREATE) {
+    return res.status(403).json({
+      error: {
+        code: "UNAUTHORIZED",
+        message: "Public org creation disabled — set POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE=1",
+      },
+    });
+  }
   const body = z
     .object({
       name: z.string().min(1).max(80),
@@ -352,28 +686,18 @@ app.post("/v1/guardian/orgs", (req, res) => {
   });
 });
 
-/** Create an agent in the org. The API key is returned exactly once — store it. */
-app.post(
-  "/v1/guardian/agents",
-  guardianRoute((org, req, res) => {
-    const body = z.object({ name: z.string().min(1).max(80) }).parse(req.body);
-    const { agentId, apiKey } = store.createAgent(org.id, body.name);
-    res.status(201).json({
-      agentId,
-      apiKey,
-      note: "Store this API key now — it is not shown again. Use as Bearer token for /v1/agent routes.",
-    });
-  }),
-);
-
 app.get(
   "/v1/guardian/org",
-  guardianRoute((org, _req, res) => {
+  guardianRoute((org, req, res) => {
     const accounts = [...store.getAccountMap(org.id).values()];
     const agents = store.listAgents(org.id);
     const template = store.getPolicyTemplate(org.id);
+    const actor = (req as express.Request & { guardianCtx?: GuardianCtx }).guardianCtx;
     res.json({
-      org: { id: org.id, name: org.name, status: org.status },
+      org: { id: org.id, name: org.name, status: org.status, settings: org.settings },
+      actor: actor
+        ? { role: actor.role, guardianId: actor.guardianId }
+        : { role: "owner", guardianId: "owner" },
       agents: agents.map(({ apiKey: _, ...rest }) => ({
         ...rest,
         spent24hUsdc: formatMicroToUsdc(store.spentLast24h(rest.id)),
@@ -448,7 +772,7 @@ app.post(
     };
     store.createSubscription(sub);
     res.status(201).json({ subscription: subView(sub) });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.post(
@@ -465,7 +789,7 @@ app.post(
       action === "pause" ? "paused" : action === "resume" ? "active" : "cancelled",
     );
     res.json({ ok: true, status: action === "pause" ? "paused" : action === "resume" ? "active" : "cancelled" });
-  }),
+  }, { ownerOnly: true }),
 );
 
 // ------------------------------------------------------------- guardians
@@ -489,7 +813,8 @@ app.post(
     const body = z
       .object({
         name: z.string().min(1).max(60),
-        role: z.enum(["owner", "approver", "viewer"]).default("approver"),
+        // Inviting another owner requires a future dual-control flow — not via this route.
+        role: z.enum(["approver", "viewer"]).default("approver"),
       })
       .parse(req.body);
     const g = store.createGuardian(org.id, body.name, body.role);
@@ -498,7 +823,7 @@ app.post(
       guardianKey: g.guardianKey,
       note: "Shown once. This key can sign in to the console for this org.",
     });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.delete(
@@ -508,28 +833,10 @@ app.delete(
       return res.status(404).json({ error: { code: "NOT_FOUND" } });
     }
     res.json({ ok: true });
-  }),
+  }, { ownerOnly: true }),
 );
 
-/** How many distinct approvals a payment needs before it executes. */
-app.post(
-  "/v1/guardian/quorum",
-  guardianRoute((org, req, res) => {
-    const body = z.object({ approvalQuorum: z.number().int().min(1).max(5) }).parse(req.body);
-    const current = store.getPolicyTemplate(org.id);
-    const seats = store.listGuardians(org.id).filter((g) => !g.revokedAt).length + 1; // +1 founder
-    if (body.approvalQuorum > seats) {
-      return res.status(400).json({
-        error: {
-          code: "VALIDATION_ERROR",
-          message: `Quorum of ${body.approvalQuorum} needs ${body.approvalQuorum} guardians; you have ${seats}. Approvals would be unresolvable.`,
-        },
-      });
-    }
-    store.setPolicyTemplate(org.id, { ...current, approvalQuorum: body.approvalQuorum });
-    res.json({ ok: true, approvalQuorum: body.approvalQuorum });
-  }),
-);
+/** How many distinct approvals a payment needs before it executes — see policy-routes. */
 
 // ------------------------------------------------------------- analytics
 
@@ -538,6 +845,31 @@ app.get(
   guardianRoute((org, _req, res) => {
     res.json(vendorLedger(org.id));
   }),
+);
+
+/** Merchant directory metadata layered on known counterparties. */
+app.get(
+  "/v1/guardian/merchants",
+  guardianRoute((org, _req, res) => {
+    res.json({ merchants: store.listMerchants(org.id) });
+  }),
+);
+
+app.post(
+  "/v1/guardian/merchants",
+  guardianRoute((org, req, res) => {
+    const body = z
+      .object({
+        key: z.string().min(1),
+        label: z.string().optional(),
+        category: z.string().optional(),
+        meta: z.record(z.unknown()).optional(),
+      })
+      .parse(req.body);
+    const merchant = store.upsertMerchant({ orgId: org.id, ...body });
+    store.addKnownCounterparty(org.id, body.key);
+    res.json({ merchant });
+  }, { ownerOnly: true }),
 );
 
 app.get(
@@ -561,27 +893,7 @@ app.get(
   }),
 );
 
-/** Replay real history against a proposed ruleset before committing to it. */
-app.post(
-  "/v1/guardian/policy/simulate",
-  guardianRoute((org, req, res) => {
-    const body = z
-      .object({
-        perTxMaxUsdc: z.string().optional(),
-        dailyMaxUsdc: z.string().optional(),
-        hitlAboveUsdc: z.string().optional(),
-        maxPaysPerMinute: z.number().int().positive().optional(),
-        addressAllowlist: z.array(z.string()).optional(),
-        domainAllowlist: z.array(z.string()).optional(),
-        vendorAllowlist: z.array(z.string()).optional(),
-        blocklist: z.array(z.string()).optional(),
-        windowHours: z.number().int().positive().max(24 * 90).default(24 * 7),
-      })
-      .parse(req.body);
-    const { windowHours, ...change } = body;
-    res.json({ simulation: simulatePolicy(org.id, change, windowHours) });
-  }),
-);
+/** Replay real history against a proposed ruleset — see policy-routes. */
 
 // ------------------------------------------------------- insights & Q&A
 
@@ -595,11 +907,46 @@ app.get(
 
 app.post(
   "/v1/guardian/ask",
-  guardianRoute((org, req, res) => {
+  guardianRoute(async (org, req, res) => {
     const body = z.object({ question: z.string().max(400) }).parse(req.body);
-    res.json(answerQuestion(org.id, body.question));
+    const raw = answerQuestion(org.id, body.question);
+    const answer = await presentAnswer(body.question, raw.answer);
+    res.json({ answer, goto: raw.goto });
   }),
 );
+
+/** In-app ABI Assistant — durable chat + approval cards (Telegram is optional). */
+app.get(
+  "/v1/guardian/chat",
+  guardianRoute((org, _req, res) => {
+    res.json({ messages: store.listChatMessages(org.id) });
+  }),
+);
+
+app.post(
+  "/v1/guardian/chat",
+  guardianRoute(async (org, req, res) => {
+    const body = z.object({ message: z.string().min(1).max(800) }).parse(req.body);
+    store.appendChatMessage({
+      orgId: org.id,
+      role: "user",
+      kind: "text",
+      body: body.message,
+    });
+    const raw = answerQuestion(org.id, body.message);
+    const text = await presentAnswer(body.message, raw.answer);
+    const reply = store.appendChatMessage({
+      orgId: org.id,
+      role: "assistant",
+      kind: "text",
+      body: text,
+      meta: raw.goto ? { goto: raw.goto } : undefined,
+    });
+    res.json({ reply, goto: raw.goto, messages: store.listChatMessages(org.id) });
+  }),
+);
+
+/** Policy versions + restore — see policy-routes. */
 
 // ---------------------------------------------------------------- invoices
 
@@ -804,40 +1151,20 @@ app.post(
     const amount = parseUsdcToMicro(body.amountUsdc);
     try {
       store.applyEntries(org.id, [
-        {
-          id: id("j"),
+        transferAvailable({
           orgId: org.id,
+          journalId: id("j"),
+          fromAvailableId: accountId("org", org.id),
+          toAvailableId: accountId("agent", body.agentId),
+          amountMicro: amount,
           memo: "allocate_stipend",
-          createdAt: new Date().toISOString(),
-          lines: [
-            { accountId: `org:${org.id}:available`, deltaMicro: -amount },
-            { accountId: `agent:${body.agentId}:available`, deltaMicro: amount },
-          ],
-        },
+        }),
       ]);
       res.json({ ok: true, amountUsdc: body.amountUsdc });
     } catch (e) {
       res.status(400).json({ error: { code: "INSUFFICIENT_STIPEND", message: String(e) } });
     }
-  }),
-);
-
-/** Rotate an agent's API key. The old key stops working immediately. */
-app.post(
-  "/v1/guardian/agents/:id/rotate-key",
-  guardianRoute((org, req, res) => {
-    const agent = store.getAgent(req.params.id);
-    if (!agent || agent.orgId !== org.id) {
-      return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-    }
-    const apiKey = store.rotateAgentKey(agent.id);
-    store.addFreeze(org.id, agent.id, "key rotated");
-    res.json({
-      agentId: agent.id,
-      apiKey,
-      note: "Old key is dead. Update the agent's environment now — it cannot spend until you do.",
-    });
-  }),
+  }, { ownerOnly: true }),
 );
 
 /**
@@ -860,8 +1187,8 @@ app.post(
       return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
     }
     const accounts = store.getAccountMap(org.id);
-    const available = accounts.get(`agent:${body.agentId}:available`)?.balanceMicro ?? 0n;
-    const held = accounts.get(`agent:${body.agentId}:held`)?.balanceMicro ?? 0n;
+    const available = accounts.get(accountId("agent", body.agentId))?.balanceMicro ?? 0n;
+    const held = accounts.get(accountId("agent", body.agentId, "held"))?.balanceMicro ?? 0n;
     const amount = body.amountUsdc ? parseUsdcToMicro(body.amountUsdc) : available;
 
     if (amount <= 0n) {
@@ -881,23 +1208,21 @@ app.post(
     }
 
     store.applyEntries(org.id, [
-      {
-        id: id("j"),
+      transferAvailable({
         orgId: org.id,
+        journalId: id("j"),
+        fromAvailableId: accountId("agent", body.agentId),
+        toAvailableId: accountId("org", org.id),
+        amountMicro: amount,
         memo: "reclaim_stipend",
-        createdAt: new Date().toISOString(),
-        lines: [
-          { accountId: `agent:${body.agentId}:available`, deltaMicro: -amount },
-          { accountId: `org:${org.id}:available`, deltaMicro: amount },
-        ],
-      },
+      }),
     ]);
     res.json({
       ok: true,
       amountUsdc: formatMicroToUsdc(amount),
       agentRemainingUsdc: formatMicroToUsdc(available - amount),
     });
-  }),
+  }, { ownerOnly: true }),
 );
 
 /**
@@ -926,8 +1251,8 @@ app.post(
       return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
     }
     const accounts = store.getAccountMap(org.id);
-    const available = accounts.get(`agent:${body.fromAgentId}:available`)?.balanceMicro ?? 0n;
-    const held = accounts.get(`agent:${body.fromAgentId}:held`)?.balanceMicro ?? 0n;
+    const available = accounts.get(accountId("agent", body.fromAgentId))?.balanceMicro ?? 0n;
+    const held = accounts.get(accountId("agent", body.fromAgentId, "held"))?.balanceMicro ?? 0n;
     const amount = body.amountUsdc ? parseUsdcToMicro(body.amountUsdc) : available;
 
     if (amount <= 0n) {
@@ -947,16 +1272,14 @@ app.post(
     }
 
     store.applyEntries(org.id, [
-      {
-        id: id("j"),
+      transferAvailable({
         orgId: org.id,
+        journalId: id("j"),
+        fromAvailableId: accountId("agent", body.fromAgentId),
+        toAvailableId: accountId("agent", body.toAgentId),
+        amountMicro: amount,
         memo: "transfer_stipend",
-        createdAt: new Date().toISOString(),
-        lines: [
-          { accountId: `agent:${body.fromAgentId}:available`, deltaMicro: -amount },
-          { accountId: `agent:${body.toAgentId}:available`, deltaMicro: amount },
-        ],
-      },
+      }),
     ]);
     res.json({
       ok: true,
@@ -964,7 +1287,7 @@ app.post(
       from: from.name,
       to: to.name,
     });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.post(
@@ -982,12 +1305,27 @@ app.post(
         return res.status(404).json({ error: { code: "NOT_FOUND" } });
       }
       store.setAgentStatus(body.agentId, "frozen");
+      emitEvent(org.id, "agent.frozen", { agentId: body.agentId, reason: body.reason });
+      void notify({
+        kind: "agent.frozen",
+        orgId: org.id,
+        title: "Agent frozen",
+        body: `${agent.name} frozen — ${body.reason}`,
+        meta: { agentId: body.agentId },
+      });
     } else {
       store.setOrgStatus(org.id, "frozen");
+      void notify({
+        kind: "agent.frozen",
+        orgId: org.id,
+        title: "Organization frozen",
+        body: body.reason,
+      });
     }
     store.addFreeze(org.id, body.agentId, body.reason);
+    recordObs({ name: "freeze", orgId: org.id, agentId: body.agentId, attrs: { reason: body.reason } });
     res.json({ ok: true });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.post(
@@ -1000,11 +1338,13 @@ app.post(
         return res.status(404).json({ error: { code: "NOT_FOUND" } });
       }
       store.setAgentStatus(body.agentId, "active");
+      emitEvent(org.id, "agent.unfrozen", { agentId: body.agentId });
     } else {
       store.setOrgStatus(org.id, "active");
+      emitEvent(org.id, "agent.unfrozen", { org: true });
     }
     res.json({ ok: true });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.get(
@@ -1040,111 +1380,31 @@ app.get(
 app.get(
   "/v1/guardian/setup",
   guardianRoute((_org, _req, res) => {
+    let custodyName = "none";
+    try {
+      custodyName = getCustodyProvider().name;
+    } catch {
+      /* unregistered */
+    }
+    const cdpEnv = Boolean(process.env.CDP_API_KEY_ID);
     res.json({
       setup: {
-        custody: process.env.CDP_API_KEY_ID ? "cdp" : "dev-local-key",
+        custody: custodyName,
         network: "base-sepolia",
-        settlement: process.env.CDP_API_KEY_ID ? "onchain" : "mock (dev facilitator)",
+        settlement:
+          custodyName === "cdp" ? "onchain (cdp)" : "mock (dev facilitator / transfer-mock)",
+        cdpApiKeyConfigured: cdpEnv,
+        cdpWired: custodyName === "cdp",
+        keysHashedAtRest: true,
+        note:
+          !cdpEnv && custodyName === "dev-local"
+            ? "Set CDP_API_KEY_ID + CDP_API_KEY_SECRET to activate cdp custody behind the existent vault address."
+            : undefined,
         telegram: telegramEnabled,
         rateLimitPerMin: RATE_LIMIT_PER_MIN,
         approvalTtlMinutes: APPROVAL_TTL_MINUTES,
       },
     });
-  }),
-);
-
-function policyView(template: ReturnType<typeof store.getPolicyTemplate>) {
-  return {
-    perTxMaxUsdc: formatMicroToUsdc(template.perTxMaxMicro),
-    dailyMaxUsdc: formatMicroToUsdc(template.dailyMaxMicro),
-    hitlAboveUsdc: formatMicroToUsdc(template.hitlAboveMicro),
-    maxPaysPerMinute: template.maxPaysPerMinute,
-    newCounterpartyCooldownHours: template.newCounterpartyCooldownHours,
-    addressAllowlist: template.addressAllowlist,
-    domainAllowlist: template.domainAllowlist,
-    vendorAllowlist: template.vendorAllowlist,
-    blocklist: template.blocklist,
-    hitlCategories: template.hitlCategories,
-    quietHours: template.quietHours ?? null,
-  };
-}
-
-app.get(
-  "/v1/guardian/policy",
-  guardianRoute((org, _req, res) => {
-    res.json({ policy: policyView(store.getPolicyTemplate(org.id)) });
-  }),
-);
-
-/** Partial policy update. Amounts in USDC strings; lists replace wholesale. */
-app.post(
-  "/v1/guardian/policy",
-  guardianRoute((org, req, res) => {
-    const body = z
-      .object({
-        perTxMaxUsdc: z.string().optional(),
-        dailyMaxUsdc: z.string().optional(),
-        hitlAboveUsdc: z.string().optional(),
-        maxPaysPerMinute: z.number().int().positive().optional(),
-        newCounterpartyCooldownHours: z.number().int().min(0).optional(),
-        addressAllowlist: z.array(z.string()).optional(),
-        domainAllowlist: z.array(z.string()).optional(),
-        vendorAllowlist: z.array(z.string()).optional(),
-        blocklist: z.array(z.string()).optional(),
-        hitlCategories: z
-          .array(
-            z.enum([
-              "pay",
-              "pay_api",
-              "transfer_internal",
-              "escrow_lock",
-              "escrow_release",
-              "escrow_refund",
-              "withdraw",
-            ]),
-          )
-          .optional(),
-        quietHours: z
-          .object({
-            startHour: z.number().int().min(0).max(23),
-            endHour: z.number().int().min(0).max(23),
-            action: z.enum(["review", "deny"]),
-          })
-          .nullable()
-          .optional(),
-      })
-      .parse(req.body);
-    const current = store.getPolicyTemplate(org.id);
-    const next = {
-      ...current,
-      ...(body.perTxMaxUsdc !== undefined && { perTxMaxMicro: parseUsdcToMicro(body.perTxMaxUsdc) }),
-      ...(body.dailyMaxUsdc !== undefined && { dailyMaxMicro: parseUsdcToMicro(body.dailyMaxUsdc) }),
-      ...(body.hitlAboveUsdc !== undefined && { hitlAboveMicro: parseUsdcToMicro(body.hitlAboveUsdc) }),
-      ...(body.maxPaysPerMinute !== undefined && { maxPaysPerMinute: body.maxPaysPerMinute }),
-      ...(body.newCounterpartyCooldownHours !== undefined && {
-        newCounterpartyCooldownHours: body.newCounterpartyCooldownHours,
-      }),
-      ...(body.addressAllowlist && { addressAllowlist: body.addressAllowlist }),
-      ...(body.domainAllowlist && { domainAllowlist: body.domainAllowlist }),
-      ...(body.vendorAllowlist && { vendorAllowlist: body.vendorAllowlist }),
-      ...(body.blocklist && { blocklist: body.blocklist }),
-      ...(body.hitlCategories && { hitlCategories: body.hitlCategories }),
-      ...(body.quietHours !== undefined && { quietHours: body.quietHours ?? undefined }),
-    };
-    if (next.hitlAboveMicro >= next.perTxMaxMicro) {
-      return res.status(400).json({
-        error: {
-          code: "VALIDATION_ERROR",
-          message: "hitlAboveUsdc must be below perTxMaxUsdc (allow < review < deny bands)",
-        },
-      });
-    }
-    store.setPolicyTemplate(org.id, next);
-    // New allowlist entries are trusted counterparties going forward.
-    for (const v of [...next.vendorAllowlist, ...next.domainAllowlist, ...next.addressAllowlist]) {
-      store.addKnownCounterparty(org.id, v);
-    }
-    res.json({ ok: true, policy: policyView(next) });
   }),
 );
 
@@ -1240,6 +1500,12 @@ app.post(
   "/v1/guardian/webhooks",
   guardianRoute((org, req, res) => {
     const body = z.object({ url: z.string().url() }).parse(req.body);
+    const problem = webhookUrlProblem(body.url);
+    if (problem) {
+      return res.status(400).json({
+        error: { code: "VALIDATION_ERROR", message: problem },
+      });
+    }
     const webhook = store.createWebhook(org.id, body.url);
     res.status(201).json({
       id: webhook.id,
@@ -1247,7 +1513,7 @@ app.post(
       secret: webhook.secret,
       note: "Verify x-policyvault-signature (HMAC-SHA256 of raw body with this secret) and dedupe on x-policyvault-delivery.",
     });
-  }),
+  }, { ownerOnly: true }),
 );
 
 app.get(
@@ -1267,7 +1533,20 @@ app.delete(
     const deleted = store.deleteWebhook(req.params.id, org.id);
     if (!deleted) return res.status(404).json({ error: { code: "NOT_FOUND" } });
     res.json({ ok: true });
-  }),
+  }, { ownerOnly: true }),
+);
+
+app.post(
+  "/v1/guardian/webhooks/:id/rotate",
+  guardianRoute((org, req, res) => {
+    const secret = store.rotateWebhookSecret(req.params.id, org.id);
+    if (!secret) return res.status(404).json({ error: { code: "NOT_FOUND" } });
+    res.json({
+      id: req.params.id,
+      secret,
+      note: "New signing secret shown once — update receivers before the next delivery.",
+    });
+  }, { ownerOnly: true }),
 );
 
 app.get(
@@ -1294,7 +1573,7 @@ app.post(
       note: "Test delivery fired from the guardian console",
     });
     res.json({ ok: true, note: "Test event dispatched to all endpoints — check deliveries." });
-  }),
+  }, { ownerOnly: true }),
 );
 
 // ---------------------------------------------------------------------------
@@ -1316,6 +1595,26 @@ app.get("/v1/agent/budget", (req, res) => {
     dailyRemainingUsdc: formatMicroToUsdc(remaining < 0n ? 0n : remaining),
     frozen: rules.agentFrozen || rules.orgFrozen,
   });
+});
+
+app.get("/v1/agent/activity", (req, res) => {
+  const auth = authAgent(req);
+  if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 50;
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
+  res.json({
+    decisions: store.listDecisionsForAgent(auth.orgId, auth.agentId, limit),
+  });
+});
+
+app.get("/v1/agent/decisions/:intentId", (req, res) => {
+  const auth = authAgent(req);
+  if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  const decision = store.getDecision(auth.orgId, req.params.intentId);
+  if (!decision || decision.agentId !== auth.agentId) {
+    return res.status(404).json({ error: { code: "NOT_FOUND" } });
+  }
+  res.json({ decision });
 });
 
 const payBody = z.object({
@@ -1494,6 +1793,11 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
       error: { code: "VALIDATION_ERROR", message: err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") },
     });
   }
+  if (isInvalidUsdcAmount(err)) {
+    return res.status(400).json({
+      error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
+    });
+  }
   console.error("unhandled route error:", err);
   res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
 });
@@ -1510,6 +1814,10 @@ async function runDueSubscriptions(): Promise<void> {
       continue;
     }
     const nextRunAt = new Date(Date.now() + sub.intervalHours * 3600_000).toISOString();
+    // Claim the due slot BEFORE awaiting the rail — otherwise a 10s sweep can
+    // overlap an in-flight charge and double-spend.
+    if (!store.claimSubscriptionRun(sub.id, sub.nextRunAt, nextRunAt)) continue;
+
     const intentId = id("int");
     const decision = evaluatePolicy(
       {

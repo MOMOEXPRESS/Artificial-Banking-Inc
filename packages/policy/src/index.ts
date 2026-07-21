@@ -20,6 +20,18 @@ export interface PolicyRules {
   nowMs?: number;
   /** Distinct guardians required to release a parked payment. Default 1. */
   approvalQuorum?: number;
+  /**
+   * Optional IF/THEN automation hooks evaluated after hard caps.
+   * Kept declarative so a visual rule builder can land later without rewriting
+   * the engine — actions are limited to notify / review / deny / freeze_agent.
+   */
+  automation?: AutomationRule[];
+  /**
+   * Snapshot of the spending wallet's available balance (micro), injected by
+   * the runtime so `balance_below` automation can match without the policy
+   * package reading the ledger.
+   */
+  walletBalanceMicro?: MicroUsdc;
   /** Lowercase destinations seen before (addresses/domains/vendors) */
   knownCounterparties: string[];
   /** Spent in rolling 24h window (micro) */
@@ -29,6 +41,30 @@ export interface PolicyRules {
   agentFrozen: boolean;
   orgFrozen: boolean;
 }
+
+/**
+ * Declarative automation rule. Conditions are AND-ed; first matching rule wins
+ * for side-effect actions that escalate severity (deny > review > notify).
+ */
+export interface AutomationRule {
+  id: string;
+  /** Human label for audit / UI. */
+  name: string;
+  when: AutomationCondition;
+  then: AutomationAction;
+}
+
+export type AutomationCondition =
+  | { kind: "amount_above"; micro: MicroUsdc }
+  | { kind: "balance_below"; micro: MicroUsdc; /** reserved: wallet id when multi-wallet lands */ walletId?: string }
+  | { kind: "merchant_unknown" }
+  | { kind: "budget_exceeded" };
+
+export type AutomationAction =
+  | { kind: "notify"; channel?: "in_app" | "telegram" | "email" | "slack" }
+  | { kind: "require_approval" }
+  | { kind: "deny" }
+  | { kind: "freeze_agent" };
 
 export interface PolicyDecision {
   outcome: DecisionOutcome;
@@ -67,6 +103,14 @@ function destinationKey(dest: string): string {
   return d;
 }
 
+function blocklistMatches(destination: string, rawDestination: string, blocked: string): boolean {
+  const blockedKey = destinationKey(blocked);
+  const raw = norm(rawDestination);
+  if (raw === norm(blocked)) return true;
+  if (isAddressLike(blockedKey)) return destination === blockedKey;
+  return destination === blockedKey || destination.endsWith(`.${blockedKey}`);
+}
+
 /**
  * Deterministic policy engine. Default deny if any hard rule fails.
  * LLM never calls this with free text — only structured MoneyIntent.
@@ -97,7 +141,7 @@ export function evaluatePolicy(
   }
 
   const dest = destinationKey(intent.destination);
-  if (rules.blocklist.map(norm).includes(dest) || rules.blocklist.map(norm).includes(norm(intent.destination))) {
+  if (rules.blocklist.some((blocked) => blocklistMatches(dest, intent.destination, blocked))) {
     return {
       outcome: "deny",
       ruleIds: ["blocklist"],
@@ -158,7 +202,13 @@ export function evaluatePolicy(
   // masquerade as "api.openai.com".
   const domainOk =
     rules.domainAllowlist.length > 0 &&
-    rules.domainAllowlist.some((d) => dest === norm(d) || dest.endsWith(`.${norm(d)}`));
+    rules.domainAllowlist.some((d) => {
+      const entry = norm(d);
+      if (dest === entry) return true;
+      // Suffix matches require a dotted domain — bare TLDs like "com" never widen.
+      if (!entry.includes(".")) return false;
+      return dest.endsWith(`.${entry}`);
+    });
 
   if (intent.tool === "pay" || intent.tool === "withdraw") {
     if (!isAddressLike(intent.destination)) {
@@ -242,19 +292,109 @@ export function evaluatePolicy(
     return { outcome: "review", ruleIds, reasons, policyVersion };
   }
 
+  // Optional automation hooks — evaluated after hard caps so IF/THEN never
+  // weakens a deny already decided above.
+  const auto = evaluateAutomation(intent, rules);
+  if (auto) {
+    ruleIds.push(`automation:${auto.ruleId}`);
+    reasons.push(auto.reason);
+    return { outcome: auto.outcome, ruleIds, reasons, policyVersion };
+  }
+
   ruleIds.push("default_allow");
   reasons.push("All policy checks passed");
   return { outcome: "allow", ruleIds, reasons, policyVersion };
 }
 
-export function templateSoloSwarm(): Omit<
+function evaluateAutomation(
+  intent: MoneyIntent,
+  rules: PolicyRules,
+): { ruleId: string; reason: string; outcome: DecisionOutcome } | null {
+  const list = rules.automation ?? [];
+  let escalate: { ruleId: string; reason: string; outcome: DecisionOutcome } | null = null;
+  for (const rule of list) {
+    if (!conditionMatches(rule.when, intent, rules)) continue;
+    const next = actionToOutcome(rule);
+    if (!next) continue;
+    // freeze_agent is recorded as deny at the policy gate; the engine/API can
+    // later honour a side-effect channel. Severity: deny > review.
+    if (!escalate || severity(next.outcome) > severity(escalate.outcome)) {
+      escalate = next;
+    }
+  }
+  return escalate;
+}
+
+function severity(o: DecisionOutcome): number {
+  return o === "deny" ? 2 : o === "review" ? 1 : 0;
+}
+
+function conditionMatches(
+  when: AutomationCondition,
+  intent: MoneyIntent,
+  rules: PolicyRules,
+): boolean {
+  switch (when.kind) {
+    case "amount_above":
+      return intent.amountMicro > when.micro;
+    case "balance_below":
+      // Runtime injects walletBalanceMicro (agent available today; walletId later).
+      void when.walletId;
+      if (rules.walletBalanceMicro === undefined) return false;
+      return rules.walletBalanceMicro < when.micro;
+    case "merchant_unknown": {
+      const key = destinationKey(intent.destination);
+      return !rules.knownCounterparties.map(norm).includes(key);
+    }
+    case "budget_exceeded":
+      return rules.spentLast24hMicro + intent.amountMicro > rules.dailyMaxMicro;
+    default:
+      return false;
+  }
+}
+
+function actionToOutcome(
+  rule: AutomationRule,
+): { ruleId: string; reason: string; outcome: DecisionOutcome } | null {
+  switch (rule.then.kind) {
+    case "deny":
+    case "freeze_agent":
+      return {
+        ruleId: rule.id,
+        reason: `Automation “${rule.name}” → ${rule.then.kind}`,
+        outcome: "deny",
+      };
+    case "require_approval":
+      return {
+        ruleId: rule.id,
+        reason: `Automation “${rule.name}” → require approval`,
+        outcome: "review",
+      };
+    case "notify":
+      // Notify-only rules do not change the money outcome; the notifier layer
+      // can subscribe to decisions with ruleIds starting with automation:.
+      return null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Persisted policy template — runtime fields (spent, frozen, counterparties,
+ * wallet balance) are injected by `rulesFor` and never stored.
+ */
+export type PolicyTemplate = Omit<
   PolicyRules,
   | "knownCounterparties"
   | "spentLast24hMicro"
   | "paysLastMinute"
   | "agentFrozen"
   | "orgFrozen"
-> {
+  | "walletBalanceMicro"
+  | "nowMs"
+>;
+
+export function templateSoloSwarm(): PolicyTemplate {
   return {
     // Bands must nest: allow < hitlAboveMicro <= review < perTxMaxMicro <= deny
     perTxMaxMicro: 25_000_000n, // $25 hard per-tx ceiling
@@ -267,5 +407,103 @@ export function templateSoloSwarm(): Omit<
     vendorAllowlist: ["api.openai.com", "data.example"],
     blocklist: [],
     hitlCategories: ["withdraw"],
+    automation: [],
   };
+}
+
+/** Multi-agent desk — tighter per-tx, shared vendor list, overnight quiet hours. */
+export function templateSwarm(): PolicyTemplate {
+  return {
+    perTxMaxMicro: 15_000_000n,
+    dailyMaxMicro: 40_000_000n,
+    maxPaysPerMinute: 8,
+    newCounterpartyCooldownHours: 48,
+    hitlAboveMicro: 5_000_000n,
+    addressAllowlist: [],
+    domainAllowlist: [],
+    vendorAllowlist: ["api.openai.com", "api.anthropic.com", "data.example"],
+    blocklist: [],
+    hitlCategories: ["withdraw", "transfer_internal"],
+    quietHours: { startHour: 22, endHour: 6, action: "review" },
+    approvalQuorum: 1,
+    automation: [
+      {
+        id: "auto_unknown_merchant",
+        name: "Unknown merchant → approval",
+        when: { kind: "merchant_unknown" },
+        then: { kind: "require_approval" },
+      },
+    ],
+  };
+}
+
+/** API seller / x402-heavy — higher velocity, domain allowlist focus. */
+export function templateApiSeller(): PolicyTemplate {
+  return {
+    perTxMaxMicro: 50_000_000n,
+    dailyMaxMicro: 200_000_000n,
+    maxPaysPerMinute: 30,
+    newCounterpartyCooldownHours: 0,
+    hitlAboveMicro: 25_000_000n,
+    addressAllowlist: [],
+    domainAllowlist: ["localhost"],
+    vendorAllowlist: [],
+    blocklist: [],
+    hitlCategories: ["withdraw"],
+    approvalQuorum: 1,
+    automation: [
+      {
+        id: "auto_large_pay",
+        name: "Large payment → notify",
+        when: { kind: "amount_above", micro: 20_000_000n },
+        then: { kind: "notify", channel: "in_app" },
+      },
+    ],
+  };
+}
+
+export type PolicyTemplateId = "solo_swarm" | "swarm" | "api_seller";
+
+export function policyTemplateById(id: PolicyTemplateId): PolicyTemplate {
+  switch (id) {
+    case "swarm":
+      return templateSwarm();
+    case "api_seller":
+      return templateApiSeller();
+    case "solo_swarm":
+    default:
+      return templateSoloSwarm();
+  }
+}
+
+export function listPolicyTemplateCatalog(): {
+  id: PolicyTemplateId;
+  name: string;
+  description: string;
+}[] {
+  return [
+    {
+      id: "solo_swarm",
+      name: "Solo swarm",
+      description: "Default demo — $10 HITL, $25 per-tx, OpenAI allowlisted.",
+    },
+    {
+      id: "swarm",
+      name: "Research swarm",
+      description: "Tighter caps, overnight quiet hours, unknown-merchant HITL.",
+    },
+    {
+      id: "api_seller",
+      name: "API seller",
+      description: "Higher velocity for x402 / machine payments; large-pay notify.",
+    },
+  ];
+}
+
+/** Rules whose `when` matches — used by the API to fire notify/freeze side-effects. */
+export function matchedAutomationRules(
+  intent: MoneyIntent,
+  rules: PolicyRules,
+): AutomationRule[] {
+  return (rules.automation ?? []).filter((rule) => conditionMatches(rule.when, intent, rules));
 }

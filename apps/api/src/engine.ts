@@ -4,7 +4,7 @@
  * and by the Telegram approvals bot.
  */
 import { randomBytes } from "node:crypto";
-import { formatMicroToUsdc, type IntentTool, type MicroUsdc } from "@policyvault/common";
+import { accountId, formatMicroToUsdc, type IntentTool, type MicroUsdc } from "@policyvault/common";
 import {
   finalizePayment,
   holdForPayment,
@@ -15,15 +15,27 @@ import {
   type JournalEntry,
 } from "@policyvault/ledger";
 import { evaluatePolicy, type PolicyRules } from "@policyvault/policy";
-import { payViaX402, X402Error } from "./rails/x402.js";
+import { X402Error, X402Rail } from "./rails/x402.js";
+import { TransferMockRail } from "./rails/transfer-mock.js";
+import type { PaymentRail } from "./rails/types.js";
+import { screenDestination } from "./platform/compliance.js";
+import { notify } from "./platform/notifier.js";
+import { recordObs } from "./platform/observability.js";
 import { store, type ApprovalRow, type EscrowRow } from "./store.js";
 import { emitEvent } from "./webhooks.js";
 
 export const APPROVAL_TTL_MINUTES = Number(process.env.APPROVAL_TTL_MINUTES ?? 10);
 export const ESCROW_DEFAULT_TIMEOUT_MINUTES = Number(process.env.ESCROW_TIMEOUT_MINUTES ?? 15);
 
+const x402Rail: PaymentRail = new X402Rail();
+const transferMockRail: PaymentRail = new TransferMockRail();
+
 export function id(prefix: string): string {
   return `${prefix}_${randomBytes(6).toString("hex")}`;
+}
+
+export function scopedIdempotencyKey(agentId: string, key: string): string {
+  return `${agentId}:${key}`;
 }
 
 export function rulesFor(agentId: string, orgId: string): PolicyRules {
@@ -31,6 +43,7 @@ export function rulesFor(agentId: string, orgId: string): PolicyRules {
   const org = store.getOrg(orgId)!;
   const base = store.getPolicyTemplate(orgId);
   const orgAgentIds = store.listAgents(orgId).map((a) => a.id);
+  const availableId = accountId("agent", agentId, "available");
   return {
     ...base,
     knownCounterparties: [
@@ -40,8 +53,10 @@ export function rulesFor(agentId: string, orgId: string): PolicyRules {
     ],
     spentLast24hMicro: store.spentLast24h(agentId),
     paysLastMinute: store.paysLastMinute(agentId),
-    agentFrozen: agent.status === "frozen",
+    // Archived agents are non-spendable — same deny path as freeze.
+    agentFrozen: agent.status === "frozen" || agent.status === "archived",
     orgFrozen: org.status === "frozen",
+    walletBalanceMicro: store.getAccountMap(orgId).get(availableId)?.balanceMicro ?? 0n,
   };
 }
 
@@ -84,9 +99,51 @@ export type ExecResult =
  * (signed by the org custody key); everything else uses the instant mock rail.
  */
 export async function executeIntent(input: ExecInput): Promise<ExecResult> {
-  const agentAvailableId = `agent:${input.agentId}:available`;
+  const agentAvailableId = accountId("agent", input.agentId, "available");
+  const agentHeldId = accountId("agent", input.agentId, "held");
+  const externalId = `org:${input.orgId}:external`;
 
   if (input.tool === "escrow_lock") {
+    const destination = input.destination || input.payeeAgentId || "";
+    const screen = await screenDestination(destination, {
+      orgId: input.orgId,
+      agentId: input.agentId,
+    });
+    if (!screen.ok) {
+      emitEvent(input.orgId, "compliance.flagged", {
+        intentId: input.intentId,
+        agentId: input.agentId,
+        destination,
+        tool: input.tool,
+        reason: screen.reason,
+        provider: screen.provider,
+      });
+      recordObs({
+        name: "compliance.flagged",
+        orgId: input.orgId,
+        agentId: input.agentId,
+        attrs: { destination, reason: screen.reason, tool: input.tool },
+      });
+      void notify({
+        kind: "compliance.flagged",
+        orgId: input.orgId,
+        title: "Compliance blocked",
+        body: screen.reason ?? "Destination blocked by compliance screen",
+        meta: { destination, tool: input.tool, provider: screen.provider },
+      });
+      return {
+        ok: false,
+        status: 403,
+        payload: {
+          intentId: input.intentId,
+          error: {
+            code: "COMPLIANCE_BLOCKED",
+            message: screen.reason ?? "Destination blocked by compliance screen",
+          },
+        },
+      };
+    }
+
     const escrowId = id("esc");
     const escrowAccountId = `escrow:${escrowId}`;
     try {
@@ -162,8 +219,6 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
 
   // pay / pay_api: hold the authorized amount, run the rail, then finalize
   // exactly what the rail charged and release any remainder back to the agent.
-  const agentHeldId = `agent:${input.agentId}:held`;
-  const externalId = `org:${input.orgId}:external`;
 
   try {
     store.applyEntries(input.orgId, [
@@ -207,63 +262,101 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     ]);
 
   let chargedMicro = input.amountMicro;
-  let rail = input.tool === "pay_api" ? "x402-mock" : "transfer-mock";
+  let rail = transferMockRail.name;
   let txHash: string | undefined;
   let resource: unknown;
   const isUrl = /^https?:\/\//i.test(input.destination);
-  if (input.tool === "pay_api" && isUrl) {
-    const privateKey = store.getVaultPrivateKey(input.orgId);
-    if (!privateKey) {
-      releaseFullHold();
-      return {
-        ok: false,
-        status: 502,
-        payload: {
-          intentId: input.intentId,
-          error: {
-            code: "RAIL_FAILED",
-            message: "Org has no custody key (created before wallet support) — recreate org",
-          },
-        },
-      };
-    }
-    try {
-      const paid = await payViaX402({
-        url: input.destination,
-        authorizedMicro: input.amountMicro,
-        privateKey,
-        blocklist: store.getPolicyTemplate(input.orgId).blocklist,
-      });
-      if (!paid.receipt.settled) {
-        throw new X402Error(
-          "RAIL_FAILED",
-          "Seller returned the resource but reported settlement failure — not booking a payment.",
-        );
-      }
-      chargedMicro = paid.receipt.amountMicro;
-      rail = "x402";
-      txHash = paid.receipt.txHash;
-      resource = paid.resource;
-    } catch (e) {
-      releaseFullHold();
-      const code = e instanceof X402Error ? e.code : "RAIL_FAILED";
-      emitEvent(input.orgId, "payment.failed", {
-        intentId: input.intentId,
-        tool: input.tool,
-        agentId: input.agentId,
-        amountUsdc: input.amountUsdc,
+
+  // Compliance screen — pluggable; allow-all by default.
+  const screen = await screenDestination(input.destination, {
+    orgId: input.orgId,
+    agentId: input.agentId,
+  });
+  if (!screen.ok) {
+    releaseFullHold();
+    emitEvent(input.orgId, "compliance.flagged", {
+      intentId: input.intentId,
+      agentId: input.agentId,
+      destination: input.destination,
+      reason: screen.reason,
+      provider: screen.provider,
+    });
+    recordObs({
+      name: "compliance.flagged",
+      orgId: input.orgId,
+      agentId: input.agentId,
+      attrs: { destination: input.destination, reason: screen.reason },
+    });
+    void notify({
+      kind: "compliance.flagged",
+      orgId: input.orgId,
+      title: "Compliance blocked",
+      body: screen.reason ?? "Destination blocked by compliance screen",
+      meta: {
         destination: input.destination,
-        reason: String(e),
-      });
-      return {
-        ok: false,
-        status: 402,
-        payload: {
-          intentId: input.intentId,
-          error: { code, message: e instanceof Error ? e.message : String(e) },
+        tool: input.tool,
+        provider: screen.provider,
+      },
+    });
+    return {
+      ok: false,
+      status: 403,
+      payload: {
+        intentId: input.intentId,
+        error: {
+          code: "COMPLIANCE_BLOCKED",
+          message: screen.reason ?? "Destination blocked by compliance screen",
         },
-      };
+      },
+    };
+  }
+
+  const selectedRail: PaymentRail =
+    input.tool === "pay_api" && isUrl ? x402Rail : transferMockRail;
+
+  try {
+    const settled = await selectedRail.settle({
+      orgId: input.orgId,
+      agentId: input.agentId,
+      intentId: input.intentId,
+      destination: input.destination,
+      authorizedMicro: input.amountMicro,
+      blocklist: store.getPolicyTemplate(input.orgId).blocklist,
+    });
+    if (!settled.settled) {
+      throw new X402Error(
+        "RAIL_FAILED",
+        "Rail reported settlement failure — not booking a payment.",
+      );
     }
+    chargedMicro = settled.chargedMicro;
+    rail = settled.rail;
+    txHash = settled.txHash;
+    resource = settled.resource;
+  } catch (e) {
+    releaseFullHold();
+    const code =
+      e instanceof X402Error
+        ? e.code === "CUSTODY_UNAVAILABLE"
+          ? "CUSTODY_UNAVAILABLE"
+          : e.code
+        : "RAIL_FAILED";
+    emitEvent(input.orgId, "payment.failed", {
+      intentId: input.intentId,
+      tool: input.tool,
+      agentId: input.agentId,
+      amountUsdc: input.amountUsdc,
+      destination: input.destination,
+      reason: String(e),
+    });
+    return {
+      ok: false,
+      status: code === "CUSTODY_UNAVAILABLE" ? 502 : 402,
+      payload: {
+        intentId: input.intentId,
+        error: { code, message: e instanceof Error ? e.message : String(e) },
+      },
+    };
   }
 
   const settleEntries: JournalEntry[] = [
@@ -410,6 +503,7 @@ export async function resolveApproval(
   }
 
   const resolvedAt = new Date().toISOString();
+  const idemKey = scopedIdempotencyKey(approval.agentId, approval.idempotencyKey);
 
   if (!approve) {
     const result = {
@@ -433,7 +527,7 @@ export async function resolveApproval(
       amountUsdc: approval.amountUsdc,
       destination: approval.destination,
     });
-    store.setIdempotent(approval.orgId, approval.idempotencyKey, result);
+    store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
     emitEvent(orgId, "approval.resolved", {
       approvalId: approval.id,
       status: "denied",
@@ -452,14 +546,33 @@ export async function resolveApproval(
   // every limit collectively.
   const rules = rulesFor(approval.agentId, approval.orgId);
   if (rules.agentFrozen || rules.orgFrozen) {
+    const result = {
+      outcome: "deny",
+      error: { code: "FROZEN", message: "Agent or org frozen since approval was requested" },
+    };
     store.resolveApproval(approval.id, {
       status: "denied",
       resolvedAt,
       resolvedBy,
-      result: {
-        outcome: "deny",
-        error: { code: "FROZEN", message: "Agent or org frozen since approval was requested" },
-      },
+      result,
+    });
+    recordDecision({
+      intentId: approval.intentId,
+      orgId: approval.orgId,
+      agentId: approval.agentId,
+      outcome: "deny",
+      ruleIds: [rules.orgFrozen ? "org_frozen" : "agent_frozen"],
+      reasons: ["Frozen before guardian approval resolved"],
+      tool: approval.tool,
+      amountUsdc: approval.amountUsdc,
+      destination: approval.destination,
+    });
+    store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
+    emitEvent(orgId, "approval.resolved", {
+      approvalId: approval.id,
+      status: "denied",
+      resolvedBy,
+      reason: "frozen",
     });
     return { kind: "frozen", approval: store.getApproval(approvalId, orgId)! };
   }
@@ -499,7 +612,7 @@ export async function resolveApproval(
       amountUsdc: approval.amountUsdc,
       destination: approval.destination,
     });
-    store.setIdempotent(approval.orgId, approval.idempotencyKey, { ...result, httpStatus: 403 });
+    store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
     emitEvent(orgId, "approval.resolved", {
       approvalId: approval.id,
       status: "denied",
@@ -520,6 +633,10 @@ export async function resolveApproval(
     memo: approval.memo,
     payeeAgentId: approval.payeeAgentId,
     timeoutMinutes: approval.timeoutMinutes,
+  }).catch((e) => {
+    // Unexpected throw after claim — release the lock so a guardian can retry.
+    store.unclaimApproval(approval.id);
+    throw e;
   });
   store.resolveApproval(approval.id, {
     status: result.ok ? "approved" : "denied",
@@ -540,9 +657,10 @@ export async function resolveApproval(
     amountUsdc: approval.amountUsdc,
     destination: approval.destination,
   });
-  if (result.ok) {
-    store.setIdempotent(approval.orgId, approval.idempotencyKey, result.payload);
-  }
+  store.setIdempotent(approval.orgId, idemKey, {
+    ...result.payload,
+    httpStatus: result.ok ? 200 : result.status,
+  });
   emitEvent(orgId, "approval.resolved", {
     approvalId: approval.id,
     status: result.ok ? "approved" : "denied",
@@ -565,12 +683,17 @@ export function settleEscrow(
   action: "release" | "refund" | "timeout_refund",
   actor: string,
 ): ExecResult {
-  if (escrow.state !== "locked") {
+  // A11: CAS claim before ledger apply so concurrent settlers cannot double-book.
+  if (!store.claimEscrow(escrow.id)) {
+    const fresh = store.getEscrow(escrow.id, escrow.orgId) ?? escrow;
     return {
       ok: false,
       status: 409,
       payload: {
-        error: { code: "VALIDATION_ERROR", message: `Escrow is ${escrow.state}` },
+        error: {
+          code: "VALIDATION_ERROR",
+          message: `Escrow is ${fresh.state !== "locked" ? fresh.state : "busy"}`,
+        },
       },
     };
   }
@@ -623,6 +746,7 @@ export function settleEscrow(
     });
     return { ok: true, payload: { state: newState } };
   } catch (e) {
+    store.unclaimEscrow(escrow.id);
     return {
       ok: false,
       status: 500,

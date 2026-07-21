@@ -10,6 +10,9 @@ export type Setup = {
   telegram: boolean;
   rateLimitPerMin: number;
   approvalTtlMinutes: number;
+  cdpApiKeyConfigured?: boolean;
+  cdpWired?: boolean;
+  note?: string;
 };
 
 export type Recon = {
@@ -20,20 +23,11 @@ export type Recon = {
 };
 
 type Guardian = { id: string; name: string; role: string; createdAt: string; revokedAt?: string };
-type Subscription = {
-  id: string;
-  vendor: string;
-  amountUsdc: string;
-  intervalHours: number;
-  status: string;
-  runs: number;
-  spentUsdc: string;
-  nextRunAt: string;
-  lastError?: string;
-};
 
 const SECTIONS = [
   { key: "golive", label: "Go live", icon: "shield" },
+  { key: "org", label: "Org & compliance", icon: "shield" },
+  { key: "merchants", label: "Merchants", icon: "wallet" },
   { key: "team", label: "Team & quorum", icon: "check" },
   { key: "recurring", label: "Recurring spend", icon: "clock" },
   { key: "console", label: "Console", icon: "sliders" },
@@ -57,6 +51,8 @@ export function SettingsView({
   gFetch,
   api,
   sellerUrl,
+  actorRole = "owner",
+  onGoto,
 }: {
   setup: Setup | null;
   recon: Recon | null;
@@ -71,33 +67,56 @@ export function SettingsView({
   gFetch: (p: string, i?: RequestInit) => Promise<Response>;
   api: string;
   sellerUrl: string;
+  actorRole?: "owner" | "approver" | "viewer";
+  onGoto?: (view: string) => void;
 }) {
+  const readOnly = actorRole === "viewer";
   const [section, setSection] = useState<Section>("golive");
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [quorum, setQuorum] = useState(1);
-  const [subs, setSubs] = useState<Subscription[]>([]);
   const [newGuardian, setNewGuardian] = useState("");
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
-  const [subForm, setSubForm] = useState({ agentId: "", vendor: "", amountUsdc: "", intervalHours: "24" });
+  const [inviteRole, setInviteRole] = useState<"approver" | "viewer">("approver");
+  const [orgSettings, setOrgSettings] = useState<Record<string, unknown>>({});
+  const [planDraft, setPlanDraft] = useState("");
+  const [compliance, setCompliance] = useState<{ screener?: string; denylistConfigured?: boolean; denylistCount?: number } | null>(null);
+  const [obs, setObs] = useState<{ sink?: string } | null>(null);
+  const [merchants, setMerchants] = useState<{ id: string; key: string; label?: string; category?: string }[]>([]);
+  const [merchantForm, setMerchantForm] = useState({ key: "", label: "", category: "" });
 
   const loadTeam = async () => {
     try {
-      const [g, s] = await Promise.all([
-        gFetch("/v1/guardian/guardians").then((r) => r.json()),
-        gFetch("/v1/guardian/subscriptions").then((r) => r.json()),
-      ]);
+      const g = await gFetch("/v1/guardian/guardians").then((r) => r.json());
       setGuardians(g.guardians ?? []);
       setQuorum(g.quorum ?? 1);
-      setSubs(s.subscriptions ?? []);
     } catch {
       /* non-fatal */
     }
   };
 
   // Load the lazily-fetched sections on first visit.
+  const loadPlatform = async () => {
+    try {
+      const [settings, comp, ob, merch] = await Promise.all([
+        gFetch("/v1/guardian/settings").then((r) => r.json()),
+        gFetch("/v1/guardian/compliance").then((r) => r.json()),
+        gFetch("/v1/guardian/observability").then((r) => r.json()),
+        gFetch("/v1/guardian/merchants").then((r) => r.json()),
+      ]);
+      setOrgSettings(settings.settings ?? {});
+      setPlanDraft(String((settings.settings ?? {}).plan ?? ""));
+      setCompliance(comp);
+      setObs(ob);
+      setMerchants(merch.merchants ?? []);
+    } catch {
+      /* non-fatal */
+    }
+  };
+
   const go = (s: Section) => {
     setSection(s);
     if (s === "team" || s === "recurring") void loadTeam();
+    if (s === "org" || s === "merchants" || s === "golive") void loadPlatform();
   };
 
   const orgFrozen = org?.org.status === "frozen";
@@ -119,7 +138,7 @@ export function SettingsView({
     act("Invite", async () => {
       const res = await gFetch("/v1/guardian/guardians", {
         method: "POST",
-        body: JSON.stringify({ name: newGuardian.trim() }),
+        body: JSON.stringify({ name: newGuardian.trim(), role: inviteRole }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error?.message ?? "failed");
@@ -151,47 +170,23 @@ export function SettingsView({
       return "Guardian revoked — their key no longer works.";
     });
 
-  const createSub = () =>
-    act("Subscription", async () => {
-      const res = await gFetch("/v1/guardian/subscriptions", {
-        method: "POST",
-        body: JSON.stringify({
-          agentId: subForm.agentId,
-          vendor: subForm.vendor.trim(),
-          amountUsdc: subForm.amountUsdc.trim(),
-          intervalHours: Number(subForm.intervalHours) || 24,
-        }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error?.message ?? "failed");
-      setSubForm({ agentId: "", vendor: "", amountUsdc: "", intervalHours: "24" });
-      await loadTeam();
-      return "Recurring charge created — every run still passes the policy engine.";
-    });
-
-  const subAction = (id: string, action: "pause" | "resume" | "cancel") =>
-    act("Subscription", async () => {
-      const res = await gFetch(`/v1/guardian/subscriptions/${id}/${action}`, { method: "POST" });
-      if (!res.ok) throw new Error(JSON.stringify(await res.json()));
-      await loadTeam();
-      return `Subscription ${action}d.`;
-    });
-
   const golive = [
     {
-      done: setup?.custody === "cdp",
+      done: !!setup?.cdpWired,
       title: "Real custody (Coinbase CDP)",
       body:
-        setup?.custody === "cdp"
+        setup?.cdpWired
           ? "CDP custody active — payments sign with a managed wallet."
-          : "Currently signing with a local dev key. Set CDP_API_KEY_ID and CDP_API_KEY_SECRET on the API to switch to managed custody.",
+          : setup?.cdpApiKeyConfigured
+            ? "CDP_API_KEY_ID is set but DevLocalProvider is still wired — call setCustodyProvider(CdpProvider) to go live."
+            : `Currently signing with ${setup?.custody ?? "dev-local"}. Set CDP credentials and wire CdpProvider to switch.`,
     },
     {
-      done: setup?.settlement === "onchain",
+      done: !!setup?.cdpWired,
       title: "On-chain settlement on Base Sepolia",
       body:
-        setup?.settlement === "onchain"
-          ? "Settling on Base Sepolia."
+        setup?.cdpWired
+          ? "Settling on Base Sepolia via CDP."
           : "The x402 handshake, signature and price checks are all real — only the final chain write is mocked by the dev facilitator. Fund the vault address with testnet USDC and point the seller at the hosted facilitator to go live.",
     },
     {
@@ -309,6 +304,189 @@ export function SettingsView({
           </>
         )}
 
+        {section === "org" && (
+          <>
+            {readOnly && (
+              <div className="banner">
+                <span className="txt">
+                  <b>Viewer mode</b>
+                  <span>You can inspect settings but cannot change them.</span>
+                </span>
+              </div>
+            )}
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <h2>Organization settings</h2>
+                  <div className="sub">Feature flags and plan metadata stored in OrgSettings JSON</div>
+                </div>
+              </div>
+              <div className="field">
+                <label>Plan</label>
+                <input
+                  value={planDraft}
+                  disabled={readOnly}
+                  onChange={(e) => setPlanDraft(e.target.value)}
+                  placeholder="demo / growth / enterprise"
+                />
+              </div>
+              <button
+                className="sm"
+                disabled={busy || readOnly}
+                onClick={() =>
+                  void act("Save settings", async () => {
+                    const res = await gFetch("/v1/guardian/settings", {
+                      method: "PATCH",
+                      body: JSON.stringify({ settings: { plan: planDraft.trim() || undefined } }),
+                    });
+                    const d = await res.json();
+                    if (!res.ok) throw new Error(d.error?.message ?? "failed");
+                    setOrgSettings(d.settings ?? {});
+                    return "Org settings saved.";
+                  })
+                }
+              >
+                Save settings
+              </button>
+              <pre className="code" style={{ marginTop: 12, fontSize: 11 }}>
+                {JSON.stringify(orgSettings, null, 2)}
+              </pre>
+            </div>
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <h2>Compliance & observability</h2>
+                  <div className="sub">Live screener + sink status</div>
+                </div>
+              </div>
+              <div className="kv">
+                <span className="k">Screener</span>
+                <span className="v mono">{compliance?.screener ?? "—"}</span>
+              </div>
+              <div className="kv">
+                <span className="k">Denylist</span>
+                <span className="v">
+                  {compliance?.denylistConfigured
+                    ? `${compliance.denylistCount} entries (ABI_COMPLIANCE_DENYLIST)`
+                    : "not configured"}
+                </span>
+              </div>
+              <div className="kv">
+                <span className="k">Observability sink</span>
+                <span className="v mono">{obs?.sink ?? "—"}</span>
+              </div>
+              <div className="kv">
+                <span className="k">Custody provider</span>
+                <span className="v mono">{setup?.custody ?? "—"}</span>
+              </div>
+              {setup?.note && (
+                <p className="muted" style={{ fontSize: 12.5 }}>{setup.note}</p>
+              )}
+            </div>
+          </>
+        )}
+
+        {section === "merchants" && (
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <h2>Merchant directory</h2>
+                <div className="sub">Metadata layered on allowlisted counterparties</div>
+              </div>
+            </div>
+            <div className="grid g-2" style={{ gap: "0 14px" }}>
+              <div className="field">
+                <label>Key</label>
+                <input
+                  value={merchantForm.key}
+                  disabled={readOnly}
+                  onChange={(e) => setMerchantForm({ ...merchantForm, key: e.target.value })}
+                  placeholder="api.openai.com"
+                />
+              </div>
+              <div className="field">
+                <label>Label</label>
+                <input
+                  value={merchantForm.label}
+                  disabled={readOnly}
+                  onChange={(e) => setMerchantForm({ ...merchantForm, label: e.target.value })}
+                />
+              </div>
+              <div className="field">
+                <label>Category</label>
+                <input
+                  value={merchantForm.category}
+                  disabled={readOnly}
+                  onChange={(e) => setMerchantForm({ ...merchantForm, category: e.target.value })}
+                  placeholder="llm / data / tools"
+                />
+              </div>
+            </div>
+            <button
+              className="sm"
+              disabled={busy || readOnly || !merchantForm.key.trim()}
+              onClick={() =>
+                void act("Upsert merchant", async () => {
+                  const res = await gFetch("/v1/guardian/merchants", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      key: merchantForm.key.trim(),
+                      label: merchantForm.label.trim() || undefined,
+                      category: merchantForm.category.trim() || undefined,
+                    }),
+                  });
+                  const d = await res.json();
+                  if (!res.ok) throw new Error(d.error?.message ?? "failed");
+                  setMerchantForm({ key: "", label: "", category: "" });
+                  await loadPlatform();
+                  return "Merchant saved.";
+                })
+              }
+            >
+              Save merchant
+            </button>
+            <table style={{ marginTop: 14 }}>
+              <thead>
+                <tr>
+                  <th>Key</th>
+                  <th>Label</th>
+                  <th>Category</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {merchants.map((m) => (
+                  <tr key={m.id}>
+                    <td className="mono">{m.key}</td>
+                    <td>{m.label ?? "—"}</td>
+                    <td className="faint">{m.category ?? "—"}</td>
+                    <td>
+                      <button
+                        className="ghost sm"
+                        disabled={busy || readOnly}
+                        onClick={() =>
+                          void act("Delete merchant", async () => {
+                            const res = await gFetch(`/v1/guardian/merchants/${m.id}`, {
+                              method: "DELETE",
+                            });
+                            if (!res.ok) throw new Error(JSON.stringify(await res.json()));
+                            await loadPlatform();
+                          })
+                        }
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!merchants.length && (
+              <p className="muted" style={{ fontSize: 12.5 }}>No merchants yet — add one or allocate spend to seed known counterparties.</p>
+            )}
+          </div>
+        )}
+
         {section === "team" && (
           <>
             <div className="card">
@@ -326,7 +504,7 @@ export function SettingsView({
                   <button
                     key={n}
                     className={quorum === n ? "" : "ghost"}
-                    disabled={busy}
+                    disabled={busy || readOnly}
                     onClick={() => void setQuorumTo(n)}
                   >
                     {n === 1 ? "Any one guardian" : `${n} guardians`}
@@ -349,9 +527,19 @@ export function SettingsView({
                     style={{ width: 170 }}
                     placeholder="Name"
                     value={newGuardian}
+                    disabled={readOnly}
                     onChange={(e) => setNewGuardian(e.target.value)}
                   />
-                  <button className="sm" disabled={busy || !newGuardian.trim()} onClick={() => void addGuardian()}>
+                  <select
+                    style={{ width: 120 }}
+                    value={inviteRole}
+                    disabled={readOnly}
+                    onChange={(e) => setInviteRole(e.target.value as "approver" | "viewer")}
+                  >
+                    <option value="approver">approver</option>
+                    <option value="viewer">viewer</option>
+                  </select>
+                  <button className="sm" disabled={busy || readOnly || !newGuardian.trim()} onClick={() => void addGuardian()}>
                     <Icon name="plus" size={12} /> Invite
                   </button>
                 </div>
@@ -377,7 +565,7 @@ export function SettingsView({
                   <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     {g.role}
                     {!g.revokedAt && (
-                      <button className="bare sm" disabled={busy} onClick={() => void revoke(g.id)}>
+                      <button className="bare sm" disabled={busy || readOnly} onClick={() => void revoke(g.id)}>
                         revoke
                       </button>
                     )}
@@ -394,137 +582,19 @@ export function SettingsView({
         )}
 
         {section === "recurring" && (
-          <>
-            <div className="card">
-              <div className="card-head">
-                <div>
-                  <h2>New recurring charge</h2>
-                  <div className="sub">
-                    A subscription gets no special authority — every run passes the same policy
-                    engine, so a frozen agent or a blown cap stops it like any other payment.
-                  </div>
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <h2>Recurring spend moved</h2>
+                <div className="sub">
+                  Subscriptions and one-shot schedules live under Payments so money surfaces stay together.
                 </div>
               </div>
-              <div className="grid g-2" style={{ gap: "0 14px" }}>
-                <div className="field">
-                  <label>Paid by</label>
-                  <select
-                    value={subForm.agentId}
-                    onChange={(e) => setSubForm({ ...subForm, agentId: e.target.value })}
-                  >
-                    <option value="">Choose an agent…</option>
-                    {agents.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label>Vendor</label>
-                  <input
-                    placeholder="api.openai.com"
-                    value={subForm.vendor}
-                    onChange={(e) => setSubForm({ ...subForm, vendor: e.target.value })}
-                  />
-                </div>
-                <div className="field">
-                  <label>Amount (USDC)</label>
-                  <input
-                    placeholder="5"
-                    value={subForm.amountUsdc}
-                    onChange={(e) => setSubForm({ ...subForm, amountUsdc: e.target.value })}
-                  />
-                </div>
-                <div className="field">
-                  <label>Every (hours)</label>
-                  <input
-                    value={subForm.intervalHours}
-                    onChange={(e) => setSubForm({ ...subForm, intervalHours: e.target.value })}
-                  />
-                </div>
-              </div>
-              <button
-                disabled={busy || !subForm.agentId || !subForm.vendor.trim() || !subForm.amountUsdc.trim()}
-                onClick={() => void createSub()}
-              >
-                Create subscription
-              </button>
             </div>
-
-            <div className="card">
-              <div className="card-head">
-                <h2>Active subscriptions</h2>
-              </div>
-              {!subs.length ? (
-                <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
-                  None yet.
-                </p>
-              ) : (
-                <div className="tbl-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Vendor</th>
-                        <th className="num">Amount</th>
-                        <th>Every</th>
-                        <th>Status</th>
-                        <th className="num">Runs</th>
-                        <th className="num">Spent</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {subs.map((s) => (
-                        <tr key={s.id}>
-                          <td className="mono">
-                            {s.vendor}
-                            {s.lastError && (
-                              <div className="faint" style={{ fontSize: 10.5 }}>
-                                last run: {s.lastError.slice(0, 44)}
-                              </div>
-                            )}
-                          </td>
-                          <td className="num mono">${s.amountUsdc}</td>
-                          <td>{s.intervalHours}h</td>
-                          <td>
-                            <span
-                              className={`pill ${
-                                s.status === "active" ? "ok" : s.status === "paused" ? "warn" : "mute"
-                              }`}
-                            >
-                              {s.status}
-                            </span>
-                          </td>
-                          <td className="num mono">{s.runs}</td>
-                          <td className="num mono">${s.spentUsdc}</td>
-                          <td>
-                            <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
-                              {s.status === "active" && (
-                                <button className="ghost sm" disabled={busy} onClick={() => void subAction(s.id, "pause")}>
-                                  Pause
-                                </button>
-                              )}
-                              {s.status === "paused" && (
-                                <button className="ghost sm" disabled={busy} onClick={() => void subAction(s.id, "resume")}>
-                                  Resume
-                                </button>
-                              )}
-                              {s.status !== "cancelled" && (
-                                <button className="danger sm" disabled={busy} onClick={() => void subAction(s.id, "cancel")}>
-                                  Cancel
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </>
+            <button className="sm" onClick={() => onGoto?.("payments")}>
+              Open Payments → Subscriptions
+            </button>
+          </div>
         )}
 
         {section === "console" && (
@@ -597,7 +667,7 @@ export function SettingsView({
                   not merely hidden. Escrow releases are blocked too.
                 </span>
               </div>
-              <button className={orgFrozen ? "ghost" : "danger"} disabled={busy} onClick={() => void toggleFreeze()}>
+              <button className={orgFrozen ? "ghost" : "danger"} disabled={busy || readOnly} onClick={() => void toggleFreeze()}>
                 {orgFrozen ? "Unfreeze org" : "Freeze everything"}
               </button>
             </div>

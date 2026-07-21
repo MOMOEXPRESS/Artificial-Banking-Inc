@@ -1,0 +1,12 @@
+node_modules
+.git
+.next
+dist
+*.db
+*.db-*
+.env
+.env.local
+apps/api/data
+coverage
+tmp
+.turbo

@@ -16,7 +16,32 @@ export type Policy = {
   blocklist: string[];
   hitlCategories: string[];
   quietHours?: { startHour: number; endHour: number; action: "review" | "deny" } | null;
+  approvalQuorum?: number;
+  automation?: {
+    id: string;
+    name: string;
+    when:
+      | { kind: "amount_above"; micro: string }
+      | { kind: "balance_below"; micro: string; walletId?: string }
+      | { kind: "merchant_unknown" }
+      | { kind: "budget_exceeded" };
+    then:
+      | { kind: "notify"; channel?: string }
+      | { kind: "require_approval" }
+      | { kind: "deny" }
+      | { kind: "freeze_agent" };
+  }[];
 };
+
+const HITL_TOOLS = [
+  "pay",
+  "pay_api",
+  "transfer_internal",
+  "escrow_lock",
+  "escrow_release",
+  "escrow_refund",
+  "withdraw",
+] as const;
 
 /** Editable list of counterparties rendered as removable chips. */
 function ListEditor({
@@ -147,27 +172,55 @@ export function PolicyView({
   busy,
   act,
   gFetch,
+  readOnly = false,
 }: {
   policy: Policy;
   busy: boolean;
   act: (label: string, fn: () => Promise<string | void>) => Promise<void>;
   gFetch: (p: string, i?: RequestInit) => Promise<Response>;
+  readOnly?: boolean;
 }) {
+  const locked = busy || readOnly;
   const [f, setF] = useState({
     hitlAboveUsdc: policy.hitlAboveUsdc,
     perTxMaxUsdc: policy.perTxMaxUsdc,
     dailyMaxUsdc: policy.dailyMaxUsdc,
     maxPaysPerMinute: String(policy.maxPaysPerMinute),
+    newCounterpartyCooldownHours: String(policy.newCounterpartyCooldownHours ?? 0),
     vendorAllowlist: policy.vendorAllowlist,
     domainAllowlist: policy.domainAllowlist,
     addressAllowlist: policy.addressAllowlist,
     blocklist: policy.blocklist,
+    hitlCategories: policy.hitlCategories ?? [],
   });
   const [quiet, setQuiet] = useState(
     policy.quietHours ?? { startHour: 22, endHour: 6, action: "review" as const },
   );
   const [quietOn, setQuietOn] = useState(!!policy.quietHours);
+  const [automation, setAutomation] = useState(policy.automation ?? []);
   const [touched, setTouched] = useState(false);
+  const [versions, setVersions] = useState<
+    { id: string; version: string; note?: string; createdAt: string; summary?: Record<string, unknown> }[]
+  >([]);
+  const [templates, setTemplates] = useState<{ id: string; name: string; description: string }[]>([]);
+  const [currentVersion, setCurrentVersion] = useState<string>("");
+  const [quorum, setQuorum] = useState(policy.approvalQuorum ?? 1);
+  const [quorumSeats, setQuorumSeats] = useState(1);
+
+  useEffect(() => {
+    void (async () => {
+      const [v, t, q] = await Promise.all([
+        gFetch("/v1/guardian/policy/versions").then((r) => r.json()),
+        gFetch("/v1/guardian/policy/templates").then((r) => r.json()),
+        gFetch("/v1/guardian/quorum").then((r) => r.json()),
+      ]);
+      setVersions(v.versions ?? []);
+      setCurrentVersion(v.current ?? "");
+      setTemplates(t.templates ?? []);
+      setQuorum(q.approvalQuorum ?? policy.approvalQuorum ?? 1);
+      setQuorumSeats(q.seats ?? 1);
+    })();
+  }, [gFetch, policy]);
 
   // Adopt server state only while the user has not started editing, so a
   // background poll cannot clobber a half-typed rule change.
@@ -178,13 +231,16 @@ export function PolicyView({
       perTxMaxUsdc: policy.perTxMaxUsdc,
       dailyMaxUsdc: policy.dailyMaxUsdc,
       maxPaysPerMinute: String(policy.maxPaysPerMinute),
+      newCounterpartyCooldownHours: String(policy.newCounterpartyCooldownHours ?? 0),
       vendorAllowlist: policy.vendorAllowlist,
       domainAllowlist: policy.domainAllowlist,
       addressAllowlist: policy.addressAllowlist,
       blocklist: policy.blocklist,
+      hitlCategories: policy.hitlCategories ?? [],
     });
     setQuietOn(!!policy.quietHours);
     if (policy.quietHours) setQuiet(policy.quietHours);
+    setAutomation(policy.automation ?? []);
   }, [policy, touched]);
 
   const set = (k: keyof typeof f) => (v: string | string[]) => {
@@ -205,16 +261,19 @@ export function PolicyView({
       f.perTxMaxUsdc !== policy.perTxMaxUsdc ||
       f.dailyMaxUsdc !== policy.dailyMaxUsdc ||
       Number(f.maxPaysPerMinute) !== policy.maxPaysPerMinute ||
+      Number(f.newCounterpartyCooldownHours) !== (policy.newCounterpartyCooldownHours ?? 0) ||
       f.vendorAllowlist.join() !== policy.vendorAllowlist.join() ||
       f.domainAllowlist.join() !== policy.domainAllowlist.join() ||
       f.addressAllowlist.join() !== policy.addressAllowlist.join() ||
       f.blocklist.join() !== policy.blocklist.join() ||
+      f.hitlCategories.join() !== (policy.hitlCategories ?? []).join() ||
+      JSON.stringify(automation) !== JSON.stringify(policy.automation ?? []) ||
       quietOn !== !!policy.quietHours ||
       (quietOn &&
         (quiet.startHour !== policy.quietHours?.startHour ||
           quiet.endHour !== policy.quietHours?.endHour ||
           quiet.action !== policy.quietHours?.action)),
-    [f, quiet, quietOn, policy],
+    [f, quiet, quietOn, policy, automation],
   );
 
   const save = () =>
@@ -226,11 +285,14 @@ export function PolicyView({
           perTxMaxUsdc: f.perTxMaxUsdc,
           dailyMaxUsdc: f.dailyMaxUsdc,
           maxPaysPerMinute: Number(f.maxPaysPerMinute) || 1,
+          newCounterpartyCooldownHours: Number(f.newCounterpartyCooldownHours) || 0,
           vendorAllowlist: f.vendorAllowlist,
           domainAllowlist: f.domainAllowlist,
           addressAllowlist: f.addressAllowlist,
           blocklist: f.blocklist,
+          hitlCategories: f.hitlCategories,
           quietHours: quietOn ? quiet : null,
+          automation,
         }),
       });
       const d = await res.json();
@@ -246,12 +308,15 @@ export function PolicyView({
       perTxMaxUsdc: policy.perTxMaxUsdc,
       dailyMaxUsdc: policy.dailyMaxUsdc,
       maxPaysPerMinute: String(policy.maxPaysPerMinute),
+      newCounterpartyCooldownHours: String(policy.newCounterpartyCooldownHours ?? 0),
       vendorAllowlist: policy.vendorAllowlist,
       domainAllowlist: policy.domainAllowlist,
       addressAllowlist: policy.addressAllowlist,
       blocklist: policy.blocklist,
+      hitlCategories: policy.hitlCategories ?? [],
     });
     setQuietOn(!!policy.quietHours);
+    setAutomation(policy.automation ?? []);
   };
 
   // Visual band widths, so the three zones read as proportional to real money.
@@ -279,7 +344,7 @@ export function PolicyView({
               </button>
               <button
                 className="sm"
-                disabled={busy || bandsInvalid || dailyInvalid}
+                disabled={locked || bandsInvalid || dailyInvalid}
                 onClick={() => void save()}
               >
                 Save policy
@@ -330,6 +395,46 @@ export function PolicyView({
         )}
       </div>
 
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <div>
+            <h2>Approval quorum</h2>
+            <div className="sub">
+              How many guardians must approve HITL payments · {quorumSeats} eligible seat(s). Also
+              configurable under Settings → Guardians.
+            </div>
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <input
+              type="number"
+              min={1}
+              max={5}
+              style={{ width: 64 }}
+              disabled={readOnly}
+              value={quorum}
+              onChange={(e) => setQuorum(Number(e.target.value) || 1)}
+            />
+            <button
+              className="sm"
+              disabled={locked}
+              onClick={() =>
+                void act("Set quorum", async () => {
+                  const res = await gFetch("/v1/guardian/quorum", {
+                    method: "POST",
+                    body: JSON.stringify({ approvalQuorum: quorum }),
+                  });
+                  const d = await res.json();
+                  if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                  return `Quorum set to ${d.approvalQuorum}`;
+                })
+              }
+            >
+              Save quorum
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="grid g-2">
         <div className="card">
           <div className="card-head">
@@ -374,6 +479,43 @@ export function PolicyView({
             step={1}
             money={false}
           />
+          <LimitControl
+            label="New counterparty cooldown (hours)"
+            hint="First payment to an unknown destination parks for approval during this window. 0 disables."
+            value={f.newCounterpartyCooldownHours}
+            onChange={set("newCounterpartyCooldownHours")}
+            min={0}
+            max={168}
+            step={1}
+            money={false}
+          />
+          <div className="field">
+            <label>Always ask me for these tools</label>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              {HITL_TOOLS.map((tool) => {
+                const on = f.hitlCategories.includes(tool);
+                return (
+                  <button
+                    key={tool}
+                    type="button"
+                    className={`pill ${on ? "warn" : "mute"}`}
+                    onClick={() => {
+                      setTouched(true);
+                      setF((p) => ({
+                        ...p,
+                        hitlCategories: on
+                          ? p.hitlCategories.filter((t) => t !== tool)
+                          : [...p.hitlCategories, tool],
+                      }));
+                    }}
+                  >
+                    <i /> {tool}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="hint">Category HITL — parks these tools regardless of amount.</div>
+          </div>
         </div>
 
         <div className="card">
@@ -492,6 +634,221 @@ export function PolicyView({
         )}
       </div>
 
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <h2>Automation (IF / THEN)</h2>
+            <div className="sub">Declarative side-effects — notify, require approval, deny, or freeze.</div>
+          </div>
+          <button
+            className="ghost sm"
+            onClick={() => {
+              setTouched(true);
+              setAutomation((a) => [
+                ...a,
+                {
+                  id: `auto_${Date.now().toString(36)}`,
+                  name: "New rule",
+                  when: { kind: "merchant_unknown" },
+                  then: { kind: "require_approval" },
+                },
+              ]);
+            }}
+          >
+            <Icon name="plus" size={12} /> Add rule
+          </button>
+        </div>
+        {!automation.length && (
+          <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
+            No automation rules. Add one to escalate unknown merchants or large payments.
+          </p>
+        )}
+        {automation.map((rule, idx) => (
+          <div
+            key={rule.id}
+            className="row"
+            style={{ gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "flex-end" }}
+          >
+            <div className="field" style={{ margin: 0, minWidth: 120 }}>
+              <label>Name</label>
+              <input
+                value={rule.name}
+                onChange={(e) => {
+                  setTouched(true);
+                  setAutomation((rows) =>
+                    rows.map((r, i) => (i === idx ? { ...r, name: e.target.value } : r)),
+                  );
+                }}
+              />
+            </div>
+            <div className="field" style={{ margin: 0 }}>
+              <label>When</label>
+              <select
+                value={rule.when.kind}
+                onChange={(e) => {
+                  setTouched(true);
+                  const kind = e.target.value;
+                  setAutomation((rows) =>
+                    rows.map((r, i) => {
+                      if (i !== idx) return r;
+                      if (kind === "amount_above") {
+                        return { ...r, when: { kind: "amount_above", micro: "10000000" } };
+                      }
+                      if (kind === "balance_below") {
+                        return { ...r, when: { kind: "balance_below", micro: "5000000" } };
+                      }
+                      if (kind === "budget_exceeded") {
+                        return { ...r, when: { kind: "budget_exceeded" } };
+                      }
+                      return { ...r, when: { kind: "merchant_unknown" } };
+                    }),
+                  );
+                }}
+              >
+                <option value="merchant_unknown">merchant unknown</option>
+                <option value="budget_exceeded">budget exceeded</option>
+                <option value="amount_above">amount above (µUSDC)</option>
+                <option value="balance_below">balance below (µUSDC)</option>
+              </select>
+            </div>
+            {(rule.when.kind === "amount_above" || rule.when.kind === "balance_below") && (
+              <div className="field" style={{ margin: 0, width: 140 }}>
+                <label>Micro</label>
+                <input
+                  value={rule.when.micro}
+                  onChange={(e) => {
+                    setTouched(true);
+                    const micro = e.target.value;
+                    setAutomation((rows) =>
+                      rows.map((r, i) =>
+                        i === idx && (r.when.kind === "amount_above" || r.when.kind === "balance_below")
+                          ? { ...r, when: { ...r.when, micro } }
+                          : r,
+                      ),
+                    );
+                  }}
+                />
+              </div>
+            )}
+            <div className="field" style={{ margin: 0 }}>
+              <label>Then</label>
+              <select
+                value={rule.then.kind}
+                onChange={(e) => {
+                  setTouched(true);
+                  const kind = e.target.value as
+                    | "notify"
+                    | "require_approval"
+                    | "deny"
+                    | "freeze_agent";
+                  setAutomation((rows) =>
+                    rows.map((r, i) =>
+                      i === idx
+                        ? {
+                            ...r,
+                            then:
+                              kind === "notify"
+                                ? { kind, channel: "in_app" }
+                                : { kind },
+                          }
+                        : r,
+                    ),
+                  );
+                }}
+              >
+                <option value="require_approval">require approval</option>
+                <option value="notify">notify</option>
+                <option value="deny">deny</option>
+                <option value="freeze_agent">freeze agent</option>
+              </select>
+            </div>
+            <button
+              className="ghost sm"
+              onClick={() => {
+                setTouched(true);
+                setAutomation((rows) => rows.filter((_, i) => i !== idx));
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid g-2">
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h2>Starter templates</h2>
+              <div className="sub">Replace active rules (allowlists kept optional).</div>
+            </div>
+          </div>
+          {templates.map((t) => (
+            <div key={t.id} className="between" style={{ marginBottom: 10, gap: 8 }}>
+              <div>
+                <b style={{ fontSize: 13 }}>{t.name}</b>
+                <div className="faint" style={{ fontSize: 12 }}>{t.description}</div>
+              </div>
+              <button
+                className="sm ghost"
+                disabled={locked}
+                onClick={() =>
+                  void act("Apply template", async () => {
+                    const res = await gFetch("/v1/guardian/policy/apply-template", {
+                      method: "POST",
+                      body: JSON.stringify({ templateId: t.id, keepAllowlists: true }),
+                    });
+                    const d = await res.json();
+                    if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
+                    setTouched(false);
+                    return `Applied ${t.name}.`;
+                  })
+                }
+              >
+                Apply
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h2>Versions</h2>
+              <div className="sub">Current pin: {currentVersion || "—"}</div>
+            </div>
+          </div>
+          <div style={{ maxHeight: 220, overflow: "auto" }}>
+            {versions.map((v) => (
+              <div key={v.id} className="between" style={{ fontSize: 12, padding: "6px 0", gap: 8 }}>
+                <div>
+                  <span className="mono">{v.version}</span>
+                  {v.note && <span className="faint"> · {v.note}</span>}
+                  <div className="faint">{new Date(v.createdAt).toLocaleString()}</div>
+                </div>
+                <button
+                  className="ghost sm"
+                  disabled={locked}
+                  onClick={() =>
+                    void act("Restore policy", async () => {
+                      const res = await gFetch(`/v1/guardian/policy/versions/${v.id}/restore`, {
+                        method: "POST",
+                      });
+                      const d = await res.json();
+                      if (!res.ok) throw new Error(JSON.stringify(d.error));
+                      setTouched(false);
+                      return `Restored ${v.version}.`;
+                    })
+                  }
+                >
+                  Restore
+                </button>
+              </div>
+            ))}
+            {!versions.length && <div className="faint">No versions yet — save a policy to start history.</div>}
+          </div>
+        </div>
+      </div>
+
       <PolicySimulator
         gFetch={gFetch}
         current={{
@@ -499,12 +856,22 @@ export function PolicyView({
           perTxMaxUsdc: policy.perTxMaxUsdc,
           dailyMaxUsdc: policy.dailyMaxUsdc,
           maxPaysPerMinute: policy.maxPaysPerMinute,
+          vendorAllowlist: policy.vendorAllowlist,
+          domainAllowlist: policy.domainAllowlist,
+          addressAllowlist: policy.addressAllowlist,
+          blocklist: policy.blocklist,
         }}
         draft={{
           hitlAboveUsdc: f.hitlAboveUsdc,
           perTxMaxUsdc: f.perTxMaxUsdc,
           dailyMaxUsdc: f.dailyMaxUsdc,
           maxPaysPerMinute: f.maxPaysPerMinute,
+          vendorAllowlist: f.vendorAllowlist,
+          domainAllowlist: f.domainAllowlist,
+          addressAllowlist: f.addressAllowlist,
+          blocklist: f.blocklist,
+          newCounterpartyCooldownHours: f.newCounterpartyCooldownHours,
+          quietHours: quietOn ? quiet : null,
         }}
       />
 
@@ -517,7 +884,7 @@ export function PolicyView({
             <button className="ghost sm" onClick={reset}>
               Discard
             </button>
-            <button className="sm" disabled={busy || bandsInvalid || dailyInvalid} onClick={() => void save()}>
+            <button className="sm" disabled={locked || bandsInvalid || dailyInvalid} onClick={() => void save()}>
               Save policy
             </button>
           </div>

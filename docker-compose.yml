@@ -1,0 +1,65 @@
+# Artificial Banking Inc — local / VPS deploy stack
+#
+# Default persistence: SQLite volume on the API (fastest path).
+# Postgres is included for the future A14 Prisma swap — not required today.
+
+services:
+  api:
+    build:
+      context: .
+      target: api
+    ports:
+      - "8787:8787"
+    environment:
+      PORT: "8787"
+      NODE_ENV: production
+      POLICYVAULT_DB: /data/policyvault.db
+      POLICYVAULT_ALLOW_BOOTSTRAP: ${POLICYVAULT_ALLOW_BOOTSTRAP:-0}
+      ABI_KEY_PEPPER: ${ABI_KEY_PEPPER:-change-me-in-production}
+      CDP_API_KEY_ID: ${CDP_API_KEY_ID:-}
+      CDP_API_KEY_SECRET: ${CDP_API_KEY_SECRET:-}
+      CHAIN: ${CHAIN:-base-sepolia}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      ABI_NOTIFY_EMAIL_TO: ${ABI_NOTIFY_EMAIL_TO:-}
+      ABI_COMPLIANCE_DENYLIST: ${ABI_COMPLIANCE_DENYLIST:-}
+      ABI_COMPLIANCE_WEBHOOK_URL: ${ABI_COMPLIANCE_WEBHOOK_URL:-}
+      RATE_LIMIT_PER_MIN: ${RATE_LIMIT_PER_MIN:-5000}
+    volumes:
+      - abi_sqlite:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      target: web
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8787}
+      POLICYVAULT_API_URL: ${POLICYVAULT_API_URL:-http://api:8787}
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Optional — ready for A14 Prisma. API still uses SQLite until store is swapped.
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: abi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abi}
+      POSTGRES_DB: policyvault
+    ports:
+      - "5432:5432"
+    volumes:
+      - abi_pg:/var/lib/postgresql/data
+
+volumes:
+  abi_sqlite:
+  abi_pg:

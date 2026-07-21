@@ -1,20 +1,20 @@
 {
-  "name": "policyvault",
+  "name": "artificial-banking-inc",
   "private": true,
   "version": "0.1.0",
-  "description": "Policy-gated USDC treasury & payments OS for AI agents",
+  "description": "Artificial Banking Incorporated — Financial OS for AI agents",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @policyvault/common -w @policyvault/policy -w @policyvault/ledger -w @policyvault/db -w @policyvault/sdk -w @policyvault/api -w @policyvault/mcp-server -w @policyvault/worker -w @policyvault/web",
+    "build": "npm run build -w @policyvault/common -w @policyvault/policy -w @policyvault/ledger -w @policyvault/custody -w @policyvault/db -w @policyvault/sdk -w @policyvault/api -w @policyvault/mcp-server -w @policyvault/worker -w @policyvault/web",
     "dev:api": "npm run dev -w @policyvault/api",
     "dev:web": "npm run dev -w @policyvault/web",
     "dev:mcp": "npm run dev -w @policyvault/mcp-server",
     "dev:worker": "npm run dev -w @policyvault/worker",
     "demo:agent": "npm run start -w @policyvault/demo-agent",
-    "test": "npm run test -w @policyvault/policy -w @policyvault/ledger",
+    "test": "npm run test -w @policyvault/policy -w @policyvault/ledger -w @policyvault/api",
     "db:generate": "npm run generate -w @policyvault/db",
     "lint": "echo \"lint: add eslint in later pass\""
   },
