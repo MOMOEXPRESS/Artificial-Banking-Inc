@@ -1949,6 +1949,67 @@ async function runDueSubscriptions(): Promise<void> {
   }
 }
 
+/**
+ * Proactive top-ups: for each ops label with auto-fund enabled, members whose
+ * stipend is below threshold get topped up from the linked budget.
+ */
+function runAutoFundSweep(): void {
+  for (const group of store.listAutoFundEnabledGroups()) {
+    const cfg = group.autoFund;
+    if (!cfg?.enabled || !group.budgetId) continue;
+    let threshold: bigint;
+    let topUp: bigint;
+    try {
+      threshold = parseUsdcToMicro(cfg.thresholdUsdc);
+      topUp = parseUsdcToMicro(cfg.topUpUsdc);
+    } catch {
+      continue;
+    }
+    if (topUp <= 0n) continue;
+    const dept = store.getDepartment(group.budgetId);
+    if (!dept || dept.orgId !== group.orgId) continue;
+    const fromAvailableId = accountId("department", dept.id);
+    const memberIds = store.listGroupMemberIds(group.id);
+    const minMs = Math.max(5, cfg.minIntervalMinutes) * 60_000;
+    const now = Date.now();
+    for (const agentId of memberIds) {
+      const agent = store.getAgent(agentId);
+      if (!agent || agent.orgId !== group.orgId || agent.status !== "active") continue;
+      const last = store.lastAutoFundAt(group.id, agentId);
+      if (last && now - new Date(last).getTime() < minMs) continue;
+      const bal =
+        store.getAccountMap(group.orgId).get(accountId("agent", agentId))?.balanceMicro ?? 0n;
+      if (bal >= threshold) continue;
+      const sourceAvail =
+        store.getAccountMap(group.orgId).get(fromAvailableId)?.balanceMicro ?? 0n;
+      if (sourceAvail < topUp) continue;
+      store.applyEntries(group.orgId, [
+        transferAvailable({
+          orgId: group.orgId,
+          journalId: id("j"),
+          fromAvailableId,
+          toAvailableId: accountId("agent", agentId),
+          amountMicro: topUp,
+          memo: `auto_fund:${group.id}`,
+        }),
+      ]);
+      store.recordAutoFundRun({
+        orgId: group.orgId,
+        groupId: group.id,
+        agentId,
+        amountMicro: topUp,
+      });
+      emitEvent(group.orgId, "payment.succeeded", {
+        kind: "auto_fund",
+        groupId: group.id,
+        agentId,
+        amountUsdc: formatMicroToUsdc(topUp),
+        budgetId: group.budgetId,
+      });
+    }
+  }
+}
+
 /** Embedded into Next `/abi-api` on Vercel — do not listen or start long polls. */
 export { app };
 
@@ -1963,6 +2024,11 @@ if (!embedded) {
     sweepApprovalExpiry();
     for (const orgId of store.listOrgIds()) store.sweepOverdueInvoices(orgId);
     void runDueSubscriptions().catch((e) => console.error("subscription sweep failed:", e));
+    try {
+      runAutoFundSweep();
+    } catch (e) {
+      console.error("auto-fund sweep failed:", e);
+    }
   }, 10_000).unref();
 
   setInterval(() => {

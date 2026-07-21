@@ -52,6 +52,10 @@ export interface AutomationRule {
   name: string;
   when: AutomationCondition;
   then: AutomationAction;
+  /** ISO timestamp when the rule was first saved (server-stamped). */
+  createdAt?: string;
+  /** ISO timestamp of last edit (server-stamped). */
+  updatedAt?: string;
 }
 
 export type AutomationCondition =

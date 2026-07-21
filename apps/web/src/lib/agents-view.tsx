@@ -16,6 +16,15 @@ type AgentRow = {
   heldUsdc?: string;
   spent24hUsdc?: string;
   groupName?: string;
+  groupIds?: string[];
+  groupNames?: string[];
+};
+
+type AutoFundConfig = {
+  enabled: boolean;
+  thresholdUsdc: string;
+  topUpUsdc: string;
+  minIntervalMinutes: number;
 };
 
 type GroupRow = {
@@ -25,6 +34,7 @@ type GroupRow = {
   memberCount: number;
   members: { id: string; name: string; status: string }[];
   budgetId?: string;
+  autoFund?: AutoFundConfig;
 };
 
 type FreezeRow = {
@@ -94,7 +104,7 @@ export function AgentsView({
   const [tags, setTags] = useState("");
   const [runtime, setRuntime] = useState("");
   const [ownerId, setOwnerId] = useState("owner");
-  const [assignGroup, setAssignGroup] = useState("");
+  const [editGroupIds, setEditGroupIds] = useState<string[]>([]);
   const [sessionLabel, setSessionLabel] = useState("");
   const [sessionScopes, setSessionScopes] = useState<Array<"read" | "pay" | "escrow">>([
     "read",
@@ -165,9 +175,11 @@ export function AgentsView({
       setOwnerId(
         typeof profile.ownerGuardianId === "string" ? profile.ownerGuardianId : "owner",
       );
-      setAssignGroup(typeof profile.groupId === "string" ? profile.groupId : "");
+      setEditGroupIds(
+        groups.filter((g) => g.members.some((m) => m.id === id)).map((g) => g.id),
+      );
     },
-    [gFetch, agents, onContextChange],
+    [gFetch, agents, groups, onContextChange],
   );
 
   useEffect(() => {
@@ -278,7 +290,7 @@ export function AgentsView({
                           <i /> {a.status}
                         </span>
                       </td>
-                      <td className="faint">{a.groupName ?? "—"}</td>
+                      <td className="faint">{(a.groupNames?.length ? a.groupNames.join(", ") : a.groupName) ?? "—"}</td>
                       <td className="mono">{fmt(a.availableUsdc)}</td>
                       <td className="mono faint">{fmt(a.spent24hUsdc)}</td>
                       <td className="faint">{a.apiKeyLive ? "live" : "revoked"}</td>
@@ -456,17 +468,31 @@ export function AgentsView({
                     <input value={ownerId} disabled={readOnly} onChange={(e) => setOwnerId(e.target.value)} />
                   </label>
                   <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-                    Ops label
-                    <select value={assignGroup} disabled={readOnly} onChange={(e) => setAssignGroup(e.target.value)}>
-                      <option value="">— none —</option>
+                    Ops labels (multi)
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
                       {groups
                         .filter((g) => g.status === "active")
                         .map((g) => (
-                          <option key={g.id} value={g.id}>
+                          <label key={g.id} className="row" style={{ gap: 6, fontSize: 12.5 }}>
+                            <input
+                              type="checkbox"
+                              disabled={readOnly}
+                              checked={editGroupIds.includes(g.id)}
+                              onChange={(e) =>
+                                setEditGroupIds((prev) =>
+                                  e.target.checked
+                                    ? [...prev, g.id]
+                                    : prev.filter((x) => x !== g.id),
+                                )
+                              }
+                            />
                             {g.name}
-                          </option>
+                          </label>
                         ))}
-                    </select>
+                      {!groups.some((g) => g.status === "active") && (
+                        <span className="faint">No ops labels yet — create a budget or label first.</span>
+                      )}
+                    </div>
                   </label>
                   <button
                     disabled={locked}
@@ -479,7 +505,7 @@ export function AgentsView({
                             .map((t) => t.trim())
                             .filter(Boolean),
                           ownerGuardianId: ownerId.trim() || "owner",
-                          groupId: assignGroup || "",
+                          groupId: editGroupIds[0] ?? "",
                         };
                         const res = await gFetch(`/v1/guardian/agents/${selected}`, {
                           method: "PATCH",
@@ -490,9 +516,31 @@ export function AgentsView({
                         });
                         const d = await res.json();
                         if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
+                        const desired = new Set(editGroupIds);
+                        const current = new Set(
+                          groups
+                            .filter((g) => g.members.some((m) => m.id === selected))
+                            .map((g) => g.id),
+                        );
+                        for (const gid of desired) {
+                          if (!current.has(gid)) {
+                            await gFetch(`/v1/guardian/agent-groups/${gid}/assign`, {
+                              method: "POST",
+                              body: JSON.stringify({ agentIds: [selected] }),
+                            });
+                          }
+                        }
+                        for (const gid of current) {
+                          if (!desired.has(gid)) {
+                            await gFetch(`/v1/guardian/agent-groups/${gid}/unassign`, {
+                              method: "POST",
+                              body: JSON.stringify({ agentIds: [selected] }),
+                            });
+                          }
+                        }
                         await refresh();
-                        await loadDetail(selected);
-                        return "Profile saved.";
+                        await loadDetail(selected!);
+                        return "Profile + ops labels saved.";
                       })
                     }
                   >
@@ -733,8 +781,9 @@ export function AgentsView({
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {groups.map((g) => {
+                const memberIdSet = new Set(g.members.map((m) => m.id));
                 const ungrouped = agents.filter(
-                  (a) => a.status !== "archived" && a.groupName !== g.name,
+                  (a) => a.status !== "archived" && !memberIdSet.has(a.id),
                 );
                 const linkedBudget = g.budgetId
                   ? budgets.find((b) => b.id === g.budgetId)
@@ -764,7 +813,31 @@ export function AgentsView({
                         )}
                         <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
                           {g.members.length
-                            ? g.members.map((m) => m.name).join(", ")
+                            ? g.members.map((m) => (
+                                <span key={m.id} style={{ marginRight: 8 }}>
+                                  {m.name}
+                                  <Button
+                                    variant="bare"
+                                    style={{ fontSize: 11, marginLeft: 4, padding: 0 }}
+                                    disabled={locked}
+                                    onClick={() =>
+                                      void act("Remove from label", async () => {
+                                        await gFetch(
+                                          `/v1/guardian/agent-groups/${g.id}/unassign`,
+                                          {
+                                            method: "POST",
+                                            body: JSON.stringify({ agentIds: [m.id] }),
+                                          },
+                                        );
+                                        await refresh();
+                                        return `Removed ${m.name} from ${g.name}.`;
+                                      })
+                                    }
+                                  >
+                                    ×
+                                  </Button>
+                                </span>
+                              ))
                             : "No members yet"}
                         </div>
                       </div>
@@ -888,6 +961,106 @@ export function AgentsView({
                         </div>
                       )}
                     </div>
+                    {g.status === "active" && (
+                      <div
+                        style={{
+                          marginTop: 10,
+                          paddingTop: 10,
+                          borderTop: "1px solid var(--border)",
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 10,
+                          alignItems: "flex-end",
+                        }}
+                      >
+                        <label className="row" style={{ gap: 6, fontSize: 12.5 }}>
+                          <input
+                            type="checkbox"
+                            disabled={locked || !linkedBudget}
+                            checked={Boolean(g.autoFund?.enabled)}
+                            onChange={(e) =>
+                              void act("Auto-fund", async () => {
+                                const res = await gFetch(
+                                  `/v1/guardian/agent-groups/${g.id}/auto-fund`,
+                                  {
+                                    method: "PATCH",
+                                    body: JSON.stringify({
+                                      enabled: e.target.checked,
+                                      thresholdUsdc: g.autoFund?.thresholdUsdc ?? "5",
+                                      topUpUsdc: g.autoFund?.topUpUsdc ?? "25",
+                                      minIntervalMinutes: g.autoFund?.minIntervalMinutes ?? 60,
+                                    }),
+                                  },
+                                );
+                                const d = await res.json();
+                                if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                                await refresh();
+                                return e.target.checked
+                                  ? `Auto-fund on for ${g.name} (from linked budget).`
+                                  : `Auto-fund off for ${g.name}.`;
+                              })
+                            }
+                          />
+                          Auto-fund when low
+                        </label>
+                        <label className="field" style={{ margin: 0, width: 88 }}>
+                          <span style={{ fontSize: 11 }}>If below</span>
+                          <input
+                            className="sm"
+                            disabled={locked || !linkedBudget}
+                            defaultValue={g.autoFund?.thresholdUsdc ?? "5"}
+                            id={`af-th-${g.id}`}
+                          />
+                        </label>
+                        <label className="field" style={{ margin: 0, width: 88 }}>
+                          <span style={{ fontSize: 11 }}>Top up</span>
+                          <input
+                            className="sm"
+                            disabled={locked || !linkedBudget}
+                            defaultValue={g.autoFund?.topUpUsdc ?? "25"}
+                            id={`af-up-${g.id}`}
+                          />
+                        </label>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={locked || !linkedBudget}
+                          onClick={() =>
+                            void act("Save auto-fund", async () => {
+                              const th = (
+                                document.getElementById(`af-th-${g.id}`) as HTMLInputElement | null
+                              )?.value?.trim() ?? "5";
+                              const up = (
+                                document.getElementById(`af-up-${g.id}`) as HTMLInputElement | null
+                              )?.value?.trim() ?? "25";
+                              const res = await gFetch(
+                                `/v1/guardian/agent-groups/${g.id}/auto-fund`,
+                                {
+                                  method: "PATCH",
+                                  body: JSON.stringify({
+                                    enabled: g.autoFund?.enabled ?? true,
+                                    thresholdUsdc: th,
+                                    topUpUsdc: up,
+                                    minIntervalMinutes: g.autoFund?.minIntervalMinutes ?? 60,
+                                  }),
+                                },
+                              );
+                              const d = await res.json();
+                              if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                              await refresh();
+                              return `Auto-fund: if below $${th} → top up $${up} from budget.`;
+                            })
+                          }
+                        >
+                          Save rule
+                        </Button>
+                        {!linkedBudget && (
+                          <span className="faint" style={{ fontSize: 11.5 }}>
+                            Create a matching Treasury budget to enable auto-fund.
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {g.status === "active" && ungrouped.length > 0 && (
                       <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                         <select

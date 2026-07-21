@@ -59,8 +59,9 @@ Creating a **Budget** also creates a linked **ops label** (same name) for roster
 Bulk fund from that label defaults to the linked budget. The label is still **not a wallet** —
 money stays in the budget envelope and agent stipends.
 
-Agents still have **one primary ops label** (`profile.groupId`). Multi-label membership is not
-required for the budget pair workflow.
+Agents may belong to **many ops labels** (join table). Auto-fund runs **per label**: if a member’s
+stipend falls below that label’s threshold, top up from **that label’s linked budget**. Spend still
+debits only the agent stipend — never the budget directly on pay.
 
 ### Explicitly rejected for now (can revisit)
 

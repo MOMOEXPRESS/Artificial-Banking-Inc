@@ -19,13 +19,14 @@ import { templateSoloSwarm, type PolicyTemplate } from "@policyvault/policy";
 import type {
   AgentGroupRecord,
   AssetRecord,
+  AutoFundConfig,
   MerchantRecord,
   MicroUsdc,
   OrgSettings,
   SessionKeyRecord,
   WalletScope,
 } from "@policyvault/common";
-import { agentApiKeyIsLive } from "@policyvault/common";
+import { agentApiKeyIsLive, formatMicroToUsdc } from "@policyvault/common";
 import { hashSecret, isHashedSecret, lookupHash } from "./secrets.js";
 
 export type OrgStatus = "active" | "frozen" | "archived";
@@ -710,9 +711,30 @@ CREATE TABLE IF NOT EXISTS agent_groups (
   name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
   created_at TEXT NOT NULL,
-  budget_id TEXT
+  budget_id TEXT,
+  auto_fund_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_agent_groups_org ON agent_groups(org_id);
+
+CREATE TABLE IF NOT EXISTS agent_group_members (
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  agent_id TEXT NOT NULL REFERENCES agents(id),
+  group_id TEXT NOT NULL REFERENCES agent_groups(id),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (agent_id, group_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agm_group ON agent_group_members(org_id, group_id);
+CREATE INDEX IF NOT EXISTS idx_agm_agent ON agent_group_members(org_id, agent_id);
+
+CREATE TABLE IF NOT EXISTS auto_fund_runs (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  group_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  amount_micro TEXT NOT NULL,
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_auto_fund_runs_pair ON auto_fund_runs(group_id, agent_id, at);
 
 CREATE TABLE IF NOT EXISTS session_keys (
   id TEXT PRIMARY KEY,
@@ -730,14 +752,47 @@ CREATE INDEX IF NOT EXISTS idx_session_keys_agent ON session_keys(agent_id);
 CREATE INDEX IF NOT EXISTS idx_session_keys_token ON session_keys(token);
 `);
 
-// Existing DBs created agent_groups before budget_id existed.
-try {
-  db.exec("ALTER TABLE agent_groups ADD COLUMN budget_id TEXT");
-} catch {
-  /* column already exists */
+// Existing DBs created agent_groups before budget_id / auto_fund existed.
+for (const migration of [
+  "ALTER TABLE agent_groups ADD COLUMN budget_id TEXT",
+  "ALTER TABLE agent_groups ADD COLUMN auto_fund_json TEXT",
+]) {
+  try {
+    db.exec(migration);
+  } catch {
+    /* column already exists */
+  }
 }
 
 migrateSecretsAtRest();
+
+// Backfill multi-membership from legacy profile.groupId (once per agent/group pair).
+{
+  const agents = db.prepare("SELECT id, org_id, profile_json FROM agents").all() as {
+    id: string;
+    org_id: string;
+    profile_json: string | null;
+  }[];
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO agent_group_members (org_id, agent_id, group_id, created_at)
+     VALUES (?, ?, ?, ?)`,
+  );
+  const stamp = new Date().toISOString();
+  for (const a of agents) {
+    if (!a.profile_json) continue;
+    try {
+      const profile = JSON.parse(a.profile_json) as { groupId?: unknown };
+      if (typeof profile.groupId !== "string" || !profile.groupId) continue;
+      const g = db
+        .prepare("SELECT id FROM agent_groups WHERE id = ? AND org_id = ?")
+        .get(profile.groupId, a.org_id);
+      if (!g) continue;
+      insert.run(a.org_id, a.id, profile.groupId, stamp);
+    } catch {
+      /* ignore bad profile */
+    }
+  }
+}
 
 // Seed platform USDC asset once.
 {
@@ -834,6 +889,26 @@ function rowToAgent(r: Row): AgentRow {
     status: r.status,
     apiKey: r.api_key,
     profile,
+  };
+}
+
+function rowToAgentGroup(r: Row): AgentGroupRecord {
+  let autoFund: AutoFundConfig | undefined;
+  if (typeof r.auto_fund_json === "string" && r.auto_fund_json) {
+    try {
+      autoFund = JSON.parse(r.auto_fund_json) as AutoFundConfig;
+    } catch {
+      autoFund = undefined;
+    }
+  }
+  return {
+    id: r.id as string,
+    orgId: r.org_id as string,
+    name: r.name as string,
+    status: r.status as "active" | "archived",
+    createdAt: r.created_at as string,
+    budgetId: (r.budget_id as string | null) ?? undefined,
+    autoFund,
   };
 }
 
@@ -2148,28 +2223,13 @@ export const store = {
 
   listAgentGroups(orgId: string): AgentGroupRecord[] {
     return (db.prepare("SELECT * FROM agent_groups WHERE org_id = ?").all(orgId) as Row[]).map(
-      (r) => ({
-        id: r.id as string,
-        orgId: r.org_id as string,
-        name: r.name as string,
-        status: r.status as "active" | "archived",
-        createdAt: r.created_at as string,
-        budgetId: (r.budget_id as string | null) ?? undefined,
-      }),
+      rowToAgentGroup,
     );
   },
 
   getAgentGroup(groupId: string): AgentGroupRecord | undefined {
     const r = db.prepare("SELECT * FROM agent_groups WHERE id = ?").get(groupId) as Row | undefined;
-    if (!r) return undefined;
-    return {
-      id: r.id as string,
-      orgId: r.org_id as string,
-      name: r.name as string,
-      status: r.status as "active" | "archived",
-      createdAt: r.created_at as string,
-      budgetId: (r.budget_id as string | null) ?? undefined,
-    };
+    return r ? rowToAgentGroup(r) : undefined;
   },
 
   setAgentGroupBudget(groupId: string, budgetId: string | null): void {
@@ -2182,19 +2242,128 @@ export const store = {
         "SELECT * FROM agent_groups WHERE org_id = ? AND budget_id = ? AND status = 'active' LIMIT 1",
       )
       .get(orgId, budgetId) as Row | undefined;
-    if (!r) return undefined;
-    return {
-      id: r.id as string,
-      orgId: r.org_id as string,
-      name: r.name as string,
-      status: r.status as "active" | "archived",
-      createdAt: r.created_at as string,
-      budgetId: (r.budget_id as string | null) ?? undefined,
-    };
+    return r ? rowToAgentGroup(r) : undefined;
   },
 
   setAgentGroupStatus(groupId: string, status: "active" | "archived"): void {
     db.prepare("UPDATE agent_groups SET status = ? WHERE id = ?").run(status, groupId);
+  },
+
+  setAgentGroupAutoFund(groupId: string, config: AutoFundConfig | null): void {
+    db.prepare("UPDATE agent_groups SET auto_fund_json = ? WHERE id = ?").run(
+      config ? JSON.stringify(config) : null,
+      groupId,
+    );
+  },
+
+  /** Agents that belong to this ops label (multi-membership). */
+  listGroupMemberIds(groupId: string): string[] {
+    return (
+      db.prepare("SELECT agent_id FROM agent_group_members WHERE group_id = ?").all(groupId) as {
+        agent_id: string;
+      }[]
+    ).map((r) => r.agent_id);
+  },
+
+  listAgentGroupIds(agentId: string): string[] {
+    return (
+      db.prepare("SELECT group_id FROM agent_group_members WHERE agent_id = ?").all(agentId) as {
+        group_id: string;
+      }[]
+    ).map((r) => r.group_id);
+  },
+
+  addAgentToGroup(orgId: string, agentId: string, groupId: string): void {
+    db.prepare(
+      `INSERT OR IGNORE INTO agent_group_members (org_id, agent_id, group_id, created_at)
+       VALUES (?, ?, ?, ?)`,
+    ).run(orgId, agentId, groupId, nowIso());
+    // Keep legacy profile.groupId as soft primary when empty.
+    const agent = this.getAgent(agentId);
+    if (agent && !agent.profile.groupId) {
+      this.setAgentProfile(agentId, { ...agent.profile, groupId });
+    }
+  },
+
+  removeAgentFromGroup(agentId: string, groupId: string): void {
+    db.prepare("DELETE FROM agent_group_members WHERE agent_id = ? AND group_id = ?").run(
+      agentId,
+      groupId,
+    );
+    const agent = this.getAgent(agentId);
+    if (agent && agent.profile.groupId === groupId) {
+      const rest = this.listAgentGroupIds(agentId);
+      const { groupId: _, ...profile } = agent.profile;
+      this.setAgentProfile(agentId, rest[0] ? { ...profile, groupId: rest[0] } : profile);
+    }
+  },
+
+  clearGroupMembers(groupId: string): void {
+    const memberIds = this.listGroupMemberIds(groupId);
+    db.prepare("DELETE FROM agent_group_members WHERE group_id = ?").run(groupId);
+    for (const agentId of memberIds) {
+      const agent = this.getAgent(agentId);
+      if (!agent || agent.profile.groupId !== groupId) continue;
+      const rest = this.listAgentGroupIds(agentId);
+      const { groupId: _, ...profile } = agent.profile;
+      this.setAgentProfile(agentId, rest[0] ? { ...profile, groupId: rest[0] } : profile);
+    }
+  },
+
+  listAutoFundEnabledGroups(): AgentGroupRecord[] {
+    return (db.prepare("SELECT * FROM agent_groups WHERE status = 'active'").all() as Row[])
+      .map(rowToAgentGroup)
+      .filter((g) => g.autoFund?.enabled);
+  },
+
+  lastAutoFundAt(groupId: string, agentId: string): string | undefined {
+    const r = db
+      .prepare(
+        "SELECT at FROM auto_fund_runs WHERE group_id = ? AND agent_id = ? ORDER BY at DESC LIMIT 1",
+      )
+      .get(groupId, agentId) as { at: string } | undefined;
+    return r?.at;
+  },
+
+  recordAutoFundRun(input: {
+    orgId: string;
+    groupId: string;
+    agentId: string;
+    amountMicro: MicroUsdc;
+  }): void {
+    db.prepare(
+      `INSERT INTO auto_fund_runs (id, org_id, group_id, agent_id, amount_micro, at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id("afr"),
+      input.orgId,
+      input.groupId,
+      input.agentId,
+      input.amountMicro.toString(),
+      nowIso(),
+    );
+  },
+
+  listAutoFundRuns(orgId: string, limit = 40): {
+    id: string;
+    groupId: string;
+    agentId: string;
+    amountUsdc: string;
+    at: string;
+  }[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM auto_fund_runs WHERE org_id = ? ORDER BY at DESC LIMIT ?",
+        )
+        .all(orgId, limit) as Row[]
+    ).map((r) => ({
+      id: r.id as string,
+      groupId: r.group_id as string,
+      agentId: r.agent_id as string,
+      amountUsdc: formatMicroToUsdc(BigInt(r.amount_micro as string)),
+      at: r.at as string,
+    }));
   },
 
   // ---------------------------------------------------------- session keys

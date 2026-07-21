@@ -10,13 +10,22 @@ import { SegTabs } from "@/components/ui/seg-tabs";
 function quietWindowStatus(
   quiet: { startHour: number; endHour: number },
   now = new Date(),
-): { inQuiet: boolean; label: string } {
-  const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+): {
+  inQuiet: boolean;
+  label: string;
+  /** 0–1 remaining fraction of the quiet window (1 = just started). */
+  remaining: number;
+  countdown: string;
+  clock: string;
+} {
+  const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes() + now.getUTCSeconds() / 60;
   const start = quiet.startHour * 60;
   const end = quiet.endHour * 60;
+  const clock = now.toISOString().slice(11, 19) + " UTC";
   if (start === end) {
-    return { inQuiet: false, label: "Window disabled (start = end)" };
+    return { inQuiet: false, label: "Window disabled (start = end)", remaining: 0, countdown: "—", clock };
   }
+  const windowLen = start < end ? end - start : 24 * 60 - start + end;
   const inQuiet = start < end ? nowMin >= start && nowMin < end : nowMin >= start || nowMin < end;
   const minsUntil = (target: number) => {
     let d = target - nowMin;
@@ -24,21 +33,31 @@ function quietWindowStatus(
     return d;
   };
   const fmtDur = (mins: number) => {
-    const h = Math.floor(mins / 60);
-    const m = mins % 60;
-    if (h <= 0) return `${m}m`;
-    if (m === 0) return `${h}h`;
-    return `${h}h ${m}m`;
+    const total = Math.max(0, Math.ceil(mins));
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    const s = Math.floor((mins % 1) * 60);
+    if (h <= 0 && m <= 0) return `${s}s`;
+    if (h <= 0) return `${m}m ${String(s).padStart(2, "0")}s`;
+    return `${h}h ${String(m).padStart(2, "0")}m`;
   };
   if (inQuiet) {
+    const left = minsUntil(end);
     return {
       inQuiet: true,
-      label: `In quiet hours now · ends in ${fmtDur(minsUntil(end))} (UTC)`,
+      label: "Currently in quiet hours",
+      remaining: Math.min(1, Math.max(0, left / windowLen)),
+      countdown: fmtDur(left),
+      clock,
     };
   }
+  const untilStart = minsUntil(start);
   return {
     inQuiet: false,
-    label: `Outside quiet hours · starts in ${fmtDur(minsUntil(start))} (UTC)`,
+    label: "Outside quiet hours",
+    remaining: 0,
+    countdown: fmtDur(untilStart),
+    clock,
   };
 }
 
@@ -58,6 +77,8 @@ export type Policy = {
   automation?: {
     id: string;
     name: string;
+    createdAt?: string;
+    updatedAt?: string;
     when:
       | { kind: "amount_above"; micro: string }
       | { kind: "balance_below"; micro: string; walletId?: string }
@@ -242,7 +263,7 @@ export function PolicyView({
   );
   useEffect(() => {
     if (!quietOn) return;
-    const t = window.setInterval(() => setNowTick(Date.now()), 30_000);
+    const t = window.setInterval(() => setNowTick(Date.now()), 1_000);
     return () => window.clearInterval(t);
   }, [quietOn]);
   const [automation, setAutomation] = useState(policy.automation ?? []);
@@ -622,12 +643,38 @@ export function PolicyView({
                 style={{ marginBottom: 12 }}
                 role="status"
               >
-                <span className="txt">
+                <span className="txt" style={{ width: "100%" }}>
                   <b style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                     <Icon name="clock" size={14} />
-                    {quietLive.inQuiet ? "Quiet now" : "Live"}
+                    {quietLive.inQuiet ? "Quiet hours active" : "Quiet hours idle"}
                   </b>
-                  <span>{quietLive.label}</span>
+                  <span>
+                    {quietLive.label} · {quietLive.clock}
+                    {quietLive.inQuiet
+                      ? ` · ends in ${quietLive.countdown}`
+                      : ` · starts in ${quietLive.countdown}`}
+                  </span>
+                  {quietLive.inQuiet && (
+                    <div
+                      aria-hidden
+                      style={{
+                        marginTop: 10,
+                        height: 8,
+                        borderRadius: 999,
+                        background: "var(--border)",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.round(quietLive.remaining * 100)}%`,
+                          background: "var(--yellow, #d4a017)",
+                          transition: "width 0.8s linear",
+                        }}
+                      />
+                    </div>
+                  )}
                 </span>
               </div>
             )}
@@ -699,8 +746,8 @@ export function PolicyView({
               <div>
                 <h2>Automation (IF / THEN)</h2>
                 <div className="sub">
-                  Rules you add here stay on this tab until Save. “Require approval” parks payments
-                  under Payments → Approvals for guardians.
+                  Saved with Policy → Save on this tab. Live rules are listed below. “Require
+                  approval” parks under Payments → Approvals.
                 </div>
               </div>
               <Button variant="ghost" size="sm"
@@ -720,6 +767,36 @@ export function PolicyView({
                 <Icon name="plus" size={12} /> Add rule
               </Button>
             </div>
+            {(policy.automation?.length ?? 0) > 0 && (
+              <div
+                style={{
+                  marginBottom: 14,
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "var(--surface-2)",
+                }}
+              >
+                <div className="muted" style={{ fontSize: 11.5, marginBottom: 6 }}>
+                  Currently saved on the org ({policy.automation!.length} rule
+                  {policy.automation!.length === 1 ? "" : "s"}) — edits below need Save
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.55 }}>
+                  {policy.automation!.map((r) => (
+                    <li key={r.id}>
+                      <b>{r.name}</b> · when <code>{r.when.kind}</code> →{" "}
+                      <code>{r.then.kind}</code>
+                      {r.createdAt ? (
+                        <span className="faint">
+                          {" "}
+                          · saved {new Date(r.createdAt).toLocaleString()}
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {!automation.length && (
               <p className="muted" style={{ fontSize: 12.5, margin: 0 }}>
                 No automation rules. Add one to escalate unknown merchants or large payments.
@@ -728,8 +805,15 @@ export function PolicyView({
             {automation.map((rule, idx) => (
               <div
                 key={rule.id}
+                style={{
+                  marginBottom: 12,
+                  paddingBottom: 12,
+                  borderBottom: "1px solid var(--border)",
+                }}
+              >
+              <div
                 className="row"
-                style={{ gap: 8, flexWrap: "wrap", marginBottom: 10, alignItems: "flex-end" }}
+                style={{ gap: 8, flexWrap: "wrap", marginBottom: 6, alignItems: "flex-end" }}
               >
                 <div className="field" style={{ margin: 0, minWidth: 120 }}>
                   <label>Name</label>
@@ -832,6 +916,18 @@ export function PolicyView({
                 >
                   Remove
                 </Button>
+              </div>
+              {(rule.createdAt || rule.updatedAt) && (
+                <div className="faint" style={{ fontSize: 11, marginTop: 2 }}>
+                  {rule.createdAt
+                    ? `First saved ${new Date(rule.createdAt).toLocaleString()}`
+                    : "Not saved yet"}
+                  {rule.updatedAt
+                    ? ` · last edit ${new Date(rule.updatedAt).toLocaleString()}`
+                    : ""}
+                  <span className="mono"> · id {rule.id}</span>
+                </div>
+              )}
               </div>
             ))}
           </div>

@@ -90,13 +90,21 @@ export function registerAgentRoutes(
     guardianRoute((org, _req, res) => {
       const groups = new Map(store.listAgentGroups(org.id).map((g) => [g.id, g.name]));
       res.json({
-        agents: store.listAgents(org.id).map((a) => ({
-          ...identityOf(a),
-          ...balOf(org.id, a.id),
-          spent24hUsdc: formatMicroToUsdc(store.spentLast24h(a.id)),
-          groupName:
-            typeof a.profile.groupId === "string" ? groups.get(a.profile.groupId) : undefined,
-        })),
+        agents: store.listAgents(org.id).map((a) => {
+          const groupIds = store.listAgentGroupIds(a.id);
+          const groupNames = groupIds
+            .map((gid) => groups.get(gid))
+            .filter((n): n is string => Boolean(n));
+          return {
+            ...identityOf(a),
+            ...balOf(org.id, a.id),
+            spent24hUsdc: formatMicroToUsdc(store.spentLast24h(a.id)),
+            groupIds,
+            groupNames,
+            /** @deprecated use groupNames — first label for older clients */
+            groupName: groupNames[0],
+          };
+        }),
       });
     }),
   );
@@ -336,15 +344,20 @@ export function registerAgentRoutes(
   app.get(
     "/v1/guardian/agent-groups",
     guardianRoute((org, _req, res) => {
-      const agents = store.listAgents(org.id);
+      const agentsById = new Map(store.listAgents(org.id).map((a) => [a.id, a]));
       res.json({
-        groups: store.listAgentGroups(org.id).map((g) => ({
-          ...g,
-          memberCount: agents.filter((a) => a.profile.groupId === g.id).length,
-          members: agents
-            .filter((a) => a.profile.groupId === g.id)
-            .map((a) => ({ id: a.id, name: a.name, status: a.status })),
-        })),
+        groups: store.listAgentGroups(org.id).map((g) => {
+          const memberIds = store.listGroupMemberIds(g.id);
+          const members = memberIds
+            .map((mid) => agentsById.get(mid))
+            .filter((a): a is NonNullable<typeof a> => Boolean(a))
+            .map((a) => ({ id: a.id, name: a.name, status: a.status }));
+          return {
+            ...g,
+            memberCount: members.length,
+            members,
+          };
+        }),
       });
     }),
   );
@@ -366,13 +379,7 @@ export function registerAgentRoutes(
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
       }
       store.setAgentGroupStatus(group.id, "archived");
-      // Clear membership hints so archived groups do not linger on agents.
-      for (const a of store.listAgents(org.id)) {
-        if (a.profile.groupId === group.id) {
-          const { groupId: _, ...rest } = a.profile;
-          store.setAgentProfile(a.id, rest);
-        }
-      }
+      store.clearGroupMembers(group.id);
       res.json({ ok: true, group: { ...group, status: "archived" as const } });
     }, { ownerOnly: true }),
   );
@@ -389,10 +396,29 @@ export function registerAgentRoutes(
       for (const agentId of body.agentIds) {
         const agent = store.getAgent(agentId);
         if (!agent || agent.orgId !== org.id) continue;
-        store.setAgentProfile(agent.id, { ...agent.profile, groupId: group.id });
+        store.addAgentToGroup(org.id, agent.id, group.id);
         assigned.push(agent.id);
       }
       res.json({ ok: true, groupId: group.id, assigned });
+    }, { ownerOnly: true }),
+  );
+
+  app.post(
+    "/v1/guardian/agent-groups/:id/unassign",
+    guardianRoute((org, req, res) => {
+      const group = store.getAgentGroup(req.params.id);
+      if (!group || group.orgId !== org.id) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
+      }
+      const body = z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
+      const removed: string[] = [];
+      for (const agentId of body.agentIds) {
+        const agent = store.getAgent(agentId);
+        if (!agent || agent.orgId !== org.id) continue;
+        store.removeAgentFromGroup(agent.id, group.id);
+        removed.push(agent.id);
+      }
+      res.json({ ok: true, groupId: group.id, removed });
     }, { ownerOnly: true }),
   );
 
@@ -405,9 +431,10 @@ export function registerAgentRoutes(
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
       }
       const body = z.object({ reason: z.string().default("group_freeze") }).parse(req.body ?? {});
+      const memberIds = new Set(store.listGroupMemberIds(group.id));
       const members = store
         .listAgents(org.id)
-        .filter((a) => a.profile.groupId === group.id && a.status === "active");
+        .filter((a) => memberIds.has(a.id) && a.status === "active");
       for (const agent of members) {
         store.setAgentStatus(agent.id, "frozen");
         store.addFreeze(org.id, agent.id, `group:${group.id}:${body.reason}`);
@@ -425,9 +452,10 @@ export function registerAgentRoutes(
       if (!group || group.orgId !== org.id) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
       }
+      const memberIds = new Set(store.listGroupMemberIds(group.id));
       const members = store
         .listAgents(org.id)
-        .filter((a) => a.profile.groupId === group.id && a.status === "frozen");
+        .filter((a) => memberIds.has(a.id) && a.status === "frozen");
       for (const agent of members) {
         store.setAgentStatus(agent.id, "active");
         emitEvent(org.id, "agent.unfrozen", { agentId: agent.id, groupId: group.id });
@@ -447,7 +475,6 @@ export function registerAgentRoutes(
       const body = z
         .object({
           amountUsdcEach: z.string(),
-          /** Picture A: fund from org vault or a budget (department ledger). */
           fromScope: z.enum(["org", "department"]).default("org"),
           fromId: z.string().optional(),
         })
@@ -456,9 +483,10 @@ export function registerAgentRoutes(
       if (each <= 0n) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "amount must be positive" } });
       }
+      const memberIds = new Set(store.listGroupMemberIds(group.id));
       const members = store
         .listAgents(org.id)
-        .filter((a) => a.profile.groupId === group.id && a.status !== "archived");
+        .filter((a) => memberIds.has(a.id) && a.status !== "archived");
       if (!members.length) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "group has no members" } });
       }
@@ -517,6 +545,57 @@ export function registerAgentRoutes(
         sourceLabel,
       });
     }, { ownerOnly: true }),
+  );
+
+  /** Configure proactive top-up when member stipends fall below a threshold. */
+  app.patch(
+    "/v1/guardian/agent-groups/:id/auto-fund",
+    guardianRoute((org, req, res) => {
+      const group = store.getAgentGroup(req.params.id);
+      if (!group || group.orgId !== org.id || group.status !== "active") {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
+      }
+      const body = z
+        .object({
+          enabled: z.boolean(),
+          thresholdUsdc: z.string().default("5"),
+          topUpUsdc: z.string().default("25"),
+          minIntervalMinutes: z.number().int().min(5).max(7 * 24 * 60).default(60),
+        })
+        .parse(req.body);
+      if (body.enabled && !group.budgetId) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message:
+              "Link this ops label to a Treasury budget before enabling auto-fund (create the budget first).",
+          },
+        });
+      }
+      const topUp = parseUsdcToMicro(body.topUpUsdc);
+      if (body.enabled && topUp <= 0n) {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: "topUpUsdc must be positive" },
+        });
+      }
+      const config = {
+        enabled: body.enabled,
+        thresholdUsdc: body.thresholdUsdc,
+        topUpUsdc: body.topUpUsdc,
+        minIntervalMinutes: body.minIntervalMinutes,
+      };
+      store.setAgentGroupAutoFund(group.id, config);
+      res.json({ ok: true, groupId: group.id, autoFund: config });
+    }, { ownerOnly: true }),
+  );
+
+  app.get(
+    "/v1/guardian/auto-fund/runs",
+    guardianRoute((org, req, res) => {
+      const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 40;
+      const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 40;
+      res.json({ runs: store.listAutoFundRuns(org.id, limit) });
+    }),
   );
 
   // ----------------------------------------------------------- session keys

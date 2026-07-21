@@ -234,6 +234,8 @@ export function registerPolicyRoutes(
               z.object({
                 id: z.string().min(1),
                 name: z.string().min(1),
+                createdAt: z.string().optional(),
+                updatedAt: z.string().optional(),
                 when: z.union([
                   z.object({
                     kind: z.literal("amount_above"),
@@ -265,6 +267,8 @@ export function registerPolicyRoutes(
       const current = store.getPolicyTemplate(org.id);
       const parseAutomationMicro = (v: string | number) =>
         typeof v === "number" ? BigInt(Math.trunc(v)) : BigInt(String(v).replace(/^bigint:/, ""));
+      const prevById = new Map((current.automation ?? []).map((r) => [r.id, r]));
+      const stamp = new Date().toISOString();
       const next = {
         ...current,
         ...(body.perTxMaxUsdc !== undefined && { perTxMaxMicro: parseUsdcToMicro(body.perTxMaxUsdc) }),
@@ -283,13 +287,18 @@ export function registerPolicyRoutes(
         ...(body.hitlCategories && { hitlCategories: body.hitlCategories }),
         ...(body.quietHours !== undefined && { quietHours: body.quietHours ?? undefined }),
         ...(body.automation !== undefined && {
-          automation: body.automation.map((rule) => ({
-            ...rule,
-            when:
-              rule.when.kind === "amount_above" || rule.when.kind === "balance_below"
-                ? { ...rule.when, micro: parseAutomationMicro(rule.when.micro) }
-                : rule.when,
-          })),
+          automation: body.automation.map((rule) => {
+            const prev = prevById.get(rule.id);
+            return {
+              ...rule,
+              createdAt: prev?.createdAt ?? rule.createdAt ?? stamp,
+              updatedAt: stamp,
+              when:
+                rule.when.kind === "amount_above" || rule.when.kind === "balance_below"
+                  ? { ...rule.when, micro: parseAutomationMicro(rule.when.micro) }
+                  : rule.when,
+            };
+          }),
         }),
       };
       if (next.hitlAboveMicro >= next.perTxMaxMicro) {

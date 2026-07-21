@@ -116,9 +116,10 @@ export interface AgentIdentity {
 
 /**
  * Documented optional keys for `AgentIdentity.profile` / `AgentRow.profile`.
- * PATCH validates `groupId` / `ownerGuardianId` when present.
+ * `groupId` is legacy primary hint — membership lives in `agent_group_members`.
  */
 export interface AgentProfileHints {
+  /** @deprecated prefer multi membership via agent_group_members; kept as soft primary */
   groupId?: string;
   ownerGuardianId?: string;
   tags?: string[];
@@ -133,8 +134,20 @@ export interface AgentGroupRecord {
   name: string;
   status: "active" | "archived";
   createdAt: string;
-  /** When set, bulk fund defaults to this budget envelope (Picture A pair). */
+  /** When set, bulk fund / auto-fund defaults to this budget envelope. */
   budgetId?: string;
+  autoFund?: AutoFundConfig;
+}
+
+/** Proactive top-up when a labeled agent's stipend falls below threshold. */
+export interface AutoFundConfig {
+  enabled: boolean;
+  /** Top up when agent available USDC is strictly below this. */
+  thresholdUsdc: string;
+  /** Amount to transfer from the linked budget (or org) each trigger. */
+  topUpUsdc: string;
+  /** Minimum minutes between auto-fund for the same agent under this label. */
+  minIntervalMinutes: number;
 }
 
 /**
