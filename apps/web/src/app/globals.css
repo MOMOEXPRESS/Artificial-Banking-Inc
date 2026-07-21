@@ -16,11 +16,12 @@
   --color-ink-muted: #6b6b76;
   --color-ink-faint: #9a9aa3;
 
-  --color-surface: #0c0c0e;
+  /* Translucent panes so liquid-glass blur has something to refract */
+  --color-surface: rgba(12, 12, 14, 0.72);
   --color-surface-solid: #0c0c0e;
-  --color-surface-2: #141416;
-  --color-surface-3: #1c1c20;
-  --color-surface-hover: #26262c;
+  --color-surface-2: rgba(20, 20, 22, 0.62);
+  --color-surface-3: rgba(28, 28, 32, 0.55);
+  --color-surface-hover: rgba(38, 38, 44, 0.6);
 
   --color-fg: #f4f4f6;
   --color-fg-secondary: #c8c8d0;
@@ -49,8 +50,8 @@
   --color-seg-active-bg: #fff;
   --color-seg-active-fg: #101014;
 
-  --color-glass-top: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  --blur: saturate(140%) blur(18px);
+  --color-glass-top: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --blur: saturate(150%) blur(22px);
 
   --font-mono-stack: var(--font-mono, "JetBrains Mono"), ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-sans-stack: var(--font-sans, "Sora"), "Segoe UI", system-ui, sans-serif;
@@ -58,7 +59,8 @@
   --radius-lg: 22px;
   --radius-md: 16px;
   --radius-sm: 11px;
-  --shadow-elevated: 0 1px 2px rgba(0, 0, 0, 0.06), 0 16px 40px rgba(0, 0, 0, 0.1);
+  --shadow-elevated: 0 2px 6px rgba(0, 0, 0, 0.28), 0 18px 48px rgba(0, 0, 0, 0.28);
+  --shadow-glass: var(--color-glass-top), 0 20px 46px rgba(0, 0, 0, 0.4);
 
   /* ---- Legacy aliases (prefer --color-* / --radius-* / --font-* going forward) ---- */
   --bg: var(--color-canvas);
@@ -113,6 +115,7 @@
   --r-md: var(--radius-md);
   --r-sm: var(--radius-sm);
   --shadow: var(--shadow-elevated);
+  --shadow-pane: var(--shadow-glass);
 }
 
 [data-theme="light"] {
@@ -125,10 +128,11 @@
   --color-border-canvas: rgba(10, 10, 12, 0.12);
 
   /* Console surfaces stay dark on light canvas (terminal-on-page) */
-  --color-surface: #0c0c0e;
-  --color-surface-2: #141416;
-  --color-surface-3: #1c1c20;
-  --color-surface-hover: #26262c;
+  --color-surface: rgba(12, 12, 14, 0.72);
+  --color-surface-solid: #0c0c0e;
+  --color-surface-2: rgba(20, 20, 22, 0.62);
+  --color-surface-3: rgba(28, 28, 32, 0.55);
+  --color-surface-hover: rgba(38, 38, 44, 0.6);
   --color-fg: #f4f4f6;
   --color-fg-secondary: #c8c8d0;
   --color-fg-muted: #8e8e99;
@@ -149,10 +153,11 @@
   --color-ink-faint: #6b6b76;
   --color-border-canvas: rgba(255, 255, 255, 0.1);
 
-  --color-surface: #121214;
-  --color-surface-2: #1a1a1e;
-  --color-surface-3: #222228;
-  --color-surface-hover: #2c2c34;
+  --color-surface: rgba(18, 18, 20, 0.74);
+  --color-surface-solid: #121214;
+  --color-surface-2: rgba(26, 26, 30, 0.64);
+  --color-surface-3: rgba(34, 34, 40, 0.58);
+  --color-surface-hover: rgba(44, 44, 52, 0.62);
   --color-fg: #f4f4f6;
   --color-fg-secondary: #c8c8d0;
   --color-fg-muted: #8e8e99;
@@ -307,9 +312,11 @@ body::after {
 .rail {
   background: var(--color-surface);
   color: var(--color-fg);
-  border: 1px solid var(--color-border-soft);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-glass);
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -338,7 +345,7 @@ body::after {
   width: 100%;
   min-height: 36px;
   height: auto;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -493,9 +500,11 @@ body::after {
 .main {
   background: var(--color-surface);
   color: var(--color-fg);
-  border: 1px solid var(--color-border-soft);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-glass);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -656,6 +665,8 @@ body::after {
 .card {
   background: var(--color-surface-2);
   color: var(--color-fg);
+  backdrop-filter: saturate(140%) blur(14px);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--glass-top);
@@ -4037,29 +4048,11 @@ button.user-chip {
   }
 }
 
-/* ========================================================= brutalist console */
-.app {
-  --r-lg: 8px;
-  --r-md: 8px;
-  --r-sm: 8px;
-  --shadow: none;
-}
-
-.app .card,
-.app .main,
-.app .rail {
-  border-width: 2px;
-  box-shadow: none;
-}
-
-.app .card {
-  border-radius: 8px;
-}
-
+/* ========================================================= ledger + drill helpers */
 .ledger-row td {
   font-family: var(--mono);
   font-size: 12.5px;
-  border-bottom: 2px solid var(--color-border-soft);
+  border-bottom: 1px solid var(--color-border-soft);
 }
 
 .ledger-memo {
@@ -4329,6 +4322,19 @@ button.user-chip {
 [data-theme="dark"] body {
   background: var(--bg-canvas);
   color: var(--text-primary);
+}
+
+[data-theme="dark"] body::before {
+  background:
+    radial-gradient(1100px 620px at 78% -12%, rgba(74, 158, 255, 0.07), transparent 62%),
+    radial-gradient(820px 520px at 4% 108%, rgba(124, 92, 255, 0.055), transparent 62%),
+    var(--bg);
+}
+
+[data-theme="dark"] body::after {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
 }
 
 .empty-rich {
