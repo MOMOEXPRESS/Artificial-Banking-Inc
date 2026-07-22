@@ -1832,6 +1832,39 @@ export const store = {
     }));
   },
 
+  /** Merge keys into an existing chat message meta (same org). */
+  patchChatMessageMeta(
+    orgId: string,
+    messageId: string,
+    patch: Record<string, unknown>,
+  ): ChatMessageRow | null {
+    const row = (
+      db
+        .prepare("SELECT * FROM chat_messages WHERE id = ? AND org_id = ?")
+        .get(messageId, orgId) as Row | undefined
+    );
+    if (!row) return null;
+    const prev = row.meta_json
+      ? (JSON.parse(row.meta_json as string) as Record<string, unknown>)
+      : {};
+    const meta = { ...prev, ...patch };
+    db.prepare("UPDATE chat_messages SET meta_json = ? WHERE id = ? AND org_id = ?").run(
+      JSON.stringify(meta),
+      messageId,
+      orgId,
+    );
+    return {
+      id: row.id as string,
+      orgId: row.org_id as string,
+      role: row.role as ChatMessageRow["role"],
+      kind: row.kind as ChatMessageRow["kind"],
+      body: row.body as string,
+      approvalId: (row.approval_id as string | null) ?? undefined,
+      meta,
+      createdAt: row.created_at as string,
+    };
+  },
+
   knownCounterparties(orgId: string): string[] {
     return (
       db.prepare("SELECT value FROM known_counterparties WHERE org_id = ?").all(orgId) as Row[]

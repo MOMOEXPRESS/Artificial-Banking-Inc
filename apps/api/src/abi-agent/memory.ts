@@ -70,6 +70,9 @@ export function resolveFollowUp(
   if (/\b(draft|blurb|marketing|copy)\b/.test(q)) {
     return { query: "draft marketing blurb", reuseTools: [] };
   }
+  if (/\b(maltbook|linkedin|post online)\b/.test(q)) {
+    return { query: "propose maltbook post", reuseTools: [] };
+  }
 
   // Bare "and …?" / "what about them?" → reuse prior tools
   if (priorTools.length) {

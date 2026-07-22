@@ -4,6 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { Empty, Icon, fmtUsd, relTime } from "./ui";
 import { Button } from "@/components/ui/button";
 
+type ExternalAction = {
+  id: string;
+  platform: string;
+  action: string;
+  content: string;
+  status: "pending" | "approved" | "rejected" | string;
+};
+
 type ChatMsg = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -108,13 +116,30 @@ export function ChatView({
       return approve ? "Approved — agent can continue." : "Denied — agent was told no.";
     });
 
+  const resolveExternal = (msg: ChatMsg, approve: boolean) => {
+    const ext = msg.meta?.externalAction as ExternalAction | undefined;
+    if (!ext?.id) return Promise.resolve();
+    return act(approve ? "Approve web action" : "Reject web action", async () => {
+      const res = await gFetch(`/v1/guardian/chat/external-actions/${ext.id}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ approve, messageId: msg.id }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error?.message ?? "resolve failed");
+      setMessages(d.messages ?? []);
+      return approve
+        ? `Queued ${ext.action} on ${ext.platform} (stub — not browsed yet).`
+        : `Rejected ${ext.action} on ${ext.platform}.`;
+    });
+  };
+
   return (
     <div className="chat-shell card" style={{ display: "flex", flexDirection: "column", minHeight: "70vh" }}>
       <div className="card-head">
         <div>
           <h2>ABI Assistant</h2>
           <div className="sub">
-            Org survey agent — agents, spend, budgets, denials, drafts. Never moves money from chat.
+            Org survey agent — agents, spend, budgets, denials, drafts. Web actions need your OK. Never moves money from chat.
           </div>
         </div>
         {pending.length > 0 && (
@@ -157,47 +182,77 @@ export function ChatView({
           </div>
         ) : messages.length === 0 ? (
           <Empty icon="spark">
-            ABI can survey the org or draft a marketing blurb — try a chip below.
+            ABI can survey the org, draft a blurb, or propose a MaltBook post — try a chip below.
           </Empty>
         ) : (
-          messages.map((m) => (
-            <div key={m.id} className={`chat-bubble ${m.role}`}>
-              <div className="chat-meta">
-                {m.role === "user" ? "You" : "ABI"} · {relTime(m.createdAt)}
+          messages.map((m) => {
+            const ext = m.meta?.externalAction as ExternalAction | undefined;
+            return (
+              <div key={m.id} className={`chat-bubble ${m.role}`}>
+                <div className="chat-meta">
+                  {m.role === "user" ? "You" : "ABI"} · {relTime(m.createdAt)}
+                </div>
+                <div className="chat-body">{m.body}</div>
+                {Array.isArray(m.meta?.toolsUsed) && (m.meta.toolsUsed as string[]).length > 0 && (
+                  <div className="chat-tools" aria-label="Tools used">
+                    {(m.meta.toolsUsed as string[]).map((t) => (
+                      <span key={t} className="pill mute">
+                        <i /> {t.replace(/_/g, " ")}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {ext && (
+                  <div className="chat-approval-card" style={{ marginTop: 10 }}>
+                    <div>
+                      <b>
+                        {ext.action} · {ext.platform}
+                      </b>
+                      <div className="faint" style={{ fontSize: 12, marginTop: 3 }}>
+                        Status: {ext.status}
+                      </div>
+                    </div>
+                    {ext.status === "pending" && (
+                      <div className="row" style={{ gap: 8 }}>
+                        <Button size="sm" disabled={locked} onClick={() => void resolveExternal(m, true)}>
+                          Approve
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          disabled={locked}
+                          onClick={() => void resolveExternal(m, false)}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {m.kind === "approval_request" && m.approvalId && (
+                  <div className="row" style={{ marginTop: 10, gap: 8 }}>
+                    <Button size="sm"
+                      disabled={locked || !pending.some((p) => p.id === m.approvalId)}
+                      onClick={() => void resolve(m.approvalId!, true)}
+                    >
+                      Approve
+                    </Button>
+                    <Button variant="destructive" size="sm"
+                      disabled={locked || !pending.some((p) => p.id === m.approvalId)}
+                      onClick={() => void resolve(m.approvalId!, false)}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                )}
+                {typeof m.meta?.goto === "string" && m.meta.goto !== "chat" && (
+                  <Button variant="ghost" size="sm" style={{ marginTop: 8 }} onClick={() => onGoto(String(m.meta!.goto))}>
+                    Open {String(m.meta.goto)} <Icon name="arrowRight" size={12} />
+                  </Button>
+                )}
               </div>
-              <div className="chat-body">{m.body}</div>
-              {Array.isArray(m.meta?.toolsUsed) && (m.meta.toolsUsed as string[]).length > 0 && (
-                <div className="chat-tools" aria-label="Tools used">
-                  {(m.meta.toolsUsed as string[]).map((t) => (
-                    <span key={t} className="pill mute">
-                      <i /> {t.replace(/_/g, " ")}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {m.kind === "approval_request" && m.approvalId && (
-                <div className="row" style={{ marginTop: 10, gap: 8 }}>
-                  <Button size="sm"
-                    disabled={locked || !pending.some((p) => p.id === m.approvalId)}
-                    onClick={() => void resolve(m.approvalId!, true)}
-                  >
-                    Approve
-                  </Button>
-                  <Button variant="destructive" size="sm"
-                    disabled={locked || !pending.some((p) => p.id === m.approvalId)}
-                    onClick={() => void resolve(m.approvalId!, false)}
-                  >
-                    Reject
-                  </Button>
-                </div>
-              )}
-              {typeof m.meta?.goto === "string" && m.meta.goto !== "chat" && (
-                <Button variant="ghost" size="sm" style={{ marginTop: 8 }} onClick={() => onGoto(String(m.meta!.goto))}>
-                  Open {String(m.meta.goto)} <Icon name="arrowRight" size={12} />
-                </Button>
-              )}
-            </div>
-          ))
+            );
+          })
         )}
         <div ref={bottom} />
       </div>
@@ -208,6 +263,7 @@ export function ChatView({
           "What is waiting on me?",
           "Any denials?",
           "Draft a marketing blurb",
+          "Propose a MaltBook post",
         ].map((s) => (
           <button key={s} disabled={locked} onClick={() => void send(s)}>
             {s}
@@ -217,7 +273,7 @@ export function ChatView({
 
       <div className="ask" style={{ marginTop: 10 }}>
         <input
-          placeholder="Ask ABI — agents, spend, denials, draft a blurb…"
+          placeholder="Ask ABI — agents, spend, denials, draft a blurb, MaltBook…"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void send(draft)}

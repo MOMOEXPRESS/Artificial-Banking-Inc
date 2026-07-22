@@ -1,11 +1,17 @@
 /**
  * Read-only org survey tools for the ABI agent.
  * Never moves money or approves payments — facts only.
+ * External web actions are HITL proposals only (never auto-executed).
  */
 import { accountId, formatMicroToUsdc } from "@policyvault/common";
 import { anomalies, burnForecast, vendorLedger } from "../analytics.js";
 import { buildSummary } from "../insights.js";
 import { store } from "../store.js";
+import {
+  createExternalProposal,
+  inferExternalArgs,
+  type ExternalActionProposal,
+} from "./external-actions.js";
 
 export const TOOL_NAMES = [
   "org_summary",
@@ -20,6 +26,7 @@ export const TOOL_NAMES = [
   "books_health",
   "burn_forecast",
   "draft_marketing_blurb",
+  "propose_external_action",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -29,11 +36,16 @@ export type ToolResult = {
   title: string;
   text: string;
   goto?: string;
+  externalAction?: ExternalActionProposal;
 };
 
 const usd = (m: bigint) => `$${formatMicroToUsdc(m)}`;
 
-export function runTool(orgId: string, name: ToolName): ToolResult {
+export function runTool(
+  orgId: string,
+  name: ToolName,
+  args: Record<string, unknown> = {},
+): ToolResult {
   switch (name) {
     case "org_summary": {
       const s = buildSummary(orgId);
@@ -238,6 +250,30 @@ export function runTool(orgId: string, name: ToolName): ToolResult {
         goto: "chat",
       };
     }
+    case "propose_external_action": {
+      const inferred =
+        args.platform || args.action || args.content
+          ? {
+              platform: args.platform,
+              action: args.action,
+              content: args.content,
+            }
+          : inferExternalArgs(String(args.message ?? "external action"));
+      const proposal = createExternalProposal(orgId, inferred);
+      return {
+        tool: name,
+        title: "External action (needs your OK)",
+        text: [
+          `Queued ${proposal.action} on ${proposal.platform} — nothing has been posted or signed up.`,
+          `Approve below to queue for browser execution (stub — no live browse yet).`,
+          "",
+          `Draft:`,
+          proposal.content,
+        ].join("\n"),
+        goto: "chat",
+        externalAction: proposal,
+      };
+    }
     default: {
       const _exhaustive: never = name;
       return { tool: _exhaustive, title: "Unknown", text: "" };
@@ -278,8 +314,15 @@ export function pickTools(qRaw: string): ToolName[] {
     tools.add("books_health");
   }
   if (has("burn", "runway")) tools.add("burn_forecast");
-  if (has("draft", "blurb", "marketing", "tweet", "post", "pitch", "write copy")) {
+  if (has("draft", "blurb", "marketing", "tweet", "pitch", "write copy")) {
     tools.add("draft_marketing_blurb");
+  }
+  if (
+    has("maltbook", "linkedin") ||
+    (has("post") && has("web", "online", "twitter", " x ")) ||
+    has("sign up on", "signup on", "register on")
+  ) {
+    tools.add("propose_external_action");
   }
   if (has("anomaly", "unusual", "weird")) {
     // fold anomalies into books_health narrative via burn for now
