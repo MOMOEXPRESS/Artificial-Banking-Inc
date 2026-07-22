@@ -32,16 +32,37 @@ Track D  X marketing (product first, token second)
 
 ### A0. Hosting decision (2 minutes)
 
-**Recommendation: keep Vercel.**
+**Recommendation: keep Vercel. Skip Cloudflare Pages for this repo.**
 
 | Option | Verdict |
 | --- | --- |
-| **Vercel `*.vercel.app`** | Already live: https://artificial-banking-inc-gaia10.vercel.app — best fit for Next.js console |
-| Cloudflare Pages `*.pages.dev` | Fine for static sites; painful for this Next + API monorepo. Skip unless you enjoy rewriting deploys |
+| **Vercel `*.vercel.app`** | Correct host for this Next + `/abi-api` monorepo |
+| Cloudflare Pages `*.pages.dev` | Build may pass; `wrangler deploy` fails at monorepo root and runtime doesn’t match — don’t use |
 
-No `.com` needed. Bookmark the gaia10 URL. Harden auth if needed: `docs/VERCEL.md`.
+**Canonical URL (when deploy is Ready):**  
+https://artificial-banking-inc-gaia10.vercel.app  
 
-API must also be reachable (`NEXT_PUBLIC_API_URL` → your API). If API isn’t on Vercel yet, use your current API host / Docker / Railway / Fly — same checklist below.
+If that URL returns `x-vercel-error: NOT_FOUND`, there is no live production deployment — recreate / redeploy with the settings below (no `.com` needed).
+
+#### Vercel import / repair (click path)
+
+1. Open https://vercel.com → team **gaia10** (or your team)
+2. **Add New… → Project** → import **Artificial-Banking-Inc** from GitHub  
+   (or open existing project **artificial-banking-inc**)
+3. **Root Directory** = `apps/web`  
+   Leave “Include source files outside root” **ON**
+4. Framework = **Next.js** (auto)
+5. Install / build are already in `apps/web/vercel.json` — don’t override unless empty
+6. Env (Production): at least  
+   - `ABI_KEY_PEPPER` = long random string  
+   - `POLICYVAULT_ALLOW_BOOTSTRAP` = `0`  
+   - later: `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `CHAIN`, Telegram keys
+7. **Deploy**
+8. **Settings → Deployment Protection** → turn **off** Vercel Authentication  
+   (or run `VERCEL_TOKEN=… npm run vercel:harden` — see `docs/VERCEL.md`)
+9. Open the URL Vercel shows under **Domains** (usually `artificial-banking-inc-gaia10.vercel.app`)
+
+Bookmark whatever Domains lists as Production — that is your public link.
 
 ### A1. Env checklist (you fill these)
 
