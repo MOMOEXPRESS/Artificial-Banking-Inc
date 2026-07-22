@@ -64,6 +64,25 @@ If that URL returns `x-vercel-error: NOT_FOUND`, there is no live production dep
 
 Bookmark whatever Domains lists as Production — that is your public link.
 
+#### Leave gaia10 **without** deleting the project
+
+Do **not** delete the project or the GitHub repo. **Transfer** it first, then leave/delete the empty team.
+
+1. Vercel → switch to team **gaia10** → open **artificial-banking-inc**
+2. **Settings → General** → scroll to **Transfer Project**
+3. Click **Transfer** → choose your **Personal** account (Hobby) — or another team you own  
+   You must be an **Owner** on gaia10 and a member of the destination.
+4. Confirm. Wait until transfer finishes (seconds to a few minutes).  
+   Deployments keep working; the `*.vercel.app` hostname may change (team slug drops out of the URL).
+5. Switch the team picker to **your personal account** → confirm the project is there and the new Domains URL loads.
+6. Only then, to ditch gaia10:
+   - Team switcher → **gaia10** → **Settings → Members** → remove yourself, **or**
+   - If you’re the last owner and the team is empty of projects: **Settings → General → Delete Team**
+
+**Never** hit **Delete Project** on artificial-banking-inc. Transfer ≠ delete.
+
+After transfer, update bookmarks / X links to the **new** Domains URL from the personal account.
+
 ### A1. Env checklist (you fill these)
 
 Copy from `.env.example` into production secrets:
