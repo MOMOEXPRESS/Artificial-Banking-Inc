@@ -93,6 +93,20 @@ Current setup (Project Settings **do** apply):
 6. **Zod ≥ 3.25** for `@hookform/resolvers`.
 7. Production Branch = `main`. Hobby may **block** agent commits — Redeploy as owner.
 
+## Why Production shows an “old” build
+
+Vercel **Production** only deploys the **Production Branch** (almost always `main`).
+
+| What you did | What Vercel did |
+| --- | --- |
+| Pushed / opened PRs on `cursor/…` branches | Preview deploys only (not Production) |
+| Clicked **Redeploy** on an old Production row | Rebuilt that **same old commit** |
+| Env vars changed, then Redeploy | Still the commit that row points at |
+
+**Fix:** merge the branch you want into `main` (or change Production Branch under **Settings → Git**). Then wait for a new Production deployment whose commit message matches the tip you expect (e.g. go-live / CDP Settings).
+
+Check: **Deployments** → filter **Production** → open the newest Ready row → confirm the **commit SHA / message** is today’s tip, not last week’s.
+
 ## API on Vercel (Bootstrap works)
 
 Vercel can run the **money API in-process** behind same-origin `/abi-api`

@@ -174,24 +174,27 @@ export function SettingsView({
       return "Guardian revoked — their key no longer works.";
     });
 
+  const networkLabel =
+    setup?.network === "base" ? "Base" : setup?.network === "base-sepolia" ? "Base Sepolia" : setup?.network ?? "Base Sepolia";
+
   const golive = [
     {
       done: !!setup?.cdpWired,
       title: "Real custody (Coinbase CDP)",
       body:
         setup?.cdpWired
-          ? "CDP custody active — payments sign with a managed wallet."
+          ? `CDP custody active on ${networkLabel} — vault address unchanged; set both CDP keys and redeployed.`
           : setup?.cdpApiKeyConfigured
-            ? "CDP_API_KEY_ID is set but DevLocalProvider is still wired — call setCustodyProvider(CdpProvider) to go live."
-            : `Currently signing with ${setup?.custody ?? "dev-local"}. Set CDP credentials and wire CdpProvider to switch.`,
+            ? "CDP keys look set but custody is still dev-local — redeploy / restart the API so CdpVaultProvider loads."
+            : `Currently ${setup?.custody ?? "dev-local"}. In Vercel → Environment Variables set CDP_API_KEY_ID + CDP_API_KEY_SECRET, then Redeploy.`,
     },
     {
       done: !!setup?.cdpWired,
-      title: "On-chain settlement on Base Sepolia",
+      title: `On-chain settlement (${networkLabel})`,
       body:
         setup?.cdpWired
-          ? "Settling on Base Sepolia via CDP."
-          : "The x402 handshake, signature and price checks are all real — only the final chain write is mocked by the dev facilitator. Fund the vault address with testnet USDC and point the seller at the hosted facilitator to go live.",
+          ? `Settling on ${networkLabel} via CDP. Fund the vault with USDC on that network.`
+          : `Handshake and policy are real; settlement is still mocked until CDP is wired. Fund the vault with ${networkLabel} USDC after CDP is green.`,
     },
     {
       done: !!setup?.telegram,
@@ -268,6 +271,7 @@ export function SettingsView({
               {[
                 ["Network", setup?.network ?? "—"],
                 ["Custody", setup?.custody ?? "—"],
+                ["CDP keys", setup?.cdpApiKeyConfigured ? "configured" : "missing"],
                 ["Settlement", setup?.settlement ?? "—"],
                 ["Telegram", setup?.telegram ? "connected" : "not configured"],
                 ["Rate limit", `${setup?.rateLimitPerMin ?? "—"}/min per key`],
@@ -276,9 +280,23 @@ export function SettingsView({
               ].map(([k, v]) => (
                 <div className="kv" key={k}>
                   <span className="k">{k}</span>
-                  <span className="v">{v}</span>
+                  <span
+                    className="v"
+                    style={
+                      k === "Custody"
+                        ? { color: setup?.cdpWired ? "var(--green)" : "var(--amber, var(--warn))" }
+                        : undefined
+                    }
+                  >
+                    {v}
+                  </span>
                 </div>
               ))}
+              {setup?.note ? (
+                <div className="hint" style={{ marginTop: 10 }}>
+                  {setup.note}
+                </div>
+              ) : null}
             </div>
 
             <div className="card">
@@ -288,7 +306,9 @@ export function SettingsView({
               <div className="field">
                 <label>Vault address</label>
                 <div className="code">{org?.vaultAddress}</div>
-                <div className="hint">Fund this with Base Sepolia USDC when you switch settlement on.</div>
+                <div className="hint">
+                  Fund this with {networkLabel} USDC after Settings → Go live shows custody <b>cdp</b>.
+                </div>
               </div>
               <div className="kv">
                 <span className="k">Agents</span>

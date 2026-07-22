@@ -2,6 +2,7 @@
 cache/
 out/
 broadcast/
+lib/
 
 # Secrets
 .env
@@ -9,4 +10,3 @@ broadcast/
 
 # Editor
 .DS_Store
-lib/
