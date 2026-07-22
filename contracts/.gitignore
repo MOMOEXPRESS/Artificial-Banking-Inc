@@ -1,0 +1,12 @@
+# Foundry
+cache/
+out/
+broadcast/
+
+# Secrets
+.env
+.env.local
+
+# Editor
+.DS_Store
+lib/

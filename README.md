@@ -262,7 +262,8 @@ npm run dev:mcp
 
 - **Now:** policy engine, double-entry ledger with revenue accounts, SQLite-backed API (durable, transactional, journal-replay reconciliation), guardian auth + rate limiting, signed webhooks with retries + test events, **real x402 client rail** (EIP-712 signing, exact-price settlement, dev facilitator), org EVM custody keys, policy editing API + UI, **insights engine** (period summary + ask-anything over your own data), **invoices & revenue** with payment score, **mission runs archive with generated deliverable documents**, Telegram approvals (set `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`), glass-design guardian console (overview, playground, work, approvals, invoices, escrows, ledger, policy, webhooks, activity, settings), escrow v0, HITL approvals, org/agent lifecycle, SDK/MCP tools, demo agent + demo paid API  
 - **Next:** go-live on Base Sepolia (CDP custody + hosted facilitator + funded testnet wallet — needs a CDP API key); guardian login (Auth.js); hosted deploy  
-- **Later:** Postgres swap (`store.ts` seam), KYT/screening, design partners, public metrics; token only after GMV  
+- **Later:** Postgres swap (`store.ts` seam), KYT/screening, design partners, public metrics  
+- **Optional (separate):** community token `ABINC` under [`contracts/`](./contracts/) — fixed-supply ERC-20 for Base; **not** wired into the console or agent USDC vaults. See `contracts/README.md`. 
 
 ## License
 
