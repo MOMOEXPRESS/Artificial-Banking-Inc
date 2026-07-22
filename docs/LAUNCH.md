@@ -102,9 +102,11 @@ Telegram: [@BotFather](https://t.me/BotFather) → bot token; message the bot, t
 
 ### A2. Fund + smoke a real session (Sepolia first)
 
+**Click-by-click:** [`docs/GO_LIVE.md`](./GO_LIVE.md)
+
 1. Open Console → **Treasury → Vault** → copy vault address  
 2. Send **Base Sepolia USDC** (and a bit of Sepolia ETH for gas if needed)  
-3. Confirm Settings / setup shows custody **cdp** (not mock) once CDP env is set  
+3. Confirm **Settings → Go live** shows custody **cdp** and **Network** = `CHAIN`  
 4. Create / pick an agent → fund stipend from budget (**Treasury → Move**)  
 5. **Playground** → run a small mission (or Chat) so a pay hits policy  
 6. Approve in Console **or** Telegram  
@@ -267,7 +269,8 @@ if that's not your thing, ignore it and use the demo
 
 | Doc | Use |
 | --- | --- |
-| **This file** | Launch orchestration |
+| **`docs/GO_LIVE.md`** | **Zero-theory click path + YC 60s script — start here to finish the week** |
+| **This file** | Launch orchestration (A–D) |
 | `docs/DEPLOY.md` | Docker / VPS / CDP fund steps |
 | `docs/VERCEL.md` | vercel.app URL + harden |
 | `contracts/README.md` | Optional Base ERC-20 (not needed for pump.fun) |
@@ -277,8 +280,8 @@ if that's not your thing, ignore it and use the demo
 
 ## Bottom line
 
-1. **Go live the product on Base + CDP + (optional) Telegram** using the existing **vercel.app** link.  
+1. **Go live the product on Base + CDP + (optional) Telegram** — follow **`docs/GO_LIVE.md`**.  
 2. **Launch the community coin on Solana via pump.fun + Phantom** — no domain, no Base requirement.  
 3. **Market product first on X; token second** with a clear “not the console” line.
 
-When you’re ready for the next concrete step, say which track: **A (CDP smoke)** or **C (pump.fun copy + image prompts)** — we’ll do that one hands-on.
+Week close = one approved Sepolia pay with Settings showing custody `cdp`. Everything else is optional.

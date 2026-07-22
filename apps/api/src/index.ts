@@ -1511,20 +1511,23 @@ app.get(
     } catch {
       /* unregistered */
     }
-    const cdpEnv = Boolean(process.env.CDP_API_KEY_ID);
+    const network = process.env.CHAIN === "base" ? "base" : "base-sepolia";
+    const cdpEnv = cdpEnvConfigured();
     res.json({
       setup: {
         custody: custodyName,
-        network: "base-sepolia",
+        network,
         settlement:
-          custodyName === "cdp" ? "onchain (cdp)" : "mock (dev facilitator / transfer-mock)",
+          custodyName === "cdp" ? `onchain (cdp) · ${network}` : "mock (dev facilitator / transfer-mock)",
         cdpApiKeyConfigured: cdpEnv,
         cdpWired: custodyName === "cdp",
         keysHashedAtRest: true,
         note:
           !cdpEnv && custodyName === "dev-local"
-            ? "Set CDP_API_KEY_ID + CDP_API_KEY_SECRET to activate cdp custody behind the existent vault address."
-            : undefined,
+            ? "Set CDP_API_KEY_ID + CDP_API_KEY_SECRET (both) and redeploy — custody flips to cdp automatically behind the existent vault address."
+            : cdpEnv && custodyName !== "cdp"
+              ? "CDP env is set but custody is not cdp — restart the API process after setting both keys."
+              : undefined,
         telegram: telegramEnabled,
         rateLimitPerMin: RATE_LIMIT_PER_MIN,
         approvalTtlMinutes: APPROVAL_TTL_MINUTES,
