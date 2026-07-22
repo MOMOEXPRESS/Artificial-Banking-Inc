@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { AIPanel } from "./views";
 import type { InvoiceStats, Summary } from "./views";
 import { BarChart, BarLine, Calendar, Donut, Empty, Icon, Stat, fmtTime, fmtUsd } from "./ui";
@@ -42,10 +42,6 @@ export function Overview({
   const [range, setRange] = useState<"24h" | "7d" | "all">("all");
   const [newAgent, setNewAgent] = useState("");
   const [revealed, setRevealed] = useState<AgentKey | null>(null);
-  const [allocTo, setAllocTo] = useState("");
-  const [allocFrom, setAllocFrom] = useState("");
-  const [allocAmt, setAllocAmt] = useState("25");
-  const [moveMode, setMoveMode] = useState<"allocate" | "reclaim" | "transfer">("allocate");
 
   const orgAvail = org?.balances.find((b) => b.kind === "org_available")?.usdc;
   const spendDecisions = useMemo(
@@ -130,101 +126,8 @@ export function Overview({
     });
 
   /**
-   * Money can move three ways. Allocate uses wallets/move so large amounts
-   * follow the same HITL path as Treasury, and can pull from a budget envelope.
+   * Move funds lives under Treasury → Move so Overview stays a glance surface.
    */
-  const [fundSource, setFundSource] = useState<"org" | string>("org");
-  const [budgets, setBudgets] = useState<{ id: string; name: string; availableUsdc: string }[]>([]);
-
-  useEffect(() => {
-    void gFetch("/v1/guardian/budgets")
-      .then((r) => r.json())
-      .then((d) => setBudgets(d.budgets ?? []))
-      .catch(() => setBudgets([]));
-  }, [gFetch, orgAvail, metrics?.balancesUsdc?.agentAvailable]);
-
-  const moveMoney = () =>
-    act("Move funds", async () => {
-      const amount = allocAmt.trim();
-      if (moveMode === "allocate") {
-        if (!org?.org?.id) throw new Error("Org not loaded");
-        const from =
-          fundSource === "org"
-            ? { scope: "org" as const, id: org.org.id }
-            : { scope: "department" as const, id: fundSource };
-        const res = await gFetch("/v1/guardian/wallets/move", {
-          method: "POST",
-          body: JSON.stringify({
-            from,
-            to: { scope: "agent", id: allocTo },
-            amountUsdc: amount,
-            memo: "overview_allocate",
-          }),
-        });
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-        if (d.outcome === "review") {
-          return `Parked ${fmtUsd(amount)} for guardian approval (Treasury → Move).`;
-        }
-        const src =
-          fundSource === "org"
-            ? "org vault"
-            : budgets.find((b) => b.id === fundSource)?.name ?? "budget";
-        return `Moved ${fmtUsd(amount)} from ${src} to ${agentName(allocTo)}.`;
-      }
-      if (moveMode === "reclaim") {
-        if (!org?.org?.id) throw new Error("Org not loaded");
-        const body: Record<string, unknown> = {
-          from: { scope: "agent", id: allocFrom },
-          to: { scope: "org", id: org.org.id },
-          memo: "overview_reclaim",
-        };
-        if (amount) body.amountUsdc = amount;
-        else {
-          const bal = org.balances.find((b) => b.kind === "agent_available" && b.agentId === allocFrom);
-          body.amountUsdc = bal?.usdc ?? "0";
-        }
-        const res = await gFetch("/v1/guardian/wallets/move", {
-          method: "POST",
-          body: JSON.stringify(body),
-        });
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-        if (d.outcome === "review") {
-          return `Parked reclaim for guardian approval (Treasury → Move).`;
-        }
-        return `Pulled funds back from ${agentName(allocFrom)} to the org vault.`;
-      }
-      if (!amount) {
-        const bal = org?.balances.find((b) => b.kind === "agent_available" && b.agentId === allocFrom);
-        const res = await gFetch("/v1/guardian/wallets/move", {
-          method: "POST",
-          body: JSON.stringify({
-            from: { scope: "agent", id: allocFrom },
-            to: { scope: "agent", id: allocTo },
-            amountUsdc: bal?.usdc ?? "0",
-            memo: "overview_transfer",
-          }),
-        });
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-        if (d.outcome === "review") return `Parked transfer for guardian approval (Treasury → Move).`;
-        return `Moved funds from ${agentName(allocFrom)} to ${agentName(allocTo)}.`;
-      }
-      const res = await gFetch("/v1/guardian/wallets/move", {
-        method: "POST",
-        body: JSON.stringify({
-          from: { scope: "agent", id: allocFrom },
-          to: { scope: "agent", id: allocTo },
-          amountUsdc: amount,
-          memo: "overview_transfer",
-        }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-      if (d.outcome === "review") return `Parked transfer for guardian approval (Treasury → Move).`;
-      return `Moved ${fmtUsd(amount)} from ${agentName(allocFrom)} to ${agentName(allocTo)}.`;
-    });
 
   const rotateKey = (agentId: string) =>
     act("Rotate key", async () => {
@@ -547,112 +450,50 @@ export function Overview({
           </div>
         </div>
 
-        <div className="card" style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <div className="card-head">
+        <div className="card move-cta-card" style={{ minWidth: 0 }}>
+          <div className="card-head" style={{ marginBottom: 0 }}>
             <div>
               <h2>Move funds</h2>
-              <div className="sub">Treasury ↔ agents · double-entry</div>
+              <div className="sub">Vault → budget → agent stipend</div>
             </div>
           </div>
-          <SegTabs
-            className="mb-3.5"
-            value={moveMode}
-            onValueChange={(v) => setMoveMode(v as typeof moveMode)}
-            items={
-              [
-                { value: "allocate", label: "Budget / org → agent" },
-                { value: "reclaim", label: "Agent → org" },
-                { value: "transfer", label: "Agent → agent" },
-              ] as const
-            }
-          />
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1 }}>
-            {moveMode === "allocate" && (
-              <label className="field" style={{ margin: 0 }}>
-                <span className="muted" style={{ fontSize: 12 }}>From</span>
-                <select
-                  value={fundSource}
-                  disabled={readOnly}
-                  onChange={(e) => setFundSource(e.target.value)}
-                >
-                  <option value="org">Org vault · {fmtUsd(orgAvail)}</option>
-                  {budgets.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      Budget · {b.name} · {fmtUsd(b.availableUsdc)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {moveMode !== "allocate" && (
-              <label className="field" style={{ margin: 0 }}>
-                <span className="muted" style={{ fontSize: 12 }}>From agent</span>
-                <select value={allocFrom} disabled={readOnly} onChange={(e) => setAllocFrom(e.target.value)}>
-                  <option value="">Choose…</option>
-                  {(org?.agents ?? []).map((a) => {
-                    const bal = org?.balances.find(
-                      (b) => b.kind === "agent_available" && b.agentId === a.id,
-                    )?.usdc;
-                    return (
-                      <option key={a.id} value={a.id}>
-                        {a.name} ({fmtUsd(bal ?? "0")})
-                      </option>
-                    );
-                  })}
-                </select>
-              </label>
-            )}
-            {moveMode !== "reclaim" && (
-              <label className="field" style={{ margin: 0 }}>
-                <span className="muted" style={{ fontSize: 12 }}>To agent</span>
-                <select value={allocTo} disabled={readOnly} onChange={(e) => setAllocTo(e.target.value)}>
-                  <option value="">Choose…</option>
-                  {(org?.agents ?? [])
-                    .filter((a) => moveMode !== "transfer" || a.id !== allocFrom)
-                    .map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-            )}
-            <label className="field" style={{ margin: 0 }}>
-              <span className="muted" style={{ fontSize: 12 }}>
-                Amount USDC {moveMode !== "allocate" ? "(blank = all available)" : ""}
+          <ol className="move-cta-steps">
+            <li>
+              <span className="move-cta-num">1</span>
+              <span>
+                <b>Fill a budget</b> from the org vault
               </span>
-              <input
-                value={allocAmt}
-                disabled={readOnly}
-                onChange={(e) => setAllocAmt(e.target.value)}
-                placeholder={moveMode === "allocate" ? "25" : "blank = all"}
-                aria-label="Amount USDC"
-              />
-            </label>
-            <Button size="sm"
-              style={{ alignSelf: "stretch" }}
-              disabled={
-                busy ||
-                readOnly ||
-                (moveMode === "allocate" && (!allocTo || !allocAmt.trim())) ||
-                (moveMode === "reclaim" && !allocFrom) ||
-                (moveMode === "transfer" && (!allocFrom || !allocTo))
-              }
-              onClick={() => void moveMoney()}
+            </li>
+            <li>
+              <span className="move-cta-num">2</span>
+              <span>
+                <b>Fund an agent</b> stipend from that budget
+              </span>
+            </li>
+            <li>
+              <span className="move-cta-num">3</span>
+              <span>
+                <b>Pull back or peer-move</b> when you need to rebalance
+              </span>
+            </li>
+          </ol>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <Button
+              disabled={readOnly}
+              onClick={() => {
+                try {
+                  sessionStorage.setItem("abi_treasury_tab", "move");
+                } catch {
+                  /* ignore */
+                }
+                setView("treasury");
+              }}
             >
-              {moveMode === "allocate"
-                ? "Allocate stipend"
-                : moveMode === "reclaim"
-                  ? "Pull back to treasury"
-                  : "Transfer between agents"}
+              <Icon name="swap" size={13} /> Open Treasury → Move
             </Button>
             <p className="faint" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.55 }}>
-              Org vault has <b className="mono">{fmtUsd(orgAvail)}</b>. Large moves may park under
-              Treasury → Move. Create budgets and the deposit address in{" "}
-              <Button variant="bare" style={{ fontSize: 11.5 }} onClick={() => setView("treasury")}>
-                Treasury
-              </Button>
-              .
+              Org vault has <b className="mono">{fmtUsd(orgAvail)}</b>. Large moves may park for
+              multi-guardian approval.
             </p>
           </div>
         </div>

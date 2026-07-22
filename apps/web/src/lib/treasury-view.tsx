@@ -114,13 +114,28 @@ export function TreasuryView({
     vaultAddress?: string;
     events: { id: string; kind: string; note?: string; at: string }[];
   } | null>(null);
-  const [tab, setTab] = useState<"fund" | "wallets" | "move" | "analytics" | "recovery">("fund");
+  const [tab, setTab] = useState<"fund" | "wallets" | "move" | "analytics" | "recovery">(() => {
+    if (typeof window === "undefined") return "fund";
+    try {
+      const pref = sessionStorage.getItem("abi_treasury_tab");
+      if (pref === "move" || pref === "wallets" || pref === "fund" || pref === "analytics" || pref === "recovery") {
+        sessionStorage.removeItem("abi_treasury_tab");
+        return pref;
+      }
+    } catch {
+      /* ignore */
+    }
+    return "fund";
+  });
 
   const [deptName, setDeptName] = useState("");
   const [rotateAgentId, setRotateAgentId] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
+  const [moveIntent, setMoveIntent] = useState<
+    "budget" | "allocate" | "reclaim" | "transfer" | "custom"
+  >("allocate");
   const [copied, setCopied] = useState(false);
   const [holdings, setHoldings] = useState<
     { id: string; symbol: string; decimals: number; chain: string; balance: string }[]
@@ -168,18 +183,30 @@ export function TreasuryView({
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    if (!wallets || from || to) return;
+    applyIntent("allocate");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once when wallets first arrive
+  }, [wallets]);
+
   const vault = wallets?.org.vaultAddress ?? recovery?.vaultAddress ?? "";
-  const allTargets: { key: string; label: string; ref: { scope: Scope; id: string } }[] = [];
+  const allTargets: { key: string; label: string; short: string; bal: string; kind: Scope; ref: { scope: Scope; id: string } }[] = [];
   if (wallets) {
     allTargets.push({
       key: `org:${wallets.org.id}`,
-      label: `Org treasury · ${fmt(wallets.org.availableUsdc)}`,
+      label: `Org vault · ${fmt(wallets.org.availableUsdc)}`,
+      short: "Org vault",
+      bal: wallets.org.availableUsdc,
+      kind: "org",
       ref: { scope: "org", id: wallets.org.id },
     });
     for (const d of wallets.departments) {
       allTargets.push({
         key: `department:${d.id}`,
         label: `Budget · ${d.name} · ${fmt(d.availableUsdc)}`,
+        short: d.name,
+        bal: d.availableUsdc,
+        kind: "department",
         ref: { scope: "department", id: d.id },
       });
     }
@@ -187,17 +214,85 @@ export function TreasuryView({
       allTargets.push({
         key: `agent:${a.id}`,
         label: `Agent · ${a.name} · ${fmt(a.availableUsdc)}`,
+        short: a.name,
+        bal: a.availableUsdc,
+        kind: "agent",
         ref: { scope: "agent", id: a.id },
       });
     }
     for (const s of wallets.shared) {
       allTargets.push({
         key: `shared:${s.id}`,
-        label: `Legacy pool · ${s.name} · ${fmt(s.availableUsdc)}`,
+        label: `Legacy · ${s.name} · ${fmt(s.availableUsdc)}`,
+        short: s.name,
+        bal: s.availableUsdc,
+        kind: "shared",
         ref: { scope: "shared", id: s.id },
       });
     }
   }
+
+  const fromChoices =
+    moveIntent === "allocate"
+      ? allTargets.filter((t) => t.kind === "org" || t.kind === "department" || t.kind === "shared")
+      : moveIntent === "budget"
+        ? allTargets.filter((t) => t.kind === "org")
+        : moveIntent === "reclaim" || moveIntent === "transfer"
+          ? allTargets.filter((t) => t.kind === "agent")
+          : allTargets;
+  const toChoices =
+    moveIntent === "allocate" || moveIntent === "transfer"
+      ? allTargets.filter((t) => t.kind === "agent" && t.key !== from)
+      : moveIntent === "budget"
+        ? allTargets.filter((t) => t.kind === "department")
+        : moveIntent === "reclaim"
+          ? allTargets.filter((t) => t.kind === "org" || t.kind === "department")
+          : allTargets.filter((t) => t.key !== from);
+
+  const fromWallet = allTargets.find((t) => t.key === from);
+  const toWallet = allTargets.find((t) => t.key === to);
+
+  const applyIntent = (intent: typeof moveIntent) => {
+    setMoveIntent(intent);
+    if (!wallets || intent === "custom") return;
+    if (intent === "budget") {
+      const src = allTargets.find((t) => t.kind === "org");
+      const dest =
+        allTargets.find((t) => t.kind === "department" && Number(t.bal) >= 0) ??
+        allTargets.find((t) => t.kind === "department");
+      setFrom(src?.key ?? "");
+      setTo(dest?.key ?? "");
+      return;
+    }
+    if (intent === "allocate") {
+      const src =
+        allTargets.find((t) => t.kind === "department" && Number(t.bal) > 0) ??
+        allTargets.find((t) => t.kind === "org");
+      const dest = allTargets.find((t) => t.kind === "agent" && t.key !== src?.key);
+      setFrom(src?.key ?? "");
+      setTo(dest?.key ?? "");
+      return;
+    }
+    if (intent === "reclaim") {
+      const src = allTargets.find((t) => t.kind === "agent" && Number(t.bal) > 0);
+      const dest = allTargets.find((t) => t.kind === "org");
+      setFrom(src?.key ?? "");
+      setTo(dest?.key ?? "");
+      return;
+    }
+    if (intent === "transfer") {
+      const agents = allTargets.filter((t) => t.kind === "agent");
+      setFrom(agents[0]?.key ?? "");
+      setTo(agents[1]?.key ?? "");
+    }
+  };
+
+  const swapEndpoints = () => {
+    const a = from;
+    setFrom(to);
+    setTo(a);
+    setMoveIntent("custom");
+  };
 
   const copyVault = async () => {
     if (!vault) return;
@@ -686,53 +781,111 @@ export function TreasuryView({
       )}
 
       {tab === "move" && (
-        <div className="grid g-main fill">
-          <div className="card treasury-panel">
+        <div className="move-layout">
+          <div className="card treasury-panel move-composer">
             <div className="treasury-panel-head">
               <span className="treasury-glyph" aria-hidden>
                 <Icon name="swap" size={16} />
               </span>
-              <div>
-                <h2 style={{ margin: "0 0 6px" }}>Move between wallets</h2>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <h2 style={{ margin: "0 0 6px" }}>Move funds</h2>
                 <div className="sub" style={{ margin: 0 }}>
-                  Org → budget → agent stipend. Large moves may need multi-guardian votes.
+                  Vault → budget → agent stipend. Large amounts may park for approval.
                 </div>
               </div>
             </div>
 
-            <div className="treasury-flow" aria-hidden>
-              <span>From</span>
-              <span className="treasury-flow-arrow">→</span>
-              <span>To</span>
-              <span className="treasury-flow-arrow">→</span>
-              <span>Ledger</span>
+            <div className="move-intents" role="tablist" aria-label="Move type">
+              {(
+                [
+                  { id: "budget", label: "Fill budget", hint: "Vault → budget pool" },
+                  { id: "allocate", label: "Fund agent", hint: "Budget / vault → stipend" },
+                  { id: "reclaim", label: "Pull back", hint: "Agent → vault / budget" },
+                  { id: "transfer", label: "Peer move", hint: "Agent ↔ agent" },
+                  { id: "custom", label: "Custom", hint: "Any wallet pair" },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={moveIntent === opt.id}
+                  className={`move-intent ${moveIntent === opt.id ? "on" : ""}`}
+                  disabled={readOnly}
+                  onClick={() => applyIntent(opt.id)}
+                >
+                  <b>{opt.label}</b>
+                  <span>{opt.hint}</span>
+                </button>
+              ))}
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 420 }}>
-              <label className="field" style={{ margin: 0 }}>
-                <span>From</span>
-                <select value={from} disabled={readOnly} onChange={(e) => setFrom(e.target.value)}>
-                  <option value="">Select wallet</option>
-                  {allTargets.map((t) => (
+            <div className="move-route">
+              <div className="move-endpoint">
+                <div className="move-endpoint-label">From</div>
+                <select
+                  value={from}
+                  disabled={readOnly}
+                  onChange={(e) => setFrom(e.target.value)}
+                >
+                  <option value="">Select source</option>
+                  {fromChoices.map((t) => (
                     <option key={t.key} value={t.key}>
                       {t.label}
                     </option>
                   ))}
                 </select>
-              </label>
-              <label className="field" style={{ margin: 0 }}>
-                <span>To</span>
-                <select value={to} disabled={readOnly} onChange={(e) => setTo(e.target.value)}>
-                  <option value="">Select wallet</option>
-                  {allTargets
-                    .filter((t) => t.key !== from)
-                    .map((t) => (
-                      <option key={t.key} value={t.key}>
-                        {t.label}
-                      </option>
-                    ))}
+                <div className="move-endpoint-bal">
+                  {fromWallet ? (
+                    <>
+                      <span className="faint">{fromWallet.short}</span>
+                      <b className="mono">{fmt(fromWallet.bal)}</b>
+                    </>
+                  ) : (
+                    <span className="faint">Pick a wallet with balance</span>
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="move-swap"
+                disabled={readOnly || !from || !to}
+                title="Swap from / to"
+                aria-label="Swap from and to"
+                onClick={swapEndpoints}
+              >
+                <Icon name="swap" size={15} />
+              </button>
+
+              <div className="move-endpoint">
+                <div className="move-endpoint-label">To</div>
+                <select
+                  value={to}
+                  disabled={readOnly}
+                  onChange={(e) => setTo(e.target.value)}
+                >
+                  <option value="">Select destination</option>
+                  {toChoices.map((t) => (
+                    <option key={t.key} value={t.key}>
+                      {t.label}
+                    </option>
+                  ))}
                 </select>
-              </label>
+                <div className="move-endpoint-bal">
+                  {toWallet ? (
+                    <>
+                      <span className="faint">{toWallet.short}</span>
+                      <b className="mono">{fmt(toWallet.bal)}</b>
+                    </>
+                  ) : (
+                    <span className="faint">Where the USDC lands</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="move-amount-block">
               <label className="field" style={{ margin: 0 }}>
                 <span>Amount (USDC)</span>
                 <input
@@ -740,9 +893,34 @@ export function TreasuryView({
                   disabled={readOnly}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="25"
+                  inputMode="decimal"
                 />
               </label>
-              <Button size="sm"
+              <div className="move-amount-chips">
+                {["10", "25", "50", "100"].map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    className="sm ghost"
+                    disabled={readOnly}
+                    onClick={() => setAmount(chip)}
+                  >
+                    ${chip}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="sm ghost"
+                  disabled={readOnly || !fromWallet}
+                  onClick={() => setAmount(fromWallet?.bal ?? "")}
+                >
+                  All available
+                </button>
+              </div>
+            </div>
+
+            <div className="move-actions">
+              <Button
                 disabled={locked || !from || !to || !amount.trim()}
                 onClick={() =>
                   void act("Move funds", async () => {
@@ -754,32 +932,55 @@ export function TreasuryView({
                         from: f.ref,
                         to: t.ref,
                         amountUsdc: amount.trim(),
-                        memo: "console_move",
+                        memo: `console_${moveIntent}`,
                       }),
                     });
                     const j = await res.json();
                     if (!res.ok) throw new Error(j.error?.message ?? "Move failed");
+                    const moved = amount.trim();
                     setAmount("");
                     await refresh();
                     return j.outcome === "review"
                       ? "Parked for multi-guardian approval"
-                      : `Moved ${amount} USDC`;
+                      : `Moved ${moved} USDC · ${f.short} → ${t.short}`;
                   })
                 }
               >
-                <Icon name="swap" size={13} /> Execute move
+                <Icon name="swap" size={13} />{" "}
+                {moveIntent === "budget"
+                  ? "Fill budget"
+                  : moveIntent === "allocate"
+                    ? "Fund agent"
+                    : moveIntent === "reclaim"
+                      ? "Pull back"
+                      : moveIntent === "transfer"
+                        ? "Transfer"
+                        : "Execute move"}
               </Button>
+              {fromWallet && toWallet && amount.trim() && (
+                <span className="move-summary faint">
+                  {fmt(amount.trim())} · {fromWallet.short} → {toWallet.short}
+                </span>
+              )}
             </div>
           </div>
 
-          <div className="card" style={{ display: "flex", flexDirection: "column" }}>
+          <div className="card move-history">
             <div className="card-head">
-              <h2>Recent & pending moves</h2>
+              <div>
+                <h2>Activity</h2>
+                <div className="sub">Recent & pending treasury moves</div>
+              </div>
+              {moves.some((m) => m.status === "pending") && (
+                <span className="pill warn">
+                  <i /> {moves.filter((m) => m.status === "pending").length} pending
+                </span>
+              )}
             </div>
             {moves.length === 0 ? (
-              <Empty icon="swap">No treasury moves yet.</Empty>
+              <Empty icon="swap">No moves yet — fund an agent from a budget to start the trail.</Empty>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+              <div className="move-history-list">
                 {moves.slice(0, 12).map((m) => (
                   <div key={m.id} className="treasury-move-row">
                     <div style={{ minWidth: 0 }}>
@@ -797,7 +998,8 @@ export function TreasuryView({
                         <i /> {m.status}
                       </span>
                       {m.status === "pending" && (
-                        <Button size="sm"
+                        <Button
+                          size="sm"
                           disabled={locked}
                           onClick={() =>
                             void act("Approve move", async () => {
