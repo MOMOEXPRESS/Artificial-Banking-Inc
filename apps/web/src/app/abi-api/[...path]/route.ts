@@ -93,6 +93,7 @@ type EmbeddedApi = {
   reloadDbFromDisk: () => void;
   flushDbForPersist: () => void;
   getDbPath: () => string;
+  runAutoFundSweep?: () => { toppedUp: number };
 };
 
 /** Warm isolate: API module already opened SQLite; hydrate must reload from disk. */
@@ -114,6 +115,14 @@ async function handleEmbedded(req: NextRequest, pathSegments: string[]) {
     } else {
       const mod = await import("@policyvault/api");
       embeddedApi = mod as unknown as EmbeddedApi;
+    }
+
+    // Embedded isolates skip the API process setInterval — sweep before
+    // serving so list/balance reads reflect any due auto-fund top-ups.
+    try {
+      embeddedApi.runAutoFundSweep?.();
+    } catch (e) {
+      console.error("[abi-api auto-fund]", e);
     }
 
     const joined = pathSegments.map(encodeURIComponent).join("/");

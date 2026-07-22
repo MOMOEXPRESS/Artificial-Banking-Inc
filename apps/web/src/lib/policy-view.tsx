@@ -6,58 +6,88 @@ import { Icon, fmtUsd } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
 
-/** Live UTC quiet-window status for the Schedule & rules panel. */
+/** Live UTC quiet-window status for the Schedule & rules timer. */
 function quietWindowStatus(
   quiet: { startHour: number; endHour: number },
   now = new Date(),
 ): {
   inQuiet: boolean;
   label: string;
-  /** 0–1 remaining fraction of the quiet window (1 = just started). */
-  remaining: number;
+  /** 0–1 progress through the current phase (quiet window or wait-until-start). */
+  progress: number;
+  /** HH:MM:SS until quiet ends (in) or starts (out). */
+  timer: string;
   countdown: string;
   clock: string;
+  hours: number;
+  minutes: number;
+  seconds: number;
 } {
-  const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes() + now.getUTCSeconds() / 60;
-  const start = quiet.startHour * 60;
-  const end = quiet.endHour * 60;
+  const nowSec =
+    now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
+  const startSec = quiet.startHour * 3600;
+  const endSec = quiet.endHour * 3600;
+  const day = 24 * 3600;
   const clock = now.toISOString().slice(11, 19) + " UTC";
-  if (start === end) {
-    return { inQuiet: false, label: "Window disabled (start = end)", remaining: 0, countdown: "—", clock };
-  }
-  const windowLen = start < end ? end - start : 24 * 60 - start + end;
-  const inQuiet = start < end ? nowMin >= start && nowMin < end : nowMin >= start || nowMin < end;
-  const minsUntil = (target: number) => {
-    let d = target - nowMin;
-    if (d <= 0) d += 24 * 60;
+  const empty = {
+    inQuiet: false,
+    label: "Window disabled (start = end)",
+    progress: 0,
+    timer: "—:—:—",
+    countdown: "—",
+    clock,
+    hours: 0,
+    minutes: 0,
+    seconds: 0,
+  };
+  if (startSec === endSec) return empty;
+
+  const windowLen = startSec < endSec ? endSec - startSec : day - startSec + endSec;
+  const waitLen = day - windowLen;
+  const inQuiet =
+    startSec < endSec
+      ? nowSec >= startSec && nowSec < endSec
+      : nowSec >= startSec || nowSec < endSec;
+
+  const secsUntil = (target: number) => {
+    let d = target - nowSec;
+    if (d <= 0) d += day;
     return d;
   };
-  const fmtDur = (mins: number) => {
-    const total = Math.max(0, Math.ceil(mins));
-    const h = Math.floor(total / 60);
-    const m = total % 60;
-    const s = Math.floor((mins % 1) * 60);
-    if (h <= 0 && m <= 0) return `${s}s`;
-    if (h <= 0) return `${m}m ${String(s).padStart(2, "0")}s`;
-    return `${h}h ${String(m).padStart(2, "0")}m`;
+  const split = (totalSec: number) => {
+    const s = Math.max(0, Math.floor(totalSec));
+    const hours = Math.floor(s / 3600);
+    const minutes = Math.floor((s % 3600) / 60);
+    const seconds = s % 60;
+    const timer = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    const countdown =
+      hours > 0
+        ? `${hours}h ${String(minutes).padStart(2, "0")}m`
+        : minutes > 0
+          ? `${minutes}m ${String(seconds).padStart(2, "0")}s`
+          : `${seconds}s`;
+    return { hours, minutes, seconds, timer, countdown };
   };
+
   if (inQuiet) {
-    const left = minsUntil(end);
+    const left = secsUntil(endSec);
+    const parts = split(left);
     return {
       inQuiet: true,
-      label: "Currently in quiet hours",
-      remaining: Math.min(1, Math.max(0, left / windowLen)),
-      countdown: fmtDur(left),
+      label: "Quiet hours active — spending held or refused",
+      progress: Math.min(1, Math.max(0, 1 - left / windowLen)),
       clock,
+      ...parts,
     };
   }
-  const untilStart = minsUntil(start);
+  const untilStart = secsUntil(startSec);
+  const parts = split(untilStart);
   return {
     inQuiet: false,
-    label: "Outside quiet hours",
-    remaining: 0,
-    countdown: fmtDur(untilStart),
+    label: "Open hours — quiet window starts after this countdown",
+    progress: Math.min(1, Math.max(0, 1 - untilStart / Math.max(1, waitLen))),
     clock,
+    ...parts,
   };
 }
 
@@ -639,47 +669,51 @@ export function PolicyView({
             </div>
             {quietOn && quietLive && (
               <div
-                className={`banner ${quietLive.inQuiet ? "warn" : "info"}`}
-                style={{ marginBottom: 12 }}
-                role="status"
+                className={`quiet-timer ${quietLive.inQuiet ? "is-active" : "is-idle"}`}
+                role="timer"
+                aria-live="polite"
+                aria-label={
+                  quietLive.inQuiet
+                    ? `Quiet hours end in ${quietLive.countdown}`
+                    : `Quiet hours begin in ${quietLive.countdown}`
+                }
               >
-                <span className="txt" style={{ width: "100%" }}>
-                  <b style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                    <Icon name="clock" size={14} />
-                    {quietLive.inQuiet ? "Quiet hours active" : "Quiet hours idle"}
-                  </b>
-                  <span>
-                    {quietLive.label} · {quietLive.clock}
-                    {quietLive.inQuiet
-                      ? ` · ends in ${quietLive.countdown}`
-                      : ` · starts in ${quietLive.countdown}`}
-                  </span>
-                  {quietLive.inQuiet && (
-                    <div
-                      aria-hidden
+                <div className="quiet-timer-face" aria-hidden>
+                  <svg viewBox="0 0 120 120" className="quiet-timer-ring">
+                    <circle cx="60" cy="60" r="52" className="quiet-timer-track" />
+                    <circle
+                      cx="60"
+                      cy="60"
+                      r="52"
+                      className="quiet-timer-progress"
                       style={{
-                        marginTop: 10,
-                        height: 8,
-                        borderRadius: 999,
-                        background: "var(--border)",
-                        overflow: "hidden",
+                        strokeDasharray: `${2 * Math.PI * 52}`,
+                        strokeDashoffset: `${2 * Math.PI * 52 * (1 - quietLive.progress)}`,
                       }}
-                    >
-                      <div
-                        style={{
-                          height: "100%",
-                          width: `${Math.round(quietLive.remaining * 100)}%`,
-                          background: "var(--yellow, #d4a017)",
-                          transition: "width 0.8s linear",
-                        }}
-                      />
-                    </div>
-                  )}
-                </span>
+                    />
+                  </svg>
+                  <div className="quiet-timer-core">
+                    <span className="quiet-timer-digits mono">{quietLive.timer}</span>
+                    <span className="quiet-timer-phase">
+                      {quietLive.inQuiet ? "until quiet ends" : "until quiet starts"}
+                    </span>
+                  </div>
+                </div>
+                <div className="quiet-timer-meta">
+                  <b>
+                    <Icon name="clock" size={14} />
+                    {quietLive.inQuiet ? "Quiet hours active" : "Open for spending"}
+                  </b>
+                  <span>{quietLive.label}</span>
+                  <span className="faint mono">{quietLive.clock}</span>
+                  <div className="quiet-timer-bar" aria-hidden>
+                    <div style={{ width: `${Math.round(quietLive.progress * 100)}%` }} />
+                  </div>
+                </div>
               </div>
             )}
             {quietOn && (
-              <div className="row" style={{ gap: 14, flexWrap: "wrap" }}>
+              <div className="row" style={{ gap: 14, flexWrap: "wrap", marginTop: 14 }}>
                 <div className="field" style={{ margin: 0 }}>
                   <label>From (UTC)</label>
                   <select
@@ -735,7 +769,7 @@ export function PolicyView({
                         quiet.startHour > quiet.endHour
                           ? 24 - quiet.startHour + quiet.endHour
                           : quiet.endHour - quiet.startHour
-                      } hours a day.`}
+                      } hours a day. Timer ticks every second.`}
                 </span>
               </div>
             )}

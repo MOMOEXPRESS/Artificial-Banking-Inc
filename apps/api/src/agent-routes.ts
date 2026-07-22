@@ -13,6 +13,7 @@ import { transferAvailable } from "@policyvault/ledger";
 import type express from "express";
 import { z } from "zod";
 import { burnForecast } from "./analytics.js";
+import { runAutoFundSweep } from "./auto-fund.js";
 import { id } from "./engine.js";
 import { notify } from "./platform/notifier.js";
 import { recordObs } from "./platform/observability.js";
@@ -344,6 +345,12 @@ export function registerAgentRoutes(
   app.get(
     "/v1/guardian/agent-groups",
     guardianRoute((org, _req, res) => {
+      // Opportunistic sweep so Vercel embed (no setInterval) still top-ups.
+      try {
+        runAutoFundSweep();
+      } catch (e) {
+        console.error("auto-fund sweep failed:", e);
+      }
       const agentsById = new Map(store.listAgents(org.id).map((a) => [a.id, a]));
       res.json({
         groups: store.listAgentGroups(org.id).map((g) => {
@@ -560,7 +567,7 @@ export function registerAgentRoutes(
           enabled: z.boolean(),
           thresholdUsdc: z.string().default("5"),
           topUpUsdc: z.string().default("25"),
-          minIntervalMinutes: z.number().int().min(5).max(7 * 24 * 60).default(60),
+          minIntervalMinutes: z.number().int().min(1).max(7 * 24 * 60).default(5),
         })
         .parse(req.body);
       if (body.enabled && !group.budgetId) {
@@ -585,7 +592,14 @@ export function registerAgentRoutes(
         minIntervalMinutes: body.minIntervalMinutes,
       };
       store.setAgentGroupAutoFund(group.id, config);
-      res.json({ ok: true, groupId: group.id, autoFund: config });
+      // Apply immediately so "save rule" / toggle doesn't wait for a timer.
+      let sweep = { toppedUp: 0 };
+      try {
+        sweep = runAutoFundSweep();
+      } catch (e) {
+        console.error("auto-fund sweep failed:", e);
+      }
+      res.json({ ok: true, groupId: group.id, autoFund: config, toppedUp: sweep.toppedUp });
     }, { ownerOnly: true }),
   );
 

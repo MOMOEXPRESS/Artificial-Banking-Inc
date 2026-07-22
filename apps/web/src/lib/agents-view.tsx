@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Empty, Icon } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
@@ -117,6 +117,10 @@ export function AgentsView({
   const [fundAmounts, setFundAmounts] = useState<Record<string, string>>({});
   const [fundFrom, setFundFrom] = useState<Record<string, string>>({});
   const [budgets, setBudgets] = useState<{ id: string; name: string; availableUsdc: string }[]>([]);
+  /** Draft auto-fund knobs keyed by group id — drag to tune, save to persist. */
+  const [afDraft, setAfDraft] = useState<
+    Record<string, { thresholdUsdc: string; topUpUsdc: string; minIntervalMinutes: number }>
+  >({});
 
   const refreshRoster = useCallback(async () => {
     const [a, g, b] = await Promise.all([
@@ -154,6 +158,34 @@ export function AgentsView({
     if (tab === "freezes") void refreshFreezes();
     if (tab === "sessions") void refreshSessions();
   }, [tab, refreshFreezes, refreshSessions]);
+
+  // Poll while viewing ops labels so request-path auto-fund sweeps show up.
+  useEffect(() => {
+    if (tab !== "groups") return;
+    const t = window.setInterval(() => void refreshRoster(), 12_000);
+    return () => window.clearInterval(t);
+  }, [tab, refreshRoster]);
+
+  useEffect(() => {
+    setAfDraft((prev) => {
+      const next = { ...prev };
+      for (const g of groups) {
+        if (next[g.id]) continue;
+        next[g.id] = {
+          thresholdUsdc: g.autoFund?.thresholdUsdc ?? "5",
+          topUpUsdc: g.autoFund?.topUpUsdc ?? "25",
+          minIntervalMinutes: g.autoFund?.minIntervalMinutes ?? 5,
+        };
+      }
+      return next;
+    });
+  }, [groups]);
+
+  const agentBal = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of agents) m.set(a.id, Number(a.availableUsdc ?? 0) || 0);
+    return m;
+  }, [agents]);
 
   const loadDetail = useCallback(
     async (id: string) => {
@@ -813,32 +845,8 @@ export function AgentsView({
                         )}
                         <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
                           {g.members.length
-                            ? g.members.map((m) => (
-                                <span key={m.id} style={{ marginRight: 8 }}>
-                                  {m.name}
-                                  <Button
-                                    variant="bare"
-                                    style={{ fontSize: 11, marginLeft: 4, padding: 0 }}
-                                    disabled={locked}
-                                    onClick={() =>
-                                      void act("Remove from label", async () => {
-                                        await gFetch(
-                                          `/v1/guardian/agent-groups/${g.id}/unassign`,
-                                          {
-                                            method: "POST",
-                                            body: JSON.stringify({ agentIds: [m.id] }),
-                                          },
-                                        );
-                                        await refresh();
-                                        return `Removed ${m.name} from ${g.name}.`;
-                                      })
-                                    }
-                                  >
-                                    ×
-                                  </Button>
-                                </span>
-                              ))
-                            : "No members yet"}
+                            ? `${g.members.length} agent${g.members.length === 1 ? "" : "s"} labeled`
+                            : "No members yet — assign below"}
                         </div>
                       </div>
                       {g.status === "active" && (
@@ -962,146 +970,286 @@ export function AgentsView({
                       )}
                     </div>
                     {g.status === "active" && (
-                      <div
-                        style={{
-                          marginTop: 10,
-                          paddingTop: 10,
-                          borderTop: "1px solid var(--border)",
-                          display: "flex",
-                          flexWrap: "wrap",
-                          gap: 10,
-                          alignItems: "flex-end",
-                        }}
-                      >
-                        <label className="row" style={{ gap: 6, fontSize: 12.5 }}>
-                          <input
-                            type="checkbox"
-                            disabled={locked || !linkedBudget}
-                            checked={Boolean(g.autoFund?.enabled)}
-                            onChange={(e) =>
-                              void act("Auto-fund", async () => {
-                                const res = await gFetch(
-                                  `/v1/guardian/agent-groups/${g.id}/auto-fund`,
-                                  {
-                                    method: "PATCH",
-                                    body: JSON.stringify({
-                                      enabled: e.target.checked,
-                                      thresholdUsdc: g.autoFund?.thresholdUsdc ?? "5",
-                                      topUpUsdc: g.autoFund?.topUpUsdc ?? "25",
-                                      minIntervalMinutes: g.autoFund?.minIntervalMinutes ?? 60,
-                                    }),
-                                  },
-                                );
-                                const d = await res.json();
-                                if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
-                                await refresh();
-                                return e.target.checked
-                                  ? `Auto-fund on for ${g.name} (from linked budget).`
-                                  : `Auto-fund off for ${g.name}.`;
-                              })
-                            }
-                          />
-                          Auto-fund when low
-                        </label>
-                        <label className="field" style={{ margin: 0, width: 88 }}>
-                          <span style={{ fontSize: 11 }}>If below</span>
-                          <input
-                            className="sm"
-                            disabled={locked || !linkedBudget}
-                            defaultValue={g.autoFund?.thresholdUsdc ?? "5"}
-                            id={`af-th-${g.id}`}
-                          />
-                        </label>
-                        <label className="field" style={{ margin: 0, width: 88 }}>
-                          <span style={{ fontSize: 11 }}>Top up</span>
-                          <input
-                            className="sm"
-                            disabled={locked || !linkedBudget}
-                            defaultValue={g.autoFund?.topUpUsdc ?? "25"}
-                            id={`af-up-${g.id}`}
-                          />
-                        </label>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={locked || !linkedBudget}
-                          onClick={() =>
-                            void act("Save auto-fund", async () => {
-                              const th = (
-                                document.getElementById(`af-th-${g.id}`) as HTMLInputElement | null
-                              )?.value?.trim() ?? "5";
-                              const up = (
-                                document.getElementById(`af-up-${g.id}`) as HTMLInputElement | null
-                              )?.value?.trim() ?? "25";
-                              const res = await gFetch(
-                                `/v1/guardian/agent-groups/${g.id}/auto-fund`,
-                                {
-                                  method: "PATCH",
-                                  body: JSON.stringify({
-                                    enabled: g.autoFund?.enabled ?? true,
-                                    thresholdUsdc: th,
-                                    topUpUsdc: up,
-                                    minIntervalMinutes: g.autoFund?.minIntervalMinutes ?? 60,
-                                  }),
-                                },
+                      <div className="ops-autofund">
+                        <div className="ops-member-tiles">
+                          {g.members.length === 0 ? (
+                            <span className="faint" style={{ fontSize: 12 }}>
+                              Assign agents below — their stipend tiles show here.
+                            </span>
+                          ) : (
+                            g.members.map((m) => {
+                              const bal = agentBal.get(m.id) ?? 0;
+                              const th = Number(afDraft[g.id]?.thresholdUsdc ?? "5") || 0;
+                              const low = bal < th;
+                              return (
+                                <span
+                                  key={m.id}
+                                  className={`ops-member-tile ${low ? "is-low" : ""}`}
+                                  title={low ? "Below auto-fund threshold" : "Above threshold"}
+                                >
+                                  {m.name}
+                                  <span className="amt">{fmt(String(bal))}</span>
+                                  <Button
+                                    variant="bare"
+                                    style={{ fontSize: 11, padding: 0, minWidth: 0 }}
+                                    disabled={locked}
+                                    onClick={() =>
+                                      void act("Remove from label", async () => {
+                                        await gFetch(
+                                          `/v1/guardian/agent-groups/${g.id}/unassign`,
+                                          {
+                                            method: "POST",
+                                            body: JSON.stringify({ agentIds: [m.id] }),
+                                          },
+                                        );
+                                        await refresh();
+                                        return `Removed ${m.name} from ${g.name}.`;
+                                      })
+                                    }
+                                  >
+                                    ×
+                                  </Button>
+                                </span>
                               );
-                              const d = await res.json();
-                              if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
-                              await refresh();
-                              return `Auto-fund: if below $${th} → top up $${up} from budget.`;
                             })
-                          }
-                        >
-                          Save rule
-                        </Button>
-                        {!linkedBudget && (
-                          <span className="faint" style={{ fontSize: 11.5 }}>
-                            Create a matching Treasury budget to enable auto-fund.
-                          </span>
+                          )}
+                        </div>
+
+                        <div className="ops-autofund-head">
+                          <label className="row" style={{ gap: 8, fontSize: 13 }}>
+                            <button
+                              type="button"
+                              className={`switch ${g.autoFund?.enabled ? "on" : ""}`}
+                              disabled={locked || !linkedBudget}
+                              onClick={() =>
+                                void act("Auto-fund", async () => {
+                                  const draft = afDraft[g.id] ?? {
+                                    thresholdUsdc: "5",
+                                    topUpUsdc: "25",
+                                    minIntervalMinutes: 5,
+                                  };
+                                  const enabled = !g.autoFund?.enabled;
+                                  const res = await gFetch(
+                                    `/v1/guardian/agent-groups/${g.id}/auto-fund`,
+                                    {
+                                      method: "PATCH",
+                                      body: JSON.stringify({
+                                        enabled,
+                                        ...draft,
+                                      }),
+                                    },
+                                  );
+                                  const d = await res.json();
+                                  if (!res.ok) {
+                                    throw new Error(d.error?.message ?? JSON.stringify(d));
+                                  }
+                                  await refresh();
+                                  if (enabled && d.toppedUp > 0) {
+                                    return `Auto-fund on — topped up ${d.toppedUp} agent(s) just now.`;
+                                  }
+                                  return enabled
+                                    ? `Auto-fund on for ${g.name} (from linked budget).`
+                                    : `Auto-fund off for ${g.name}.`;
+                                })
+                              }
+                              aria-label="Toggle auto-fund"
+                            />
+                            Auto-fund when stipend is low
+                          </label>
+                          {linkedBudget ? (
+                            <span className="pill mute">
+                              <i /> from {linkedBudget.name} · {fmt(linkedBudget.availableUsdc)}
+                            </span>
+                          ) : (
+                            <span className="faint" style={{ fontSize: 11.5 }}>
+                              Create a matching Treasury budget to enable auto-fund.
+                            </span>
+                          )}
+                        </div>
+
+                        {(() => {
+                          const draft = afDraft[g.id] ?? {
+                            thresholdUsdc: "5",
+                            topUpUsdc: "25",
+                            minIntervalMinutes: 5,
+                          };
+                          const th = Math.max(0, Number(draft.thresholdUsdc) || 0);
+                          const up = Math.max(0, Number(draft.topUpUsdc) || 0);
+                          const scale = Math.max(th + up, 50);
+                          const thPct = Math.max(8, Math.round((th / scale) * 100));
+                          const upPct = Math.max(8, Math.round((up / scale) * 100));
+                          const knobsDisabled = locked || !linkedBudget;
+                          return (
+                            <>
+                              <div className="ops-autofund-rail band-rail" aria-hidden={!linkedBudget}>
+                                <div className="band bad" style={{ flexGrow: thPct }}>
+                                  <b>If below</b>
+                                  <span>{fmt(String(th))} → top up</span>
+                                </div>
+                                <div className="band ok" style={{ flexGrow: upPct }}>
+                                  <b>Top up</b>
+                                  <span>+{fmt(String(up))} from budget</span>
+                                </div>
+                              </div>
+                              <div className="grid" style={{ gap: 12 }}>
+                                <div className="field" style={{ margin: 0 }}>
+                                  <div className="between" style={{ marginBottom: 7 }}>
+                                    <label style={{ margin: 0 }}>If available is below</label>
+                                    <div className="row" style={{ gap: 6 }}>
+                                      <span className="faint mono">$</span>
+                                      <input
+                                        style={{ width: 72, textAlign: "right", padding: "5px 8px" }}
+                                        disabled={knobsDisabled}
+                                        value={draft.thresholdUsdc}
+                                        onChange={(e) =>
+                                          setAfDraft((m) => ({
+                                            ...m,
+                                            [g.id]: { ...draft, thresholdUsdc: e.target.value },
+                                          }))
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    className="slider"
+                                    min={0}
+                                    max={100}
+                                    step={1}
+                                    disabled={knobsDisabled}
+                                    value={Math.min(100, th)}
+                                    onChange={(e) =>
+                                      setAfDraft((m) => ({
+                                        ...m,
+                                        [g.id]: { ...draft, thresholdUsdc: e.target.value },
+                                      }))
+                                    }
+                                  />
+                                  <div className="hint">Drag down for a tighter trigger; up to wait longer before topping up.</div>
+                                </div>
+                                <div className="field" style={{ margin: 0 }}>
+                                  <div className="between" style={{ marginBottom: 7 }}>
+                                    <label style={{ margin: 0 }}>Top-up amount</label>
+                                    <div className="row" style={{ gap: 6 }}>
+                                      <span className="faint mono">$</span>
+                                      <input
+                                        style={{ width: 72, textAlign: "right", padding: "5px 8px" }}
+                                        disabled={knobsDisabled}
+                                        value={draft.topUpUsdc}
+                                        onChange={(e) =>
+                                          setAfDraft((m) => ({
+                                            ...m,
+                                            [g.id]: { ...draft, topUpUsdc: e.target.value },
+                                          }))
+                                        }
+                                      />
+                                    </div>
+                                  </div>
+                                  <input
+                                    type="range"
+                                    className="slider"
+                                    min={1}
+                                    max={200}
+                                    step={1}
+                                    disabled={knobsDisabled}
+                                    value={Math.min(200, Math.max(1, up || 1))}
+                                    onChange={(e) =>
+                                      setAfDraft((m) => ({
+                                        ...m,
+                                        [g.id]: { ...draft, topUpUsdc: e.target.value },
+                                      }))
+                                    }
+                                  />
+                                  <div className="hint">Pulled from the linked budget when a member dips under the line.</div>
+                                </div>
+                              </div>
+                              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                                <Button
+                                  size="sm"
+                                  disabled={knobsDisabled}
+                                  onClick={() =>
+                                    void act("Save auto-fund", async () => {
+                                      const res = await gFetch(
+                                        `/v1/guardian/agent-groups/${g.id}/auto-fund`,
+                                        {
+                                          method: "PATCH",
+                                          body: JSON.stringify({
+                                            enabled: g.autoFund?.enabled ?? true,
+                                            thresholdUsdc: draft.thresholdUsdc,
+                                            topUpUsdc: draft.topUpUsdc,
+                                            minIntervalMinutes: draft.minIntervalMinutes,
+                                          }),
+                                        },
+                                      );
+                                      const d = await res.json();
+                                      if (!res.ok) {
+                                        throw new Error(d.error?.message ?? JSON.stringify(d));
+                                      }
+                                      await refresh();
+                                      const n = typeof d.toppedUp === "number" ? d.toppedUp : 0;
+                                      return n > 0
+                                        ? `Saved — topped up ${n} agent(s) immediately (below $${draft.thresholdUsdc} → +$${draft.topUpUsdc}).`
+                                        : `Auto-fund: if below $${draft.thresholdUsdc} → top up $${draft.topUpUsdc} from budget.`;
+                                    })
+                                  }
+                                >
+                                  Save rule
+                                </Button>
+                                <span className="faint" style={{ fontSize: 11.5, alignSelf: "center" }}>
+                                  Runs on the next console refresh when enabled — no Fund click needed.
+                                </span>
+                              </div>
+                            </>
+                          );
+                        })()}
+
+                        {ungrouped.length > 0 && (
+                          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                            <select
+                              id={`assign-${g.id}`}
+                              defaultValue=""
+                              disabled={readOnly}
+                              style={{ minWidth: 180 }}
+                            >
+                              <option value="">Assign agent…</option>
+                              {ungrouped.map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  {a.name} · {fmt(a.availableUsdc)}
+                                </option>
+                              ))}
+                            </select>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={locked}
+                              onClick={() =>
+                                void act("Assign to ops label", async () => {
+                                  const el = document.getElementById(
+                                    `assign-${g.id}`,
+                                  ) as HTMLSelectElement | null;
+                                  const agentId = el?.value;
+                                  if (!agentId) throw new Error("Pick an agent first");
+                                  const res = await gFetch(
+                                    `/v1/guardian/agent-groups/${g.id}/assign`,
+                                    {
+                                      method: "POST",
+                                      body: JSON.stringify({ agentIds: [agentId] }),
+                                    },
+                                  );
+                                  const d = await res.json();
+                                  if (!res.ok) {
+                                    throw new Error(d.error?.message ?? JSON.stringify(d));
+                                  }
+                                  if (el) el.value = "";
+                                  await refresh();
+                                  return `Assigned to ${g.name}.`;
+                                })
+                              }
+                            >
+                              Assign
+                            </Button>
+                          </div>
                         )}
-                      </div>
-                    )}
-                    {g.status === "active" && ungrouped.length > 0 && (
-                      <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                        <select
-                          id={`assign-${g.id}`}
-                          defaultValue=""
-                          disabled={readOnly}
-                          style={{ minWidth: 160 }}
-                        >
-                          <option value="">Assign agent…</option>
-                          {ungrouped.map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.name}
-                            </option>
-                          ))}
-                        </select>
-                        <Button variant="ghost" size="sm"
-                          disabled={locked}
-                          onClick={() =>
-                            void act("Assign to ops label", async () => {
-                              const el = document.getElementById(
-                                `assign-${g.id}`,
-                              ) as HTMLSelectElement | null;
-                              const agentId = el?.value;
-                              if (!agentId) throw new Error("Pick an agent first");
-                              const res = await gFetch(
-                                `/v1/guardian/agent-groups/${g.id}/assign`,
-                                {
-                                  method: "POST",
-                                  body: JSON.stringify({ agentIds: [agentId] }),
-                                },
-                              );
-                              const d = await res.json();
-                              if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
-                              if (el) el.value = "";
-                              await refresh();
-                              return `Assigned to ${g.name}.`;
-                            })
-                          }
-                        >
-                          Assign
-                        </Button>
                       </div>
                     )}
                   </div>

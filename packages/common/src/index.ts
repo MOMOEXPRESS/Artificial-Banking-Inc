@@ -146,7 +146,7 @@ export interface AutoFundConfig {
   thresholdUsdc: string;
   /** Amount to transfer from the linked budget (or org) each trigger. */
   topUpUsdc: string;
-  /** Minimum minutes between auto-fund for the same agent under this label. */
+  /** Minimum minutes between auto-fund for the same agent under this label (default 5). */
   minIntervalMinutes: number;
 }
 
