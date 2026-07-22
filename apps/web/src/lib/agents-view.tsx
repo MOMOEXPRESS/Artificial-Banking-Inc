@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Empty, Icon } from "./ui";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { BarLine, Empty, Icon } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 type AgentRow = {
   id: string;
@@ -73,6 +74,96 @@ function statusTone(s: string) {
   return "bad";
 }
 
+/** Overview-style vertical bars — click a column to set the dollar height. */
+function AutoFundBars({
+  thresholdUsdc,
+  topUpUsdc,
+  disabled,
+  onChange,
+}: {
+  thresholdUsdc: string;
+  topUpUsdc: string;
+  disabled?: boolean;
+  onChange: (next: { thresholdUsdc: string; topUpUsdc: string }) => void;
+}) {
+  const th = Math.max(0, Number(thresholdUsdc) || 0);
+  const up = Math.max(0, Number(topUpUsdc) || 0);
+  const scale = Math.max(th, up, 50) * 1.15;
+  const cols = [
+    { key: "threshold" as const, label: "If below", value: th, caption: "trigger" },
+    { key: "topUp" as const, label: "Top up", value: up, caption: "peak" },
+  ];
+  const peak = up >= th ? 1 : 0;
+
+  function setFromClick(
+    key: "threshold" | "topUp",
+    e: MouseEvent<HTMLDivElement>,
+  ) {
+    if (disabled) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = 1 - Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+    const raw = Math.round(pct * scale);
+    const clamped = Math.max(key === "topUp" ? 1 : 0, Math.min(500, raw));
+    if (key === "threshold") onChange({ thresholdUsdc: String(clamped), topUpUsdc });
+    else onChange({ thresholdUsdc, topUpUsdc: String(clamped) });
+  }
+
+  return (
+    <div className="ops-af-chart" aria-disabled={disabled}>
+      <div className="ops-af-chart-head">
+        <span className="muted" style={{ fontSize: 12.5 }}>
+          Auto-fund levels
+        </span>
+        <span className="faint" style={{ fontSize: 11.5 }}>
+          Click a column to set the amount
+        </span>
+      </div>
+      <div className="ops-af-bars">
+        {cols.map((c, i) => {
+          const pct = Math.max((c.value / scale) * 100, c.value > 0 ? 6 : 2);
+          const on = i === peak;
+          return (
+            <div className={`bar-col ${on ? "on" : ""}`} key={c.key}>
+              <div
+                className="bar-track"
+                role="slider"
+                tabIndex={disabled ? -1 : 0}
+                aria-valuemin={0}
+                aria-valuemax={Math.round(scale)}
+                aria-valuenow={c.value}
+                aria-label={c.label}
+                title={`${c.label}: ${fmt(String(c.value))} — click to set`}
+                onClick={(e) => setFromClick(c.key, e)}
+                onKeyDown={(e) => {
+                  if (disabled) return;
+                  const step = e.shiftKey ? 10 : 1;
+                  if (e.key === "ArrowUp" || e.key === "ArrowRight") {
+                    e.preventDefault();
+                    const next = Math.min(500, c.value + step);
+                    if (c.key === "threshold") onChange({ thresholdUsdc: String(next), topUpUsdc });
+                    else onChange({ thresholdUsdc, topUpUsdc: String(next) });
+                  } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
+                    e.preventDefault();
+                    const next = Math.max(c.key === "topUp" ? 1 : 0, c.value - step);
+                    if (c.key === "threshold") onChange({ thresholdUsdc: String(next), topUpUsdc });
+                    else onChange({ thresholdUsdc, topUpUsdc: String(next) });
+                  }
+                }}
+              >
+                <div className="bar-fill" style={{ height: `${pct}%` }}>
+                  {on && <span className="bar-tag">{c.caption}</span>}
+                  <span className="bar-val">{fmt(String(c.value))}</span>
+                </div>
+              </div>
+              <div className="bar-x">{c.label}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function AgentsView({
   gFetch,
   busy,
@@ -121,6 +212,8 @@ export function AgentsView({
   const [afDraft, setAfDraft] = useState<
     Record<string, { thresholdUsdc: string; topUpUsdc: string; minIntervalMinutes: number }>
   >({});
+  /** Which ops-label cards are expanded — collapsed by default to cut clutter. */
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   const refreshRoster = useCallback(async () => {
     const [a, g, b] = await Promise.all([
@@ -826,362 +919,260 @@ export function AgentsView({
                   : budgets.find((b) => b.name.toLowerCase() === g.name.toLowerCase());
                 const defaultFund = linkedBudget?.id ?? "org";
                 const fundSrc = fundFrom[g.id] ?? defaultFund;
+                const open = Boolean(openGroups[g.id]);
+                const draft = afDraft[g.id] ?? {
+                  thresholdUsdc: "5",
+                  topUpUsdc: "25",
+                  minIntervalMinutes: 5,
+                };
+                const th = Math.max(0, Number(draft.thresholdUsdc) || 0);
                 return (
-                  <div
+                  <Collapsible
                     key={g.id}
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: 8,
-                      border: "1px solid var(--border)",
-                      background: "var(--surface-2)",
-                    }}
+                    open={open}
+                    onOpenChange={(next) =>
+                      setOpenGroups((m) => ({ ...m, [g.id]: next }))
+                    }
+                    className={`ops-card ${open ? "is-open" : ""}`}
                   >
-                    <div className="between" style={{ marginBottom: 8, gap: 10 }}>
-                      <div>
-                        <b style={{ fontSize: 14 }}>{g.name}</b>{" "}
-                        <span className={`pill ${statusTone(g.status)}`}>
-                          <i /> {g.status}
-                        </span>
-                        {linkedBudget && (
-                          <span className="pill mute" style={{ marginLeft: 6 }}>
-                            <i /> budget · {linkedBudget.name}
+                    <div className="ops-card-head">
+                      <CollapsibleTrigger asChild>
+                        <button type="button" className="ops-card-toggle" aria-expanded={open}>
+                          <span className={`ops-card-chevron ${open ? "open" : ""}`} aria-hidden>
+                            <Icon name="chevronRight" size={14} />
                           </span>
-                        )}
-                        <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
-                          {g.members.length
-                            ? `${g.members.length} agent${g.members.length === 1 ? "" : "s"} labeled`
-                            : "No members yet — assign below"}
-                        </div>
-                      </div>
-                      {g.status === "active" && (
-                        <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-                          <Button variant="destructive" size="sm"
-                            disabled={locked || !g.members.length}
-                            onClick={() =>
-                              void act("Freeze labeled agents", async () => {
-                                const res = await gFetch(
-                                  `/v1/guardian/agent-groups/${g.id}/freeze`,
-                                  {
-                                    method: "POST",
-                                    body: JSON.stringify({ reason: "ops_label_kill_switch" }),
-                                  },
-                                );
-                                const d = await res.json();
-                                if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
-                                await refresh();
-                                return `Froze ${d.frozen?.length ?? 0} agent(s) under ${g.name}.`;
-                              })
-                            }
-                          >
-                            Freeze
-                          </Button>
-                          <Button variant="ghost" size="sm"
-                            disabled={locked || !g.members.length}
-                            onClick={() =>
-                              void act("Unfreeze labeled agents", async () => {
-                                const res = await gFetch(
-                                  `/v1/guardian/agent-groups/${g.id}/unfreeze`,
-                                  { method: "POST", body: "{}" },
-                                );
-                                const d = await res.json();
-                                if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
-                                await refresh();
-                                return `Unfroze ${d.unfrozen?.length ?? 0} agent(s).`;
-                              })
-                            }
-                          >
-                            Unfreeze
-                          </Button>
-                          <Button size="sm"
-                            disabled={
-                              locked ||
-                              !g.members.length ||
-                              !Number(fundAmounts[g.id] ?? "10")
-                            }
-                            onClick={() =>
-                              void act("Fund members", async () => {
-                                const each = (fundAmounts[g.id] ?? "10").trim();
-                                if (!each) return;
-                                const src = fundFrom[g.id] ?? defaultFund;
-                                const body: {
-                                  amountUsdcEach: string;
-                                  fromScope: "org" | "department";
-                                  fromId?: string;
-                                } = {
-                                  amountUsdcEach: each,
-                                  fromScope: src === "org" ? "org" : "department",
-                                };
-                                if (src !== "org") body.fromId = src;
-                                const res = await gFetch(
-                                  `/v1/guardian/agent-groups/${g.id}/fund`,
-                                  {
-                                    method: "POST",
-                                    body: JSON.stringify(body),
-                                  },
-                                );
-                                const d = await res.json();
-                                if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
-                                await refresh();
-                                return `Funded ${d.funded?.length ?? 0} agents · $${d.amountUsdcEach} each from ${d.sourceLabel} ($${d.totalUsdc} total).`;
-                              })
-                            }
-                          >
-                            Fund
-                          </Button>
-                          <select
-                            className="sm"
-                            style={{ minWidth: 140 }}
-                            disabled={locked || !g.members.length}
-                            value={fundSrc}
-                            onChange={(e) =>
-                              setFundFrom((m) => ({ ...m, [g.id]: e.target.value }))
-                            }
-                            title="Where the stipend comes from"
-                          >
-                            <option value="org">From org vault</option>
-                            {budgets.map((b) => (
-                              <option key={b.id} value={b.id}>
-                                From budget · {b.name} (${b.availableUsdc})
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            className="sm"
-                            style={{ width: 72 }}
-                            disabled={locked || !g.members.length}
-                            value={fundAmounts[g.id] ?? "10"}
-                            onChange={(e) =>
-                              setFundAmounts((m) => ({ ...m, [g.id]: e.target.value }))
-                            }
-                            placeholder="USDC"
-                            title="USDC per member"
-                          />
-                          <Button variant="ghost" size="sm"
-                            disabled={locked}
-                            onClick={() =>
-                              void act("Archive ops label", async () => {
-                                await gFetch(`/v1/guardian/agent-groups/${g.id}/archive`, {
-                                  method: "POST",
-                                });
-                                await refresh();
-                                return `${g.name} archived.`;
-                              })
-                            }
-                          >
-                            Archive
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    {g.status === "active" && (
-                      <div className="ops-autofund">
-                        <div className="ops-member-tiles">
-                          {g.members.length === 0 ? (
-                            <span className="faint" style={{ fontSize: 12 }}>
-                              Assign agents below — their stipend tiles show here.
+                          <span className="ops-card-title">
+                            <b>{g.name}</b>
+                            <span className={`pill ${statusTone(g.status)}`}>
+                              <i /> {g.status}
                             </span>
-                          ) : (
-                            g.members.map((m) => {
-                              const bal = agentBal.get(m.id) ?? 0;
-                              const th = Number(afDraft[g.id]?.thresholdUsdc ?? "5") || 0;
-                              const low = bal < th;
-                              return (
-                                <span
-                                  key={m.id}
-                                  className={`ops-member-tile ${low ? "is-low" : ""}`}
-                                  title={low ? "Below auto-fund threshold" : "Above threshold"}
-                                >
-                                  {m.name}
-                                  <span className="amt">{fmt(String(bal))}</span>
-                                  <Button
-                                    variant="bare"
-                                    style={{ fontSize: 11, padding: 0, minWidth: 0 }}
-                                    disabled={locked}
-                                    onClick={() =>
-                                      void act("Remove from label", async () => {
-                                        await gFetch(
-                                          `/v1/guardian/agent-groups/${g.id}/unassign`,
-                                          {
-                                            method: "POST",
-                                            body: JSON.stringify({ agentIds: [m.id] }),
-                                          },
-                                        );
-                                        await refresh();
-                                        return `Removed ${m.name} from ${g.name}.`;
-                                      })
-                                    }
-                                  >
-                                    ×
-                                  </Button>
-                                </span>
-                              );
-                            })
-                          )}
-                        </div>
+                            {linkedBudget && (
+                              <span className="pill mute">
+                                <i /> {linkedBudget.name} · {fmt(linkedBudget.availableUsdc)}
+                              </span>
+                            )}
+                            {g.autoFund?.enabled && (
+                              <span className="pill info">
+                                <i /> auto-fund
+                              </span>
+                            )}
+                          </span>
+                          <span className="ops-card-meta faint">
+                            {g.members.length
+                              ? `${g.members.length} agent${g.members.length === 1 ? "" : "s"}`
+                              : "No members"}
+                          </span>
+                        </button>
+                      </CollapsibleTrigger>
+                    </div>
 
-                        <div className="ops-autofund-head">
-                          <label className="row" style={{ gap: 8, fontSize: 13 }}>
-                            <button
-                              type="button"
-                              className={`switch ${g.autoFund?.enabled ? "on" : ""}`}
-                              disabled={locked || !linkedBudget}
+                    <CollapsibleContent className="ops-card-body">
+                      {g.status === "active" && (
+                        <div className="ops-card-panel">
+                          <div className="row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              disabled={locked || !g.members.length}
                               onClick={() =>
-                                void act("Auto-fund", async () => {
-                                  const draft = afDraft[g.id] ?? {
-                                    thresholdUsdc: "5",
-                                    topUpUsdc: "25",
-                                    minIntervalMinutes: 5,
-                                  };
-                                  const enabled = !g.autoFund?.enabled;
+                                void act("Freeze labeled agents", async () => {
                                   const res = await gFetch(
-                                    `/v1/guardian/agent-groups/${g.id}/auto-fund`,
+                                    `/v1/guardian/agent-groups/${g.id}/freeze`,
                                     {
-                                      method: "PATCH",
-                                      body: JSON.stringify({
-                                        enabled,
-                                        ...draft,
-                                      }),
+                                      method: "POST",
+                                      body: JSON.stringify({ reason: "ops_label_kill_switch" }),
                                     },
                                   );
                                   const d = await res.json();
-                                  if (!res.ok) {
-                                    throw new Error(d.error?.message ?? JSON.stringify(d));
-                                  }
+                                  if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
                                   await refresh();
-                                  if (enabled && d.toppedUp > 0) {
-                                    return `Auto-fund on — topped up ${d.toppedUp} agent(s) just now.`;
-                                  }
-                                  return enabled
-                                    ? `Auto-fund on for ${g.name} (from linked budget).`
-                                    : `Auto-fund off for ${g.name}.`;
+                                  return `Froze ${d.frozen?.length ?? 0} agent(s) under ${g.name}.`;
                                 })
                               }
-                              aria-label="Toggle auto-fund"
+                            >
+                              Freeze
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={locked || !g.members.length}
+                              onClick={() =>
+                                void act("Unfreeze labeled agents", async () => {
+                                  const res = await gFetch(
+                                    `/v1/guardian/agent-groups/${g.id}/unfreeze`,
+                                    { method: "POST", body: "{}" },
+                                  );
+                                  const d = await res.json();
+                                  if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                                  await refresh();
+                                  return `Unfroze ${d.unfrozen?.length ?? 0} agent(s).`;
+                                })
+                              }
+                            >
+                              Unfreeze
+                            </Button>
+                            <Button
+                              size="sm"
+                              disabled={
+                                locked ||
+                                !g.members.length ||
+                                !Number(fundAmounts[g.id] ?? "10")
+                              }
+                              onClick={() =>
+                                void act("Fund members", async () => {
+                                  const each = (fundAmounts[g.id] ?? "10").trim();
+                                  if (!each) return;
+                                  const src = fundFrom[g.id] ?? defaultFund;
+                                  const body: {
+                                    amountUsdcEach: string;
+                                    fromScope: "org" | "department";
+                                    fromId?: string;
+                                  } = {
+                                    amountUsdcEach: each,
+                                    fromScope: src === "org" ? "org" : "department",
+                                  };
+                                  if (src !== "org") body.fromId = src;
+                                  const res = await gFetch(
+                                    `/v1/guardian/agent-groups/${g.id}/fund`,
+                                    {
+                                      method: "POST",
+                                      body: JSON.stringify(body),
+                                    },
+                                  );
+                                  const d = await res.json();
+                                  if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                                  await refresh();
+                                  return `Funded ${d.funded?.length ?? 0} agents · $${d.amountUsdcEach} each from ${d.sourceLabel} ($${d.totalUsdc} total).`;
+                                })
+                              }
+                            >
+                              Fund
+                            </Button>
+                            <select
+                              className="sm"
+                              style={{ minWidth: 140 }}
+                              disabled={locked || !g.members.length}
+                              value={fundSrc}
+                              onChange={(e) =>
+                                setFundFrom((m) => ({ ...m, [g.id]: e.target.value }))
+                              }
+                              title="Where the stipend comes from"
+                            >
+                              <option value="org">From org vault</option>
+                              {budgets.map((b) => (
+                                <option key={b.id} value={b.id}>
+                                  From budget · {b.name} (${b.availableUsdc})
+                                </option>
+                              ))}
+                            </select>
+                            <input
+                              className="sm"
+                              style={{ width: 72 }}
+                              disabled={locked || !g.members.length}
+                              value={fundAmounts[g.id] ?? "10"}
+                              onChange={(e) =>
+                                setFundAmounts((m) => ({ ...m, [g.id]: e.target.value }))
+                              }
+                              placeholder="USDC"
+                              title="USDC per member"
                             />
-                            Auto-fund when stipend is low
-                          </label>
-                          {linkedBudget ? (
-                            <span className="pill mute">
-                              <i /> from {linkedBudget.name} · {fmt(linkedBudget.availableUsdc)}
-                            </span>
-                          ) : (
-                            <span className="faint" style={{ fontSize: 11.5 }}>
-                              Create a matching Treasury budget to enable auto-fund.
-                            </span>
-                          )}
-                        </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={locked}
+                              onClick={() =>
+                                void act("Archive ops label", async () => {
+                                  await gFetch(`/v1/guardian/agent-groups/${g.id}/archive`, {
+                                    method: "POST",
+                                  });
+                                  await refresh();
+                                  return `${g.name} archived.`;
+                                })
+                              }
+                            >
+                              Archive
+                            </Button>
+                          </div>
 
-                        {(() => {
-                          const draft = afDraft[g.id] ?? {
-                            thresholdUsdc: "5",
-                            topUpUsdc: "25",
-                            minIntervalMinutes: 5,
-                          };
-                          const th = Math.max(0, Number(draft.thresholdUsdc) || 0);
-                          const up = Math.max(0, Number(draft.topUpUsdc) || 0);
-                          const scale = Math.max(th + up, 50);
-                          const thPct = Math.max(8, Math.round((th / scale) * 100));
-                          const upPct = Math.max(8, Math.round((up / scale) * 100));
-                          const knobsDisabled = locked || !linkedBudget;
-                          return (
-                            <>
-                              <div className="ops-autofund-rail band-rail" aria-hidden={!linkedBudget}>
-                                <div className="band bad" style={{ flexGrow: thPct }}>
-                                  <b>If below</b>
-                                  <span>{fmt(String(th))} → top up</span>
-                                </div>
-                                <div className="band ok" style={{ flexGrow: upPct }}>
-                                  <b>Top up</b>
-                                  <span>+{fmt(String(up))} from budget</span>
-                                </div>
+                          <div className="ops-autofund">
+                            <div className="ops-member-cap">
+                              <div className="between" style={{ marginBottom: 10 }}>
+                                <span className="muted" style={{ fontSize: 12.5 }}>
+                                  Member stipends
+                                </span>
+                                <span className="pill mute">
+                                  <i /> trigger {fmt(String(th))}
+                                </span>
                               </div>
-                              <div className="grid" style={{ gap: 12 }}>
-                                <div className="field" style={{ margin: 0 }}>
-                                  <div className="between" style={{ marginBottom: 7 }}>
-                                    <label style={{ margin: 0 }}>If available is below</label>
-                                    <div className="row" style={{ gap: 6 }}>
-                                      <span className="faint mono">$</span>
-                                      <input
-                                        style={{ width: 72, textAlign: "right", padding: "5px 8px" }}
-                                        disabled={knobsDisabled}
-                                        value={draft.thresholdUsdc}
-                                        onChange={(e) =>
-                                          setAfDraft((m) => ({
-                                            ...m,
-                                            [g.id]: { ...draft, thresholdUsdc: e.target.value },
-                                          }))
-                                        }
-                                      />
+                              {g.members.length === 0 ? (
+                                <span className="faint" style={{ fontSize: 12 }}>
+                                  Assign agents below — their available balance shows as a bar.
+                                </span>
+                              ) : (
+                                g.members.map((m) => {
+                                  const bal = agentBal.get(m.id) ?? 0;
+                                  const low = bal < th;
+                                  const barMax = Math.max(th * 2, bal, (Number(draft.topUpUsdc) || 0), 25);
+                                  return (
+                                    <div key={m.id} className="ops-member-bar">
+                                      <div className="between" style={{ marginBottom: 5 }}>
+                                        <span style={{ fontSize: 12.5 }}>
+                                          {m.name}
+                                          {low ? (
+                                            <span className="pill warn" style={{ marginLeft: 6 }}>
+                                              <i /> low
+                                            </span>
+                                          ) : null}
+                                        </span>
+                                        <span className="row" style={{ gap: 8 }}>
+                                          <span className="mono faint" style={{ fontSize: 11.5 }}>
+                                            {fmt(String(bal))}
+                                          </span>
+                                          <Button
+                                            variant="bare"
+                                            style={{ fontSize: 11, padding: 0, minWidth: 0 }}
+                                            disabled={locked}
+                                            onClick={() =>
+                                              void act("Remove from label", async () => {
+                                                await gFetch(
+                                                  `/v1/guardian/agent-groups/${g.id}/unassign`,
+                                                  {
+                                                    method: "POST",
+                                                    body: JSON.stringify({ agentIds: [m.id] }),
+                                                  },
+                                                );
+                                                await refresh();
+                                                return `Removed ${m.name} from ${g.name}.`;
+                                              })
+                                            }
+                                          >
+                                            ×
+                                          </Button>
+                                        </span>
+                                      </div>
+                                      <BarLine value={bal} max={barMax} />
                                     </div>
-                                  </div>
-                                  <input
-                                    type="range"
-                                    className="slider"
-                                    min={0}
-                                    max={100}
-                                    step={1}
-                                    disabled={knobsDisabled}
-                                    value={Math.min(100, th)}
-                                    onChange={(e) =>
-                                      setAfDraft((m) => ({
-                                        ...m,
-                                        [g.id]: { ...draft, thresholdUsdc: e.target.value },
-                                      }))
-                                    }
-                                  />
-                                  <div className="hint">Drag down for a tighter trigger; up to wait longer before topping up.</div>
-                                </div>
-                                <div className="field" style={{ margin: 0 }}>
-                                  <div className="between" style={{ marginBottom: 7 }}>
-                                    <label style={{ margin: 0 }}>Top-up amount</label>
-                                    <div className="row" style={{ gap: 6 }}>
-                                      <span className="faint mono">$</span>
-                                      <input
-                                        style={{ width: 72, textAlign: "right", padding: "5px 8px" }}
-                                        disabled={knobsDisabled}
-                                        value={draft.topUpUsdc}
-                                        onChange={(e) =>
-                                          setAfDraft((m) => ({
-                                            ...m,
-                                            [g.id]: { ...draft, topUpUsdc: e.target.value },
-                                          }))
-                                        }
-                                      />
-                                    </div>
-                                  </div>
-                                  <input
-                                    type="range"
-                                    className="slider"
-                                    min={1}
-                                    max={200}
-                                    step={1}
-                                    disabled={knobsDisabled}
-                                    value={Math.min(200, Math.max(1, up || 1))}
-                                    onChange={(e) =>
-                                      setAfDraft((m) => ({
-                                        ...m,
-                                        [g.id]: { ...draft, topUpUsdc: e.target.value },
-                                      }))
-                                    }
-                                  />
-                                  <div className="hint">Pulled from the linked budget when a member dips under the line.</div>
-                                </div>
-                              </div>
-                              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                                <Button
-                                  size="sm"
-                                  disabled={knobsDisabled}
+                                  );
+                                })
+                              )}
+                            </div>
+
+                            <div className="ops-autofund-head">
+                              <label className="row" style={{ gap: 8, fontSize: 13 }}>
+                                <button
+                                  type="button"
+                                  className={`switch ${g.autoFund?.enabled ? "on" : ""}`}
+                                  disabled={locked || !linkedBudget}
                                   onClick={() =>
-                                    void act("Save auto-fund", async () => {
+                                    void act("Auto-fund", async () => {
+                                      const enabled = !g.autoFund?.enabled;
                                       const res = await gFetch(
                                         `/v1/guardian/agent-groups/${g.id}/auto-fund`,
                                         {
                                           method: "PATCH",
                                           body: JSON.stringify({
-                                            enabled: g.autoFund?.enabled ?? true,
-                                            thresholdUsdc: draft.thresholdUsdc,
-                                            topUpUsdc: draft.topUpUsdc,
-                                            minIntervalMinutes: draft.minIntervalMinutes,
+                                            enabled,
+                                            ...draft,
                                           }),
                                         },
                                       );
@@ -1190,73 +1181,130 @@ export function AgentsView({
                                         throw new Error(d.error?.message ?? JSON.stringify(d));
                                       }
                                       await refresh();
-                                      const n = typeof d.toppedUp === "number" ? d.toppedUp : 0;
-                                      return n > 0
-                                        ? `Saved — topped up ${n} agent(s) immediately (below $${draft.thresholdUsdc} → +$${draft.topUpUsdc}).`
-                                        : `Auto-fund: if below $${draft.thresholdUsdc} → top up $${draft.topUpUsdc} from budget.`;
+                                      if (enabled && d.toppedUp > 0) {
+                                        return `Auto-fund on — topped up ${d.toppedUp} agent(s) just now.`;
+                                      }
+                                      return enabled
+                                        ? `Auto-fund on for ${g.name} (from linked budget).`
+                                        : `Auto-fund off for ${g.name}.`;
+                                    })
+                                  }
+                                  aria-label="Toggle auto-fund"
+                                />
+                                Auto-fund when stipend is low
+                              </label>
+                              {linkedBudget ? (
+                                <span className="pill mute">
+                                  <i /> from {linkedBudget.name}
+                                </span>
+                              ) : (
+                                <span className="faint" style={{ fontSize: 11.5 }}>
+                                  Create a matching Treasury budget to enable auto-fund.
+                                </span>
+                              )}
+                            </div>
+
+                            <AutoFundBars
+                              thresholdUsdc={draft.thresholdUsdc}
+                              topUpUsdc={draft.topUpUsdc}
+                              disabled={locked || !linkedBudget}
+                              onChange={(next) =>
+                                setAfDraft((m) => ({
+                                  ...m,
+                                  [g.id]: { ...draft, ...next },
+                                }))
+                              }
+                            />
+
+                            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                              <Button
+                                size="sm"
+                                disabled={locked || !linkedBudget}
+                                onClick={() =>
+                                  void act("Save auto-fund", async () => {
+                                    const res = await gFetch(
+                                      `/v1/guardian/agent-groups/${g.id}/auto-fund`,
+                                      {
+                                        method: "PATCH",
+                                        body: JSON.stringify({
+                                          enabled: g.autoFund?.enabled ?? true,
+                                          thresholdUsdc: draft.thresholdUsdc,
+                                          topUpUsdc: draft.topUpUsdc,
+                                          minIntervalMinutes: draft.minIntervalMinutes,
+                                        }),
+                                      },
+                                    );
+                                    const d = await res.json();
+                                    if (!res.ok) {
+                                      throw new Error(d.error?.message ?? JSON.stringify(d));
+                                    }
+                                    await refresh();
+                                    const n = typeof d.toppedUp === "number" ? d.toppedUp : 0;
+                                    return n > 0
+                                      ? `Saved — topped up ${n} agent(s) immediately (below $${draft.thresholdUsdc} → +$${draft.topUpUsdc}).`
+                                      : `Auto-fund: if below $${draft.thresholdUsdc} → top up $${draft.topUpUsdc} from budget.`;
+                                  })
+                                }
+                              >
+                                Save rule
+                              </Button>
+                              <span className="faint" style={{ fontSize: 11.5, alignSelf: "center" }}>
+                                Runs on console refresh when enabled — no Fund click needed.
+                              </span>
+                            </div>
+
+                            {ungrouped.length > 0 && (
+                              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                                <select
+                                  id={`assign-${g.id}`}
+                                  defaultValue=""
+                                  disabled={readOnly}
+                                  style={{ minWidth: 180 }}
+                                >
+                                  <option value="">Assign agent…</option>
+                                  {ungrouped.map((a) => (
+                                    <option key={a.id} value={a.id}>
+                                      {a.name} · {fmt(a.availableUsdc)}
+                                    </option>
+                                  ))}
+                                </select>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={locked}
+                                  onClick={() =>
+                                    void act("Assign to ops label", async () => {
+                                      const el = document.getElementById(
+                                        `assign-${g.id}`,
+                                      ) as HTMLSelectElement | null;
+                                      const agentId = el?.value;
+                                      if (!agentId) throw new Error("Pick an agent first");
+                                      const res = await gFetch(
+                                        `/v1/guardian/agent-groups/${g.id}/assign`,
+                                        {
+                                          method: "POST",
+                                          body: JSON.stringify({ agentIds: [agentId] }),
+                                        },
+                                      );
+                                      const d = await res.json();
+                                      if (!res.ok) {
+                                        throw new Error(d.error?.message ?? JSON.stringify(d));
+                                      }
+                                      if (el) el.value = "";
+                                      await refresh();
+                                      return `Assigned to ${g.name}.`;
                                     })
                                   }
                                 >
-                                  Save rule
+                                  Assign
                                 </Button>
-                                <span className="faint" style={{ fontSize: 11.5, alignSelf: "center" }}>
-                                  Runs on the next console refresh when enabled — no Fund click needed.
-                                </span>
                               </div>
-                            </>
-                          );
-                        })()}
-
-                        {ungrouped.length > 0 && (
-                          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                            <select
-                              id={`assign-${g.id}`}
-                              defaultValue=""
-                              disabled={readOnly}
-                              style={{ minWidth: 180 }}
-                            >
-                              <option value="">Assign agent…</option>
-                              {ungrouped.map((a) => (
-                                <option key={a.id} value={a.id}>
-                                  {a.name} · {fmt(a.availableUsdc)}
-                                </option>
-                              ))}
-                            </select>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={locked}
-                              onClick={() =>
-                                void act("Assign to ops label", async () => {
-                                  const el = document.getElementById(
-                                    `assign-${g.id}`,
-                                  ) as HTMLSelectElement | null;
-                                  const agentId = el?.value;
-                                  if (!agentId) throw new Error("Pick an agent first");
-                                  const res = await gFetch(
-                                    `/v1/guardian/agent-groups/${g.id}/assign`,
-                                    {
-                                      method: "POST",
-                                      body: JSON.stringify({ agentIds: [agentId] }),
-                                    },
-                                  );
-                                  const d = await res.json();
-                                  if (!res.ok) {
-                                    throw new Error(d.error?.message ?? JSON.stringify(d));
-                                  }
-                                  if (el) el.value = "";
-                                  await refresh();
-                                  return `Assigned to ${g.name}.`;
-                                })
-                              }
-                            >
-                              Assign
-                            </Button>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                        </div>
+                      )}
+                    </CollapsibleContent>
+                  </Collapsible>
                 );
               })}
             </div>
