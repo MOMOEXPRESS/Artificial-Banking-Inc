@@ -4,7 +4,7 @@ import { Icon, fmtUsd } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
 import { SmoothBarChart } from "./smooth-bar-chart";
-import { applyJudgmentBandDrag, formatBandUsd, judgmentScaleMax } from "./judgment-bands";
+import { applyJudgmentBandDrag, formatBandUsd, judgmentScaleMax, MAX_BAND } from "./judgment-bands";
 
 export type Policy = {
   perTxMaxUsdc: string;
@@ -419,7 +419,7 @@ export function PolicyView({
             </div>
             <SmoothBarChart
               title="Payment judgment"
-              hint="Drag · thinner spend-style bars · gaps auto-nest"
+              hint="Drag · thinner spend-style bars · gaps nest only when needed"
               height={118}
               disabled={locked}
               scaleMax={judgmentScaleMax({ hitl, cap, daily })}
@@ -429,7 +429,7 @@ export function PolicyView({
                   label: "Ask me above",
                   value: hitl,
                   min: 0,
-                  max: Math.max(judgmentScaleMax({ hitl, cap, daily }), daily, cap, 200),
+                  max: Math.min(MAX_BAND, Math.max(200, daily * 1.5, cap * 2)),
                   step: 0.5,
                   caption: "review",
                   tone: "warn",
@@ -439,7 +439,7 @@ export function PolicyView({
                   label: "Per payment",
                   value: cap,
                   min: 0.5,
-                  max: Math.max(judgmentScaleMax({ hitl, cap, daily }), daily, cap, 200),
+                  max: Math.min(MAX_BAND, Math.max(200, daily * 1.5, cap * 2)),
                   step: 0.5,
                   caption: "ceiling",
                   tone: "bad",
@@ -449,7 +449,7 @@ export function PolicyView({
                   label: "Daily max",
                   value: daily,
                   min: 0.5,
-                  max: Math.max(judgmentScaleMax({ hitl, cap, daily }) * 1.2, daily, cap * 3, 400),
+                  max: Math.min(MAX_BAND, Math.max(400, daily * 1.5, cap * 3)),
                   step: 1,
                   caption: daily >= cap * 2 ? "headroom" : "tight",
                   tone: "ok",

@@ -1,13 +1,11 @@
 /**
- * Autonomous judgment-band nesting — dynamic gaps and daily headroom.
+ * Autonomous judgment-band nesting — keep allow < review < deny without runaway growth.
  *
- * Goals while dragging one column:
- * - Keep allow < review < deny (hitl + gap ≤ cap ≤ daily)
- * - Preserve the guardian’s intended review gap when possible
- * - Keep a sensible daily/cap ratio (headroom) so daily isn’t stuck at 1× ceiling
- * - Expand the workable ceiling when the user pushes toward the top of the scale
+ * While one column moves:
+ * - Enforce hitl + minGap ≤ cap ≤ daily
+ * - Preserve the prior review gap / daily headroom only when nesting would break
+ * - Never compound scale: hard caps stop “millions after a few swings”
  */
-
 export type JudgmentBands = {
   hitl: number;
   cap: number;
@@ -16,89 +14,99 @@ export type JudgmentBands = {
 
 const MIN_GAP = 0.5;
 const MIN_CAP = 0.5;
-/** Preferred daily headroom multiple of per-payment when lifting daily with cap. */
-const HEADROOM = 2.5;
+/** Preferred daily headroom multiple when we must lift daily with the ceiling. */
+const HEADROOM = 2;
+/** Don’t invent absurd review gaps when pushing the ceiling. */
+const MAX_GAP = 50;
+/** Absolute USDC ceiling for any band — stops feedback explosions. */
+export const MAX_BAND = 100_000;
+/** Chart scale soft ceiling — bars stay usable without runaway. */
+const MAX_SCALE = 25_000;
 
 function roundStep(n: number, step = 0.5): number {
   return Math.round(n / step) * step;
 }
 
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n));
+}
+
 function preserveGap(hitl: number, cap: number): number {
   const raw = cap - hitl;
-  if (!Number.isFinite(raw) || raw <= 0) return Math.max(MIN_GAP, roundStep(cap * 0.25) || MIN_GAP);
-  return Math.max(MIN_GAP, roundStep(raw));
+  if (!Number.isFinite(raw) || raw <= 0) return MIN_GAP;
+  return clamp(roundStep(raw), MIN_GAP, MAX_GAP);
 }
 
 function preserveRatio(cap: number, daily: number): number {
   if (!Number.isFinite(cap) || cap <= 0) return HEADROOM;
   if (!Number.isFinite(daily) || daily < cap) return HEADROOM;
-  return Math.max(1, daily / cap);
+  return clamp(daily / cap, 1, HEADROOM);
 }
 
 /**
  * Apply a single-column drag. Returns a fully nested { hitl, cap, daily }.
+ * Only expands neighbors when nesting would otherwise break.
  */
 export function applyJudgmentBandDrag(
   id: "hitl" | "cap" | "daily",
   value: number,
   prev: JudgmentBands,
 ): JudgmentBands {
-  let hitl = Math.max(0, Number.isFinite(prev.hitl) ? prev.hitl : 0);
-  let cap = Math.max(MIN_CAP, Number.isFinite(prev.cap) ? prev.cap : MIN_CAP);
-  let daily = Math.max(MIN_CAP, Number.isFinite(prev.daily) ? prev.daily : MIN_CAP);
+  let hitl = clamp(Number.isFinite(prev.hitl) ? prev.hitl : 0, 0, MAX_BAND);
+  let cap = clamp(Number.isFinite(prev.cap) ? prev.cap : MIN_CAP, MIN_CAP, MAX_BAND);
+  let daily = clamp(Number.isFinite(prev.daily) ? prev.daily : MIN_CAP, MIN_CAP, MAX_BAND);
   const gap = preserveGap(hitl, cap);
   const ratio = preserveRatio(cap, daily);
-  const next = Number.isFinite(value) ? value : 0;
+  const next = clamp(Number.isFinite(value) ? value : 0, 0, MAX_BAND);
 
   if (id === "hitl") {
-    hitl = Math.max(0, roundStep(next));
-    // Raising review threshold into/past ceiling → push ceiling, keep gap.
+    hitl = roundStep(next);
+    // Only push ceiling when ask-me-above would cross/overlap it.
     if (hitl + MIN_GAP > cap) {
-      cap = roundStep(hitl + gap);
+      cap = clamp(roundStep(hitl + gap), MIN_CAP, MAX_BAND);
     }
-    // Soft: if review band ate most of the room under cap, widen cap a bit.
-    else if (cap - hitl < gap * 0.5 && hitl > 0) {
-      cap = roundStep(hitl + gap);
+    if (cap > daily) {
+      daily = clamp(roundStep(cap * ratio, 1), cap, MAX_BAND);
     }
-    // Daily follows with preserved headroom ratio (at least 1×).
-    const wantDaily = roundStep(cap * Math.max(1, ratio), 1);
-    if (wantDaily > daily) daily = wantDaily;
-    if (cap > daily) daily = cap;
   } else if (id === "cap") {
-    cap = Math.max(MIN_CAP, roundStep(next));
+    cap = clamp(roundStep(next), MIN_CAP, MAX_BAND);
     if (hitl + MIN_GAP > cap) {
       hitl = Math.max(0, roundStep(cap - gap));
     }
-    // Lift daily to preserve prior headroom ratio when ceiling rises.
-    const wantDaily = roundStep(cap * Math.max(1, ratio), 1);
-    if (wantDaily > daily || cap > daily) {
-      daily = Math.max(cap, wantDaily);
+    // Lift daily only when ceiling outruns it — preserve prior headroom, capped.
+    if (cap > daily) {
+      daily = clamp(roundStep(cap * ratio, 1), cap, MAX_BAND);
     }
   } else {
-    daily = Math.max(MIN_CAP, roundStep(next, 1));
+    daily = clamp(roundStep(next, 1), MIN_CAP, MAX_BAND);
     if (daily < cap) {
-      // Pull ceiling down with the daily budget; keep review gap under new cap.
       cap = daily;
       if (hitl + MIN_GAP > cap) {
-        hitl = Math.max(0, roundStep(cap - gap));
+        hitl = Math.max(0, roundStep(cap - MIN_GAP));
       }
-    } else if (daily < cap * ratio * 0.85 && ratio > 1) {
-      // User is compressing headroom intentionally — leave cap, just set daily.
     }
   }
 
   if (hitl + MIN_GAP > cap) hitl = Math.max(0, roundStep(cap - MIN_GAP));
   if (cap > daily) daily = cap;
 
-  return { hitl, cap, daily };
+  return {
+    hitl: clamp(hitl, 0, MAX_BAND),
+    cap: clamp(cap, MIN_CAP, MAX_BAND),
+    daily: clamp(daily, MIN_CAP, MAX_BAND),
+  };
 }
 
 export function formatBandUsd(n: number): string {
   return Number.isInteger(n) ? String(n) : String(roundStep(n));
 }
 
-/** Suggested chart ceiling that grows as the user pushes limits up. */
+/**
+ * Suggested chart ceiling. Grows gently with the bands, never explodes.
+ * Column drag maxes should prefer a session-frozen scale (see SmoothBarChart).
+ */
 export function judgmentScaleMax(bands: JudgmentBands): number {
   const peak = Math.max(bands.hitl, bands.cap, bands.daily, 40);
-  return Math.max(peak * 1.35, peak + 25, 80);
+  const soft = Math.max(peak * 1.25, peak + 20, 80);
+  return Math.min(soft, MAX_SCALE);
 }

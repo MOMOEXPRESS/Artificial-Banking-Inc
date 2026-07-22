@@ -16,9 +16,19 @@ export type SmoothBarColumn = {
   tone?: "default" | "ok" | "warn" | "bad";
 };
 
+type DragLock = {
+  id: string;
+  lo: number;
+  hi: number;
+  step: number;
+};
+
 /**
  * Overview-style vertical bars you drag smoothly (pointer capture),
  * not click-jump. Shared by Ops auto-fund and Policy limits.
+ *
+ * Critical: lo/hi/scale are frozen for the active drag so parent re-renders
+ * that grow max (linked bands) cannot compound the same Y into millions.
  */
 export function SmoothBarChart({
   columns,
@@ -39,7 +49,7 @@ export function SmoothBarChart({
   title?: string;
 }) {
   const trackRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const dragging = useRef<string | null>(null);
+  const dragLock = useRef<DragLock | null>(null);
 
   const autoScale = Math.max(...columns.map((c) => c.value), 50) * 1.15;
   const scale = Math.max(scaleMax ?? autoScale, 1);
@@ -48,37 +58,53 @@ export function SmoothBarChart({
     0,
   );
 
+  const boundsFor = useCallback(
+    (col: SmoothBarColumn): { lo: number; hi: number; step: number } => {
+      const lock = dragLock.current;
+      if (lock && lock.id === col.id) {
+        return { lo: lock.lo, hi: lock.hi, step: lock.step };
+      }
+      return {
+        lo: col.min ?? 0,
+        hi: col.max ?? scale,
+        step: col.step ?? 0.5,
+      };
+    },
+    [scale],
+  );
+
   const valueFromY = useCallback(
     (col: SmoothBarColumn, clientY: number) => {
       const el = trackRefs.current[col.id];
       if (!el) return col.value;
       const rect = el.getBoundingClientRect();
       const pct = 1 - Math.min(1, Math.max(0, (clientY - rect.top) / Math.max(rect.height, 1)));
-      const lo = col.min ?? 0;
-      const hi = col.max ?? scale;
-      const step = col.step ?? 0.5;
+      const { lo, hi, step } = boundsFor(col);
       const raw = lo + pct * (hi - lo);
       const snapped = Math.round(raw / step) * step;
       return Math.min(hi, Math.max(lo, Number(snapped.toFixed(2))));
     },
-    [scale],
+    [boundsFor],
   );
 
   const onPointerDown = (col: SmoothBarColumn, e: PointerEvent<HTMLDivElement>) => {
     if (disabled) return;
     e.preventDefault();
-    dragging.current = col.id;
+    const lo = col.min ?? 0;
+    const hi = col.max ?? scale;
+    const step = col.step ?? 0.5;
+    dragLock.current = { id: col.id, lo, hi, step };
     e.currentTarget.setPointerCapture(e.pointerId);
     onChange(col.id, valueFromY(col, e.clientY));
   };
 
   const onPointerMove = (col: SmoothBarColumn, e: PointerEvent<HTMLDivElement>) => {
-    if (disabled || dragging.current !== col.id) return;
+    if (disabled || dragLock.current?.id !== col.id) return;
     onChange(col.id, valueFromY(col, e.clientY));
   };
 
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
-    dragging.current = null;
+    dragLock.current = null;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
@@ -88,9 +114,8 @@ export function SmoothBarChart({
 
   const onKey = (col: SmoothBarColumn, e: KeyboardEvent<HTMLDivElement>) => {
     if (disabled) return;
-    const step = (col.step ?? 0.5) * (e.shiftKey ? 10 : 1);
-    const lo = col.min ?? 0;
-    const hi = col.max ?? scale;
+    const { lo, hi, step: base } = boundsFor(col);
+    const step = base * (e.shiftKey ? 10 : 1);
     if (e.key === "ArrowUp" || e.key === "ArrowRight") {
       e.preventDefault();
       onChange(col.id, Math.min(hi, Number((col.value + step).toFixed(2))));
@@ -118,10 +143,12 @@ export function SmoothBarChart({
       </div>
       <div className="smooth-bars-row" style={{ height }}>
         {columns.map((c, i) => {
-          const lo = c.min ?? 0;
-          const hi = c.max ?? scale;
+          const { lo, hi } = boundsFor(c);
           const span = Math.max(hi - lo, 0.0001);
-          const pct = Math.max(((c.value - lo) / span) * 100, c.value > lo ? 5 : 2);
+          // Visual fill uses shared chart scale so bars stay comparable;
+          // interaction bounds stay on the column's declared max.
+          const visualHi = Math.max(scale, hi);
+          const pct = Math.max((c.value / visualHi) * 100, c.value > lo ? 5 : 2);
           const on = i === peakIdx;
           return (
             <div
@@ -149,8 +176,8 @@ export function SmoothBarChart({
                 <div
                   className="bar-fill"
                   style={{
-                    height: `${pct}%`,
-                    transition: dragging.current === c.id ? "none" : "height 0.12s ease-out",
+                    height: `${Math.min(pct, 100)}%`,
+                    transition: dragLock.current?.id === c.id ? "none" : "height 0.12s ease-out",
                   }}
                 >
                   {on && c.caption ? <span className="bar-tag">{c.caption}</span> : null}
