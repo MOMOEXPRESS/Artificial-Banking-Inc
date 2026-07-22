@@ -429,13 +429,13 @@ export function runTool(
         bandNotes.push(
           `Amount $${d.amountUsdc} is above the per-payment ceiling ($${formatMicroToUsdc(t.perTxMaxMicro)}) → expect deny.`,
         );
-      } else if (amountMicro >= t.hitlAboveMicro) {
+      } else if (amountMicro > t.hitlAboveMicro) {
         bandNotes.push(
-          `Amount $${d.amountUsdc} is at/above ask-me-above ($${formatMicroToUsdc(t.hitlAboveMicro)}) → expect HITL review.`,
+          `Amount $${d.amountUsdc} is above ask-me-above ($${formatMicroToUsdc(t.hitlAboveMicro)}) → expect HITL review.`,
         );
       } else {
         bandNotes.push(
-          `Amount $${d.amountUsdc} is under ask-me-above ($${formatMicroToUsdc(t.hitlAboveMicro)}) — auto-allow unless another rule fired.`,
+          `Amount $${d.amountUsdc} is at/under ask-me-above ($${formatMicroToUsdc(t.hitlAboveMicro)}) — auto-allow unless another rule fired.`,
         );
       }
       if (t.quietHours && t.quietHours.startHour !== t.quietHours.endHour) {
@@ -471,30 +471,27 @@ export function runTool(
       };
     }
     case "governance_status": {
+      const org = store.getOrg(orgId);
       const guardians = store.listGuardians(orgId).filter((g) => !g.revokedAt);
       const t = store.getPolicyTemplate(orgId);
-      if (!guardians.length) {
-        return {
-          tool: name,
-          title: "Governance",
-          text: `No guardian seats listed. Quorum for approvals: ${t.approvalQuorum ?? 1}.`,
-          goto: "policy",
-          data: { topic: "governance" },
-        };
-      }
-      const lines = guardians.map((g) => {
+      const lines: string[] = [
+        `• ${org?.name ?? "Org"} founding owner — owner (full approve; org key)`,
+      ];
+      for (const g of guardians) {
         const bits = [`${g.name} — ${g.role}`];
         if (g.conditions?.restricted) bits.push("restricted");
         if (g.conditions?.maxApproveUsdc) bits.push(`max $${g.conditions.maxApproveUsdc}`);
         if (g.conditions?.note) bits.push(g.conditions.note);
-        return `• ${bits.join(" · ")}`;
-      });
-      const approvers = guardians.filter((g) => g.role === "owner" || g.role === "approver").length;
+        lines.push(`• ${bits.join(" · ")}`);
+      }
+      const secondaryApprovers = guardians.filter((g) => g.role === "owner" || g.role === "approver").length;
+      const seats = 1 + guardians.length;
+      const canApprove = 1 + secondaryApprovers;
       return {
         tool: name,
         title: "Governance",
         text: [
-          `${guardians.length} guardian seat${guardians.length === 1 ? "" : "s"} · ${approvers} can approve · quorum ${t.approvalQuorum ?? 1}`,
+          `${seats} seat${seats === 1 ? "" : "s"} · ${canApprove} can approve · quorum ${t.approvalQuorum ?? 1}`,
           ...lines,
         ].join("\n"),
         goto: "policy",
@@ -733,11 +730,17 @@ export function runTool(
   }
 }
 
-/** Keyword → tools. Also used after follow-up resolution. */
+/** Keyword → tools. Word-ish matching to avoid substring traps (e.g. research⊂Researcher). */
 export function pickTools(qRaw: string): ToolName[] {
   const q = qRaw.toLowerCase();
   const tools = new Set<ToolName>();
-  const has = (...words: string[]) => words.some((w) => q.includes(w));
+  /** Match whole words; allow a trailing `s` for simple plurals (agent/agents). */
+  const has = (...phrases: string[]) =>
+    phrases.some((p) => {
+      if (p.includes(" ")) return q.includes(p);
+      const esc = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`\\b${esc}s?\\b`).test(q);
+    });
 
   if (has("summary", "overview", "status", "how are we", "health", "snapshot")) {
     tools.add("org_summary");
@@ -754,10 +757,14 @@ export function pickTools(qRaw: string): ToolName[] {
   if (has("approval", "pending", "waiting", "hitl", "inbox")) {
     tools.add("pending_approvals");
   }
-  if (has("spend", "spent", "cost", "payment") && !has("vendor", "who paid", "where")) {
-    tools.add("recent_spend");
+  // Avoid pulling spend on "who can approve payments?" / governance questions
+  if (
+    has("spend", "spent", "cost") ||
+    (has("payment", "payments") && !has("approve", "approval", "guardian", "governance", "who can"))
+  ) {
+    if (!has("vendor", "who paid", "where")) tools.add("recent_spend");
   }
-  if (has("budget", "envelope", "finance", "research") && !has("draft", "post", "tweet", "blurb")) {
+  if (has("budget", "envelope", "department") && !has("draft", "post", "tweet", "blurb")) {
     tools.add("list_budgets");
   }
   if (has("deny", "denied", "denial", "denials", "blocked", "refuse", "reject")) {
@@ -817,7 +824,6 @@ export function pickTools(qRaw: string): ToolName[] {
     tools.add("propose_external_action");
   }
   if (has("anomaly", "unusual", "weird")) {
-    // fold anomalies into books_health narrative via burn for now
     tools.add("burn_forecast");
     tools.add("list_denials");
   }

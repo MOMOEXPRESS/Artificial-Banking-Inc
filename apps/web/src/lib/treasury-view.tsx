@@ -217,7 +217,7 @@ export function TreasuryView({
             <div>
               <h2 style={{ margin: 0 }}>Treasury</h2>
               <div className="sub">
-                Fund · allocate · withdraw ·{" "}
+                Fund · allocate · send ·{" "}
                 {wallets?.asset.symbol ?? "USDC"} on {wallets?.asset.chain ?? "base-sepolia"}
               </div>
             </div>
@@ -231,7 +231,7 @@ export function TreasuryView({
                   value: "fund",
                   label: (
                     <span className="seg-label">
-                      <Icon name="plus" size={12} /> Fund
+                      <Icon name="vault" size={12} /> Vault
                     </span>
                   ),
                 },
@@ -503,7 +503,7 @@ export function TreasuryView({
                     )}
                   />
                   <Button type="submit" size="sm" variant="ghost" disabled={locked || assetId !== "asset_usdc"}>
-                    <Icon name="download" size={13} /> Send
+                    <Icon name="send" size={13} /> Send
                   </Button>
                 </form>
               </Form>

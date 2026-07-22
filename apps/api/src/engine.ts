@@ -4,7 +4,7 @@
  * and by the Telegram approvals bot.
  */
 import { randomBytes } from "node:crypto";
-import { accountId, formatMicroToUsdc, type IntentTool, type MicroUsdc } from "@policyvault/common";
+import { accountId, formatMicroToUsdc, parseUsdcToMicro, type IntentTool, type MicroUsdc } from "@policyvault/common";
 import {
   finalizePayment,
   holdForPayment,
@@ -448,8 +448,48 @@ export type ApprovalResolution =
   | { kind: "conflict"; approval: ApprovalRow }
   | { kind: "expired"; approval: ApprovalRow }
   | { kind: "frozen"; approval: ApprovalRow }
+  | { kind: "forbidden"; message: string; approval: ApprovalRow }
   | { kind: "pending_quorum"; have: number; need: number; approval: ApprovalRow }
   | { kind: "resolved"; ok: boolean; execStatus?: number; approval: ApprovalRow };
+
+/**
+ * Enforce secondary-guardian role + optional max-approve cap.
+ * Founding owner (`guardianId === "owner"`) and Telegram stubs skip seat checks.
+ * Deny votes are always allowed (safe asymmetry).
+ */
+function guardianApproveGate(
+  orgId: string,
+  guardianId: string,
+  approve: boolean,
+  approval: ApprovalRow,
+): { ok: true } | { ok: false; message: string } {
+  if (!approve) return { ok: true };
+  if (guardianId === "owner" || guardianId.startsWith("tg:")) return { ok: true };
+  const seat = store.listGuardians(orgId).find((g) => g.id === guardianId && !g.revokedAt);
+  if (!seat) {
+    return { ok: false, message: "Unknown guardian — cannot approve this payment." };
+  }
+  if (seat.role === "viewer") {
+    return { ok: false, message: `${seat.name} is view-only and cannot approve payments.` };
+  }
+  if (seat.conditions?.restricted && seat.conditions.maxApproveUsdc) {
+    try {
+      const max = parseUsdcToMicro(seat.conditions.maxApproveUsdc);
+      if (approval.amountMicro > max) {
+        return {
+          ok: false,
+          message: `${seat.name} may only approve up to $${seat.conditions.maxApproveUsdc} (this is $${approval.amountUsdc}).`,
+        };
+      }
+    } catch {
+      return {
+        ok: false,
+        message: `Invalid max-approve amount for ${seat.name}.`,
+      };
+    }
+  }
+  return { ok: true };
+}
 
 export async function resolveApproval(
   orgId: string,
@@ -469,6 +509,11 @@ export async function resolveApproval(
   if (new Date(approval.expiresAt).getTime() < Date.now()) {
     sweepApprovalExpiry();
     return { kind: "expired", approval: store.getApproval(approvalId, orgId)! };
+  }
+
+  const gate = guardianApproveGate(orgId, guardianId, approve, approval);
+  if (!gate.ok) {
+    return { kind: "forbidden", message: gate.message, approval };
   }
 
   // Quorum: record this guardian's vote, and only proceed once enough distinct

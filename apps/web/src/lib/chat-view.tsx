@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Empty, Icon, fmtUsd, relTime } from "./ui";
+import { viewLabel } from "./console-types";
 import { Button } from "@/components/ui/button";
 
 type ExternalAction = {
@@ -113,13 +114,16 @@ export function ChatView({
       const d = await res.json();
       if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
       await refresh();
+      if (d.pendingQuorum) {
+        return d.message ?? `Vote recorded — ${d.have} of ${d.need} guardians.`;
+      }
       return approve ? "Approved — agent can continue." : "Denied — agent was told no.";
     });
 
   const resolveExternal = (msg: ChatMsg, approve: boolean) => {
     const ext = msg.meta?.externalAction as ExternalAction | undefined;
     if (!ext?.id) return Promise.resolve();
-    return act(approve ? "Approve web action" : "Reject web action", async () => {
+    return act(approve ? "Approve web action" : "Deny web action", async () => {
       const res = await gFetch(`/v1/guardian/chat/external-actions/${ext.id}/resolve`, {
         method: "POST",
         body: JSON.stringify({ approve, messageId: msg.id }),
@@ -129,7 +133,7 @@ export function ChatView({
       setMessages(d.messages ?? []);
       return approve
         ? `Queued ${ext.action} on ${ext.platform} (stub — not browsed yet).`
-        : `Rejected ${ext.action} on ${ext.platform}.`;
+        : `Denied ${ext.action} on ${ext.platform}.`;
     });
   };
 
@@ -167,7 +171,7 @@ export function ChatView({
                   Approve
                 </Button>
                 <Button variant="destructive" size="sm" disabled={locked} onClick={() => void resolve(a.id, false)}>
-                  Reject
+                  Deny
                 </Button>
               </div>
             </div>
@@ -223,7 +227,7 @@ export function ChatView({
                           disabled={locked}
                           onClick={() => void resolveExternal(m, false)}
                         >
-                          Reject
+                          Deny
                         </Button>
                       </div>
                     )}
@@ -241,13 +245,13 @@ export function ChatView({
                       disabled={locked || !pending.some((p) => p.id === m.approvalId)}
                       onClick={() => void resolve(m.approvalId!, false)}
                     >
-                      Reject
+                      Deny
                     </Button>
                   </div>
                 )}
                 {typeof m.meta?.goto === "string" && m.meta.goto !== "chat" && (
                   <Button variant="ghost" size="sm" style={{ marginTop: 8 }} onClick={() => onGoto(String(m.meta!.goto))}>
-                    Open {String(m.meta.goto)} <Icon name="arrowRight" size={12} />
+                    Open {viewLabel(String(m.meta.goto))} <Icon name="arrowRight" size={12} />
                   </Button>
                 )}
               </div>

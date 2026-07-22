@@ -123,7 +123,11 @@ async function pollOnce(): Promise<void> {
       answer =
         outcome.kind === "resolved"
           ? `${action === "approve" ? "Approved" : "Denied"} ✔`
-          : `No action: ${outcome.kind}`;
+          : outcome.kind === "pending_quorum"
+            ? `Vote recorded — ${outcome.have} of ${outcome.need}`
+            : outcome.kind === "forbidden"
+              ? outcome.message
+              : `No action: ${outcome.kind}`;
       if (cq.message) {
         tg("editMessageText", {
           chat_id: cq.message.chat.id,

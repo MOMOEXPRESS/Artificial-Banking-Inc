@@ -113,6 +113,28 @@ export type View =
   | "activity"
   | "settings";
 
+/** Human label for goto / breadcrumb CTAs (never show raw keys). */
+export function viewLabel(view: string): string {
+  const map: Record<string, string> = {
+    overview: "Overview",
+    treasury: "Treasury",
+    agents: "Agents",
+    payments: "Payments",
+    playground: "Playground",
+    chat: "ABI Chat",
+    work: "Work",
+    approvals: "Payments · Approvals",
+    insights: "Insights",
+    invoices: "Payments · Invoices",
+    escrows: "Payments · Escrows",
+    ledger: "Ledger",
+    policy: "Policy",
+    webhooks: "Webhooks",
+    activity: "Insights · Activity",
+    settings: "Settings",
+  };
+  return map[view] ?? view;
+}
 
 export type Shared = {
   busy: boolean;

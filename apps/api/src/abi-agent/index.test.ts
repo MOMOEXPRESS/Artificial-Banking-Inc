@@ -149,7 +149,15 @@ describe("runAbiAgent", () => {
     const demo = store.bootstrapDemo();
     const res = await runAbiAgent(demo.orgId, "who can approve payments?");
     assert.ok(res.toolsUsed.includes("governance_status"));
-    assert.match(res.answer, /guardian|quorum|approve/i);
+    assert.match(res.answer, /guardian|quorum|approve|founding owner/i);
+    assert.ok(!res.toolsUsed.includes("recent_spend"), "should not false-positive on payments");
+  });
+
+  it("does not treat Researcher as research budget keyword", async () => {
+    const demo = store.bootstrapDemo();
+    const res = await runAbiAgent(demo.orgId, "How is Researcher?");
+    assert.ok(res.toolsUsed.includes("agent_detail"));
+    assert.ok(!res.toolsUsed.includes("list_budgets"));
   });
 
   it("bindEntities pulls amount and destination fragments", () => {

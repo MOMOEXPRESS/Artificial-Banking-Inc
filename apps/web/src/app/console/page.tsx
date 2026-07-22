@@ -70,7 +70,7 @@ const NAV: { key: View; label: string; icon: string; group: string }[] = [
   { key: "payments", label: "Payments", icon: "zap", group: "Money" },
   { key: "agents", label: "Agents", icon: "robot", group: "Agents" },
   { key: "playground", label: "Playground", icon: "play", group: "Agents" },
-  { key: "chat", label: "ABI Chat", icon: "bell", group: "Agents" },
+  { key: "chat", label: "ABI Chat", icon: "spark", group: "Agents" },
   { key: "work", label: "Work", icon: "book", group: "Agents" },
   { key: "ledger", label: "Ledger", icon: "list", group: "Records" },
   { key: "insights", label: "Insights", icon: "spark", group: "Records" },
@@ -130,6 +130,7 @@ export default function Console() {
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(true);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => new Set());
   const [banner, setBanner] = useState<ConsoleAlert | null>(null);
   const [query, setQuery] = useState("");
   const [activitySeed, setActivitySeed] = useState<{
@@ -368,7 +369,7 @@ export default function Console() {
         tone: "warn",
         title: `${agentName(a.agentId)} needs ${fmtUsd(a.amountUsdc)} approved`,
         body: `${a.destination} · ${a.reasons[0] ?? "awaiting your decision"} · expires ${relTime(a.expiresAt)}`,
-        goto: "chat",
+        goto: "approvals",
       });
     }
     for (const e of escrows.filter((x) => x.state === "locked")) {
@@ -421,6 +422,11 @@ export default function Console() {
     }
     return out;
   }, [pending, escrows, deliveries, recon, org, agentName]);
+
+  const visibleAlerts = useMemo(
+    () => alerts.filter((a) => !dismissedAlerts.has(a.id)),
+    [alerts, dismissedAlerts],
+  );
 
   /* ---- autonomous handoff: new approval → alert + optional auto-jump ---- */
   useEffect(() => {
@@ -655,25 +661,37 @@ export default function Console() {
             <PopoverTrigger asChild>
               <button className="icon-btn" aria-label="Alerts">
                 <Icon name="bell" />
-                {alerts.length > 0 && <span className="ping" />}
+                {visibleAlerts.length > 0 && <span className="ping" />}
               </button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-[min(360px,calc(100vw-24px))] p-0">
               <div className="notif-head">
-                <span>Needs attention ({alerts.length})</span>
-                {alerts.length > 0 && (
-                  <Button type="button" variant="bare" size="sm" onClick={() => setNotifOpen(false)}>
-                    Mark reviewed
+                <span>Needs attention ({visibleAlerts.length})</span>
+                {visibleAlerts.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="bare"
+                    size="sm"
+                    onClick={() => {
+                      setDismissedAlerts((prev) => {
+                        const next = new Set(prev);
+                        for (const a of visibleAlerts) next.add(a.id);
+                        return next;
+                      });
+                      setNotifOpen(false);
+                    }}
+                  >
+                    Clear
                   </Button>
                 )}
               </div>
               <ScrollArea className="max-h-80">
-                {alerts.length === 0 ? (
+                {visibleAlerts.length === 0 ? (
                   <div style={{ padding: 26, textAlign: "center", fontSize: 12.5 }} className="muted">
                     All clear. Nothing is waiting on you.
                   </div>
                 ) : (
-                  alerts.slice(0, 8).map((al) => (
+                  visibleAlerts.slice(0, 8).map((al) => (
                     <button
                       key={al.id}
                       className="notif-item"

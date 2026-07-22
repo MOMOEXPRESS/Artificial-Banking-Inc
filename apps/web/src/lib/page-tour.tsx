@@ -9,7 +9,7 @@ const EXIT_MS = 280;
 /** Multiple tips per console page — rotates in a reserved slot (no layout jump). */
 const TIPS: Record<string, string[]> = {
   overview: [
-    "Vault balance, agent spend, and where money went — deposit more under Treasury → Fund.",
+    "Vault balance, agent spend, and where money went — deposit more under Treasury → Vault.",
     "Use Move funds for treasury → agent, agent → treasury, or agent → agent transfers.",
     "Freeze an agent from Overview when spend looks off — they stay frozen until you thaw.",
     "Switch 24h / 7d / all time to change the spend window on the charts.",
@@ -34,10 +34,15 @@ const TIPS: Record<string, string[]> = {
     "Stress and smoke modes replay so you can watch policy bands fire repeatedly.",
   ],
   chat: [
-    "ABI Assistant surveys agents, spend, policy bands, and quiet hours from live org facts.",
+    "Ask “What should I do next?” or “How is Researcher?” — ABI binds names to live roster facts.",
     "It never moves money by itself — you approve anything that needs a human.",
     "Follow-ups like “what about them?” reuse the last agents / destinations it looked up.",
-    "Ask why a payment was denied — ABI searches the decision trail.",
+    "Ask why a payment was denied — ABI maps the outcome to policy bands.",
+  ],
+  treasury: [
+    "Vault is cash in/out (Receive / Send). Budgets hold envelopes. Move funds agents.",
+    "Send is USDC-only on the spend rail — BTC/ETH holdings stay in the vault.",
+    "Broke agents? Fund them from a Budget → Move, not from Send.",
   ],
   work: [
     "Deliverables and run history from Playground missions — the spend paper trail.",

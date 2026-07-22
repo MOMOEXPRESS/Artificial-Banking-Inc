@@ -3,7 +3,13 @@
  * Falls back to keyword pickTools when no key / failure / empty tool use.
  */
 import { buildOrgContext, formatOrgContext } from "./context.js";
-import { lastScratchpad, scratchpadSnippet, transcriptSnippet, type ChatTurn } from "./memory.js";
+import {
+  lastScratchpad,
+  resolveFollowUp,
+  scratchpadSnippet,
+  transcriptSnippet,
+  type ChatTurn,
+} from "./memory.js";
 import {
   TOOL_NAMES,
   runTool,
@@ -196,6 +202,8 @@ export async function runLlmToolLoop(
   if (!apiKey || process.env.ABI_CHAT_LLM === "0") return null;
 
   const model = process.env.ABI_OPENAI_MODEL?.trim() || "gpt-4o-mini";
+  const followed = resolveFollowUp(message, recent);
+  const effectiveMessage = followed.query !== message ? followed.query : message;
   const history = transcriptSnippet(recent, 6);
   const scratch = scratchpadSnippet(lastScratchpad(recent));
   const ctx = formatOrgContext(buildOrgContext(orgId));
@@ -246,10 +254,14 @@ export async function runLlmToolLoop(
   if (history) {
     messages.push({
       role: "user",
-      content: `Recent chat:\n${history}\n\nCurrent question: ${message}`,
+      content: `Recent chat:\n${history}\n\nCurrent question: ${effectiveMessage}${
+        followed.reuseTools.length
+          ? `\n(Follow-up hint — prior tools: ${followed.reuseTools.join(", ")})`
+          : ""
+      }`,
     });
   } else {
-    messages.push({ role: "user", content: message });
+    messages.push({ role: "user", content: effectiveMessage });
   }
 
   const toolsUsed: ToolName[] = [];

@@ -60,6 +60,9 @@ export function Approvals({
       });
       const d = await res.json();
       if (!res.ok) throw new Error(JSON.stringify(d.error ?? d));
+      if (d.pendingQuorum) {
+        return d.message ?? `Vote recorded — ${d.have} of ${d.need} guardians.`;
+      }
       return approve
         ? "Approved — the payment executed and the agent was told to continue."
         : "Denied — the agent has been told to replan.";
@@ -100,12 +103,17 @@ export function Approvals({
           <Empty
             icon="shield"
             action={
-              <Button type="button" variant="ghost" size="sm" onClick={() => setView("playground")}>
-                Run a playground mission
-              </Button>
+              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setView("playground")}>
+                  Run a playground mission
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setView("policy")}>
+                  Adjust threshold in Policy
+                </Button>
+              </div>
             }
           >
-            Inbox zero — nothing is waiting on you. Anything above your approval threshold will
+            Inbox zero — nothing is waiting on you. Anything above your ask-me-above band will
             appear here and alert you automatically.
           </Empty>
         ) : (
@@ -132,7 +140,16 @@ export function Approvals({
                       {a.memo ? ` — “${a.memo}”` : ""}
                     </div>
                     <div className="faint" style={{ fontSize: 11.5, marginTop: 4 }}>
-                      Held because: {a.reasons.join("; ")}
+                      Held because: {a.reasons.join("; ")}{" "}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        style={{ marginLeft: 4, height: "auto", padding: "0 4px", fontSize: 11.5 }}
+                        onClick={() => setView("policy")}
+                      >
+                        View / edit policy
+                      </Button>
                     </div>
                   </div>
                   <div className="row" style={{ flexWrap: "nowrap" }}>

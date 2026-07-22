@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Empty, Icon, Meter, Stat, fmtDate, fmtTime, fmtUsd, relTime } from "./ui";
+import { viewLabel } from "./console-types";
 import { Button } from "@/components/ui/button";
 
 /* ============================================================ markdown */
@@ -216,7 +217,7 @@ export function AIPanel({
           {answer.goto && (
             <div style={{ marginTop: 9 }}>
               <Button variant="ghost" size="sm" onClick={() => onGoto(answer.goto!)}>
-                Open {answer.goto} <Icon name="arrowRight" size={12} />
+                Open {viewLabel(answer.goto!)} <Icon name="arrowRight" size={12} />
               </Button>
             </div>
           )}

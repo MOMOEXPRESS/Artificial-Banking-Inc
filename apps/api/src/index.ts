@@ -1576,6 +1576,11 @@ app.post(
         return res
           .status(409)
           .json({ error: { code: "FROZEN" }, approval: approvalView(outcome.approval) });
+      case "forbidden":
+        return res.status(403).json({
+          error: { code: "GUARDIAN_FORBIDDEN", message: outcome.message },
+          approval: approvalView(outcome.approval),
+        });
       case "pending_quorum":
         return res.status(202).json({
           ok: true,
