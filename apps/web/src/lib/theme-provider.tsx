@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 export type Theme = "light" | "dark" | "system";
 
-const STORAGE_KEY = "abi_theme_v1";
+const STORAGE_KEY = "abi_theme_v2";
 
 type ThemeContextValue = {
   theme: Theme;
@@ -16,7 +16,7 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function systemTheme(): "light" | "dark" {
-  if (typeof window === "undefined") return "dark";
+  if (typeof window === "undefined") return "light";
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
@@ -25,8 +25,8 @@ function resolve(theme: Theme): "light" | "dark" {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("system");
-  const [resolved, setResolved] = useState<"light" | "dark">("dark");
+  const [theme, setThemeState] = useState<Theme>("light");
+  const [resolved, setResolved] = useState<"light" | "dark">("light");
 
   useEffect(() => {
     try {

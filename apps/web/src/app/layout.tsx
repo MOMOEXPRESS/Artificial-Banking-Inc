@@ -49,7 +49,12 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${sora.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
+    <html
+      lang="en"
+      data-theme="light"
+      className={`${sora.variable} ${jetbrainsMono.variable}`}
+      suppressHydrationWarning
+    >
       <body>
         <AppProviders>{children}</AppProviders>
       </body>

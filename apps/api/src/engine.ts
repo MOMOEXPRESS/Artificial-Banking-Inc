@@ -516,28 +516,26 @@ export async function resolveApproval(
     return { kind: "forbidden", message: gate.message, approval };
   }
 
-  // Quorum: record this guardian's vote, and only proceed once enough distinct
-  // guardians agree. A deny from anyone kills it immediately — requiring N
-  // people to approve but only one to refuse is the safe asymmetry.
+  // Always record the vote for audit attribution — including quorum=1 solo
+  // approves. Quorum only gates *proceeding*; the ledger must still know who
+  // decided. A deny from anyone still kills immediately once claimed below.
   const quorum = Math.max(1, store.getPolicyTemplate(orgId).approvalQuorum ?? 1);
-  if (quorum > 1) {
-    store.recordVote({
-      approvalId: approval.id,
-      guardianId,
-      guardianName: resolvedBy,
-      approve,
-      at: new Date().toISOString(),
-    });
-    const votes = store.listVotes(approval.id);
-    const approvals = votes.filter((v) => v.approve).length;
-    if (approve && approvals < quorum) {
-      return {
-        kind: "pending_quorum",
-        have: approvals,
-        need: quorum,
-        approval: store.getApproval(approvalId, orgId)!,
-      };
-    }
+  store.recordVote({
+    approvalId: approval.id,
+    guardianId,
+    guardianName: resolvedBy,
+    approve,
+    at: new Date().toISOString(),
+  });
+  const votes = store.listVotes(approval.id);
+  const approvals = votes.filter((v) => v.approve).length;
+  if (approve && approvals < quorum) {
+    return {
+      kind: "pending_quorum",
+      have: approvals,
+      need: quorum,
+      approval: store.getApproval(approvalId, orgId)!,
+    };
   }
 
   // Claim it atomically. Without this, two guardians pressing Approve at the
