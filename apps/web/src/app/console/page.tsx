@@ -79,12 +79,77 @@ const NAV: { key: View; label: string; icon: string; group: string }[] = [
 
 const NAV_GROUPS = ["Money", "Agents", "Records", "Config"] as const;
 
+const ALL_VIEWS = new Set<View>([
+  "overview",
+  "treasury",
+  "agents",
+  "payments",
+  "playground",
+  "chat",
+  "work",
+  "approvals",
+  "insights",
+  "invoices",
+  "escrows",
+  "ledger",
+  "policy",
+  "webhooks",
+  "activity",
+  "settings",
+]);
+
+const TREASURY_TAB_SET = new Set(["fund", "wallets", "move", "analytics", "recovery"]);
+const PAYMENTS_TAB_SET = new Set([
+  "approvals",
+  "recent",
+  "subs",
+  "rails",
+  "invoices",
+  "escrows",
+  "batch",
+  "schedule",
+]);
+
+function isView(v: string | null | undefined): v is View {
+  return Boolean(v && ALL_VIEWS.has(v as View));
+}
+
 /** Alias views still deep-link; they open a parent surface + tab. */
 function canonicalView(view: View): View {
   if (view === "approvals" || view === "invoices" || view === "escrows") return "payments";
   if (view === "activity") return "insights";
   if (view === "webhooks") return "webhooks";
   return view;
+}
+
+function tabForAliasView(view: View): string | null {
+  if (view === "approvals") return "approvals";
+  if (view === "invoices") return "invoices";
+  if (view === "escrows") return "escrows";
+  if (view === "activity") return "trail";
+  return null;
+}
+
+function readConsoleQuery(): { view: View | null; tab: string | null } {
+  if (typeof window === "undefined") return { view: null, tab: null };
+  const params = new URLSearchParams(window.location.search);
+  const viewRaw = params.get("view");
+  const tabRaw = params.get("tab");
+  return {
+    view: isView(viewRaw) ? viewRaw : null,
+    tab: tabRaw && tabRaw.trim() ? tabRaw.trim() : null,
+  };
+}
+
+function writeConsoleQuery(view: View, tab: string | null) {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  params.set("view", view);
+  if (tab) params.set("tab", tab);
+  else params.delete("tab");
+  const qs = params.toString();
+  const next = `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`;
+  window.history.replaceState(null, "", next);
 }
 
 function navGroupOf(view: View): string {
@@ -111,7 +176,8 @@ export default function Console() {
   const [prefs, setPrefs] = useState<Prefs>({ autoJump: true });
   const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<View>("overview");
+  const [view, setViewState] = useState<View>("overview");
+  const [tabHint, setTabHint] = useState<string | null>(null);
   const [org, setOrg] = useState<OrgView | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
@@ -188,8 +254,51 @@ export default function Console() {
     } catch {
       /* ignore */
     }
+    const q = readConsoleQuery();
+    if (q.view) setViewState(q.view);
+    if (q.tab) setTabHint(q.tab);
+    else if (q.view) {
+      const aliasTab = tabForAliasView(q.view);
+      if (aliasTab) setTabHint(aliasTab);
+    }
     setHydrated(true);
   }, []);
+
+  const setView = useCallback((v: View, tab?: string) => {
+    setViewState(v);
+    if (tab !== undefined) {
+      setTabHint(tab);
+      return;
+    }
+    const aliasTab = tabForAliasView(v);
+    if (aliasTab) {
+      setTabHint(aliasTab);
+      return;
+    }
+    setTabHint((prev) => {
+      if (!prev) return null;
+      const canon = canonicalView(v);
+      if (canon === "treasury" && TREASURY_TAB_SET.has(prev)) return prev;
+      if (canon === "payments" && PAYMENTS_TAB_SET.has(prev)) return prev;
+      if ((v === "insights" || v === "activity") && (prev === "trail" || prev === "activity")) return prev;
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const alias = tabForAliasView(view);
+    const canon = canonicalView(view);
+    let effective = tabHint ?? alias;
+    if (effective) {
+      if (canon === "treasury" && !TREASURY_TAB_SET.has(effective)) effective = alias;
+      else if (canon === "payments" && !PAYMENTS_TAB_SET.has(effective)) effective = alias;
+      else if (canon !== "treasury" && canon !== "payments" && view !== "insights" && view !== "activity") {
+        effective = alias;
+      }
+    }
+    writeConsoleQuery(view, effective);
+  }, [hydrated, view, tabHint]);
 
   /** Sign in / sign out. Resets view state — use updateSession for edits. */
   const saveSession = useCallback((s: Session | null) => {
@@ -416,7 +525,7 @@ export default function Console() {
         kind: "fund",
         tone: "info",
         title: `${broke.length} agent${broke.length > 1 ? "s have" : " has"} no funds`,
-        body: `${broke.map((b) => b.name).join(", ")} can't pay — fund them from a budget in Treasury`,
+        body: `${broke.map((b) => b.name).join(", ")} can't pay — fund them from a budget in Treasury → Move`,
         goto: "treasury",
       });
     }
@@ -696,7 +805,8 @@ export default function Console() {
                       key={al.id}
                       className="notif-item"
                       onClick={() => {
-                        setView(al.goto);
+                        if (al.kind === "fund") setView("treasury", "move");
+                        else setView(al.goto);
                         setNotifOpen(false);
                       }}
                     >
@@ -732,7 +842,13 @@ export default function Console() {
                 <b>{banner.title}</b>
                 <span>{banner.body}</span>
               </span>
-              <Button variant="secondary" size="sm" onClick={() => setView(banner.goto)}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  banner.kind === "fund" ? setView("treasury", "move") : setView(banner.goto)
+                }
+              >
                 Review now
               </Button>
               <Button variant="bare" size="sm" onClick={() => setBanner(null)}>
@@ -761,7 +877,16 @@ export default function Console() {
                   invStats={invStats}
                 />
               )}
-              {view === "treasury" && <TreasuryView gFetch={gFetch} busy={busy} act={act} readOnly={readOnly} />}
+              {view === "treasury" && (
+                <TreasuryView
+                  gFetch={gFetch}
+                  busy={busy}
+                  act={act}
+                  readOnly={readOnly}
+                  initialTab={tabHint && TREASURY_TAB_SET.has(tabHint) ? tabHint : null}
+                  onTabChange={(t) => setTabHint(t)}
+                />
+              )}
               {view === "agents" && (
                 <AgentsView
                   gFetch={gFetch}
@@ -792,8 +917,14 @@ export default function Console() {
                   pending={pending}
                   agentName={agentName}
                   setToast={setToast}
-                  setView={(v) => setView(v)}
+                  setView={setView}
                   org={org}
+                  initialTab={
+                    tabHint && PAYMENTS_TAB_SET.has(tabHint)
+                      ? (tabHint as "approvals" | "recent" | "subs" | "rails" | "invoices" | "escrows" | "batch" | "schedule")
+                      : undefined
+                  }
+                  onTabChange={(t) => setTabHint(t)}
                   agents={(org?.agents ?? []).map((a) => ({
                     id: a.id,
                     name: a.name,
@@ -814,9 +945,16 @@ export default function Console() {
                   pending={pending}
                   agentName={agentName}
                   setToast={setToast}
-                  setView={(v) => setView(v)}
+                  setView={setView}
                   org={org}
-                  initialTab={view === "approvals" ? "approvals" : view}
+                  initialTab={
+                    (tabHint && PAYMENTS_TAB_SET.has(tabHint)
+                      ? tabHint
+                      : view === "approvals"
+                        ? "approvals"
+                        : view) as "approvals" | "recent" | "subs" | "rails" | "invoices" | "escrows" | "batch" | "schedule"
+                  }
+                  onTabChange={(t) => setTabHint(t)}
                   agents={(org?.agents ?? []).map((a) => ({
                     id: a.id,
                     name: a.name,

@@ -143,7 +143,8 @@ export type Shared = {
   agentName: (id: string) => string;
   org: OrgView | null;
   setToast: (m: string, k?: "ok" | "err" | "info") => void;
-  setView: (v: View) => void;
+  /** Optional `tab` deep-links into a sub-surface (e.g. treasury `move`, payments `rails`). */
+  setView: (v: View, tab?: string) => void;
   readOnly: boolean;
 };
 

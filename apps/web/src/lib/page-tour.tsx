@@ -69,8 +69,10 @@ const TIPS: Record<string, string[]> = {
     "Starter templates are a fast baseline — then tune allowlists for your vendors.",
   ],
   webhooks: [
+    "When money moves, ABI pushes a signed event to your URL — you don't poll the console.",
+    "Verify x-policyvault-signature (HMAC) and dedupe on x-policyvault-delivery.",
+    "Try Playground → Webhook ping for a guided demo, or register abi://demo-inbox here.",
     "HMAC-signed money events into your systems — rotate secrets when needed.",
-    "Subscribe only to the event kinds your backend cares about.",
   ],
   activity: [
     "Full decision audit trail — export CSV from the Activity header.",

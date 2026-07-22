@@ -63,6 +63,9 @@ export interface RunState {
   denials: { amount: string; destination: string; code: string; reason: string }[];
   purchases: { amount: string; destination: string; rail: string; txHash?: string }[];
   finalBudget?: string;
+  webhookId?: string;
+  webhookSecretShown?: string;
+  webhookDeliveries?: { event: string; status: string; id: number }[];
 }
 
 interface StepDef {
@@ -93,6 +96,20 @@ async function agentCall(
     method,
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.agentKey}` },
     body: body ? JSON.stringify(body) : undefined,
+  });
+  return { status: res.status, data: (await res.json().catch(() => ({}))) as Record<string, unknown> };
+}
+
+async function guardianCall(
+  ctx: MissionCtx,
+  method: "GET" | "POST" | "DELETE",
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; data: Record<string, unknown> }> {
+  const res = await fetch(`${ctx.api}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${ctx.guardianKey}` },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   return { status: res.status, data: (await res.json().catch(() => ({}))) as Record<string, unknown> };
 }
@@ -337,6 +354,134 @@ const summarize: StepDef = {
 
 /* --------------------------------------------------------------- missions */
 
+const registerDemoWebhook: StepDef = {
+  id: "webhook_register",
+  title: "Register a webhook endpoint",
+  detail:
+    "Guardian action — points money events at abi://demo-inbox (built-in sink, no public URL needed).",
+  async run(ctx, state) {
+    const listed = await guardianCall(ctx, "GET", "/v1/guardian/webhooks");
+    const existing = (
+      (listed.data.webhooks as { id: string; url: string }[] | undefined) ?? []
+    ).find((w) => w.url === "abi://demo-inbox");
+    if (existing) {
+      state.webhookId = existing.id;
+      ctx.log(`webhook → reusing ${existing.id}`);
+      return {
+        summary: "Demo inbox already registered — reusing it for this run.",
+        output: pretty(listed.data),
+      };
+    }
+    const { status, data } = await guardianCall(ctx, "POST", "/v1/guardian/webhooks", {
+      url: "abi://demo-inbox",
+    });
+    if (status >= 400) {
+      return {
+        summary: `Could not register webhook: ${errMsg(data) || errCode(data)}.`,
+        output: pretty(data),
+        softFail: true,
+        abort: true,
+      };
+    }
+    state.webhookId = String(data.id);
+    state.webhookSecretShown = data.secret ? String(data.secret) : undefined;
+    ctx.log(`webhook → created ${data.id}`);
+    return {
+      summary:
+        "Registered abi://demo-inbox. Save the signing secret once — your backend verifies HMAC with it.",
+      output: pretty({ ...data, note: "Secret is shown once at create/rotate time." }),
+    };
+  },
+};
+
+const fireWebhookTest: StepDef = {
+  id: "webhook_test",
+  title: "Fire a signed test event",
+  detail: "Same path as Console → Webhooks → Test — ABI POSTs payment.succeeded to every endpoint.",
+  async run(ctx, state) {
+    if (!state.webhookId) {
+      return { summary: "No webhook id — skipped.", output: "no webhook", softFail: true };
+    }
+    const { status, data } = await guardianCall(
+      ctx,
+      "POST",
+      `/v1/guardian/webhooks/${state.webhookId}/test`,
+    );
+    if (status >= 400) {
+      return {
+        summary: `Test dispatch failed: ${errMsg(data) || errCode(data)}.`,
+        output: pretty(data),
+        softFail: true,
+      };
+    }
+    ctx.log("webhook test → dispatched");
+    // Give the async dispatcher a beat before we poll deliveries.
+    await new Promise((r) => setTimeout(r, 350));
+    return {
+      summary: "Test payment.succeeded event dispatched to all org endpoints.",
+      output: pretty(data),
+    };
+  },
+};
+
+const checkWebhookDeliveries: StepDef = {
+  id: "webhook_deliveries",
+  title: "Confirm delivery in the ledger",
+  detail: "Reads delivery status — delivered / pending / failed after up to 3 retries.",
+  async run(ctx, state) {
+    const { status, data } = await guardianCall(ctx, "GET", "/v1/guardian/webhooks/deliveries");
+    if (status >= 400) {
+      return {
+        summary: `Could not list deliveries: ${errMsg(data) || errCode(data)}.`,
+        output: pretty(data),
+        softFail: true,
+      };
+    }
+    const rows = (data.deliveries as { id: number; event: string; status: string }[] | undefined) ?? [];
+    state.webhookDeliveries = rows.slice(0, 8).map((d) => ({
+      id: d.id,
+      event: d.event,
+      status: d.status,
+    }));
+    const latest = rows[0];
+    const delivered = rows.filter((d) => d.status === "delivered").length;
+    ctx.log(`deliveries → ${rows.length} total, ${delivered} delivered`);
+    return {
+      summary: latest
+        ? `Latest: ${latest.event} → ${latest.status}. ${delivered}/${rows.length} delivered overall.`
+        : "No deliveries yet — register an endpoint and fire Test.",
+      output: pretty(data),
+    };
+  },
+};
+
+const payAndWatchWebhook: StepDef = {
+  id: "webhook_live_pay",
+  title: "Live pay — webhook should fire again",
+  detail: "Small allowlisted pay_api spend. On success ABI emits payment.succeeded to your endpoints.",
+  async run(ctx, state) {
+    const before = state.webhookDeliveries?.length ?? 0;
+    const pay = await payVendor("1", "api.openai.com", "webhook demo spend").run(ctx, state);
+    if (pay.approvalId || pay.softFail) return pay;
+    await new Promise((r) => setTimeout(r, 400));
+    const { data } = await guardianCall(ctx, "GET", "/v1/guardian/webhooks/deliveries");
+    const rows = (data.deliveries as { id: number; event: string; status: string }[] | undefined) ?? [];
+    state.webhookDeliveries = rows.slice(0, 8).map((d) => ({
+      id: d.id,
+      event: d.event,
+      status: d.status,
+    }));
+    const grew = rows.length > before;
+    const live = rows.find((d) => d.event === "payment.succeeded");
+    return {
+      summary: grew
+        ? `Payment settled and a new delivery landed${live ? ` (${live.event} → ${live.status})` : ""}.`
+        : `${pay.summary} Delivery count unchanged — check Webhooks if the endpoint was removed.`,
+      output: pretty({ payment: JSON.parse(pay.output || "{}"), deliveries: rows.slice(0, 5) }),
+    };
+  },
+};
+
 const costTable = (state: RunState) =>
   state.purchases.length
     ? [
@@ -567,6 +712,57 @@ Peer hired under escrow \`${state.escrowId ?? "—"}\` and paid on acceptance.
 ${costTable(state)}
 
 Remaining: **$${state.finalBudget ?? "—"}**
+`,
+  },
+  {
+    id: "webhooks",
+    title: "Webhook ping (ops notify)",
+    persona: "Ops engineer wiring Slack / CRM / books",
+    category: "ops",
+    brief:
+      "What a webhook is: ABI pushes signed JSON to YOUR URL when money events happen — so you don’t poll the console. This mission registers the built-in demo inbox, fires a test event, confirms delivery, then does a small live pay so you see payment.succeeded land again.",
+    deliverableKind: "Webhook integration brief",
+    build: () => [
+      registerDemoWebhook,
+      fireWebhookTest,
+      checkWebhookDeliveries,
+      checkBudget,
+      payAndWatchWebhook,
+      summarize,
+    ],
+    deliverable: (state) => `# Webhook integration brief
+
+## What just happened
+
+1. Registered (or reused) endpoint \`abi://demo-inbox\` — a built-in sink for demos.
+2. Fired a **test** \`payment.succeeded\` event (same as Webhooks → Test).
+3. Confirmed deliveries in the org delivery ledger.
+4. Ran a small live pay so a **real** money event could notify listeners again.
+
+${
+  state.webhookDeliveries?.length
+    ? `## Recent deliveries
+
+| Id | Event | Status |
+| --- | --- | --- |
+${state.webhookDeliveries.map((d) => `| ${d.id} | ${d.event} | ${d.status} |`).join("\n")}
+`
+    : ""
+}
+
+## What you do in production
+
+1. Stand up an HTTPS URL on **your** backend (or Slack incoming webhook via a thin adapter).
+2. In Console → **Webhooks**, paste that URL (not \`abi://demo-inbox\`).
+3. Save the **signing secret** shown once — verify \`x-policyvault-signature\` = HMAC-SHA256 of the raw body.
+4. Dedupe on \`x-policyvault-delivery\` (at-least-once delivery, up to 3 retries).
+5. Handle the events you care about: \`payment.succeeded\`, \`approval.pending\`, \`policy.denied\`, escrow + treasury events, etc.
+
+## Spend this run
+
+${costTable(state)}
+
+Remaining agent budget: **$${state.finalBudget ?? "—"}**
 `,
   },
 ];

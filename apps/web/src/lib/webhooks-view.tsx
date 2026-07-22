@@ -58,11 +58,12 @@ export function Webhooks({
     <>
       <div className="banner info" style={{ marginBottom: 14 }}>
         <span className="txt">
-          <b>What webhooks are for</b>
+          <b>What webhooks do</b>
           <span>
-            Point them at your backend URL. When money moves (payment allowed, denied, needs your
-            approval, escrow locked/released), ABI POSTs a signed JSON event so your systems can
-            update books, Slack, or CRM — without polling the console.
+            When money moves (paid, denied, needs your approval, escrow locked…), ABI POSTs signed
+            JSON to a URL you control — Slack adapter, CRM, books — so you don&apos;t sit in the
+            console. For a hands-on walkthrough, run Playground →{" "}
+            <b>Webhook ping (ops notify)</b>.
           </span>
         </span>
       </div>
@@ -96,6 +97,28 @@ export function Webhooks({
             />
             <Button size="sm" disabled={locked || !url.trim()} onClick={() => void add()}>
               <Icon name="plus" size={13} /> Add
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={locked || webhooks.some((w) => w.url === "abi://demo-inbox")}
+              title="Built-in sink — no public URL; deliveries still show in the log"
+              onClick={() => {
+                setUrl("abi://demo-inbox");
+                void act("Webhook", async () => {
+                  const res = await gFetch("/v1/guardian/webhooks", {
+                    method: "POST",
+                    body: JSON.stringify({ url: "abi://demo-inbox" }),
+                  });
+                  const d = await res.json();
+                  if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                  setSecret(d.secret);
+                  setUrl("");
+                  return "Demo inbox registered — Send test to see a delivery below.";
+                });
+              }}
+            >
+              Demo inbox
             </Button>
           </div>
         </div>

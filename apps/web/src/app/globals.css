@@ -854,6 +854,26 @@ body::after {
   flex-wrap: wrap;
 }
 
+.card-head > .min-w-0,
+.card-head > [data-slot="tabs"],
+.card-head .seg-tabs-scroll {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.seg-tabs-scroll {
+  scrollbar-width: thin;
+}
+
+.seg-tabs-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.seg-tabs-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-fg-faint) 55%, transparent);
+  border-radius: 999px;
+}
+
 .card-head h2 {
   font-size: 17px;
   font-weight: 600;

@@ -184,6 +184,9 @@ export function Playground({
       });
       const d = await res.json();
       if (!res.ok) throw new Error(JSON.stringify(d.error ?? d));
+      if (d.pendingQuorum) {
+        return d.message ?? `Vote recorded — ${d.have} of ${d.need} guardians.`;
+      }
       return approve ? "Approved — watch the agent continue." : "Denied — the agent will replan.";
     });
 

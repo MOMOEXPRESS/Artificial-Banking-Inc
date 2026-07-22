@@ -50,6 +50,15 @@ async function attemptDelivery(args: {
     if (problem) {
       throw new Error(`SSRF_BLOCKED: ${problem}`);
     }
+    // Built-in demo sink — no network hop. Playground + console Test use this.
+    if (args.url === "abi://demo-inbox") {
+      store.updateDelivery(args.deliveryId, {
+        status: "delivered",
+        attempts: args.attempt,
+        deliveredAt: new Date().toISOString(),
+      });
+      return;
+    }
     const res = await fetch(args.url, {
       method: "POST",
       headers: {

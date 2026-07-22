@@ -62,6 +62,9 @@ export function webhookUrlProblem(raw: string): string | null {
   } catch {
     return "Webhook URL is not a valid absolute URL";
   }
+  if (url.protocol === "abi:" && url.hostname === "demo-inbox") {
+    return null;
+  }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     return "Webhook URL must use http or https";
   }

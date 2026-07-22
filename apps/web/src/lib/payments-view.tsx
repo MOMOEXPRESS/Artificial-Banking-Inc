@@ -53,6 +53,7 @@ export function PaymentsView({
   invStats = null,
   escrows = [],
   initialTab,
+  onTabChange,
   approvals = [],
   pending = [],
   agentName: agentNameProp,
@@ -69,11 +70,12 @@ export function PaymentsView({
   invStats?: InvoiceStats | null;
   escrows?: Escrow[];
   initialTab?: "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows" | "batch" | "approvals";
+  onTabChange?: (tab: "approvals" | "recent" | "subs" | "rails" | "invoices" | "escrows" | "batch") => void;
   approvals?: Approval[];
   pending?: Approval[];
   agentName?: (id: string) => string;
   setToast?: (m: string, k?: "ok" | "err" | "info") => void;
-  setView?: (v: View) => void;
+  setView?: (v: View, tab?: string) => void;
   org?: OrgView | null;
 }) {
   const locked = busy || readOnly;
@@ -91,6 +93,17 @@ export function PaymentsView({
   const [tab, setTab] = useState<
     "approvals" | "recent" | "subs" | "rails" | "invoices" | "escrows" | "batch"
   >(resolveTab(initialTab));
+
+  useEffect(() => {
+    if (initialTab) setTab(resolveTab(initialTab));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTab]);
+
+  const selectTab = (next: typeof tab) => {
+    setTab(next);
+    onTabChange?.(next);
+  };
+
   const [form, setForm] = useState({
     agentId: "",
     vendor: "",
@@ -101,11 +114,6 @@ export function PaymentsView({
   const [batchText, setBatchText] = useState(
     "# agentId,vendor,amountUsdc\n# one payment per line, max 10\n",
   );
-
-  useEffect(() => {
-    if (initialTab) setTab(resolveTab(initialTab));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialTab]);
 
   const refresh = useCallback(async () => {
     const [r, s, p] = await Promise.all([
@@ -158,7 +166,7 @@ export function PaymentsView({
         </div>
         <SegTabs
           value={tab}
-          onValueChange={(v) => setTab(v as typeof tab)}
+          onValueChange={(v) => selectTab(v as typeof tab)}
           items={
             [
               {

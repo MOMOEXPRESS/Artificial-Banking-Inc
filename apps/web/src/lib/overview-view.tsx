@@ -480,17 +480,10 @@ export function Overview({
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <Button
               disabled={readOnly}
-              onClick={() => {
-                try {
-                  sessionStorage.setItem("abi_treasury_tab", "move");
-                } catch {
-                  /* ignore */
-                }
-                setView("treasury");
-              }}
-            >
-              <Icon name="swap" size={13} /> Open Treasury → Move
-            </Button>
+                onClick={() => setView("treasury", "move")}
+              >
+                <Icon name="swap" size={13} /> Open Treasury → Move
+              </Button>
             <p className="faint" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.55 }}>
               Org vault has <b className="mono">{fmtUsd(orgAvail)}</b>. Large moves may park for
               multi-guardian approval.

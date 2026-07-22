@@ -94,16 +94,39 @@ function moveEndpointLabel(ref: { scope: Scope; id: string }, wallets: WalletsPa
   return ref.scope;
 }
 
+type TreasuryTab = "fund" | "wallets" | "move" | "analytics" | "recovery";
+
+const TREASURY_TABS = new Set<TreasuryTab>(["fund", "wallets", "move", "analytics", "recovery"]);
+
+function resolveTreasuryTab(hint?: string | null): TreasuryTab {
+  if (hint && TREASURY_TABS.has(hint as TreasuryTab)) return hint as TreasuryTab;
+  if (typeof window === "undefined") return "fund";
+  try {
+    const pref = sessionStorage.getItem("abi_treasury_tab");
+    if (pref && TREASURY_TABS.has(pref as TreasuryTab)) {
+      sessionStorage.removeItem("abi_treasury_tab");
+      return pref as TreasuryTab;
+    }
+  } catch {
+    /* ignore */
+  }
+  return "fund";
+}
+
 export function TreasuryView({
   gFetch,
   busy,
   act,
   readOnly = false,
+  initialTab,
+  onTabChange,
 }: {
   gFetch: (path: string, init?: RequestInit) => Promise<Response>;
   busy: boolean;
   act: (label: string, fn: () => Promise<string | void>) => Promise<void>;
   readOnly?: boolean;
+  initialTab?: string | null;
+  onTabChange?: (tab: TreasuryTab) => void;
 }) {
   const locked = busy || readOnly;
   const [wallets, setWallets] = useState<WalletsPayload | null>(null);
@@ -114,19 +137,17 @@ export function TreasuryView({
     vaultAddress?: string;
     events: { id: string; kind: string; note?: string; at: string }[];
   } | null>(null);
-  const [tab, setTab] = useState<"fund" | "wallets" | "move" | "analytics" | "recovery">(() => {
-    if (typeof window === "undefined") return "fund";
-    try {
-      const pref = sessionStorage.getItem("abi_treasury_tab");
-      if (pref === "move" || pref === "wallets" || pref === "fund" || pref === "analytics" || pref === "recovery") {
-        sessionStorage.removeItem("abi_treasury_tab");
-        return pref;
-      }
-    } catch {
-      /* ignore */
-    }
-    return "fund";
-  });
+  const [tab, setTab] = useState<TreasuryTab>(() => resolveTreasuryTab(initialTab));
+
+  useEffect(() => {
+    if (!initialTab || !TREASURY_TABS.has(initialTab as TreasuryTab)) return;
+    setTab(initialTab as TreasuryTab);
+  }, [initialTab]);
+
+  const selectTab = (next: TreasuryTab) => {
+    setTab(next);
+    onTabChange?.(next);
+  };
 
   const [deptName, setDeptName] = useState("");
   const [rotateAgentId, setRotateAgentId] = useState("");
@@ -319,7 +340,7 @@ export function TreasuryView({
           </div>
           <SegTabs
             value={tab}
-            onValueChange={(v) => setTab(v as typeof tab)}
+            onValueChange={(v) => selectTab(v as typeof tab)}
             items={
               [
                 {
@@ -691,7 +712,7 @@ export function TreasuryView({
                     className="treasury-tile"
                     onClick={() => {
                       setFrom(`department:${d.id}`);
-                      setTab("move");
+                      selectTab("move");
                     }}
                   >
                     <span className="treasury-tile-icon">
@@ -725,7 +746,7 @@ export function TreasuryView({
                     className="treasury-tile"
                     onClick={() => {
                       setFrom(`shared:${s.id}`);
-                      setTab("move");
+                      selectTab("move");
                     }}
                   >
                     <span className="treasury-tile-icon">
@@ -761,7 +782,7 @@ export function TreasuryView({
                     className="treasury-tile"
                     onClick={() => {
                       setTo(`agent:${a.id}`);
-                      setTab("move");
+                      selectTab("move");
                     }}
                   >
                     <span className="treasury-tile-icon">
