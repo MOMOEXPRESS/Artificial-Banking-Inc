@@ -4,6 +4,7 @@
  * and even then this stub only marks the queue (no browser yet).
  */
 import { randomUUID } from "node:crypto";
+import { store } from "../store.js";
 
 export const EXTERNAL_PLATFORMS = ["maltbook", "linkedin", "x", "web"] as const;
 export type ExternalPlatform = (typeof EXTERNAL_PLATFORMS)[number];
@@ -21,9 +22,6 @@ export type ExternalActionProposal = {
   createdAt: string;
   resolvedAt?: string;
 };
-
-/** In-process queue — durable enough for a session; chat meta also carries the proposal. */
-const queue = new Map<string, ExternalActionProposal>();
 
 function isPlatform(v: unknown): v is ExternalPlatform {
   return typeof v === "string" && (EXTERNAL_PLATFORMS as readonly string[]).includes(v);
@@ -52,8 +50,13 @@ export function createExternalProposal(
     status: "pending",
     createdAt: new Date().toISOString(),
   };
-  queue.set(row.id, row);
-  return row;
+  return store.createExternalAction({
+    id: row.id,
+    orgId: row.orgId,
+    platform: row.platform,
+    action: row.action,
+    content: row.content,
+  });
 }
 
 /** Infer a proposal from free-text when the keyword agent path is used. */
@@ -79,7 +82,12 @@ export function inferExternalArgs(message: string): {
 }
 
 export function getExternalProposal(id: string): ExternalActionProposal | undefined {
-  return queue.get(id);
+  const all = store.listOrgs();
+  for (const org of all) {
+    const row = store.getExternalAction(org.id, id);
+    if (row) return row;
+  }
+  return undefined;
 }
 
 export function resolveExternalProposal(
@@ -87,16 +95,10 @@ export function resolveExternalProposal(
   id: string,
   approve: boolean,
 ): ExternalActionProposal | null {
-  const row = queue.get(id);
-  if (!row || row.orgId !== orgId) return null;
-  if (row.status !== "pending") return row;
-  row.status = approve ? "approved" : "rejected";
-  row.resolvedAt = new Date().toISOString();
-  queue.set(id, row);
-  return row;
+  return store.resolveExternalAction(orgId, id, approve);
 }
 
 /** Test helper — clear in-memory queue. */
 export function clearExternalProposalsForTests(): void {
-  queue.clear();
+  // No-op now that proposals are durable in SQLite.
 }

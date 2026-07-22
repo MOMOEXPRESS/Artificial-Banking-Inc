@@ -72,6 +72,21 @@ export interface ChatMessageRow {
   createdAt: string;
 }
 
+export type ExternalActionStatus = "pending" | "approved" | "rejected";
+export type ExternalActionPlatform = "maltbook" | "linkedin" | "x" | "web";
+export type ExternalActionKind = "post" | "signup" | "comment";
+
+export interface ExternalActionRow {
+  id: string;
+  orgId: string;
+  platform: ExternalActionPlatform;
+  action: ExternalActionKind;
+  content: string;
+  status: ExternalActionStatus;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
 export interface DecisionRow {
   intentId: string;
   orgId: string;
@@ -613,6 +628,17 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chat_org ON chat_messages(org_id, created_at);
+CREATE TABLE IF NOT EXISTS external_actions (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  platform TEXT NOT NULL,
+  action TEXT NOT NULL,
+  content TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_external_actions_org ON external_actions(org_id, created_at);
 `);
 
 // Dev migrations: add columns introduced after the tables first shipped.
@@ -1865,6 +1891,64 @@ export const store = {
     };
   },
 
+  createExternalAction(input: {
+    id: string;
+    orgId: string;
+    platform: ExternalActionPlatform;
+    action: ExternalActionKind;
+    content: string;
+  }): ExternalActionRow {
+    const row: ExternalActionRow = {
+      id: input.id,
+      orgId: input.orgId,
+      platform: input.platform,
+      action: input.action,
+      content: input.content,
+      status: "pending",
+      createdAt: nowIso(),
+    };
+    db.prepare(
+      `INSERT INTO external_actions
+       (id, org_id, platform, action, content, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(row.id, row.orgId, row.platform, row.action, row.content, row.status, row.createdAt);
+    return row;
+  },
+
+  getExternalAction(orgId: string, id: string): ExternalActionRow | null {
+    const row = (
+      db
+        .prepare("SELECT * FROM external_actions WHERE org_id = ? AND id = ?")
+        .get(orgId, id) as Row | undefined
+    );
+    if (!row) return null;
+    return {
+      id: row.id as string,
+      orgId: row.org_id as string,
+      platform: row.platform as ExternalActionPlatform,
+      action: row.action as ExternalActionKind,
+      content: row.content as string,
+      status: row.status as ExternalActionStatus,
+      createdAt: row.created_at as string,
+      resolvedAt: (row.resolved_at as string | null) ?? undefined,
+    };
+  },
+
+  resolveExternalAction(orgId: string, id: string, approve: boolean): ExternalActionRow | null {
+    const row = this.getExternalAction(orgId, id);
+    if (!row) return null;
+    if (row.status !== "pending") return row;
+    const status: ExternalActionStatus = approve ? "approved" : "rejected";
+    const resolvedAt = nowIso();
+    db.prepare("UPDATE external_actions SET status = ?, resolved_at = ? WHERE org_id = ? AND id = ?").run(
+      status,
+      resolvedAt,
+      orgId,
+      id,
+    );
+    return { ...row, status, resolvedAt };
+  },
+
   knownCounterparties(orgId: string): string[] {
     return (
       db.prepare("SELECT value FROM known_counterparties WHERE org_id = ?").all(orgId) as Row[]
@@ -2996,6 +3080,7 @@ export const store = {
         "agent_group_members",
         "agent_groups",
         "chat_messages",
+        "external_actions",
         "policy_versions",
         "policies",
         "journals",

@@ -5110,6 +5110,18 @@ input[type="range"].slider::-moz-range-thumb {
   outline-offset: 2px;
 }
 
+/* Hide accidental caret-browsing cursor outside true text entry surfaces. */
+body {
+  caret-color: transparent;
+}
+input,
+textarea,
+select,
+[contenteditable="true"],
+[role="textbox"] {
+  caret-color: auto;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

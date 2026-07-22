@@ -128,6 +128,11 @@ export function RailQuietClock({
       }
     >
       <svg className="rail-clock-face" viewBox="0 0 64 64" aria-hidden>
+        <defs>
+          <clipPath id="rail-clock-clip">
+            <circle cx="32" cy="32" r="28" />
+          </clipPath>
+        </defs>
         <circle className="rail-clock-disk" cx="32" cy="32" r="29" />
         <circle className="rail-clock-rim" cx="32" cy="32" r="29" />
         {Array.from({ length: 12 }).map((_, i) => {
@@ -147,30 +152,17 @@ export function RailQuietClock({
             />
           );
         })}
-        <line
-          className="rail-clock-hand hour"
-          x1="32"
-          y1="32"
-          x2="32"
-          y2="18"
-          transform={`rotate(${hourDeg} 32 32)`}
-        />
-        <line
-          className="rail-clock-hand minute"
-          x1="32"
-          y1="32"
-          x2="32"
-          y2="12"
-          transform={`rotate(${minDeg} 32 32)`}
-        />
-        <line
-          className="rail-clock-hand second"
-          x1="32"
-          y1="34"
-          x2="32"
-          y2="10"
-          transform={`rotate(${secDeg} 32 32)`}
-        />
+        <g clipPath="url(#rail-clock-clip)">
+          <g transform={`rotate(${hourDeg} 32 32)`}>
+            <line className="rail-clock-hand hour" x1="32" y1="32" x2="32" y2="19.5" />
+          </g>
+          <g transform={`rotate(${minDeg} 32 32)`}>
+            <line className="rail-clock-hand minute" x1="32" y1="32" x2="32" y2="13" />
+          </g>
+          <g transform={`rotate(${secDeg} 32 32)`}>
+            <line className="rail-clock-hand second" x1="32" y1="33.5" x2="32" y2="11.5" />
+          </g>
+        </g>
         <circle className="rail-clock-hub" cx="32" cy="32" r="2.2" />
       </svg>
       <span className="rail-clock-meta">
