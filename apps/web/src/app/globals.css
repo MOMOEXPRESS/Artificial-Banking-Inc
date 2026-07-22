@@ -3016,12 +3016,12 @@ input[type="range"].slider::-moz-range-thumb {
   z-index: 1;
   width: 100%;
   max-width: 452px;
-  background: var(--color-surface);
+  background: var(--color-surface-solid);
   color: var(--color-fg);
   border: 1px solid var(--color-border);
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   padding: 34px;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-elevated);
 }
 
 .login-wrap.is-ready .login-card {
