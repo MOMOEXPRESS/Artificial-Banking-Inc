@@ -182,7 +182,7 @@ export function ChatView({
           </div>
         ) : messages.length === 0 ? (
           <Empty icon="spark">
-            ABI can survey the org, draft a blurb, or propose a MaltBook post — try a chip below.
+            ABI can survey the org, explain policy bands, or check quiet hours — try a chip below.
           </Empty>
         ) : (
           messages.map((m) => {
