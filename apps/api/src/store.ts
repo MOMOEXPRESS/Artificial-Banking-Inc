@@ -881,6 +881,19 @@ installPrepareRevisionHook(db);
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;
 
+function mapExternalAction(row: Row): ExternalActionRow {
+  return {
+    id: row.id as string,
+    orgId: row.org_id as string,
+    platform: row.platform as ExternalActionPlatform,
+    action: row.action as ExternalActionKind,
+    content: row.content as string,
+    status: row.status as ExternalActionStatus,
+    createdAt: row.created_at as string,
+    resolvedAt: (row.resolved_at as string | null) ?? undefined,
+  };
+}
+
 function rowToOrg(r: Row): OrgRow {
   let settings: OrgSettings = {};
   if (typeof r.settings_json === "string" && r.settings_json) {
@@ -1921,17 +1934,14 @@ export const store = {
         .prepare("SELECT * FROM external_actions WHERE org_id = ? AND id = ?")
         .get(orgId, id) as Row | undefined
     );
-    if (!row) return null;
-    return {
-      id: row.id as string,
-      orgId: row.org_id as string,
-      platform: row.platform as ExternalActionPlatform,
-      action: row.action as ExternalActionKind,
-      content: row.content as string,
-      status: row.status as ExternalActionStatus,
-      createdAt: row.created_at as string,
-      resolvedAt: (row.resolved_at as string | null) ?? undefined,
-    };
+    return row ? mapExternalAction(row) : null;
+  },
+
+  getExternalActionById(id: string): ExternalActionRow | null {
+    const row = (
+      db.prepare("SELECT * FROM external_actions WHERE id = ?").get(id) as Row | undefined
+    );
+    return row ? mapExternalAction(row) : null;
   },
 
   resolveExternalAction(orgId: string, id: string, approve: boolean): ExternalActionRow | null {

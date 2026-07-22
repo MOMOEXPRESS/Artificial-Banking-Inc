@@ -82,12 +82,7 @@ export function inferExternalArgs(message: string): {
 }
 
 export function getExternalProposal(id: string): ExternalActionProposal | undefined {
-  const all = store.listOrgs();
-  for (const org of all) {
-    const row = store.getExternalAction(org.id, id);
-    if (row) return row;
-  }
-  return undefined;
+  return store.getExternalActionById(id) ?? undefined;
 }
 
 export function resolveExternalProposal(
