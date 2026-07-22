@@ -46,19 +46,21 @@ export interface WalletRef {
   id: string;
 }
 
-/** Supported settlement asset (USDC today; registry allows more without ledger rewrite). */
+/** Supported settlement / display asset (USDC is the spend rail; others are vault holdings). */
 export interface AssetRecord {
   id: string;
   symbol: string;
   decimals: number;
-  chain: "base" | "base-sepolia";
-  /** Token contract; null for native gas placeholders. */
+  chain: string;
+  /** Token contract; null for native assets. */
   contract: string | null;
   /** Org-scoped custom assets; null = platform default. */
   orgId?: string;
 }
 
 export const USDC_ASSET_ID = "asset_usdc";
+export const BTC_ASSET_ID = "asset_btc";
+export const ETH_ASSET_ID = "asset_eth";
 
 /** Notification channels — in-app + Telegram today; others are extension slots. */
 export type NotificationChannel =

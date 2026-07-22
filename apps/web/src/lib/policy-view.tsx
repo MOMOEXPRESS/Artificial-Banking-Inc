@@ -4,7 +4,7 @@ import { Icon, fmtUsd } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
 import { SmoothBarChart } from "./smooth-bar-chart";
-import { applyJudgmentBandDrag, formatBandUsd } from "./judgment-bands";
+import { applyJudgmentBandDrag, formatBandUsd, judgmentScaleMax } from "./judgment-bands";
 
 export type Policy = {
   perTxMaxUsdc: string;
@@ -210,22 +210,33 @@ export function PolicyView({
   const [currentVersion, setCurrentVersion] = useState<string>("");
   const [quorum, setQuorum] = useState(policy.approvalQuorum ?? 1);
   const [quorumSeats, setQuorumSeats] = useState(1);
+  const [guardians, setGuardians] = useState<
+    {
+      id: string;
+      name: string;
+      role: string;
+      revokedAt?: string;
+      conditions?: { restricted?: boolean; maxApproveUsdc?: string; note?: string };
+    }[]
+  >([]);
   const [tab, setTab] = useState<"limits" | "allowlists" | "rules" | "governance" | "simulate">(
     "limits",
   );
 
   useEffect(() => {
     void (async () => {
-      const [v, t, q] = await Promise.all([
+      const [v, t, q, g] = await Promise.all([
         gFetch("/v1/guardian/policy/versions").then((r) => r.json()),
         gFetch("/v1/guardian/policy/templates").then((r) => r.json()),
         gFetch("/v1/guardian/quorum").then((r) => r.json()),
+        gFetch("/v1/guardian/guardians").then((r) => r.json()),
       ]);
       setVersions(v.versions ?? []);
       setCurrentVersion(v.current ?? "");
       setTemplates(t.templates ?? []);
       setQuorum(q.approvalQuorum ?? policy.approvalQuorum ?? 1);
       setQuorumSeats(q.seats ?? 1);
+      setGuardians((g.guardians ?? []).filter((x: { revokedAt?: string }) => !x.revokedAt));
     })();
   }, [gFetch, policy]);
 
@@ -402,23 +413,23 @@ export function PolicyView({
               <div>
                 <h2>Judgment bands</h2>
                 <div className="sub">
-                  Drag any band — the others keep the review gap and daily headroom nested automatically. Nothing is live until you save.
+                  Same drag bars as Agent spend — linked bands keep the review gap and daily headroom nested as you move them. Nothing is live until you save.
                 </div>
               </div>
             </div>
             <SmoothBarChart
               title="Payment judgment"
-              hint="Drag a bar · linked bands auto-adjust gaps"
-              height={200}
+              hint="Drag · thinner spend-style bars · gaps auto-nest"
+              height={118}
               disabled={locked}
-              scaleMax={Math.max(cap, daily, hitl, 50) * 1.25}
+              scaleMax={judgmentScaleMax({ hitl, cap, daily })}
               columns={[
                 {
                   id: "hitl",
                   label: "Ask me above",
                   value: hitl,
                   min: 0,
-                  max: Math.max(daily, cap, 200),
+                  max: Math.max(judgmentScaleMax({ hitl, cap, daily }), daily, cap, 200),
                   step: 0.5,
                   caption: "review",
                   tone: "warn",
@@ -428,7 +439,7 @@ export function PolicyView({
                   label: "Per payment",
                   value: cap,
                   min: 0.5,
-                  max: Math.max(daily, cap, 200),
+                  max: Math.max(judgmentScaleMax({ hitl, cap, daily }), daily, cap, 200),
                   step: 0.5,
                   caption: "ceiling",
                   tone: "bad",
@@ -438,7 +449,7 @@ export function PolicyView({
                   label: "Daily max",
                   value: daily,
                   min: 0.5,
-                  max: Math.max(daily, cap * 2, 400),
+                  max: Math.max(judgmentScaleMax({ hitl, cap, daily }) * 1.2, daily, cap * 3, 400),
                   step: 1,
                   caption: daily >= cap * 2 ? "headroom" : "tight",
                   tone: "ok",
@@ -862,40 +873,180 @@ export function PolicyView({
 
       {tab === "governance" && (
         <div className="grid g-2 fill">
-          <div className="card">
+          <div className="card" style={{ gridColumn: "1 / -1" }}>
             <div className="card-head">
               <div>
-                <h2>Approval quorum</h2>
+                <h2>Who can approve HITL payments</h2>
                 <div className="sub">
-                  How many guardians must approve HITL payments · {quorumSeats} eligible seat(s).
+                  Pick eligible guardians and how many must agree. Approvers vote on parked payments;
+                  viewers can sign in but cannot approve. Restrict an approver to a max amount.
                 </div>
               </div>
-              <div className="row" style={{ gap: 8 }}>
-                <input
-                  type="number"
-                  min={1}
-                  max={5}
-                  style={{ width: 64 }}
-                  disabled={readOnly}
-                  value={quorum}
-                  onChange={(e) => setQuorum(Number(e.target.value) || 1)}
-                />
-                <Button size="sm"
-                  disabled={locked}
-                  onClick={() =>
-                    void act("Set quorum", async () => {
-                      const res = await gFetch("/v1/guardian/quorum", {
-                        method: "POST",
-                        body: JSON.stringify({ approvalQuorum: quorum }),
-                      });
-                      const d = await res.json();
-                      if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
-                      return `Quorum set to ${d.approvalQuorum}`;
-                    })
-                  }
-                >
-                  Save quorum
-                </Button>
+            </div>
+
+            <div className="gov-seat gov-seat-owner">
+              <div>
+                <b>Founding owner</b>
+                <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+                  Always eligible · counts as one approval seat
+                </div>
+              </div>
+              <span className="pill ok">
+                <i /> approver
+              </span>
+            </div>
+
+            {guardians.map((g) => {
+              const restricted = Boolean(g.conditions?.restricted);
+              return (
+                <div key={g.id} className="gov-seat">
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <b>{g.name}</b>
+                    <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                      <select
+                        className="sm"
+                        disabled={readOnly}
+                        value={g.role === "viewer" ? "viewer" : "approver"}
+                        onChange={(e) =>
+                          void act("Update guardian", async () => {
+                            const role = e.target.value as "approver" | "viewer";
+                            const res = await gFetch(`/v1/guardian/guardians/${g.id}`, {
+                              method: "PATCH",
+                              body: JSON.stringify({ role }),
+                            });
+                            const d = await res.json();
+                            if (!res.ok) throw new Error(d.error?.message ?? "update failed");
+                            setGuardians((list) =>
+                              list.map((x) => (x.id === g.id ? { ...x, role } : x)),
+                            );
+                            const q = await gFetch("/v1/guardian/quorum").then((r) => r.json());
+                            setQuorumSeats(q.seats ?? 1);
+                            return `${g.name} is now ${role}.`;
+                          })
+                        }
+                      >
+                        <option value="approver">Can approve</option>
+                        <option value="viewer">View only (cannot approve)</option>
+                      </select>
+                      <label className="row" style={{ gap: 6, fontSize: 12.5 }}>
+                        <input
+                          type="checkbox"
+                          disabled={readOnly || g.role === "viewer"}
+                          checked={restricted}
+                          onChange={(e) =>
+                            void act("Guardian condition", async () => {
+                              const next = {
+                                restricted: e.target.checked,
+                                maxApproveUsdc: g.conditions?.maxApproveUsdc ?? "50",
+                                note: g.conditions?.note,
+                              };
+                              const res = await gFetch(`/v1/guardian/guardians/${g.id}`, {
+                                method: "PATCH",
+                                body: JSON.stringify({ conditions: next }),
+                              });
+                              const d = await res.json();
+                              if (!res.ok) throw new Error(d.error?.message ?? "update failed");
+                              setGuardians((list) =>
+                                list.map((x) => (x.id === g.id ? { ...x, conditions: next } : x)),
+                              );
+                              return e.target.checked
+                                ? `${g.name} restricted to max $${next.maxApproveUsdc}.`
+                                : `${g.name} unrestricted.`;
+                            })
+                          }
+                        />
+                        Restrict amount
+                      </label>
+                      {restricted && (
+                        <input
+                          className="sm"
+                          style={{ width: 88 }}
+                          disabled={readOnly}
+                          value={g.conditions?.maxApproveUsdc ?? "50"}
+                          onChange={(e) =>
+                            setGuardians((list) =>
+                              list.map((x) =>
+                                x.id === g.id
+                                  ? {
+                                      ...x,
+                                      conditions: {
+                                        ...x.conditions,
+                                        restricted: true,
+                                        maxApproveUsdc: e.target.value,
+                                      },
+                                    }
+                                  : x,
+                              ),
+                            )
+                          }
+                          onBlur={() =>
+                            void act("Save restriction", async () => {
+                              const conditions = {
+                                restricted: true,
+                                maxApproveUsdc: g.conditions?.maxApproveUsdc ?? "50",
+                                note: g.conditions?.note,
+                              };
+                              const res = await gFetch(`/v1/guardian/guardians/${g.id}`, {
+                                method: "PATCH",
+                                body: JSON.stringify({ conditions }),
+                              });
+                              const d = await res.json();
+                              if (!res.ok) throw new Error(d.error?.message ?? "update failed");
+                              return `Max approve $${conditions.maxApproveUsdc} for ${g.name}.`;
+                            })
+                          }
+                          placeholder="Max $"
+                          title="Max USDC this guardian may approve alone"
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <span className={`pill ${g.role === "viewer" ? "mute" : restricted ? "warn" : "ok"}`}>
+                    <i /> {g.role === "viewer" ? "viewer" : restricted ? "restricted" : "approver"}
+                  </span>
+                </div>
+              );
+            })}
+
+            {!guardians.length && (
+              <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0" }}>
+                No secondary guardians yet — invite them under Settings → Team. The founding owner
+                remains the only seat until then.
+              </p>
+            )}
+
+            <div className="gov-quorum-bar">
+              <div>
+                <b>Votes required</b>
+                <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+                  Of {quorumSeats} eligible seat{quorumSeats === 1 ? "" : "s"} (owner + approvers)
+                </div>
+              </div>
+              <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                {Array.from({ length: Math.max(1, quorumSeats) }, (_, i) => i + 1).map((n) => (
+                  <Button
+                    key={n}
+                    size="sm"
+                    variant={quorum === n ? "default" : "ghost"}
+                    disabled={locked || n > quorumSeats}
+                    onClick={() =>
+                      void act("Set quorum", async () => {
+                        const res = await gFetch("/v1/guardian/quorum", {
+                          method: "POST",
+                          body: JSON.stringify({ approvalQuorum: n }),
+                        });
+                        const d = await res.json();
+                        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                        setQuorum(d.approvalQuorum);
+                        return n === 1
+                          ? "Any one eligible guardian can approve."
+                          : `${n} eligible guardians must approve.`;
+                      })
+                    }
+                  >
+                    {n === 1 ? "Any 1" : `${n} of ${quorumSeats}`}
+                  </Button>
+                ))}
               </div>
             </div>
           </div>
@@ -934,7 +1085,7 @@ export function PolicyView({
             ))}
           </div>
 
-          <div className="card" style={{ gridColumn: "1 / -1" }}>
+          <div className="card">
             <div className="card-head">
               <div>
                 <h2>Versions</h2>

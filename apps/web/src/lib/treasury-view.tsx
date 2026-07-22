@@ -122,13 +122,17 @@ export function TreasuryView({
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const [copied, setCopied] = useState(false);
+  const [holdings, setHoldings] = useState<
+    { id: string; symbol: string; decimals: number; chain: string; balance: string }[]
+  >([]);
+  const [assetId, setAssetId] = useState("asset_usdc");
 
   const depositSchema = z.object({
     amountUsdc: z
       .string()
       .trim()
       .min(1, "Amount required")
-      .refine((v) => !Number.isNaN(Number(v)) && Number(v) > 0, "Enter a positive USDC amount"),
+      .refine((v) => !Number.isNaN(Number(v)) && Number(v) > 0, "Enter a positive amount"),
   });
   const withdrawSchema = depositSchema.extend({
     destination: z.string().optional(),
@@ -144,18 +148,20 @@ export function TreasuryView({
   });
 
   const refresh = useCallback(async () => {
-    const [w, m, c, f, r] = await Promise.all([
+    const [w, m, c, f, r, a] = await Promise.all([
       gFetch("/v1/guardian/wallets").then((x) => x.json()),
       gFetch("/v1/guardian/treasury/moves").then((x) => x.json()),
       gFetch("/v1/guardian/treasury/cashflow?days=30").then((x) => x.json()),
       gFetch("/v1/guardian/treasury/forecast").then((x) => x.json()),
       gFetch("/v1/guardian/treasury/recovery").then((x) => x.json()),
+      gFetch("/v1/guardian/assets").then((x) => x.json()),
     ]);
     setWallets(w);
     setMoves(m.moves ?? []);
     setCashflow(c);
     setForecast(f.forecast ?? null);
     setRecovery(r);
+    setHoldings(a.assets ?? []);
   }, [gFetch]);
 
   useEffect(() => {
@@ -295,142 +301,213 @@ export function TreasuryView({
       </div>
 
       {tab === "fund" && (
-        <div className="grid g-main fill">
-          <div className="card treasury-panel">
-            <div className="treasury-panel-head">
-              <span className="treasury-glyph" aria-hidden>
-                <Icon name="plus" size={16} />
-              </span>
-              <div>
-                <h2 style={{ margin: "0 0 6px" }}>Deposit USDC</h2>
-                <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
-                  Record a <b>demo ledger deposit</b>, or fund the vault address on-chain for CDP
-                  custody.
-                </p>
+        <div className="wallet-shell">
+          <div className="card wallet-card">
+            <div className="wallet-hero">
+              <div className="wallet-hero-label">Org vault</div>
+              <div className="wallet-hero-balance">
+                {(() => {
+                  const sel =
+                    holdings.find((h) => h.id === assetId) ??
+                    holdings.find((h) => h.id === "asset_usdc");
+                  const sym = sel?.symbol ?? wallets?.asset.symbol ?? "USDC";
+                  const bal = sel?.balance ?? wallets?.org.availableUsdc ?? "0";
+                  const n = Number(bal);
+                  return (
+                    <>
+                      <span className="wallet-hero-amount">
+                        {Number.isNaN(n)
+                          ? bal
+                          : n.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+                      </span>
+                      <span className="wallet-hero-symbol">{sym}</span>
+                    </>
+                  );
+                })()}
+              </div>
+              <div className="wallet-hero-chain muted">
+                {(holdings.find((h) => h.id === assetId) ?? holdings[0])?.chain ??
+                  wallets?.asset.chain ??
+                  "—"}
+                {vault ? (
+                  <>
+                    {" · "}
+                    <code className="mono" style={{ fontSize: 11 }}>
+                      {vault.slice(0, 8)}…{vault.slice(-6)}
+                    </code>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      style={{ marginLeft: 6 }}
+                      disabled={!vault}
+                      onClick={() => void copyVault()}
+                    >
+                      {copied ? "Copied" : "Copy"}
+                    </Button>
+                  </>
+                ) : null}
               </div>
             </div>
 
-            <div className="treasury-vault-chip">
-              <div className="muted" style={{ fontSize: 11.5, marginBottom: 6 }}>
-                Org vault · {wallets?.asset.chain ?? "base-sepolia"}
-              </div>
-              <div className="row" style={{ gap: 8, alignItems: "center" }}>
-                <code className="mono" style={{ fontSize: 13, wordBreak: "break-all", flex: 1 }}>
-                  {vault || "Generating…"}
-                </code>
-                <Button variant="ghost" size="sm" disabled={!vault} onClick={() => void copyVault()}>
-                  {copied ? "Copied" : "Copy"}
-                </Button>
-              </div>
+            <div className="wallet-assets" role="list">
+              {(holdings.length
+                ? holdings
+                : [
+                    {
+                      id: "asset_usdc",
+                      symbol: "USDC",
+                      decimals: 6,
+                      chain: wallets?.asset.chain ?? "base-sepolia",
+                      balance: wallets?.org.availableUsdc ?? "0",
+                    },
+                  ]
+              ).map((h) => {
+                const active = h.id === assetId;
+                const n = Number(h.balance);
+                return (
+                  <button
+                    key={h.id}
+                    type="button"
+                    role="listitem"
+                    className={`wallet-asset-row ${active ? "active" : ""}`}
+                    onClick={() => setAssetId(h.id)}
+                  >
+                    <span className={`wallet-asset-icon ${h.symbol.toLowerCase()}`} aria-hidden>
+                      {h.symbol.slice(0, 1)}
+                    </span>
+                    <span className="wallet-asset-meta">
+                      <b>{h.symbol}</b>
+                      <span className="faint">{h.chain}</span>
+                    </span>
+                    <span className="wallet-asset-bal mono">
+                      {Number.isNaN(n)
+                        ? h.balance
+                        : n.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-
-            <Form {...depositForm}>
-              <form
-                className="grid g-2"
-                style={{ gap: 14 }}
-                onSubmit={depositForm.handleSubmit((values) =>
-                  void act("Deposit", async () => {
-                    const res = await gFetch("/v1/guardian/treasury/deposit", {
-                      method: "POST",
-                      body: JSON.stringify({ amountUsdc: values.amountUsdc.trim() }),
-                    });
-                    const j = await res.json();
-                    if (!res.ok) throw new Error(j.error?.message ?? "Deposit failed");
-                    await refresh();
-                    depositForm.reset({ amountUsdc: "100" });
-                    return `Deposited ${j.amountUsdc} USDC into the org treasury.`;
-                  }),
-                )}
-              >
-                <FormField
-                  control={depositForm.control}
-                  name="amountUsdc"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Record deposit (demo)</FormLabel>
-                      <FormControl>
-                        <Input {...field} disabled={readOnly} placeholder="100" data-shortcut-ignore />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <div style={{ display: "flex", alignItems: "flex-end" }}>
-                  <Button type="submit" size="sm" style={{ width: "100%" }} disabled={locked}>
-                    <Icon name="plus" size={13} /> Credit org vault
-                  </Button>
-                </div>
-              </form>
-            </Form>
           </div>
 
-          <div className="card treasury-panel">
-            <div className="treasury-panel-head">
-              <span className="treasury-glyph warn" aria-hidden>
-                <Icon name="download" size={16} />
-              </span>
-              <div>
-                <h2 style={{ margin: "0 0 6px" }}>Withdraw</h2>
-                <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
-                  Pull USDC from the org vault now (ledger debit). Destination is a memo label only —
-                  not an on-chain payout.
-                </p>
+          <div className="grid g-2 fill">
+            <div className="card wallet-action-card">
+              <div className="card-head">
+                <div>
+                  <h2 style={{ margin: 0 }}>Receive</h2>
+                  <div className="sub">
+                    Credit the selected asset into the vault (demo ledger for USDC; holdings for BTC/ETH).
+                  </div>
+                </div>
               </div>
+              <Form {...depositForm}>
+                <form
+                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                  onSubmit={depositForm.handleSubmit((values) =>
+                    void act("Deposit", async () => {
+                      const res = await gFetch("/v1/guardian/treasury/deposit", {
+                        method: "POST",
+                        body: JSON.stringify({
+                          amountUsdc: values.amountUsdc.trim(),
+                          assetId,
+                        }),
+                      });
+                      const j = await res.json();
+                      if (!res.ok) throw new Error(j.error?.message ?? "Deposit failed");
+                      await refresh();
+                      depositForm.reset({ amountUsdc: "100" });
+                      const sym = j.symbol ?? "USDC";
+                      return `Received ${j.amountUsdc} ${sym} into the org vault.`;
+                    }),
+                  )}
+                >
+                  <FormField
+                    control={depositForm.control}
+                    name="amountUsdc"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Amount (
+                          {holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
+                        </FormLabel>
+                        <FormControl>
+                          <Input {...field} disabled={readOnly} placeholder="100" data-shortcut-ignore />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button type="submit" size="sm" disabled={locked}>
+                    <Icon name="plus" size={13} /> Receive
+                  </Button>
+                </form>
+              </Form>
             </div>
-            <Form {...withdrawForm}>
-              <form
-                style={{ display: "flex", flexDirection: "column", gap: 16 }}
-                onSubmit={withdrawForm.handleSubmit((values) =>
-                  void act("Withdraw", async () => {
-                    const res = await gFetch("/v1/guardian/treasury/withdraw", {
-                      method: "POST",
-                      body: JSON.stringify({
-                        amountUsdc: values.amountUsdc.trim(),
-                        destination: values.destination?.trim() || undefined,
-                      }),
-                    });
-                    const j = await res.json();
-                    if (!res.ok) throw new Error(j.error?.message ?? "Withdraw failed");
-                    withdrawForm.reset({ amountUsdc: "", destination: "" });
-                    await refresh();
-                    return `Withdrew ${j.amountUsdc} USDC from org treasury.`;
-                  }),
-                )}
-              >
-                <FormField
-                  control={withdrawForm.control}
-                  name="amountUsdc"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Amount (USDC)</FormLabel>
-                      <FormControl>
-                        <Input {...field} disabled={readOnly} placeholder="10" data-shortcut-ignore />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+
+            <div className="card wallet-action-card">
+              <div className="card-head">
+                <div>
+                  <h2 style={{ margin: 0 }}>Send</h2>
+                  <div className="sub">
+                    Debit USDC from the spend rail (ledger). Non-USDC send coming with custody rails.
+                  </div>
+                </div>
+              </div>
+              <Form {...withdrawForm}>
+                <form
+                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                  onSubmit={withdrawForm.handleSubmit((values) =>
+                    void act("Withdraw", async () => {
+                      if (assetId !== "asset_usdc") {
+                        throw new Error("Send is USDC-only on the spend rail for now — switch to USDC.");
+                      }
+                      const res = await gFetch("/v1/guardian/treasury/withdraw", {
+                        method: "POST",
+                        body: JSON.stringify({
+                          amountUsdc: values.amountUsdc.trim(),
+                          destination: values.destination?.trim() || undefined,
+                        }),
+                      });
+                      const j = await res.json();
+                      if (!res.ok) throw new Error(j.error?.message ?? "Withdraw failed");
+                      withdrawForm.reset({ amountUsdc: "", destination: "" });
+                      await refresh();
+                      return `Sent ${j.amountUsdc} USDC from org treasury.`;
+                    }),
                   )}
-                />
-                <FormField
-                  control={withdrawForm.control}
-                  name="destination"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Memo / label (optional)</FormLabel>
-                      <FormControl>
-                        <Input {...field} disabled={readOnly} placeholder="0x… or external label" data-shortcut-ignore />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button type="submit" variant="destructive" size="sm" disabled={locked}>
-                  Withdraw from vault
-                </Button>
-              </form>
-            </Form>
-            <p className="faint" style={{ fontSize: 11.5, margin: 0, lineHeight: 1.55 }}>
-              Available: <b className="mono">{fmt(wallets?.org.availableUsdc)}</b>
-            </p>
+                >
+                  <FormField
+                    control={withdrawForm.control}
+                    name="amountUsdc"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Amount (USDC)</FormLabel>
+                        <FormControl>
+                          <Input {...field} disabled={readOnly || assetId !== "asset_usdc"} placeholder="10" data-shortcut-ignore />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={withdrawForm.control}
+                    name="destination"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Destination memo</FormLabel>
+                        <FormControl>
+                          <Input {...field} disabled={readOnly || assetId !== "asset_usdc"} placeholder="external / exchange" data-shortcut-ignore />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <Button type="submit" size="sm" variant="ghost" disabled={locked || assetId !== "asset_usdc"}>
+                    <Icon name="download" size={13} /> Send
+                  </Button>
+                </form>
+              </Form>
+            </div>
           </div>
         </div>
       )}

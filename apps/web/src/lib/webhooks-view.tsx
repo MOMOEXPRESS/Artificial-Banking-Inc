@@ -56,6 +56,16 @@ export function Webhooks({
 
   return (
     <>
+      <div className="banner info" style={{ marginBottom: 14 }}>
+        <span className="txt">
+          <b>What webhooks are for</b>
+          <span>
+            Point them at your backend URL. When money moves (payment allowed, denied, needs your
+            approval, escrow locked/released), ABI POSTs a signed JSON event so your systems can
+            update books, Slack, or CRM — without polling the console.
+          </span>
+        </span>
+      </div>
       <div className="grid g-4">
         <Stat label="Endpoints" value={String(webhooks.length)} foot="receiving money events" />
         <Stat label="Deliveries" value={String(deliveries.length)} foot="signed and retried 3×" />

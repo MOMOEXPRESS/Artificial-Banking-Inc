@@ -846,8 +846,35 @@ app.get(
         .listGuardians(org.id)
         .map(({ guardianKey: _k, ...rest }) => ({ ...rest, guardianKey: "pv_guardian_***" })),
       quorum: store.getPolicyTemplate(org.id).approvalQuorum ?? 1,
+      owner: { name: org.name, role: "owner" as const },
     });
   }),
+);
+
+/** Update secondary guardian role / HITL conditions. */
+app.patch(
+  "/v1/guardian/guardians/:id",
+  guardianRoute((org, req, res) => {
+    const body = z
+      .object({
+        role: z.enum(["approver", "viewer"]).optional(),
+        conditions: z
+          .object({
+            restricted: z.boolean().optional(),
+            maxApproveUsdc: z.string().optional(),
+            note: z.string().max(200).optional(),
+          })
+          .nullable()
+          .optional(),
+      })
+      .parse(req.body);
+    const updated = store.updateGuardian(org.id, req.params.id, body);
+    if (!updated) {
+      return res.status(404).json({ error: { code: "NOT_FOUND", message: "Guardian not found" } });
+    }
+    const { guardianKey: _k, ...rest } = updated;
+    res.json({ guardian: { ...rest, guardianKey: "pv_guardian_***" } });
+  }, { ownerOnly: true }),
 );
 
 /** Invite a second decision-maker. Their key is shown once. */

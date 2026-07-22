@@ -148,6 +148,8 @@ export interface GuardianRow {
   guardianKey: string;
   createdAt: string;
   revokedAt?: string;
+  /** Optional HITL approval conditions (e.g. max amount). */
+  conditions?: { maxApproveUsdc?: string; note?: string; restricted?: boolean };
 }
 
 export interface VoteRow {
@@ -647,6 +649,7 @@ for (const migration of [
   "ALTER TABLE orgs ADD COLUMN deposit_micro TEXT",
   "ALTER TABLE agents ADD COLUMN profile_json TEXT",
   "ALTER TABLE orgs ADD COLUMN settings_json TEXT",
+  "ALTER TABLE guardians ADD COLUMN conditions_json TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -820,7 +823,27 @@ migrateSecretsAtRest();
   }
 }
 
-// Seed platform USDC asset once.
+// Seed platform settlement assets once (USDC spend rail + display wallets).
+{
+  const seed = db.prepare(
+    "INSERT OR IGNORE INTO assets (id, org_id, symbol, decimals, chain, contract, created_at) VALUES (?, NULL, ?, ?, ?, ?, ?)",
+  );
+  const stamp = new Date().toISOString();
+  seed.run("asset_usdc", "USDC", 6, "base-sepolia", "0x036CbD53842c5426634e7929541eC2318f3dCF7e", stamp);
+  seed.run("asset_btc", "BTC", 8, "bitcoin", null, stamp);
+  seed.run("asset_eth", "ETH", 18, "ethereum", null, stamp);
+}
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS org_asset_balances (
+  org_id TEXT NOT NULL,
+  asset_id TEXT NOT NULL,
+  balance_micro TEXT NOT NULL DEFAULT '0',
+  PRIMARY KEY (org_id, asset_id)
+);
+`);
+
+// Seed platform USDC asset once (legacy path kept for older DBs).
 {
   const exists = db.prepare("SELECT id FROM assets WHERE id = ?").get("asset_usdc");
   if (!exists) {
@@ -1521,7 +1544,7 @@ export const store = {
       id: r.id as string,
       symbol: r.symbol as string,
       decimals: r.decimals as number,
-      chain: r.chain as AssetRecord["chain"],
+      chain: r.chain as string,
       contract: (r.contract as string | null) ?? null,
       orgId: (r.org_id as string | null) ?? undefined,
     }));
@@ -1534,10 +1557,41 @@ export const store = {
       id: r.id as string,
       symbol: r.symbol as string,
       decimals: r.decimals as number,
-      chain: r.chain as AssetRecord["chain"],
+      chain: r.chain as string,
       contract: (r.contract as string | null) ?? null,
       orgId: (r.org_id as string | null) ?? undefined,
     };
+  },
+
+  getOrgAssetBalance(orgId: string, assetId: string): bigint {
+    if (assetId === "asset_usdc" || !assetId) {
+      return this.getAccountMap(orgId).get(`org:${orgId}:available`)?.balanceMicro ?? 0n;
+    }
+    const r = db
+      .prepare("SELECT balance_micro FROM org_asset_balances WHERE org_id = ? AND asset_id = ?")
+      .get(orgId, assetId) as Row | undefined;
+    return r ? BigInt(r.balance_micro as string) : 0n;
+  },
+
+  setOrgAssetBalance(orgId: string, assetId: string, balanceMicro: bigint): void {
+    db.prepare(
+      `INSERT INTO org_asset_balances (org_id, asset_id, balance_micro) VALUES (?, ?, ?)
+       ON CONFLICT(org_id, asset_id) DO UPDATE SET balance_micro = excluded.balance_micro`,
+    ).run(orgId, assetId, balanceMicro.toString());
+  },
+
+  creditOrgAsset(orgId: string, assetId: string, deltaMicro: bigint): bigint {
+    const next = this.getOrgAssetBalance(orgId, assetId) + deltaMicro;
+    if (next < 0n) throw new Error("insufficient asset balance");
+    this.setOrgAssetBalance(orgId, assetId, next);
+    return next;
+  },
+
+  listOrgAssetHoldings(orgId: string): { asset: AssetRecord; balanceMicro: bigint }[] {
+    return this.listAssets(orgId).map((asset) => ({
+      asset,
+      balanceMicro: this.getOrgAssetBalance(orgId, asset.id),
+    }));
   },
 
   createDepartment(orgId: string, name: string): DepartmentRow {
@@ -2690,14 +2744,37 @@ export const store = {
     return (
       db.prepare("SELECT * FROM guardians WHERE org_id = ? ORDER BY created_at").all(orgId) as Row[]
     ).map((r) => ({
-      id: r.id,
-      orgId: r.org_id,
-      name: r.name,
-      role: r.role,
-      guardianKey: r.guardian_key,
-      createdAt: r.created_at,
-      revokedAt: r.revoked_at ?? undefined,
+      id: r.id as string,
+      orgId: r.org_id as string,
+      name: r.name as string,
+      role: r.role as GuardianRole,
+      guardianKey: r.guardian_key as string,
+      createdAt: r.created_at as string,
+      revokedAt: (r.revoked_at as string | null) ?? undefined,
+      conditions: r.conditions_json
+        ? (JSON.parse(r.conditions_json as string) as GuardianRow["conditions"])
+        : undefined,
     }));
+  },
+
+  updateGuardian(
+    orgId: string,
+    guardianId: string,
+    patch: {
+      role?: GuardianRole;
+      conditions?: GuardianRow["conditions"] | null;
+    },
+  ): GuardianRow | null {
+    const row = this.listGuardians(orgId).find((g) => g.id === guardianId && !g.revokedAt);
+    if (!row) return null;
+    const role = patch.role ?? row.role;
+    if (role === "owner") return null; // secondary guardians cannot become owner
+    const conditions =
+      patch.conditions === null ? undefined : (patch.conditions ?? row.conditions);
+    db.prepare(
+      "UPDATE guardians SET role = ?, conditions_json = ? WHERE id = ? AND org_id = ?",
+    ).run(role, conditions ? JSON.stringify(conditions) : null, guardianId, orgId);
+    return { ...row, role, conditions };
   },
 
   /** Secondary guardians authenticate here; the org's founding key is separate. */
@@ -3091,6 +3168,7 @@ export const store = {
         "agent_groups",
         "chat_messages",
         "external_actions",
+        "org_asset_balances",
         "policy_versions",
         "policies",
         "journals",

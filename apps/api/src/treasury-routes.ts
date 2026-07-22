@@ -199,7 +199,12 @@ export function registerTreasuryRoutes(
   app.get(
     "/v1/guardian/assets",
     guardianRoute((org, _req, res) => {
-      res.json({ assets: store.listAssets(org.id) });
+      const holdings = store.listOrgAssetHoldings(org.id).map(({ asset, balanceMicro }) => ({
+        ...asset,
+        balance: formatMicroToUsdc(balanceMicro),
+        balanceMicro: balanceMicro.toString(),
+      }));
+      res.json({ assets: holdings });
     }),
   );
 
@@ -533,35 +538,58 @@ export function registerTreasuryRoutes(
     "/v1/guardian/treasury/deposit",
     guardianRoute((org, req, res) => {
       const body = z
-        .object({ amountUsdc: z.string(), memo: z.string().max(120).optional() })
+        .object({
+          amountUsdc: z.string(),
+          assetId: z.string().optional(),
+          memo: z.string().max(120).optional(),
+        })
         .parse(req.body);
+      const assetId = body.assetId?.trim() || "asset_usdc";
+      const asset = store.getAsset(assetId);
+      if (!asset) {
+        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Unknown asset" } });
+      }
       const amount = parseUsdcToMicro(body.amountUsdc);
       if (amount <= 0n) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Amount must be positive" } });
       }
-      const externalId = `org:${org.id}:external`;
-      const orgAvail = accountId("org", org.id);
-      // Deposit: decrease external liability / source, increase org available.
-      // Sign convention: +available funded by -external (balanced).
-      store.applyEntries(org.id, [
-        {
-          id: id("j"),
-          orgId: org.id,
-          memo: body.memo ?? "treasury_deposit",
-          createdAt: new Date().toISOString(),
-          lines: [
-            { accountId: externalId, deltaMicro: -amount },
-            { accountId: orgAvail, deltaMicro: amount },
-          ],
-        },
-      ]);
-      recordObs({ name: "treasury.deposit", orgId: org.id, attrs: { amountUsdc: body.amountUsdc } });
+
+      // USDC remains on the double-entry spend rail; other assets use vault holdings.
+      if (assetId === "asset_usdc") {
+        const externalId = `org:${org.id}:external`;
+        const orgAvail = accountId("org", org.id);
+        store.applyEntries(org.id, [
+          {
+            id: id("j"),
+            orgId: org.id,
+            memo: body.memo ?? "treasury_deposit",
+            createdAt: new Date().toISOString(),
+            lines: [
+              { accountId: externalId, deltaMicro: -amount },
+              { accountId: orgAvail, deltaMicro: amount },
+            ],
+          },
+        ]);
+        recordObs({ name: "treasury.deposit", orgId: org.id, attrs: { amountUsdc: body.amountUsdc, assetId } });
+        return res.json({
+          ok: true,
+          amountUsdc: body.amountUsdc,
+          assetId,
+          symbol: asset.symbol,
+          orgAvailableUsdc: formatMicroToUsdc(
+            store.getAccountMap(org.id).get(orgAvail)?.balanceMicro ?? 0n,
+          ),
+        });
+      }
+
+      const bal = store.creditOrgAsset(org.id, assetId, amount);
+      recordObs({ name: "treasury.deposit", orgId: org.id, attrs: { amountUsdc: body.amountUsdc, assetId } });
       res.json({
         ok: true,
         amountUsdc: body.amountUsdc,
-        orgAvailableUsdc: formatMicroToUsdc(
-          store.getAccountMap(org.id).get(orgAvail)?.balanceMicro ?? 0n,
-        ),
+        assetId,
+        symbol: asset.symbol,
+        balance: formatMicroToUsdc(bal),
       });
     }, { ownerOnly: true }),
   );

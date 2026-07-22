@@ -600,9 +600,9 @@ export function PolicySimulator({
     <div className="card">
       <div className="card-head">
         <div>
-          <h2>Test before you commit</h2>
+          <h2>Simulate before you save</h2>
           <div className="sub">
-            Replays the last 7 days of real decisions against your edits — nothing is saved.
+            Replays last week’s real payments against your draft — no save, no money moved.
           </div>
         </div>
         <Button variant="ghost" size="sm" disabled={busy} onClick={() => void run()}>
@@ -617,11 +617,16 @@ export function PolicySimulator({
       )}
 
       {!sim && !err && (
-        <p className="muted" style={{ fontSize: 12.5, margin: 0, lineHeight: 1.7 }}>
-          Change a limit above, then run this to see exactly which past payments would have been
-          allowed, held or refused — and how many extra approval interruptions you would get per
-          day.
-        </p>
+        <div className="sim-explain">
+          <p className="muted" style={{ fontSize: 12.5, margin: 0, lineHeight: 1.7 }}>
+            <b>What this does:</b> takes real payments from the last 7 days and re-judges them with
+            your <em>unsaved</em> draft bands / allowlists — without saving or moving money.
+          </p>
+          <p className="muted" style={{ fontSize: 12.5, margin: "8px 0 0", lineHeight: 1.7 }}>
+            Use it to answer: “If I raise Ask me above, how many more approvals would I get?” or
+            “Would last week’s spends still settle?”
+          </p>
+        </div>
       )}
 
       {sim && (
