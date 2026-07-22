@@ -2957,6 +2957,10 @@ export const store = {
         "treasury_moves",
         "recovery_events",
         "session_keys",
+        // Membership + auto-fund runs reference agent_groups/agents — wipe first
+        // or FOREIGN KEY constraint fails and bootstrap returns opaque 500.
+        "auto_fund_runs",
+        "agent_group_members",
         "agent_groups",
         "chat_messages",
         "policy_versions",

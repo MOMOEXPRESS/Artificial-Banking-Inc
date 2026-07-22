@@ -667,12 +667,22 @@ app.post("/v1/demo/bootstrap", (_req, res) => {
       },
     });
   }
-  const demo = store.bootstrapDemo();
-  res.json({
-    ...demo,
-    legal: LEGAL_FOOTER,
-    note: "Dev bootstrap. agentApiKey = agent Bearer token; guardianKey = guardian Bearer token.",
-  });
+  try {
+    const demo = store.bootstrapDemo();
+    res.json({
+      ...demo,
+      legal: LEGAL_FOOTER,
+      note: "Dev bootstrap. agentApiKey = agent Bearer token; guardianKey = guardian Bearer token.",
+    });
+  } catch (e) {
+    console.error("demo bootstrap failed:", e);
+    return res.status(500).json({
+      error: {
+        code: "BOOTSTRAP_FAILED",
+        message: e instanceof Error ? e.message : String(e),
+      },
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
