@@ -16,7 +16,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "test": "node --import tsx --test --test-reporter=spec $(find src -name '*.test.ts')"
   },
   "dependencies": {
     "@policyvault/common": "*",
