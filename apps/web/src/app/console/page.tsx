@@ -348,15 +348,30 @@ export default function Console() {
 
   /**
    * Two-tier polling. Fast = approvals/activity; slow = journals/config.
-   * We fingerprint payloads and skip setState when nothing changed — otherwise
-   * every 4s rebuilds the whole console tree with new object identities.
+   * Fingerprints skip setState when nothing meaningful changed. Prefer cheap
+   * list signatures over full JSON.stringify of large decision/journal trees.
    * Polling pauses while the tab is hidden.
    */
   const snapRef = useRef<Record<string, string>>({});
   const setIfChanged = useCallback(<T,>(key: string, value: T, setter: (v: T) => void) => {
     let sig: string;
     try {
-      sig = JSON.stringify(value);
+      if (Array.isArray(value)) {
+        const rows = value as Record<string, unknown>[];
+        const n = rows.length;
+        if (n === 0) sig = "0";
+        else {
+          // id+status only — avoids serializing nested journal lines / decision payloads
+          sig = `${n}|${rows
+            .map(
+              (r) =>
+                `${String(r.id ?? r.intentId ?? "")}:${String(r.status ?? r.outcome ?? "")}:${String(r.at ?? r.createdAt ?? r.updatedAt ?? "")}`,
+            )
+            .join(",")}`;
+        }
+      } else {
+        sig = JSON.stringify(value);
+      }
     } catch {
       setter(value);
       return;
@@ -371,9 +386,12 @@ export default function Console() {
     if (typeof document !== "undefined" && document.hidden) return;
     try {
       const res = await Promise.all(
-        ["/v1/guardian/org", "/v1/guardian/approvals", "/v1/guardian/activity", "/v1/guardian/escrows"].map(
-          (p) => gFetch(p),
-        ),
+        [
+          "/v1/guardian/org",
+          "/v1/guardian/approvals",
+          "/v1/guardian/activity?limit=80",
+          "/v1/guardian/escrows",
+        ].map((p) => gFetch(p)),
       );
       if (res[0].status === 401) {
         saveSession(null);
@@ -398,7 +416,7 @@ export default function Console() {
     try {
       const res = await Promise.all(
         [
-          "/v1/guardian/journals?limit=200",
+          "/v1/guardian/journals?limit=80",
           "/v1/guardian/policy",
           "/v1/guardian/webhooks",
           "/v1/guardian/webhooks/deliveries",
@@ -425,7 +443,7 @@ export default function Console() {
     }
   }, [gFetch, setIfChanged]);
 
-  /** After a mutation, pull both tiers so the whole console reflects it at once. */
+  /** Full refresh — login / tab focus. Mutations use the lighter path below. */
   const refreshAll = useCallback(async () => {
     await Promise.all([refreshFast(), refreshSlow()]);
   }, [refreshFast, refreshSlow]);
@@ -433,8 +451,8 @@ export default function Console() {
   useEffect(() => {
     if (!session) return;
     void refreshAll();
-    const fast = setInterval(() => void refreshFast(), 6000);
-    const slow = setInterval(() => void refreshSlow(), 22000);
+    const fast = setInterval(() => void refreshFast(), 8000);
+    const slow = setInterval(() => void refreshSlow(), 30000);
     const onVis = () => {
       if (!document.hidden) void refreshAll();
     };
@@ -452,7 +470,7 @@ export default function Console() {
       }
     };
     void refreshRecon();
-    const reconTimer = setInterval(() => void refreshRecon(), 60000);
+    const reconTimer = setInterval(() => void refreshRecon(), 90000);
 
     return () => {
       clearInterval(fast);
@@ -586,7 +604,9 @@ export default function Console() {
     setBusy(true);
     try {
       const msg = await fn();
-      await refreshAll();
+      // Mutations usually only touch live money state — avoid the full slow blast.
+      await refreshFast();
+      void refreshSlow();
       if (msg) setToast(msg, "ok");
     } catch (e) {
       setToast(`${label} failed: ${e instanceof Error ? e.message : String(e)}`, "err");
@@ -860,7 +880,7 @@ export default function Console() {
           {loading ? (
             <ConsoleSkeleton />
           ) : (
-            <div className="view" key={view}>
+            <div className="view">
               <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
               {view === "overview" && (
                 <Overview

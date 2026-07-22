@@ -117,9 +117,11 @@ export function RailQuietClock({
       if (typeof document !== "undefined" && document.hidden) return;
       setNow(new Date());
     };
-    const t = window.setInterval(tick, 1000);
+    // Seconds matter inside quiet hours; otherwise a slower tick is enough.
+    const ms = quiet && quiet.startHour !== quiet.endHour ? 1000 : 15_000;
+    const t = window.setInterval(tick, ms);
     return () => window.clearInterval(t);
-  }, []);
+  }, [quiet]);
 
   const enabled = Boolean(quiet) && quiet!.startHour !== quiet!.endHour;
   const action = quiet?.action ?? "review";

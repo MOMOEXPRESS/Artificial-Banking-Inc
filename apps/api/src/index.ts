@@ -1472,8 +1472,10 @@ app.post(
 
 app.get(
   "/v1/guardian/activity",
-  guardianRoute((org, _req, res) => {
-    res.json({ decisions: store.listDecisions(org.id) });
+  guardianRoute((org, req, res) => {
+    const raw = typeof req.query.limit === "string" ? Number(req.query.limit) : 80;
+    const limit = Number.isFinite(raw) ? Math.min(Math.max(raw, 1), 200) : 80;
+    res.json({ decisions: store.listDecisions(org.id, limit) });
   }),
 );
 

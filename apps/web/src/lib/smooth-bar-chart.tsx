@@ -50,6 +50,31 @@ export function SmoothBarChart({
 }) {
   const trackRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const dragLock = useRef<DragLock | null>(null);
+  const pendingChange = useRef<{ id: string; value: number } | null>(null);
+  const rafChange = useRef(0);
+
+  const emitChange = useCallback(
+    (id: string, value: number, immediate = false) => {
+      if (immediate) {
+        if (rafChange.current) {
+          cancelAnimationFrame(rafChange.current);
+          rafChange.current = 0;
+        }
+        pendingChange.current = null;
+        onChange(id, value);
+        return;
+      }
+      pendingChange.current = { id, value };
+      if (rafChange.current) return;
+      rafChange.current = requestAnimationFrame(() => {
+        rafChange.current = 0;
+        const next = pendingChange.current;
+        pendingChange.current = null;
+        if (next) onChange(next.id, next.value);
+      });
+    },
+    [onChange],
+  );
 
   const autoScale = Math.max(...columns.map((c) => c.value), 50) * 1.15;
   const scale = Math.max(scaleMax ?? autoScale, 1);
@@ -95,15 +120,17 @@ export function SmoothBarChart({
     const step = col.step ?? 0.5;
     dragLock.current = { id: col.id, lo, hi, step };
     e.currentTarget.setPointerCapture(e.pointerId);
-    onChange(col.id, valueFromY(col, e.clientY));
+    emitChange(col.id, valueFromY(col, e.clientY), true);
   };
 
   const onPointerMove = (col: SmoothBarColumn, e: PointerEvent<HTMLDivElement>) => {
     if (disabled || dragLock.current?.id !== col.id) return;
-    onChange(col.id, valueFromY(col, e.clientY));
+    emitChange(col.id, valueFromY(col, e.clientY));
   };
 
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
+    const pending = pendingChange.current;
+    if (pending) emitChange(pending.id, pending.value, true);
     dragLock.current = null;
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -118,16 +145,16 @@ export function SmoothBarChart({
     const step = base * (e.shiftKey ? 10 : 1);
     if (e.key === "ArrowUp" || e.key === "ArrowRight") {
       e.preventDefault();
-      onChange(col.id, Math.min(hi, Number((col.value + step).toFixed(2))));
+      emitChange(col.id, Math.min(hi, Number((col.value + step).toFixed(2))), true);
     } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
       e.preventDefault();
-      onChange(col.id, Math.max(lo, Number((col.value - step).toFixed(2))));
+      emitChange(col.id, Math.max(lo, Number((col.value - step).toFixed(2))), true);
     } else if (e.key === "Home") {
       e.preventDefault();
-      onChange(col.id, lo);
+      emitChange(col.id, lo, true);
     } else if (e.key === "End") {
       e.preventDefault();
-      onChange(col.id, hi);
+      emitChange(col.id, hi, true);
     }
   };
 

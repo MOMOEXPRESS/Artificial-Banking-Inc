@@ -66,8 +66,9 @@ export function ChatView({
     const res = await gFetch("/v1/guardian/chat");
     if (!res.ok) return;
     const d = await res.json();
-    const next = d.messages ?? [];
-    const sig = JSON.stringify(next);
+    const next = (d.messages ?? []) as ChatMsg[];
+    const last = next[next.length - 1];
+    const sig = `${next.length}:${last?.id ?? ""}:${last?.body?.length ?? 0}:${last?.meta ? "m" : ""}`;
     if (sig === msgSig.current) return;
     msgSig.current = sig;
     setMessages(next);
@@ -75,7 +76,7 @@ export function ChatView({
 
   useEffect(() => {
     void refresh().finally(() => setLoading(false));
-    const t = setInterval(() => void refresh(), 6000);
+    const t = setInterval(() => void refresh(), 15000);
     const onVis = () => {
       if (!document.hidden) void refresh();
     };

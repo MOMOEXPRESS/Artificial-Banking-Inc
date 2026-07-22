@@ -22,10 +22,12 @@ export function Approvals({
   setView,
 }: Shared & { approvals: Approval[]; pending: Approval[] }) {
   const listRef = useRef<HTMLDivElement | null>(null);
+  const entered = useRef(false);
 
   useEffect(() => {
-    if (!listRef.current) return;
+    if (!listRef.current || pending.length === 0 || entered.current) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    entered.current = true;
     if (reduced) return;
     gsap.from(listRef.current.querySelectorAll(".approval-card"), {
       y: 12,
