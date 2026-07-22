@@ -2922,7 +2922,6 @@ input[type="range"].slider::-moz-range-thumb {
   border-color: color-mix(in srgb, var(--color-caution) 55%, var(--color-border));
   background: color-mix(in srgb, var(--color-caution-soft) 65%, var(--color-surface-3));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-caution) 25%, transparent);
-  animation: rail-clock-breathe 2.4s ease-in-out infinite;
 }
 
 .rail-clock.is-quiet.is-deny {
