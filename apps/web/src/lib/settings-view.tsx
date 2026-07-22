@@ -682,11 +682,68 @@ export function SettingsView({
                 aria-label="Toggle auto-jump"
               />
             </div>
-            <div className="kv">
-              <span className="k">Guardian key</span>
-              <span className="v">{session.guardianKey.slice(0, 22)}…</span>
+            <div className="field">
+              <label>Guardian key (this browser)</label>
+              <div className="code" style={{ wordBreak: "break-all", userSelect: "all" }}>
+                {session.guardianKey}
+              </div>
+              <div className="hint">
+                Held in this browser only. Copy or download a backup — the server cannot re-show it
+                later.
+              </div>
             </div>
-            <p className="faint" style={{ fontSize: 11.5, marginTop: 10, lineHeight: 1.6 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  void navigator.clipboard.writeText(session.guardianKey).then(
+                    () => act("Copy guardian key", async () => "Guardian key copied."),
+                    () => act("Copy guardian key", async () => {
+                      throw new Error("Clipboard blocked — select the key and copy manually.");
+                    }),
+                  )
+                }
+              >
+                Copy guardian key
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const when = new Date().toISOString();
+                  const agents = session.agentKeys
+                    .map((a) => `### ${a.name}\n\n\`${a.key}\`\n\nAgent id: \`${a.agentId}\``)
+                    .join("\n\n");
+                  const md = `# Artificial Banking — org keys
+
+Generated: ${when}
+${org?.org ? `Org: ${org.org.name}` : ""}
+
+## Guardian key
+
+\`${session.guardianKey}\`
+
+## Agent API keys held in this browser
+
+${agents || "_None saved in this browser session._"}
+`;
+                  const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `artificial-banking-keys-${when.slice(0, 10)}.md`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  URL.revokeObjectURL(url);
+                  void act("Download keys", async () => "Downloaded keys markdown.");
+                }}
+              >
+                Download .md
+              </Button>
+            </div>
+            <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.6 }}>
               This key authenticates the console. Treat it like a root password — anyone holding it
               can approve spending and change policy.
             </p>

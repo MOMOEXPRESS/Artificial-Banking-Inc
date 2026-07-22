@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ABLockup } from "./brand";
 import { Icon } from "./ui";
-import type { Session } from "./console-types";
+import type { AgentKey, Session } from "./console-types";
 import { Button } from "@/components/ui/button";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
@@ -25,7 +25,70 @@ async function readApiError(res: Response): Promise<string> {
   return `HTTP ${res.status}`;
 }
 
-type Phase = "intro" | "ready";
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function keysMarkdown(session: Session): string {
+  const when = new Date().toISOString();
+  const agents = session.agentKeys
+    .map((a) => `### ${a.name}\n\n\`${a.key}\`\n\nAgent id: \`${a.agentId}\``)
+    .join("\n\n");
+  return `# Artificial Banking — org keys
+
+Generated: ${when}
+${session.orgId ? `Org id: \`${session.orgId}\`` : ""}
+
+Treat these like root passwords. Anyone with the guardian key can approve spend and change policy.
+We cannot show them again from the server — only a hash is stored.
+
+## Guardian key
+
+\`${session.guardianKey}\`
+
+## Agent API keys
+
+${agents || "_No agent keys in this session._"}
+
+---
+
+Not a bank. Not FDIC insured. Demo float is sample money unless you fund the vault yourself.
+`;
+}
+
+function downloadKeysFile(session: Session) {
+  const body = keysMarkdown(session);
+  const blob = new Blob([body], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `artificial-banking-keys-${stamp}.md`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+type Phase = "intro" | "ready" | "keys";
 
 export function Login({
   onLogin,
@@ -37,6 +100,9 @@ export function Login({
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>("intro");
+  const [pending, setPending] = useState<Session | null>(null);
+  const [savedAck, setSavedAck] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -48,6 +114,12 @@ export function Login({
     return () => window.clearTimeout(t);
   }, []);
 
+  useEffect(() => {
+    if (!copied) return;
+    const t = window.setTimeout(() => setCopied(null), 1600);
+    return () => window.clearTimeout(t);
+  }, [copied]);
+
   async function connect() {
     setBusy(true);
     try {
@@ -58,7 +130,7 @@ export function Login({
       const data = await res.json();
       onLogin({ guardianKey: key.trim(), orgId: data.org.id, agentKeys: [] });
     } catch (e) {
-      setToast(`Connect failed: ${String(e)}. Is the API reachable via ${API}?`, "err");
+      setToast(`Connect failed: ${String(e)}`, "err");
     } finally {
       setBusy(false);
     }
@@ -72,23 +144,49 @@ export function Login({
       if (!res.ok) {
         throw new Error(d.error?.message ?? d.error?.code ?? `HTTP ${res.status}`);
       }
-      onLogin({
+      const session: Session = {
         guardianKey: d.guardianKey,
         orgId: d.orgId,
         agentKeys: [
           { agentId: d.researcherAgentId, name: "Researcher", key: d.agentApiKey },
           { agentId: d.writerAgentId, name: "Writer", key: d.writerApiKey },
         ],
-      });
+      };
+      setPending(session);
+      setSavedAck(false);
+      setCopied(null);
+      setPhase("keys");
+      setToast("Org created — save your keys before entering the console.", "ok");
     } catch (e) {
-      setToast(`Bootstrap failed: ${String(e)}. Is the API reachable via ${API}?`, "err");
+      setToast(`Bootstrap failed: ${String(e)}`, "err");
     } finally {
       setBusy(false);
     }
   }
 
+  async function onCopy(label: string, text: string) {
+    const ok = await copyText(text);
+    if (ok) {
+      setCopied(label);
+      setToast(`Copied ${label}`, "ok");
+    } else {
+      setToast("Could not copy — select the key and copy manually.", "err");
+    }
+  }
+
+  function enterConsole() {
+    if (!pending || !savedAck) return;
+    onLogin(pending);
+  }
+
+  const showVault = phase === "intro";
+  const showLogin = phase === "ready";
+  const showKeys = phase === "keys" && pending;
+
   return (
-    <div className={`login-wrap ${phase === "ready" ? "is-ready" : "is-intro"}`}>
+    <div
+      className={`login-wrap ${phase === "intro" ? "is-intro" : "is-ready"}${showKeys ? " is-keys" : ""}`}
+    >
       <Link href="/" className="login-back">
         <Icon name="arrowLeft" size={14} />
         Back to site
@@ -100,52 +198,196 @@ export function Login({
         </button>
       )}
 
-      <div className="login-stage" aria-hidden={phase === "ready"}>
-        <VaultDoor playing={phase === "intro"} />
+      <div className="login-stage" aria-hidden={!showVault}>
+        <VaultDoor playing={showVault} />
       </div>
 
-      <div className="login-reveal" aria-hidden={phase !== "ready"}>
+      <div className="login-reveal" aria-hidden={showVault}>
         <div className="login-brand-beat">
-          <ABLockup size={180} tone="#fff" />
+          <ABLockup size={showKeys ? 140 : 180} tone="#fff" />
         </div>
-        <div className="login-card">
-          <p className="login-sub">
-            Paste a guardian key if you already have one, or start a demo org with sample money and
-            two agents ready to try.
-          </p>
-          <div className="field">
-            <label>Guardian key</label>
-            <input
-              placeholder="pv_guardian_…"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && key.trim() && void connect()}
-              disabled={phase !== "ready"}
-              autoFocus={phase === "ready"}
-            />
+
+        {showLogin && (
+          <div className="login-card">
+            <p className="login-sub">
+              Paste a guardian key if you already have one, or start a demo org with sample money and
+              two agents ready to try.
+            </p>
+            <div className="field">
+              <label>Guardian key</label>
+              <input
+                placeholder="pv_guardian_…"
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && key.trim() && void connect()}
+                autoFocus
+              />
+            </div>
+            <button
+              style={{ width: "100%" }}
+              disabled={busy || !key.trim()}
+              onClick={() => void connect()}
+            >
+              Open console
+            </button>
+            <div className="or">or</div>
+            <Button
+              variant="ghost"
+              style={{ width: "100%" }}
+              disabled={busy}
+              onClick={() => void bootstrap()}
+            >
+              Launch demo org with $100 float
+            </Button>
+            <p className="faint" style={{ fontSize: 11.5, marginTop: 20, lineHeight: 1.6 }}>
+              The demo resets local data and creates a fresh org with two agents. Not a bank. Not FDIC
+              insured.
+            </p>
           </div>
-          <button
-            style={{ width: "100%" }}
-            disabled={busy || !key.trim() || phase !== "ready"}
-            onClick={() => void connect()}
-          >
-            Open console
-          </button>
-          <div className="or">or</div>
-          <Button
-            variant="ghost"
-            style={{ width: "100%" }}
-            disabled={busy || phase !== "ready"}
-            onClick={() => void bootstrap()}
-          >
-            Launch demo org with $100 float
-          </Button>
-          <p className="faint" style={{ fontSize: 11.5, marginTop: 20, lineHeight: 1.6 }}>
-            The demo resets local data and creates a fresh org with two agents. Not a bank. Not FDIC
-            insured.
-          </p>
-        </div>
+        )}
+
+        {showKeys && pending && (
+          <KeyRevealCard
+            session={pending}
+            savedAck={savedAck}
+            setSavedAck={setSavedAck}
+            copied={copied}
+            busy={busy}
+            onCopy={onCopy}
+            onDownload={() => {
+              downloadKeysFile(pending);
+              setToast("Downloaded keys markdown file", "ok");
+            }}
+            onEnter={enterConsole}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+function KeyRevealCard({
+  session,
+  savedAck,
+  setSavedAck,
+  copied,
+  busy,
+  onCopy,
+  onDownload,
+  onEnter,
+}: {
+  session: Session;
+  savedAck: boolean;
+  setSavedAck: (v: boolean) => void;
+  copied: string | null;
+  busy: boolean;
+  onCopy: (label: string, text: string) => void;
+  onDownload: () => void;
+  onEnter: () => void;
+}) {
+  return (
+    <div className="login-card login-card-keys">
+      <div className="login-keys-head">
+        <span className="login-keys-badge">
+          <Icon name="key" size={14} />
+          Save these keys
+        </span>
+        <h2 className="login-keys-title">Your org credentials</h2>
+        <p className="login-sub" style={{ marginBottom: 0 }}>
+          Shown once. Copy them or download the file — we only store hashes on the server, so we
+          cannot email these back later.
+        </p>
+      </div>
+
+      <SecretRow
+        label="Guardian key"
+        hint="Root access — approve spend, change policy"
+        value={session.guardianKey}
+        copied={copied === "Guardian key"}
+        onCopy={() => void onCopy("Guardian key", session.guardianKey)}
+      />
+
+      {session.agentKeys.map((a) => (
+        <SecretRow
+          key={a.agentId}
+          label={`${a.name} API key`}
+          hint={`Agent id ${a.agentId}`}
+          value={a.key}
+          copied={copied === `${a.name} API key`}
+          onCopy={() => void onCopy(`${a.name} API key`, a.key)}
+        />
+      ))}
+
+      <div className="login-keys-toolbar">
+        <Button
+          variant="ghost"
+          style={{ flex: 1 }}
+          disabled={busy}
+          onClick={() =>
+            void onCopy(
+              "all keys",
+              [
+                `Guardian: ${session.guardianKey}`,
+                ...session.agentKeys.map((a: AgentKey) => `${a.name}: ${a.key}`),
+              ].join("\n"),
+            )
+          }
+        >
+          <Icon name="copy" size={14} />
+          Copy all
+        </Button>
+        <Button variant="ghost" style={{ flex: 1 }} disabled={busy} onClick={onDownload}>
+          <Icon name="download" size={14} />
+          Download .md
+        </Button>
+      </div>
+
+      <label className="login-keys-ack">
+        <input
+          type="checkbox"
+          checked={savedAck}
+          onChange={(e) => setSavedAck(e.target.checked)}
+        />
+        <span>I’ve saved these keys in a password manager or the downloaded file.</span>
+      </label>
+
+      <button style={{ width: "100%" }} disabled={busy || !savedAck} onClick={onEnter}>
+        Enter console
+      </button>
+      <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.6 }}>
+        Clearing this site’s browser data signs you out. You’ll need the guardian key to get back
+        in — or launch a new demo org (that resets the float).
+      </p>
+    </div>
+  );
+}
+
+function SecretRow({
+  label,
+  hint,
+  value,
+  copied,
+  onCopy,
+}: {
+  label: string;
+  hint: string;
+  value: string;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="login-secret">
+      <div className="login-secret-meta">
+        <div>
+          <div className="login-secret-label">{label}</div>
+          <div className="login-secret-hint">{hint}</div>
+        </div>
+        <button type="button" className="login-secret-copy" onClick={onCopy}>
+          <Icon name={copied ? "check" : "copy"} size={14} />
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <code className="login-secret-value">{value}</code>
     </div>
   );
 }
