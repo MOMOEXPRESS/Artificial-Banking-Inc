@@ -43,6 +43,7 @@ import {
 import { startTelegramPolling, telegramEnabled, registerTelegramNotifier } from "./telegram.js";
 import { notify, registerInAppNotifier, registerNotifier } from "./platform/notifier.js";
 import { presentAnswer, setFactRephraser } from "./platform/ai.js";
+import { createOpenAiFactRephraser } from "./platform/openai-rephraser.js";
 import { recordObs, setObservabilitySink, PrometheusSink, getObservabilitySink } from "./platform/observability.js";
 import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
@@ -123,7 +124,7 @@ registerNotifier("slack", (payload) => {
   console.log(JSON.stringify({ type: "abi.notify.slack", kind: payload.kind, orgId, stub: true }));
 });
 
-/** Optional phrasing layer — identity rephraser keeps facts intact by default. */
+/** Optional phrasing layer — facts stay deterministic; LLM may polish wording. */
 if (process.env.ABI_FACT_REPHRASER === "echo") {
   setFactRephraser({
     name: "echo",
@@ -131,6 +132,12 @@ if (process.env.ABI_FACT_REPHRASER === "echo") {
       return facts;
     },
   });
+} else if (
+  process.env.OPENAI_API_KEY &&
+  (process.env.ABI_FACT_REPHRASER === "openai" || !process.env.ABI_FACT_REPHRASER)
+) {
+  setFactRephraser(createOpenAiFactRephraser(process.env.OPENAI_API_KEY));
+  console.log("ABI fact rephraser: openai");
 }
 
 /** Webhook channel — fans notify payloads into the existing signed delivery path. */
@@ -964,15 +971,23 @@ app.post(
   "/v1/guardian/chat",
   guardianRoute(async (org, req, res) => {
     const body = z.object({ message: z.string().min(1).max(800) }).parse(req.body);
+    // Load history before appending so follow-ups see prior assistant toolsUsed.
+    const prior = store.listChatMessages(org.id, 24).map((m) => ({
+      role: m.role,
+      body: m.body,
+      meta: m.meta,
+    }));
     store.appendChatMessage({
       orgId: org.id,
       role: "user",
       kind: "text",
       body: body.message,
     });
-    // ABI agent: read-only org survey tools. Set ABI_CHAT_AGENT=0 to force legacy Q&A only.
+    // ABI agent: read-only org survey + drafts. Set ABI_CHAT_AGENT=0 for legacy Q&A only.
     const useAgent = process.env.ABI_CHAT_AGENT !== "0";
-    const raw = useAgent ? runAbiAgent(org.id, body.message) : { ...answerQuestion(org.id, body.message), toolsUsed: [] as string[] };
+    const raw = useAgent
+      ? runAbiAgent(org.id, body.message, prior)
+      : { ...answerQuestion(org.id, body.message), toolsUsed: [] as string[] };
     const text = await presentAnswer(body.message, raw.answer);
     const reply = store.appendChatMessage({
       orgId: org.id,

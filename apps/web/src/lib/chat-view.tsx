@@ -114,7 +114,7 @@ export function ChatView({
         <div>
           <h2>ABI Assistant</h2>
           <div className="sub">
-            Ask about spend, approve payments, and review agent activity — Telegram is optional.
+            Org survey agent — agents, spend, budgets, denials, drafts. Never moves money from chat.
           </div>
         </div>
         {pending.length > 0 && (
@@ -157,7 +157,7 @@ export function ChatView({
           </div>
         ) : messages.length === 0 ? (
           <Empty icon="spark">
-            ABI can survey the org — try “how are the agents?” or “what budgets do we have?”
+            ABI can survey the org or draft a marketing blurb — try a chip below.
           </Empty>
         ) : (
           messages.map((m) => (
@@ -166,6 +166,15 @@ export function ChatView({
                 {m.role === "user" ? "You" : "ABI"} · {relTime(m.createdAt)}
               </div>
               <div className="chat-body">{m.body}</div>
+              {Array.isArray(m.meta?.toolsUsed) && (m.meta.toolsUsed as string[]).length > 0 && (
+                <div className="chat-tools" aria-label="Tools used">
+                  {(m.meta.toolsUsed as string[]).map((t) => (
+                    <span key={t} className="pill mute">
+                      <i /> {t.replace(/_/g, " ")}
+                    </span>
+                  ))}
+                </div>
+              )}
               {m.kind === "approval_request" && m.approvalId && (
                 <div className="row" style={{ marginTop: 10, gap: 8 }}>
                   <Button size="sm"
@@ -182,7 +191,7 @@ export function ChatView({
                   </Button>
                 </div>
               )}
-              {typeof m.meta?.goto === "string" && (
+              {typeof m.meta?.goto === "string" && m.meta.goto !== "chat" && (
                 <Button variant="ghost" size="sm" style={{ marginTop: 8 }} onClick={() => onGoto(String(m.meta!.goto))}>
                   Open {String(m.meta.goto)} <Icon name="arrowRight" size={12} />
                 </Button>
@@ -194,7 +203,12 @@ export function ChatView({
       </div>
 
       <div className="suggest" style={{ marginTop: 12 }}>
-        {["How are the agents?", "What is waiting on me?", "List our budgets"].map((s) => (
+        {[
+          "How are the agents?",
+          "What is waiting on me?",
+          "Any denials?",
+          "Draft a marketing blurb",
+        ].map((s) => (
           <button key={s} disabled={locked} onClick={() => void send(s)}>
             {s}
           </button>
@@ -203,7 +217,7 @@ export function ChatView({
 
       <div className="ask" style={{ marginTop: 10 }}>
         <input
-          placeholder="Ask ABI about agents, spend, approvals…"
+          placeholder="Ask ABI — agents, spend, denials, draft a blurb…"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void send(draft)}

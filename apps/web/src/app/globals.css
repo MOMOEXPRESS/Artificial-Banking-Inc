@@ -4802,6 +4802,18 @@ input[type="range"].slider::-moz-range-thumb {
   white-space: pre-wrap;
 }
 
+.chat-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.chat-tools .pill {
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+}
+
 /* ============================================================ marketing pages */
 
 .marketing-links a.is-active {
