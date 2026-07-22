@@ -12,6 +12,7 @@ import {
   inferExternalArgs,
   type ExternalActionProposal,
 } from "./external-actions.js";
+import { quietHoursStatus } from "./quiet.js";
 
 export const TOOL_NAMES = [
   "org_summary",
@@ -25,6 +26,9 @@ export const TOOL_NAMES = [
   "escrow_status",
   "books_health",
   "burn_forecast",
+  "get_policy",
+  "quiet_hours_status",
+  "lookup_decision",
   "draft_marketing_blurb",
   "propose_external_action",
 ] as const;
@@ -37,6 +41,8 @@ export type ToolResult = {
   text: string;
   goto?: string;
   externalAction?: ExternalActionProposal;
+  /** Structured facts for scratchpad / follow-ups (not always shown). */
+  data?: Record<string, unknown>;
 };
 
 const usd = (m: bigint) => `$${formatMicroToUsdc(m)}`;
@@ -75,6 +81,11 @@ export function runTool(
         title: "Agents",
         text: `${agents.length} agent${agents.length === 1 ? "" : "s"}:\n${lines.join("\n")}`,
         goto: "agents",
+        data: {
+          topic: "agents",
+          agentIds: agents.map((a) => a.id),
+          agentNames: agents.map((a) => a.name),
+        },
       };
     }
     case "pending_approvals": {
@@ -228,6 +239,93 @@ export function runTool(
         goto: "overview",
       };
     }
+    case "get_policy": {
+      const t = store.getPolicyTemplate(orgId);
+      const hitl = formatMicroToUsdc(t.hitlAboveMicro);
+      const cap = formatMicroToUsdc(t.perTxMaxMicro);
+      const daily = formatMicroToUsdc(t.dailyMaxMicro);
+      const quietLine = t.quietHours
+        ? `Quiet hours ${String(t.quietHours.startHour).padStart(2, "0")}:00–${String(t.quietHours.endHour).padStart(2, "0")}:00 UTC · on hit → ${t.quietHours.action}`
+        : "Quiet hours off";
+      return {
+        tool: name,
+        title: "Policy bands",
+        text: [
+          `Ask me above (HITL): $${hitl} — under this settles instantly; above waits for you.`,
+          `Per payment ceiling: $${cap} — over this is refused.`,
+          `Daily max: $${daily}.`,
+          `Max pays / minute: ${t.maxPaysPerMinute}.`,
+          quietLine,
+          `Quorum: ${t.approvalQuorum ?? 1} guardian vote(s).`,
+        ].join("\n"),
+        goto: "policy",
+        data: {
+          hitlAboveUsdc: hitl,
+          perTxMaxUsdc: cap,
+          dailyMaxUsdc: daily,
+          topic: "policy",
+        },
+      };
+    }
+    case "quiet_hours_status": {
+      const t = store.getPolicyTemplate(orgId);
+      if (!t.quietHours || t.quietHours.startHour === t.quietHours.endHour) {
+        return {
+          tool: name,
+          title: "Quiet hours",
+          text: "Quiet hours are off — payments use normal allow / review / deny bands around the clock.",
+          goto: "policy",
+          data: { topic: "quiet", inQuiet: false },
+        };
+      }
+      const st = quietHoursStatus(t.quietHours);
+      const action = t.quietHours.action ?? "review";
+      return {
+        tool: name,
+        title: "Quiet hours",
+        text: st.inQuiet
+          ? `IN QUIET HOURS now (${st.clock}). Ends in ${st.countdown}. Payments that hit quiet hours are sent to ${action}. Window ${String(t.quietHours.startHour).padStart(2, "0")}:00–${String(t.quietHours.endHour).padStart(2, "0")}:00 UTC.`
+          : `Open now (${st.clock}). Quiet starts in ${st.countdown}. Window ${String(t.quietHours.startHour).padStart(2, "0")}:00–${String(t.quietHours.endHour).padStart(2, "0")}:00 UTC · on hit → ${action}.`,
+        goto: "policy",
+        data: { topic: "quiet", inQuiet: st.inQuiet, countdown: st.countdown },
+      };
+    }
+    case "lookup_decision": {
+      const q = String(args.query ?? args.destination ?? "").toLowerCase().trim();
+      const decisions = store.listDecisions(orgId, 400);
+      const matched = q
+        ? decisions.filter(
+            (d) =>
+              d.destination.toLowerCase().includes(q) ||
+              d.outcome.toLowerCase().includes(q) ||
+              d.ruleIds.some((r) => r.toLowerCase().includes(q)) ||
+              d.reasons.some((r) => r.toLowerCase().includes(q)),
+          )
+        : decisions.filter((d) => d.outcome === "deny").slice(0, 8);
+      const rows = (matched.length ? matched : decisions).slice(0, 8);
+      if (!rows.length) {
+        return {
+          tool: name,
+          title: "Decisions",
+          text: "No matching decisions in the recent trail.",
+          goto: "activity",
+        };
+      }
+      const lines = rows.map(
+        (d) =>
+          `• ${d.outcome.toUpperCase()} $${d.amountUsdc} → ${d.destination} (${d.ruleIds[0] ?? "policy"}) · ${d.reasons[0] ?? ""}`,
+      );
+      return {
+        tool: name,
+        title: q ? `Decisions matching “${q}”` : "Recent decisions",
+        text: lines.join("\n"),
+        goto: "activity",
+        data: {
+          topic: "decisions",
+          destinations: rows.map((d) => d.destination).slice(0, 5),
+        },
+      };
+    }
     case "draft_marketing_blurb": {
       const s = buildSummary(orgId);
       const agents = store.listAgents(orgId).filter((a) => a.status === "active").length;
@@ -314,6 +412,20 @@ export function pickTools(qRaw: string): ToolName[] {
     tools.add("books_health");
   }
   if (has("burn", "runway")) tools.add("burn_forecast");
+  if (
+    has("policy", "band", "bands", "threshold", "ask me", "per payment", "per tx", "hitl above", "daily max")
+  ) {
+    tools.add("get_policy");
+  }
+  if (has("quiet", "after hours", "off hours", "night window")) {
+    tools.add("quiet_hours_status");
+  }
+  if (
+    has("why was", "why did", "look up", "lookup", "that payment", "this payment", "decision trail") ||
+    (has("denied") && has("to", "for", "at"))
+  ) {
+    tools.add("lookup_decision");
+  }
   if (has("draft", "blurb", "marketing", "tweet", "pitch", "write copy")) {
     tools.add("draft_marketing_blurb");
   }

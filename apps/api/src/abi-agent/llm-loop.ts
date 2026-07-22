@@ -2,7 +2,8 @@
  * Optional OpenAI Chat Completions tool-calling loop for the ABI agent.
  * Falls back to keyword pickTools when no key / failure / empty tool use.
  */
-import { transcriptSnippet, type ChatTurn } from "./memory.js";
+import { buildOrgContext, formatOrgContext } from "./context.js";
+import { lastScratchpad, scratchpadSnippet, transcriptSnippet, type ChatTurn } from "./memory.js";
 import {
   TOOL_NAMES,
   runTool,
@@ -11,7 +12,7 @@ import {
 } from "./tools.js";
 import type { ExternalActionProposal } from "./external-actions.js";
 
-const MAX_ROUNDS = 3;
+const MAX_ROUNDS = 4;
 
 const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   org_summary: "Org snapshot: headline health, highlights.",
@@ -25,6 +26,9 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   escrow_status: "Peer escrow locked amounts.",
   books_health: "Ledger reconciliation / drift check.",
   burn_forecast: "Org burn rate and runway estimate.",
+  get_policy: "Current judgment bands (ask-me-above, per-payment, daily), quiet hours, quorum.",
+  quiet_hours_status: "Whether the org is in quiet hours right now and countdown.",
+  lookup_decision: "Search recent allow/deny/review decisions by destination or rule.",
   draft_marketing_blurb: "Draft marketing copy from org facts (not published).",
   propose_external_action:
     "Queue a HITL proposal to post/signup/comment on an external site (e.g. MaltBook). Does NOT execute — guardian must approve.",
@@ -75,6 +79,25 @@ function openaiTools() {
         },
       };
     }
+    if (name === "lookup_decision") {
+      return {
+        type: "function" as const,
+        function: {
+          name,
+          description: TOOL_DESCRIPTIONS[name],
+          parameters: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description: "Destination, rule id, or outcome fragment to search",
+              },
+            },
+            required: ["query"],
+          },
+        },
+      };
+    }
     return {
       type: "function" as const,
       function: {
@@ -110,17 +133,26 @@ export async function runLlmToolLoop(
   if (!apiKey || process.env.ABI_CHAT_LLM === "0") return null;
 
   const model = process.env.ABI_OPENAI_MODEL?.trim() || "gpt-4o-mini";
-  const history = transcriptSnippet(recent, 4);
+  const history = transcriptSnippet(recent, 6);
+  const scratch = scratchpadSnippet(lastScratchpad(recent));
+  const ctx = formatOrgContext(buildOrgContext(orgId));
   const messages: OpenAiMessage[] = [
     {
       role: "system",
       content: [
-        "You are ABI, Artificial Banking's guardian assistant.",
-        "Use tools to survey the org. Never invent balances or payments.",
+        "You are ABI, Artificial Banking's guardian assistant — a reasoning brain over org facts.",
+        "Use tools when you need detail. Live snapshot is already below — do not invent numbers.",
         "Never move money or approve payments — read-only tools only.",
+        "Reason briefly: cite policy bands, quiet hours, or rule ids when explaining denials.",
         "For MaltBook / LinkedIn / X / web posts or signups, call propose_external_action — do not claim you posted.",
         "After tools return, write a concise plain-text reply for the guardian.",
-      ].join(" "),
+        "",
+        "ORG SNAPSHOT:",
+        ctx,
+        scratch ? `\n${scratch}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
     },
   ];
   if (history) {
@@ -148,7 +180,7 @@ export async function runLlmToolLoop(
         temperature: 0.2,
         messages,
         tools: openaiTools(),
-        tool_choice: round === 0 ? "auto" : "auto",
+        tool_choice: "auto",
       }),
     });
     if (!res.ok) {
@@ -206,15 +238,15 @@ export async function runLlmToolLoop(
       const result = runTool(orgId, name, args);
       results.push(result);
       if (result.externalAction) externalAction = result.externalAction;
+      const dataBlob = result.data ? `\nDATA:${JSON.stringify(result.data)}` : "";
       messages.push({
         role: "tool",
         tool_call_id: call.id,
-        content: `${result.title}\n${result.text}`,
+        content: `${result.title}\n${result.text}${dataBlob}`,
       });
     }
   }
 
-  // Exhausted rounds — compose from tool results
   if (!results.length) return null;
   return {
     answer: results.map((r) => `${r.title}\n${r.text}`).join("\n\n"),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 export type QuietHoursConfig = {
   startHour: number;
@@ -80,6 +80,25 @@ export function quietWindowStatus(
   };
 }
 
+/** Build an SVG arc path for a quiet window on a 12h-style dial (0h=12 o'clock). */
+function quietArcPath(startHour: number, endHour: number, r = 22): string {
+  const toXY = (hour: number) => {
+    // Map 24h onto 360° with 0 UTC at top (same as analog face for 12h clock feel:
+    // use hour % 12 so a full quiet overnight still paints a visible wedge).
+    const deg = ((hour % 12) / 12) * 360 - 90;
+    const a = (deg * Math.PI) / 180;
+    return { x: 32 + Math.cos(a) * r, y: 32 + Math.sin(a) * r };
+  };
+  let span = endHour - startHour;
+  if (span <= 0) span += 24;
+  // Cap visual span to 12h of dial so wedge stays readable on 12-tick face
+  const visualSpan = Math.min(span, 12);
+  const start = toXY(startHour);
+  const end = toXY(startHour + visualSpan);
+  const large = visualSpan > 6 ? 1 : 0;
+  return `M 32 32 L ${start.x} ${start.y} A ${r} ${r} 0 ${large} 1 ${end.x} ${end.y} Z`;
+}
+
 /**
  * Compact analog UTC clock for the console rail — ticks every second and
  * lights up when the org is inside quiet hours.
@@ -91,6 +110,7 @@ export function RailQuietClock({
   quiet: QuietHoursConfig | null | undefined;
   onOpenPolicy?: () => void;
 }) {
+  const clipId = useId().replace(/:/g, "");
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const tick = () => {
@@ -102,6 +122,7 @@ export function RailQuietClock({
   }, []);
 
   const enabled = Boolean(quiet) && quiet!.startHour !== quiet!.endHour;
+  const action = quiet?.action ?? "review";
   const status = useMemo(
     () => (enabled && quiet ? quietWindowStatus(quiet, now) : null),
     [enabled, quiet, now],
@@ -114,26 +135,42 @@ export function RailQuietClock({
   const minDeg = m * 6 + s * 0.1;
   const hourDeg = h * 30 + m * 0.5;
 
+  const inQuiet = Boolean(status?.inQuiet);
+  const denyMode = action === "deny";
+
   return (
     <button
       type="button"
-      className={`rail-clock ${status?.inQuiet ? "is-quiet" : ""} ${enabled ? "" : "is-off"}`}
+      className={[
+        "rail-clock",
+        inQuiet ? "is-quiet" : "",
+        inQuiet && denyMode ? "is-deny" : "",
+        enabled ? "" : "is-off",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       onClick={onOpenPolicy}
       title={
         enabled
-          ? status?.inQuiet
-            ? `Quiet hours active · ends in ${status.countdown}`
-            : `Open · quiet starts in ${status?.countdown ?? "—"}`
+          ? inQuiet
+            ? `Quiet hours active · ends in ${status!.countdown} · payments → ${action}`
+            : `Open · quiet starts in ${status?.countdown ?? "—"} · on hit → ${action}`
           : "Quiet hours off — open Policy to enable"
       }
     >
       <svg className="rail-clock-face" viewBox="0 0 64 64" aria-hidden>
         <defs>
-          <clipPath id="rail-clock-clip">
+          <clipPath id={`rail-clock-clip-${clipId}`}>
             <circle cx="32" cy="32" r="28" />
           </clipPath>
         </defs>
         <circle className="rail-clock-disk" cx="32" cy="32" r="29" />
+        {enabled && quiet && (
+          <path
+            className={`rail-clock-window ${inQuiet ? "active" : ""}`}
+            d={quietArcPath(quiet.startHour, quiet.endHour)}
+          />
+        )}
         <circle className="rail-clock-rim" cx="32" cy="32" r="29" />
         {Array.from({ length: 12 }).map((_, i) => {
           const a = ((i * 30 - 90) * Math.PI) / 180;
@@ -152,7 +189,7 @@ export function RailQuietClock({
             />
           );
         })}
-        <g clipPath="url(#rail-clock-clip)">
+        <g clipPath={`url(#rail-clock-clip-${clipId})`}>
           <g transform={`rotate(${hourDeg} 32 32)`}>
             <line className="rail-clock-hand hour" x1="32" y1="32" x2="32" y2="19.5" />
           </g>
@@ -166,8 +203,25 @@ export function RailQuietClock({
         <circle className="rail-clock-hub" cx="32" cy="32" r="2.2" />
       </svg>
       <span className="rail-clock-meta">
-        <b>{enabled ? (status?.inQuiet ? "Quiet" : "Open") : "Clock"}</b>
-        <span className="mono">{now.toISOString().slice(11, 19)} UTC</span>
+        <b>
+          {!enabled
+            ? "Clock"
+            : inQuiet
+              ? denyMode
+                ? "Quiet · deny"
+                : "Quiet · hold"
+              : "Open"}
+        </b>
+        <span className="mono">
+          {enabled && status
+            ? inQuiet
+              ? `ends ${status.countdown}`
+              : `quiet in ${status.countdown}`
+            : `${now.toISOString().slice(11, 19)} UTC`}
+        </span>
+        {enabled && (
+          <span className="rail-clock-utc mono">{now.toISOString().slice(11, 19)} UTC</span>
+        )}
       </span>
     </button>
   );

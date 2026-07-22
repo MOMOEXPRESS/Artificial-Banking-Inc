@@ -1001,6 +1001,7 @@ app.post(
           ? { externalAction: raw.externalAction }
           : {}),
         ...("via" in raw && raw.via ? { via: raw.via } : {}),
+        ...("scratchpad" in raw && raw.scratchpad ? { scratchpad: raw.scratchpad } : {}),
       },
     });
     res.json({

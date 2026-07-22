@@ -4,6 +4,7 @@ import { Icon, fmtUsd } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
 import { SmoothBarChart } from "./smooth-bar-chart";
+import { applyJudgmentBandDrag, formatBandUsd } from "./judgment-bands";
 
 export type Policy = {
   perTxMaxUsdc: string;
@@ -401,13 +402,13 @@ export function PolicyView({
               <div>
                 <h2>Judgment bands</h2>
                 <div className="sub">
-                  Drag the columns like Agent spend — smooth, not click-jump. Nothing is live until you save.
+                  Drag any band — the others keep the review gap and daily headroom nested automatically. Nothing is live until you save.
                 </div>
               </div>
             </div>
             <SmoothBarChart
               title="Payment judgment"
-              hint="Drag a bar · taller = higher dollar threshold"
+              hint="Drag a bar · linked bands auto-adjust gaps"
               height={200}
               disabled={locked}
               scaleMax={Math.max(cap, daily, hitl, 50) * 1.25}
@@ -417,7 +418,7 @@ export function PolicyView({
                   label: "Ask me above",
                   value: hitl,
                   min: 0,
-                  max: Math.max(cap, 100),
+                  max: Math.max(daily, cap, 200),
                   step: 0.5,
                   caption: "review",
                   tone: "warn",
@@ -427,7 +428,7 @@ export function PolicyView({
                   label: "Per payment",
                   value: cap,
                   min: 0.5,
-                  max: Math.max(daily, cap, 100),
+                  max: Math.max(daily, cap, 200),
                   step: 0.5,
                   caption: "ceiling",
                   tone: "bad",
@@ -437,7 +438,7 @@ export function PolicyView({
                   label: "Daily max",
                   value: daily,
                   min: 0.5,
-                  max: Math.max(daily, cap, 200),
+                  max: Math.max(daily, cap * 2, 400),
                   step: 1,
                   caption: daily >= cap * 2 ? "headroom" : "tight",
                   tone: "ok",
@@ -445,9 +446,23 @@ export function PolicyView({
               ]}
               onChange={(id, value) => {
                 setTouched(true);
-                if (id === "hitl") setF((s) => ({ ...s, hitlAboveUsdc: String(value) }));
-                else if (id === "cap") setF((s) => ({ ...s, perTxMaxUsdc: String(value) }));
-                else setF((s) => ({ ...s, dailyMaxUsdc: String(value) }));
+                setF((s) => {
+                  const next = applyJudgmentBandDrag(
+                    id as "hitl" | "cap" | "daily",
+                    value,
+                    {
+                      hitl: Number(s.hitlAboveUsdc) || 0,
+                      cap: Number(s.perTxMaxUsdc) || 0,
+                      daily: Number(s.dailyMaxUsdc) || 0,
+                    },
+                  );
+                  return {
+                    ...s,
+                    hitlAboveUsdc: formatBandUsd(next.hitl),
+                    perTxMaxUsdc: formatBandUsd(next.cap),
+                    dailyMaxUsdc: formatBandUsd(next.daily),
+                  };
+                });
               }}
             />
             <div className="band-legend" style={{ marginTop: 14 }}>

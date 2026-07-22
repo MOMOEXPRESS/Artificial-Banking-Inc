@@ -67,6 +67,18 @@ describe("runAbiAgent", () => {
     assert.ok(res.toolsUsed.includes("books_health"));
   });
 
+  it("explains policy bands and quiet hours", async () => {
+    const demo = store.bootstrapDemo();
+    const policy = await runAbiAgent(demo.orgId, "show me the policy bands and ask me above");
+    assert.ok(policy.toolsUsed.includes("get_policy"));
+    assert.match(policy.answer, /Ask me above|HITL|Per payment/i);
+    assert.ok(policy.scratchpad?.lastTopic === "policy" || policy.goto === "policy");
+
+    const quiet = await runAbiAgent(demo.orgId, "are we in quiet hours?");
+    assert.ok(quiet.toolsUsed.includes("quiet_hours_status"));
+    assert.match(quiet.answer, /quiet/i);
+  });
+
   it("queues a MaltBook proposal for HITL without posting", async () => {
     const demo = store.bootstrapDemo();
     const res = await runAbiAgent(demo.orgId, "Propose a MaltBook post about our agents");

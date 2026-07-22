@@ -261,9 +261,9 @@ export function ChatView({
         {[
           "How are the agents?",
           "What is waiting on me?",
+          "Show policy bands",
+          "Are we in quiet hours?",
           "Any denials?",
-          "Draft a marketing blurb",
-          "Propose a MaltBook post",
         ].map((s) => (
           <button key={s} disabled={locked} onClick={() => void send(s)}>
             {s}
@@ -273,7 +273,7 @@ export function ChatView({
 
       <div className="ask" style={{ marginTop: 10 }}>
         <input
-          placeholder="Ask ABI — agents, spend, denials, draft a blurb, MaltBook…"
+          placeholder="Ask ABI — agents, policy bands, quiet hours, denials…"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void send(draft)}

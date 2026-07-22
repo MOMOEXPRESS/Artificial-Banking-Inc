@@ -2848,7 +2848,7 @@ input[type="range"].slider::-moz-range-thumb {
   color: var(--color-fg);
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.16s ease, background 0.16s ease;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.2s ease;
 }
 
 .rail-clock:hover {
@@ -2857,8 +2857,26 @@ input[type="range"].slider::-moz-range-thumb {
 }
 
 .rail-clock.is-quiet {
-  border-color: color-mix(in srgb, var(--color-caution) 45%, var(--color-border));
-  background: color-mix(in srgb, var(--color-caution-soft) 55%, var(--color-surface-3));
+  border-color: color-mix(in srgb, var(--color-caution) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--color-caution-soft) 65%, var(--color-surface-3));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-caution) 25%, transparent);
+  animation: rail-clock-breathe 2.4s ease-in-out infinite;
+}
+
+.rail-clock.is-quiet.is-deny {
+  border-color: color-mix(in srgb, var(--color-danger) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--color-danger-soft, rgba(220, 60, 60, 0.18)) 55%, var(--color-surface-3));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-danger) 28%, transparent);
+}
+
+@keyframes rail-clock-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-caution) 20%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-caution) 35%, transparent);
+  }
 }
 
 .rail-clock.is-off {
@@ -2869,10 +2887,30 @@ input[type="range"].slider::-moz-range-thumb {
   width: 44px;
   height: 44px;
   flex-shrink: 0;
+  overflow: visible;
 }
 
 .rail-clock-disk {
   fill: #141418;
+}
+
+.rail-clock-window {
+  fill: color-mix(in srgb, var(--color-caution) 22%, transparent);
+  opacity: 0.55;
+  transition: opacity 0.2s ease, fill 0.2s ease;
+}
+
+.rail-clock-window.active {
+  fill: color-mix(in srgb, var(--color-caution) 42%, transparent);
+  opacity: 1;
+}
+
+.rail-clock.is-deny .rail-clock-window {
+  fill: color-mix(in srgb, var(--color-danger) 28%, transparent);
+}
+
+.rail-clock.is-deny .rail-clock-window.active {
+  fill: color-mix(in srgb, var(--color-danger) 48%, transparent);
 }
 
 .rail-clock-rim {
@@ -2885,6 +2923,10 @@ input[type="range"].slider::-moz-range-thumb {
   stroke: var(--color-caution);
 }
 
+.rail-clock.is-quiet.is-deny .rail-clock-rim {
+  stroke: var(--color-danger);
+}
+
 .rail-clock-tick {
   stroke: rgba(255, 255, 255, 0.35);
   stroke-width: 1.4;
@@ -2893,7 +2935,6 @@ input[type="range"].slider::-moz-range-thumb {
 
 .rail-clock-hand {
   stroke-linecap: round;
-  transform-origin: 32px 32px;
 }
 
 .rail-clock-hand.hour {
@@ -2915,6 +2956,10 @@ input[type="range"].slider::-moz-range-thumb {
   stroke: var(--color-caution);
 }
 
+.rail-clock.is-quiet.is-deny .rail-clock-hand.second {
+  stroke: var(--color-danger);
+}
+
 .rail-clock-hub {
   fill: #f4f4f6;
 }
@@ -2922,7 +2967,7 @@ input[type="range"].slider::-moz-range-thumb {
 .rail-clock-meta {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
 }
 
@@ -2935,6 +2980,18 @@ input[type="range"].slider::-moz-range-thumb {
 .rail-clock-meta > span {
   font-size: 10.5px;
   color: var(--color-fg-muted);
+}
+
+.rail-clock-utc {
+  opacity: 0.75;
+}
+
+.rail-clock.is-quiet .rail-clock-meta > b {
+  color: var(--color-caution);
+}
+
+.rail-clock.is-quiet.is-deny .rail-clock-meta > b {
+  color: var(--color-danger);
 }
 
 /* ------------------------------------------------------- sticky savebar */

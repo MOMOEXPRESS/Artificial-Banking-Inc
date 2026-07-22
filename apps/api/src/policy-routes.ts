@@ -309,6 +309,14 @@ export function registerPolicyRoutes(
           },
         });
       }
+      if (next.dailyMaxMicro < next.perTxMaxMicro) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "dailyMaxUsdc must be at least perTxMaxUsdc (daily headroom ≥ per-payment ceiling)",
+          },
+        });
+      }
       store.setPolicyTemplate(org.id, next);
       for (const v of [...next.vendorAllowlist, ...next.domainAllowlist, ...next.addressAllowlist]) {
         store.addKnownCounterparty(org.id, v);

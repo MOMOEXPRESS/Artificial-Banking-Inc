@@ -34,9 +34,10 @@ const TIPS: Record<string, string[]> = {
     "Stress and smoke modes replay so you can watch policy bands fire repeatedly.",
   ],
   chat: [
-    "ABI Assistant answers from your org facts and can surface approvals inline.",
+    "ABI Assistant surveys agents, spend, policy bands, and quiet hours from live org facts.",
     "It never moves money by itself — you approve anything that needs a human.",
-    "Ask about balances, recent denies, or which agent burned budget today.",
+    "Follow-ups like “what about them?” reuse the last agents / destinations it looked up.",
+    "Ask why a payment was denied — ABI searches the decision trail.",
   ],
   work: [
     "Deliverables and run history from Playground missions — the spend paper trail.",
@@ -57,6 +58,7 @@ const TIPS: Record<string, string[]> = {
   ],
   policy: [
     "Caps, allowlists, HITL, quiet hours, automation, and templates — save before they apply.",
+    "Drag judgment bands — Ask me above, Per payment, and Daily max keep their gaps linked automatically.",
     "The judgment bands move when you drag limits — nothing is live until Save.",
     "Use Simulate to dry-run a payment against the draft policy before you commit.",
     "Starter templates are a fast baseline — then tune allowlists for your vendors.",
