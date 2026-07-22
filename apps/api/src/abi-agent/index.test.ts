@@ -79,6 +79,32 @@ describe("runAbiAgent", () => {
     assert.match(quiet.answer, /quiet/i);
   });
 
+  it("remembers facts and recalls them", async () => {
+    const demo = store.bootstrapDemo();
+    const saved = await runAbiAgent(demo.orgId, "Remember that Researcher only pays pricing APIs");
+    assert.ok(saved.toolsUsed.includes("remember_fact"));
+    assert.match(saved.answer, /Saved|Remembered|pricing/i);
+
+    const recalled = await runAbiAgent(demo.orgId, "What do you remember?");
+    assert.ok(recalled.toolsUsed.includes("recall_facts"));
+    assert.match(recalled.answer, /pricing APIs/i);
+  });
+
+  it("recommends next actions from live org state", async () => {
+    const demo = store.bootstrapDemo();
+    const res = await runAbiAgent(demo.orgId, "What should I do next?");
+    assert.ok(res.toolsUsed.includes("recommend_next"));
+    assert.match(res.answer, /•/);
+    assert.equal(res.intent, "recommend");
+  });
+
+  it("compares agents by stipend and spend", async () => {
+    const demo = store.bootstrapDemo();
+    const res = await runAbiAgent(demo.orgId, "compare our agents");
+    assert.ok(res.toolsUsed.includes("compare_agents") || res.toolsUsed.includes("list_agents"));
+    assert.match(res.answer, /Researcher|Writer|stipend|spend/i);
+  });
+
   it("queues a MaltBook proposal for HITL without posting", async () => {
     const demo = store.bootstrapDemo();
     const res = await runAbiAgent(demo.orgId, "Propose a MaltBook post about our agents");

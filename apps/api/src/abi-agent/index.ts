@@ -1,5 +1,5 @@
 /**
- * ABI Agent loop — conversation-aware org survey + reasoning over policy/quiet hours.
+ * ABI Agent loop — intent → plan → tools → synthesize advice.
  *
  * Prefers OpenAI tool-calling when OPENAI_API_KEY is set; falls back to keywords.
  * Read-only money tools only. External actions are proposals until guardian approves.
@@ -10,6 +10,7 @@ import {
   inferExternalArgs,
   type ExternalActionProposal,
 } from "./external-actions.js";
+import { classifyIntent } from "./intent.js";
 import { runLlmToolLoop } from "./llm-loop.js";
 import {
   buildScratchpad,
@@ -18,6 +19,8 @@ import {
   type ChatTurn,
   type Scratchpad,
 } from "./memory.js";
+import { planTools } from "./planner.js";
+import { formatAdvice, synthesizeAdvice } from "./reason.js";
 import { anomalyNote, pickTools, runTool, type ToolName, type ToolResult } from "./tools.js";
 
 export type AbiAgentResult = {
@@ -27,6 +30,7 @@ export type AbiAgentResult = {
   externalAction?: ExternalActionProposal;
   via?: "llm" | "keywords" | "legacy";
   scratchpad?: Scratchpad;
+  intent?: string;
 };
 
 function preferGoto(results: ToolResult[]): string | undefined {
@@ -47,49 +51,54 @@ function preferGoto(results: ToolResult[]): string | undefined {
   return results[0]?.goto;
 }
 
-function composeAnswer(results: ToolResult[], orgId: string, includeContext = false): string {
+function composeAnswer(results: ToolResult[], orgId: string): string {
   if (!results.length) {
-    return "I couldn't find a matching survey tool — try asking about agents, spend, policy bands, or quiet hours.";
+    return "I couldn't find a matching survey tool — try asking about agents, spend, policy bands, quiet hours, or what I should do next.";
   }
   const blocks = results.map((r) => `${r.title}\n${r.text}`);
   const note = anomalyNote(orgId);
   if (note && !results.some((r) => r.tool === "list_denials" || r.tool === "lookup_decision")) {
     blocks.push(`Signals\n${note}`);
   }
-  if (includeContext && results.length === 1 && results[0]?.tool === "org_summary") {
-    blocks.push(`Live context\n${formatOrgContext(buildOrgContext(orgId))}`);
+  const ctx = buildOrgContext(orgId);
+  const advice = synthesizeAdvice(results, ctx);
+  if (advice && !results.some((r) => r.tool === "recommend_next")) {
+    blocks.push(formatAdvice(advice));
   }
   return blocks.join("\n\n");
 }
 
 function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): AbiAgentResult {
+  const intent = classifyIntent(message);
   const { query, reuseTools, scratch } = resolveFollowUp(message, recent);
-  const picked = new Set<ToolName>([...pickTools(query), ...reuseTools]);
+  const planned = planTools(intent, query);
+  const picked = new Set<ToolName>([...planned, ...pickTools(query), ...reuseTools]);
 
   if (!picked.size && reuseTools.length) {
     for (const t of reuseTools) picked.add(t);
   }
 
   if (!picked.size) {
-    // Lightweight brain: if question looks like policy/quiet, force those tools
-    const q = message.toLowerCase();
-    if (/\b(policy|band|hitl|per payment|ask me)\b/.test(q)) picked.add("get_policy");
-    if (/\bquiet\b/.test(q)) picked.add("quiet_hours_status");
-  }
-
-  if (!picked.size) {
     const legacy = answerQuestion(orgId, message);
+    const ctx = buildOrgContext(orgId);
+    const advice = synthesizeAdvice([], ctx);
     return {
-      answer: `${legacy.answer}\n\n(${formatOrgContext(buildOrgContext(orgId))})`,
+      answer: [legacy.answer, advice ? formatAdvice(advice) : null, `(${formatOrgContext(ctx)})`]
+        .filter(Boolean)
+        .join("\n\n"),
       goto: legacy.goto,
       toolsUsed: [],
       via: "legacy",
       scratchpad: scratch,
+      intent,
     };
   }
 
   const toolsUsed = [...picked];
+  // Prefer remember before other tools when teaching
   toolsUsed.sort((a, b) => {
+    if (a === "remember_fact") return -1;
+    if (b === "remember_fact") return 1;
     if (a === "draft_marketing_blurb") return -1;
     if (b === "draft_marketing_blurb") return 1;
     return 0;
@@ -121,17 +130,42 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
       );
       continue;
     }
+    if (t === "remember_fact") {
+      results.push(runTool(orgId, t, { fact: message, message }));
+      continue;
+    }
+    if (t === "recall_facts") {
+      const q = message
+        .replace(/^(what do you remember|recall|your notes about)\s*/i, "")
+        .replace(/[?!.]+$/g, "")
+        .trim();
+      results.push(runTool(orgId, t, { query: q }));
+      continue;
+    }
     results.push(runTool(orgId, t));
+  }
+
+  // Auto-attach recall when surveying if memories exist
+  if (
+    (intent === "survey" || intent === "help") &&
+    !toolsUsed.includes("recall_facts")
+  ) {
+    const mem = runTool(orgId, "recall_facts", {});
+    if (!/No saved notes/i.test(mem.text)) {
+      results.push(mem);
+      toolsUsed.push("recall_facts");
+    }
   }
 
   const scratchpad = buildScratchpad(results, scratch);
   return {
-    answer: composeAnswer(results, orgId, true),
+    answer: composeAnswer(results, orgId),
     goto: preferGoto(results),
     toolsUsed,
     externalAction,
     via: "keywords",
     scratchpad,
+    intent,
   };
 }
 
@@ -147,13 +181,20 @@ export async function runAbiAgent(
     const llm = await runLlmToolLoop(orgId, message, recent);
     if (llm && (llm.toolsUsed.length || llm.answer)) {
       const scratchpad = buildScratchpad(llm.results, lastScratchpad(recent));
+      const ctx = buildOrgContext(orgId);
+      const advice = synthesizeAdvice(llm.results, ctx);
+      const answer =
+        advice && !llm.toolsUsed.includes("recommend_next")
+          ? `${llm.answer}\n\n${formatAdvice(advice)}`
+          : llm.answer;
       return {
-        answer: llm.answer,
+        answer,
         goto: preferGoto(llm.results),
         toolsUsed: llm.toolsUsed,
         externalAction: llm.externalAction,
         via: "llm",
         scratchpad,
+        intent: classifyIntent(message),
       };
     }
   } catch (err) {

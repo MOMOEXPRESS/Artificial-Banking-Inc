@@ -11,6 +11,7 @@ import {
   type ToolResult,
 } from "./tools.js";
 import type { ExternalActionProposal } from "./external-actions.js";
+import { store } from "../store.js";
 
 const MAX_ROUNDS = 4;
 
@@ -29,6 +30,11 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   get_policy: "Current judgment bands (ask-me-above, per-payment, daily), quiet hours, quorum.",
   quiet_hours_status: "Whether the org is in quiet hours right now and countdown.",
   lookup_decision: "Search recent allow/deny/review decisions by destination or rule.",
+  treasury_snapshot: "Org vault USDC + other holdings + budget envelopes.",
+  compare_agents: "Compare agents by stipend and 24h spend.",
+  recommend_next: "Prioritized next actions for the guardian (approvals, low stipends, quiet, drift).",
+  remember_fact: "Save a guardian-taught org fact to durable memory.",
+  recall_facts: "Recall previously saved org facts / notes.",
   draft_marketing_blurb: "Draft marketing copy from org facts (not published).",
   propose_external_action:
     "Queue a HITL proposal to post/signup/comment on an external site (e.g. MaltBook). Does NOT execute — guardian must approve.",
@@ -98,6 +104,37 @@ function openaiTools() {
         },
       };
     }
+    if (name === "remember_fact") {
+      return {
+        type: "function" as const,
+        function: {
+          name,
+          description: TOOL_DESCRIPTIONS[name],
+          parameters: {
+            type: "object",
+            properties: {
+              fact: { type: "string", description: "Org fact to save" },
+            },
+            required: ["fact"],
+          },
+        },
+      };
+    }
+    if (name === "recall_facts") {
+      return {
+        type: "function" as const,
+        function: {
+          name,
+          description: TOOL_DESCRIPTIONS[name],
+          parameters: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "Optional filter for remembered facts" },
+            },
+          },
+        },
+      };
+    }
     return {
       type: "function" as const,
       function: {
@@ -136,6 +173,15 @@ export async function runLlmToolLoop(
   const history = transcriptSnippet(recent, 6);
   const scratch = scratchpadSnippet(lastScratchpad(recent));
   const ctx = formatOrgContext(buildOrgContext(orgId));
+  let memories = "";
+  try {
+    const rows = store.listAbiMemories(orgId, 8);
+    if (rows.length) {
+      memories = `Remembered facts:\n${rows.map((r) => `- ${r.fact}`).join("\n")}`;
+    }
+  } catch {
+    /* ignore */
+  }
   const messages: OpenAiMessage[] = [
     {
       role: "system",
@@ -144,12 +190,15 @@ export async function runLlmToolLoop(
         "Use tools when you need detail. Live snapshot is already below — do not invent numbers.",
         "Never move money or approve payments — read-only tools only.",
         "Reason briefly: cite policy bands, quiet hours, or rule ids when explaining denials.",
+        "For durable notes the guardian teaches you, call remember_fact; to list them call recall_facts.",
+        "When asked what to do next, prefer recommend_next.",
         "For MaltBook / LinkedIn / X / web posts or signups, call propose_external_action — do not claim you posted.",
         "After tools return, write a concise plain-text reply for the guardian.",
         "",
         "ORG SNAPSHOT:",
         ctx,
         scratch ? `\n${scratch}` : "",
+        memories ? `\n${memories}` : "",
       ]
         .filter(Boolean)
         .join("\n"),

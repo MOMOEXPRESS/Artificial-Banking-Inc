@@ -29,6 +29,11 @@ export const TOOL_NAMES = [
   "get_policy",
   "quiet_hours_status",
   "lookup_decision",
+  "treasury_snapshot",
+  "compare_agents",
+  "recommend_next",
+  "remember_fact",
+  "recall_facts",
   "draft_marketing_blurb",
   "propose_external_action",
 ] as const;
@@ -326,6 +331,161 @@ export function runTool(
         },
       };
     }
+    case "treasury_snapshot": {
+      const accounts = store.getAccountMap(orgId);
+      const vault = accounts.get(accountId("org", orgId))?.balanceMicro ?? 0n;
+      const depts = store.listDepartments(orgId).filter((d) => d.status === "active");
+      const deptLines = depts.map((d) => {
+        const bal = accounts.get(accountId("department", d.id))?.balanceMicro ?? 0n;
+        return `• ${d.name} budget — ${usd(bal)}`;
+      });
+      let holdingsLine = "";
+      try {
+        const holdings = store.listOrgAssetHoldings(orgId).filter((h) => h.balanceMicro > 0n);
+        if (holdings.length) {
+          holdingsLine = holdings
+            .map((h) => `${h.asset.symbol} ${formatMicroToUsdc(h.balanceMicro)}`)
+            .join(" · ");
+        }
+      } catch {
+        /* older DBs */
+      }
+      return {
+        tool: name,
+        title: "Treasury",
+        text: [
+          `Org vault (USDC spend rail): ${usd(vault)}`,
+          holdingsLine ? `Other holdings: ${holdingsLine}` : "Other holdings: none credited yet.",
+          deptLines.length ? `Budgets:\n${deptLines.join("\n")}` : "No budgets yet.",
+        ].join("\n"),
+        goto: "treasury",
+        data: { topic: "treasury", vaultUsdc: formatMicroToUsdc(vault) },
+      };
+    }
+    case "compare_agents": {
+      const agents = store.listAgents(orgId).filter((a) => a.status !== "archived");
+      const accounts = store.getAccountMap(orgId);
+      if (agents.length < 2) {
+        return {
+          tool: name,
+          title: "Compare agents",
+          text: "Need at least two agents on the roster to compare.",
+          goto: "agents",
+        };
+      }
+      const ranked = agents
+        .map((a) => {
+          const bal = accounts.get(accountId("agent", a.id))?.balanceMicro ?? 0n;
+          const spent = store.spentLast24h(a.id);
+          return { a, bal, spent };
+        })
+        .sort((x, y) => (y.spent > x.spent ? 1 : y.spent < x.spent ? -1 : 0));
+      const lines = ranked.map(
+        (r) =>
+          `• ${r.a.name} — ${r.a.status}; stipend ${usd(r.bal)}; 24h spend ${usd(r.spent)}`,
+      );
+      const top = ranked[0]!;
+      return {
+        tool: name,
+        title: "Agent comparison",
+        text: `${lines.join("\n")}\nHighest 24h burn: ${top.a.name} (${usd(top.spent)}).`,
+        goto: "agents",
+        data: {
+          topic: "agents",
+          agentIds: ranked.map((r) => r.a.id),
+          agentNames: ranked.map((r) => r.a.name),
+        },
+      };
+    }
+    case "recommend_next": {
+      const pending = store.listApprovals(orgId, "pending", 20);
+      const t = store.getPolicyTemplate(orgId);
+      const accounts = store.getAccountMap(orgId);
+      const agents = store.listAgents(orgId).filter((a) => a.status === "active");
+      const low = agents.filter((a) => {
+        const bal = accounts.get(accountId("agent", a.id))?.balanceMicro ?? 0n;
+        return bal < 5_000_000n;
+      });
+      const bullets: string[] = [];
+      if (pending.length) {
+        const first = pending[0]!;
+        bullets.push(
+          `Approve or deny ${pending.length} parked payment${pending.length === 1 ? "" : "s"} (e.g. $${first.amountUsdc} → ${first.destination}).`,
+        );
+      }
+      if (low.length) {
+        bullets.push(
+          `Top up low stipends: ${low.map((a) => a.name).join(", ")} (under $5) from a budget or Fund.`,
+        );
+      }
+      if (t.quietHours && t.quietHours.startHour !== t.quietHours.endHour) {
+        const st = quietHoursStatus(t.quietHours);
+        if (st.inQuiet) {
+          bullets.push(
+            `Quiet hours active — ends in ${st.countdown}; expect ${t.quietHours.action} on hits.`,
+          );
+        }
+      }
+      try {
+        if (!store.reconcileOrg(orgId).ok) {
+          bullets.push("Reconcile ledger drift before trusting vault totals.");
+        }
+      } catch {
+        /* ignore */
+      }
+      if (!bullets.length) {
+        bullets.push("Inbox clear — optional: review Policy bands or run Simulate on a draft change.");
+      }
+      return {
+        tool: name,
+        title: "What to do next",
+        text: bullets.map((b) => `• ${b}`).join("\n"),
+        goto: pending.length ? "approvals" : "overview",
+        data: { topic: "recommend", bullets },
+      };
+    }
+    case "remember_fact": {
+      const fact = String(args.fact ?? args.message ?? "").trim();
+      if (!fact || fact.length < 3) {
+        return {
+          tool: name,
+          title: "Memory",
+          text: 'Tell me what to remember, e.g. “Remember that Researcher only pays pricing APIs.”',
+          goto: "chat",
+        };
+      }
+      const cleaned = fact
+        .replace(/^(remember( that)?|note that|save that|don't forget)\s*/i, "")
+        .trim();
+      const row = store.addAbiMemory(orgId, cleaned || fact, "guardian");
+      return {
+        tool: name,
+        title: "Remembered",
+        text: `Saved: “${row.fact}” — I'll use this on later questions about this org.`,
+        goto: "chat",
+        data: { topic: "memory", fact: row.fact },
+      };
+    }
+    case "recall_facts": {
+      const q = String(args.query ?? "").trim();
+      const rows = q ? store.searchAbiMemories(orgId, q, 12) : store.listAbiMemories(orgId, 12);
+      if (!rows.length) {
+        return {
+          tool: name,
+          title: "Memory",
+          text: "No saved notes yet — say “Remember that …” to teach me an org fact.",
+          goto: "chat",
+          data: { topic: "memory" },
+        };
+      }
+      return {
+        tool: name,
+        title: "What I remember",
+        text: rows.map((r) => `• ${r.fact}`).join("\n"),
+        goto: "chat",
+        data: { topic: "memory", facts: rows.map((r) => r.fact) },
+      };
+    }
     case "draft_marketing_blurb": {
       const s = buildSummary(orgId);
       const agents = store.listAgents(orgId).filter((a) => a.status === "active").length;
@@ -425,6 +585,19 @@ export function pickTools(qRaw: string): ToolName[] {
     (has("denied") && has("to", "for", "at"))
   ) {
     tools.add("lookup_decision");
+  }
+  if (has("treasury", "vault", "holding", "btc", "eth") || (has("deposit") && has("org"))) {
+    tools.add("treasury_snapshot");
+  }
+  if (has("compare", "versus", "vs ")) tools.add("compare_agents");
+  if (has("what should", "recommend", "next step", "priorit", "what now", "attention")) {
+    tools.add("recommend_next");
+  }
+  if (has("remember that", "note that", "save that", "don't forget") || /^remember\b/.test(q)) {
+    tools.add("remember_fact");
+  }
+  if (has("what do you remember", "recall", "your notes", "what did i tell")) {
+    tools.add("recall_facts");
   }
   if (has("draft", "blurb", "marketing", "tweet", "pitch", "write copy")) {
     tools.add("draft_marketing_blurb");

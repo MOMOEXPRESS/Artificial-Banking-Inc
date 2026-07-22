@@ -139,7 +139,7 @@ export function ChatView({
         <div>
           <h2>ABI Assistant</h2>
           <div className="sub">
-            Org survey agent — agents, spend, budgets, denials, drafts. Web actions need your OK. Never moves money from chat.
+            Org survey + memory — recommendations, policy, quiet hours. Never moves money from chat.
           </div>
         </div>
         {pending.length > 0 && (
@@ -259,11 +259,11 @@ export function ChatView({
 
       <div className="suggest" style={{ marginTop: 12 }}>
         {[
+          "What should I do next?",
           "How are the agents?",
-          "What is waiting on me?",
           "Show policy bands",
           "Are we in quiet hours?",
-          "Any denials?",
+          "What do you remember?",
         ].map((s) => (
           <button key={s} disabled={locked} onClick={() => void send(s)}>
             {s}
@@ -273,7 +273,7 @@ export function ChatView({
 
       <div className="ask" style={{ marginTop: 10 }}>
         <input
-          placeholder="Ask ABI — agents, policy bands, quiet hours, denials…"
+          placeholder="Ask ABI — next steps, agents, policy, remember that…"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void send(draft)}

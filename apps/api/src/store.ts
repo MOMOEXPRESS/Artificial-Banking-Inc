@@ -641,6 +641,14 @@ CREATE TABLE IF NOT EXISTS external_actions (
   resolved_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_external_actions_org ON external_actions(org_id, created_at);
+CREATE TABLE IF NOT EXISTS abi_memories (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  fact TEXT NOT NULL,
+  source TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_abi_memories_org ON abi_memories(org_id, created_at);
 `);
 
 // Dev migrations: add columns introduced after the tables first shipped.
@@ -2013,6 +2021,37 @@ export const store = {
     return { ...row, status, resolvedAt };
   },
 
+  addAbiMemory(orgId: string, fact: string, source = "guardian"): { id: string; fact: string; createdAt: string } {
+    const clean = fact.trim().slice(0, 500);
+    const row = { id: id("mem"), fact: clean, createdAt: nowIso() };
+    db.prepare(
+      "INSERT INTO abi_memories (id, org_id, fact, source, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(row.id, orgId, row.fact, source, row.createdAt);
+    return row;
+  },
+
+  listAbiMemories(orgId: string, limit = 20): { id: string; fact: string; source?: string; createdAt: string }[] {
+    return (
+      db
+        .prepare(
+          "SELECT id, fact, source, created_at FROM abi_memories WHERE org_id = ? ORDER BY created_at DESC LIMIT ?",
+        )
+        .all(orgId, limit) as Row[]
+    ).map((r) => ({
+      id: r.id as string,
+      fact: r.fact as string,
+      source: (r.source as string | null) ?? undefined,
+      createdAt: r.created_at as string,
+    }));
+  },
+
+  searchAbiMemories(orgId: string, query: string, limit = 10): { id: string; fact: string; createdAt: string }[] {
+    const q = query.trim().toLowerCase().replace(/[?!.]+$/g, "").trim();
+    const all = this.listAbiMemories(orgId, 50);
+    if (!q || q.length < 2) return all.slice(0, limit);
+    return all.filter((m) => m.fact.toLowerCase().includes(q)).slice(0, limit);
+  },
+
   knownCounterparties(orgId: string): string[] {
     return (
       db.prepare("SELECT value FROM known_counterparties WHERE org_id = ?").all(orgId) as Row[]
@@ -3168,6 +3207,7 @@ export const store = {
         "agent_groups",
         "chat_messages",
         "external_actions",
+        "abi_memories",
         "org_asset_balances",
         "policy_versions",
         "policies",

@@ -1029,6 +1029,7 @@ app.post(
           : {}),
         ...("via" in raw && raw.via ? { via: raw.via } : {}),
         ...("scratchpad" in raw && raw.scratchpad ? { scratchpad: raw.scratchpad } : {}),
+        ...("intent" in raw && raw.intent ? { intent: raw.intent } : {}),
       },
     });
     res.json({
@@ -1036,6 +1037,7 @@ app.post(
       goto: raw.goto,
       toolsUsed: raw.toolsUsed ?? [],
       externalAction: "externalAction" in raw ? raw.externalAction : undefined,
+      intent: "intent" in raw ? raw.intent : undefined,
       messages: store.listChatMessages(org.id),
     });
   }),
