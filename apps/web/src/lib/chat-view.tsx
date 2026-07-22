@@ -157,7 +157,7 @@ export function ChatView({
           </div>
         ) : messages.length === 0 ? (
           <Empty icon="spark">
-            Say hello — ask “how much did we spend today?” or wait for an agent to park a payment.
+            ABI can survey the org — try “how are the agents?” or “what budgets do we have?”
           </Empty>
         ) : (
           messages.map((m) => (
@@ -194,7 +194,7 @@ export function ChatView({
       </div>
 
       <div className="suggest" style={{ marginTop: 12 }}>
-        {["How much did we spend today?", "What is waiting on me?", "Are the books clean?"].map((s) => (
+        {["How are the agents?", "What is waiting on me?", "List our budgets"].map((s) => (
           <button key={s} disabled={locked} onClick={() => void send(s)}>
             {s}
           </button>

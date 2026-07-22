@@ -2636,6 +2636,15 @@ input[type="range"].slider::-moz-range-thumb {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .ops-card-body[data-state="open"],
+  .ops-card-body[data-state="closed"],
+  .ops-card-chevron {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 .ops-card-panel {
   padding: 0 14px 14px;
   display: flex;
@@ -2711,6 +2720,221 @@ input[type="range"].slider::-moz-range-thumb {
 
 .ops-af-bars .bar-val {
   opacity: 1;
+}
+
+/* ------------------------------------------------------- smooth drag bars */
+
+.smooth-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  touch-action: none;
+  user-select: none;
+}
+
+.smooth-bars.is-disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.smooth-bars-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.smooth-bars-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 4%;
+  min-height: 160px;
+  padding: 0 2%;
+}
+
+.smooth-bars-row .bar-track {
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.smooth-bars-row .bar-fill {
+  will-change: height;
+  animation: none; /* drag updates height live — grow-bar fights the feel */
+}
+
+.smooth-bars-row .bar-col.tone-ok.on .bar-fill,
+.smooth-bars-row .bar-col.tone-ok .bar-fill {
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(255, 255, 255, 0.06) 0px,
+      rgba(255, 255, 255, 0.06) 1px,
+      transparent 1px,
+      transparent 6px
+    ),
+    linear-gradient(180deg, rgba(59, 130, 246, 0.28), rgba(59, 130, 246, 0.1));
+}
+
+.smooth-bars-row .bar-col.tone-warn .bar-fill {
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(255, 255, 255, 0.06) 0px,
+      rgba(255, 255, 255, 0.06) 1px,
+      transparent 1px,
+      transparent 6px
+    ),
+    linear-gradient(180deg, rgba(234, 179, 8, 0.32), rgba(234, 179, 8, 0.1));
+}
+
+.smooth-bars-row .bar-col.tone-bad .bar-fill {
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(255, 255, 255, 0.06) 0px,
+      rgba(255, 255, 255, 0.06) 1px,
+      transparent 1px,
+      transparent 6px
+    ),
+    linear-gradient(180deg, rgba(239, 68, 68, 0.3), rgba(239, 68, 68, 0.1));
+}
+
+.band-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+}
+
+.band-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.band-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.band-legend i.ok {
+  background: var(--color-accent);
+}
+
+.band-legend i.warn {
+  background: var(--color-caution);
+}
+
+.band-legend i.bad {
+  background: var(--color-danger);
+}
+
+/* ------------------------------------------------------- rail quiet clock */
+
+.rail-clock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 4px 0 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-surface-3);
+  color: var(--color-fg);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.rail-clock:hover {
+  border-color: var(--color-border);
+  background: var(--color-surface-hover);
+}
+
+.rail-clock.is-quiet {
+  border-color: color-mix(in srgb, var(--color-caution) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-caution-soft) 55%, var(--color-surface-3));
+}
+
+.rail-clock.is-off {
+  opacity: 0.72;
+}
+
+.rail-clock-face {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.rail-clock-disk {
+  fill: #141418;
+}
+
+.rail-clock-rim {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.16);
+  stroke-width: 1.5;
+}
+
+.rail-clock.is-quiet .rail-clock-rim {
+  stroke: var(--color-caution);
+}
+
+.rail-clock-tick {
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.rail-clock-hand {
+  stroke-linecap: round;
+  transform-origin: 32px 32px;
+}
+
+.rail-clock-hand.hour {
+  stroke: #f4f4f6;
+  stroke-width: 2.4;
+}
+
+.rail-clock-hand.minute {
+  stroke: #c8c8d0;
+  stroke-width: 1.8;
+}
+
+.rail-clock-hand.second {
+  stroke: var(--color-accent);
+  stroke-width: 1.2;
+}
+
+.rail-clock.is-quiet .rail-clock-hand.second {
+  stroke: var(--color-caution);
+}
+
+.rail-clock-hub {
+  fill: #f4f4f6;
+}
+
+.rail-clock-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rail-clock-meta > b {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.rail-clock-meta > span {
+  font-size: 10.5px;
+  color: var(--color-fg-muted);
 }
 
 /* ------------------------------------------------------- sticky savebar */

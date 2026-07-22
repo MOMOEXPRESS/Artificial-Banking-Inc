@@ -27,6 +27,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Sidebar, SidebarFolder, SidebarItem } from "@/components/ui/sidebar";
+import { RailQuietClock } from "../../lib/quiet-hours-clock";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -567,6 +568,13 @@ export default function Console() {
         >
           <Icon name="zap" />
         </SidebarItem>
+        <RailQuietClock
+          quiet={policy?.quietHours}
+          onOpenPolicy={() => {
+            setView("policy");
+            setRailOpen(false);
+          }}
+        />
         <SidebarItem
           nested
           active={view === "settings"}

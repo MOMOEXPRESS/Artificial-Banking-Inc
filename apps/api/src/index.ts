@@ -31,6 +31,7 @@ import {
   vendorLedger,
 } from "./analytics.js";
 import { answerQuestion, buildSummary } from "./insights.js";
+import { runAbiAgent } from "./abi-agent/index.js";
 import {
   store,
   type ApprovalRow,
@@ -969,16 +970,26 @@ app.post(
       kind: "text",
       body: body.message,
     });
-    const raw = answerQuestion(org.id, body.message);
+    // ABI agent: read-only org survey tools. Set ABI_CHAT_AGENT=0 to force legacy Q&A only.
+    const useAgent = process.env.ABI_CHAT_AGENT !== "0";
+    const raw = useAgent ? runAbiAgent(org.id, body.message) : { ...answerQuestion(org.id, body.message), toolsUsed: [] as string[] };
     const text = await presentAnswer(body.message, raw.answer);
     const reply = store.appendChatMessage({
       orgId: org.id,
       role: "assistant",
       kind: "text",
       body: text,
-      meta: raw.goto ? { goto: raw.goto } : undefined,
+      meta: {
+        ...(raw.goto ? { goto: raw.goto } : {}),
+        ...(raw.toolsUsed?.length ? { toolsUsed: raw.toolsUsed } : {}),
+      },
     });
-    res.json({ reply, goto: raw.goto, messages: store.listChatMessages(org.id) });
+    res.json({
+      reply,
+      goto: raw.goto,
+      toolsUsed: raw.toolsUsed ?? [],
+      messages: store.listChatMessages(org.id),
+    });
   }),
 );
 

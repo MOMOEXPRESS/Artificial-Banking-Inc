@@ -1,164 +1,9 @@
-"use client";
-
 import { useEffect, useMemo, useState } from "react";
 import { PolicySimulator } from "./analytics";
 import { Icon, fmtUsd } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
-
-/** Live UTC quiet-window status for the Schedule & rules timer. */
-function quietWindowStatus(
-  quiet: { startHour: number; endHour: number },
-  now = new Date(),
-): {
-  inQuiet: boolean;
-  label: string;
-  /** 0–1 progress through the current phase (quiet window or wait-until-start). */
-  progress: number;
-  /** HH:MM:SS until quiet ends (in) or starts (out). */
-  timer: string;
-  countdown: string;
-  clock: string;
-  hours: number;
-  minutes: number;
-  seconds: number;
-} {
-  const nowSec =
-    now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
-  const startSec = quiet.startHour * 3600;
-  const endSec = quiet.endHour * 3600;
-  const day = 24 * 3600;
-  const clock = now.toISOString().slice(11, 19) + " UTC";
-  const empty = {
-    inQuiet: false,
-    label: "Window disabled (start = end)",
-    progress: 0,
-    timer: "—:—:—",
-    countdown: "—",
-    clock,
-    hours: 0,
-    minutes: 0,
-    seconds: 0,
-  };
-  if (startSec === endSec) return empty;
-
-  const windowLen = startSec < endSec ? endSec - startSec : day - startSec + endSec;
-  const waitLen = day - windowLen;
-  const inQuiet =
-    startSec < endSec
-      ? nowSec >= startSec && nowSec < endSec
-      : nowSec >= startSec || nowSec < endSec;
-
-  const secsUntil = (target: number) => {
-    let d = target - nowSec;
-    if (d <= 0) d += day;
-    return d;
-  };
-  const split = (totalSec: number) => {
-    const s = Math.max(0, Math.floor(totalSec));
-    const hours = Math.floor(s / 3600);
-    const minutes = Math.floor((s % 3600) / 60);
-    const seconds = s % 60;
-    const timer = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    const countdown =
-      hours > 0
-        ? `${hours}h ${String(minutes).padStart(2, "0")}m`
-        : minutes > 0
-          ? `${minutes}m ${String(seconds).padStart(2, "0")}s`
-          : `${seconds}s`;
-    return { hours, minutes, seconds, timer, countdown };
-  };
-
-  if (inQuiet) {
-    const left = secsUntil(endSec);
-    const parts = split(left);
-    return {
-      inQuiet: true,
-      label: "Quiet hours active — spending held or refused",
-      progress: Math.min(1, Math.max(0, 1 - left / windowLen)),
-      clock,
-      ...parts,
-    };
-  }
-  const untilStart = secsUntil(startSec);
-  const parts = split(untilStart);
-  return {
-    inQuiet: false,
-    label: "Open hours — quiet window starts after this countdown",
-    progress: Math.min(1, Math.max(0, 1 - untilStart / Math.max(1, waitLen))),
-    clock,
-    ...parts,
-  };
-}
-
-/** Isolated so the 1s tick doesn't re-render the whole Policy form. */
-function QuietHoursTimer({
-  quiet,
-  active,
-}: {
-  quiet: { startHour: number; endHour: number };
-  active: boolean;
-}) {
-  const [nowTick, setNowTick] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    if (typeof document !== "undefined" && document.hidden) return;
-    const t = window.setInterval(() => {
-      if (document.hidden) return;
-      setNowTick(Date.now());
-    }, 1_000);
-    return () => window.clearInterval(t);
-  }, [active]);
-  const quietLive = useMemo(
-    () => quietWindowStatus(quiet, new Date(nowTick)),
-    [quiet, nowTick],
-  );
-  return (
-    <div
-      className={`quiet-timer ${quietLive.inQuiet ? "is-active" : "is-idle"}`}
-      role="timer"
-      aria-live="polite"
-      aria-label={
-        quietLive.inQuiet
-          ? `Quiet hours end in ${quietLive.countdown}`
-          : `Quiet hours begin in ${quietLive.countdown}`
-      }
-    >
-      <div className="quiet-timer-face" aria-hidden>
-        <svg viewBox="0 0 120 120" className="quiet-timer-ring">
-          <circle cx="60" cy="60" r="52" className="quiet-timer-track" />
-          <circle
-            cx="60"
-            cy="60"
-            r="52"
-            className="quiet-timer-progress"
-            style={{
-              strokeDasharray: `${2 * Math.PI * 52}`,
-              strokeDashoffset: `${2 * Math.PI * 52 * (1 - quietLive.progress)}`,
-            }}
-          />
-        </svg>
-        <div className="quiet-timer-core">
-          <span className="quiet-timer-digits mono">{quietLive.timer}</span>
-          <span className="quiet-timer-phase">
-            {quietLive.inQuiet ? "until quiet ends" : "until quiet starts"}
-          </span>
-        </div>
-      </div>
-      <div className="quiet-timer-meta">
-        <b>
-          <Icon name="clock" size={14} />
-          {quietLive.inQuiet ? "Quiet hours active" : "Open for spending"}
-        </b>
-        <span>{quietLive.label}</span>
-        <span className="faint mono">{quietLive.clock}</span>
-        <div className="quiet-timer-bar" aria-hidden>
-          <div style={{ width: `${Math.round(quietLive.progress * 100)}%` }} />
-        </div>
-      </div>
-    </div>
-  );
-}
+import { SmoothBarChart } from "./smooth-bar-chart";
 
 export type Policy = {
   perTxMaxUsdc: string;
@@ -480,11 +325,6 @@ export function PolicyView({
     setAutomation(policy.automation ?? []);
   };
 
-  // Visual band widths, so the three zones read as proportional to real money.
-  const scale = Math.max(cap * 1.25, 1);
-  const allowPct = Math.max((hitl / scale) * 100, 6);
-  const reviewPct = Math.max(((cap - hitl) / scale) * 100, 6);
-
   return (
     <>
       <div className="card policy-hero">
@@ -560,106 +400,124 @@ export function PolicyView({
             <div className="card-head">
               <div>
                 <h2>Judgment bands</h2>
-                <div className="sub">Drag a limit and the bands move. Nothing is live until you save.</div>
+                <div className="sub">
+                  Drag the columns like Agent spend — smooth, not click-jump. Nothing is live until you save.
+                </div>
               </div>
             </div>
-            <div className="band-rail">
-              <div className="band ok" style={{ flexGrow: allowPct }}>
-                <b>Settles instantly</b>
-                <span>under {fmtUsd(hitl)}</span>
-              </div>
-              <div className="band warn" style={{ flexGrow: reviewPct }}>
-                <b>Waits for you</b>
-                <span>
-                  {fmtUsd(hitl)} – {fmtUsd(cap)}
-                </span>
-              </div>
-              <div className="band bad" style={{ flexGrow: 26 }}>
-                <b>Always refused</b>
-                <span>over {fmtUsd(cap)}</span>
-              </div>
+            <SmoothBarChart
+              title="Payment judgment"
+              hint="Drag a bar · taller = higher dollar threshold"
+              height={200}
+              disabled={locked}
+              scaleMax={Math.max(cap, daily, hitl, 50) * 1.25}
+              columns={[
+                {
+                  id: "hitl",
+                  label: "Ask me above",
+                  value: hitl,
+                  min: 0,
+                  max: Math.max(cap, 100),
+                  step: 0.5,
+                  caption: "review",
+                  tone: "warn",
+                },
+                {
+                  id: "cap",
+                  label: "Per payment",
+                  value: cap,
+                  min: 0.5,
+                  max: Math.max(daily, cap, 100),
+                  step: 0.5,
+                  caption: "ceiling",
+                  tone: "bad",
+                },
+                {
+                  id: "daily",
+                  label: "Daily max",
+                  value: daily,
+                  min: 0.5,
+                  max: Math.max(daily, cap, 200),
+                  step: 1,
+                  caption: daily >= cap * 2 ? "headroom" : "tight",
+                  tone: "ok",
+                },
+              ]}
+              onChange={(id, value) => {
+                setTouched(true);
+                if (id === "hitl") setF((s) => ({ ...s, hitlAboveUsdc: String(value) }));
+                else if (id === "cap") setF((s) => ({ ...s, perTxMaxUsdc: String(value) }));
+                else setF((s) => ({ ...s, dailyMaxUsdc: String(value) }));
+              }}
+            />
+            <div className="band-legend" style={{ marginTop: 14 }}>
+              <span>
+                <i className="ok" /> Settles instantly under {fmtUsd(hitl)}
+              </span>
+              <span>
+                <i className="warn" /> Waits for you {fmtUsd(hitl)}–{fmtUsd(cap)}
+              </span>
+              <span>
+                <i className="bad" /> Always refused over {fmtUsd(cap)}
+              </span>
             </div>
           </div>
 
           <div className="card">
             <div className="card-head">
-              <h2>Limits</h2>
+              <div>
+                <h2>Pace & cool-down</h2>
+                <div className="sub">How fast an agent can fire, and how long a new counterparty waits.</div>
+              </div>
             </div>
             <LimitControl
-              label="Ask me above"
-              hint={`Payments over ${fmtUsd(hitl)} park and wait for your approval.`}
-              value={f.hitlAboveUsdc}
-              onChange={set("hitlAboveUsdc")}
-              min={0}
-              max={Math.max(cap, 100)}
-              step={0.5}
-              invalid={bandsInvalid ? "Must be below the per-payment ceiling." : undefined}
-            />
-            <LimitControl
-              label="Never allow more than"
-              hint="A hard ceiling on any single payment — you cannot approve past it."
-              value={f.perTxMaxUsdc}
-              onChange={set("perTxMaxUsdc")}
-              min={1}
-              max={500}
-              step={1}
-            />
-            <LimitControl
-              label="Daily cap per agent"
-              hint="Rolling 24-hour total for each agent individually."
-              value={f.dailyMaxUsdc}
-              onChange={set("dailyMaxUsdc")}
-              min={1}
-              max={2000}
-              step={5}
-              invalid={dailyInvalid ? "Should be at least the per-payment ceiling." : undefined}
-            />
-            <LimitControl
-              label="Max payments per minute"
-              hint="Velocity brake — stops a looping agent draining in bursts."
+              label="Max payments / minute"
+              hint="Burst protection — stops a runaway loop from draining the stipend."
               value={f.maxPaysPerMinute}
               onChange={set("maxPaysPerMinute")}
               min={1}
-              max={120}
+              max={60}
               step={1}
               money={false}
             />
             <LimitControl
-              label="New counterparty cooldown (hours)"
-              hint="First payment to an unknown destination parks for approval during this window. 0 disables."
+              label="New counterparty cool-down (hours)"
+              hint="First payment to a never-seen destination waits this long or needs approval."
               value={f.newCounterpartyCooldownHours}
               onChange={set("newCounterpartyCooldownHours")}
               min={0}
-              max={168}
+              max={72}
               step={1}
               money={false}
             />
-            <div className="field">
-              <label>Always ask me for these tools</label>
+            <div style={{ marginTop: 8 }}>
+              <div className="muted" style={{ fontSize: 12.5, marginBottom: 8 }}>
+                Always ask me for these tools
+              </div>
               <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                {HITL_TOOLS.map((tool) => {
-                  const on = f.hitlCategories.includes(tool);
+                {(["pay_api", "pay_address", "x402", "escrow"] as const).map((cat) => {
+                  const on = f.hitlCategories.includes(cat);
                   return (
                     <button
-                      key={tool}
+                      key={cat}
                       type="button"
                       className={`pill ${on ? "warn" : "mute"}`}
+                      disabled={locked}
                       onClick={() => {
                         setTouched(true);
-                        setF((p) => ({
-                          ...p,
+                        setF((s) => ({
+                          ...s,
                           hitlCategories: on
-                            ? p.hitlCategories.filter((t) => t !== tool)
-                            : [...p.hitlCategories, tool],
+                            ? s.hitlCategories.filter((c) => c !== cat)
+                            : [...s.hitlCategories, cat],
                         }));
                       }}
                     >
-                      <i /> {tool}
+                      <i /> {cat}
                     </button>
                   );
                 })}
               </div>
-              <div className="hint">Category HITL — parks these tools regardless of amount.</div>
             </div>
           </div>
         </div>
@@ -726,7 +584,11 @@ export function PolicyView({
                 aria-label="Toggle quiet hours"
               />
             </div>
-            {quietOn && <QuietHoursTimer quiet={quiet} active={tab === "rules"} />}
+            {quietOn && (
+              <p className="faint" style={{ fontSize: 12.5, marginBottom: 10, lineHeight: 1.5 }}>
+                Live analog clock ticks in the sidebar under <b>Webhooks</b> — it lights up when quiet hours are active.
+              </p>
+            )}
             {quietOn && (
               <div className="row" style={{ gap: 14, flexWrap: "wrap", marginTop: 14 }}>
                 <div className="field" style={{ margin: 0 }}>

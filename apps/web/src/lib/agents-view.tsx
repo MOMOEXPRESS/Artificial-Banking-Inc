@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarLine, Empty, Icon } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { SmoothBarChart } from "./smooth-bar-chart";
 
 type AgentRow = {
   id: string;
@@ -74,7 +75,7 @@ function statusTone(s: string) {
   return "bad";
 }
 
-/** Overview-style vertical bars — click a column to set the dollar height. */
+/** Overview-style vertical bars — drag smoothly to set threshold / top-up. */
 function AutoFundBars({
   thresholdUsdc,
   topUpUsdc,
@@ -88,79 +89,40 @@ function AutoFundBars({
 }) {
   const th = Math.max(0, Number(thresholdUsdc) || 0);
   const up = Math.max(0, Number(topUpUsdc) || 0);
-  const scale = Math.max(th, up, 50) * 1.15;
-  const cols = [
-    { key: "threshold" as const, label: "If below", value: th, caption: "trigger" },
-    { key: "topUp" as const, label: "Top up", value: up, caption: "peak" },
-  ];
-  const peak = up >= th ? 1 : 0;
-
-  function setFromClick(
-    key: "threshold" | "topUp",
-    e: MouseEvent<HTMLDivElement>,
-  ) {
-    if (disabled) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const pct = 1 - Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
-    const raw = Math.round(pct * scale);
-    const clamped = Math.max(key === "topUp" ? 1 : 0, Math.min(500, raw));
-    if (key === "threshold") onChange({ thresholdUsdc: String(clamped), topUpUsdc });
-    else onChange({ thresholdUsdc, topUpUsdc: String(clamped) });
-  }
-
   return (
-    <div className="ops-af-chart" aria-disabled={disabled}>
-      <div className="ops-af-chart-head">
-        <span className="muted" style={{ fontSize: 12.5 }}>
-          Auto-fund levels
-        </span>
-        <span className="faint" style={{ fontSize: 11.5 }}>
-          Click a column to set the amount
-        </span>
-      </div>
-      <div className="ops-af-bars">
-        {cols.map((c, i) => {
-          const pct = Math.max((c.value / scale) * 100, c.value > 0 ? 6 : 2);
-          const on = i === peak;
-          return (
-            <div className={`bar-col ${on ? "on" : ""}`} key={c.key}>
-              <div
-                className="bar-track"
-                role="slider"
-                tabIndex={disabled ? -1 : 0}
-                aria-valuemin={0}
-                aria-valuemax={Math.round(scale)}
-                aria-valuenow={c.value}
-                aria-label={c.label}
-                title={`${c.label}: ${fmt(String(c.value))} — click to set`}
-                onClick={(e) => setFromClick(c.key, e)}
-                onKeyDown={(e) => {
-                  if (disabled) return;
-                  const step = e.shiftKey ? 10 : 1;
-                  if (e.key === "ArrowUp" || e.key === "ArrowRight") {
-                    e.preventDefault();
-                    const next = Math.min(500, c.value + step);
-                    if (c.key === "threshold") onChange({ thresholdUsdc: String(next), topUpUsdc });
-                    else onChange({ thresholdUsdc, topUpUsdc: String(next) });
-                  } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
-                    e.preventDefault();
-                    const next = Math.max(c.key === "topUp" ? 1 : 0, c.value - step);
-                    if (c.key === "threshold") onChange({ thresholdUsdc: String(next), topUpUsdc });
-                    else onChange({ thresholdUsdc, topUpUsdc: String(next) });
-                  }
-                }}
-              >
-                <div className="bar-fill" style={{ height: `${pct}%` }}>
-                  {on && <span className="bar-tag">{c.caption}</span>}
-                  <span className="bar-val">{fmt(String(c.value))}</span>
-                </div>
-              </div>
-              <div className="bar-x">{c.label}</div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <SmoothBarChart
+      title="Auto-fund levels"
+      hint="Drag a column — smooth, not click-jump"
+      disabled={disabled}
+      height={168}
+      scaleMax={Math.max(th, up, 50) * 1.2}
+      columns={[
+        {
+          id: "threshold",
+          label: "If below",
+          value: th,
+          min: 0,
+          max: 500,
+          step: 0.5,
+          caption: "trigger",
+          tone: "warn",
+        },
+        {
+          id: "topUp",
+          label: "Top up",
+          value: up,
+          min: 1,
+          max: 500,
+          step: 0.5,
+          caption: "peak",
+          tone: "ok",
+        },
+      ]}
+      onChange={(id, value) => {
+        if (id === "threshold") onChange({ thresholdUsdc: String(value), topUpUsdc });
+        else onChange({ thresholdUsdc, topUpUsdc: String(value) });
+      }}
+    />
   );
 }
 
