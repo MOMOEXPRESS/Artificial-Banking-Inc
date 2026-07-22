@@ -18,6 +18,8 @@ const MAX_ROUNDS = 4;
 const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   org_summary: "Org snapshot: headline health, highlights.",
   list_agents: "List agents on the roster with stipend balances.",
+  agent_detail:
+    "Deep dive on one agent: stipend, 24h spend, recent allow/deny/review, freeze history. Pass agentName or agentId.",
   pending_approvals: "Payments waiting for guardian HITL approval.",
   recent_spend: "Recent settled spend (24h + lifetime).",
   list_budgets: "Budget envelopes and available balances.",
@@ -30,6 +32,9 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   get_policy: "Current judgment bands (ask-me-above, per-payment, daily), quiet hours, quorum.",
   quiet_hours_status: "Whether the org is in quiet hours right now and countdown.",
   lookup_decision: "Search recent allow/deny/review decisions by destination or rule.",
+  explain_decision:
+    "Explain a specific decision against live policy bands (HITL / ceiling / quiet). Prefer when asked why something was denied or reviewed.",
+  governance_status: "Guardian seats, roles, max-approve limits, and approval quorum.",
   treasury_snapshot: "Org vault USDC + other holdings + budget envelopes.",
   compare_agents: "Compare agents by stipend and 24h spend.",
   recommend_next: "Prioritized next actions for the guardian (approvals, low stipends, quiet, drift).",
@@ -85,7 +90,7 @@ function openaiTools() {
         },
       };
     }
-    if (name === "lookup_decision") {
+    if (name === "lookup_decision" || name === "explain_decision") {
       return {
         type: "function" as const,
         function: {
@@ -96,10 +101,31 @@ function openaiTools() {
             properties: {
               query: {
                 type: "string",
-                description: "Destination, rule id, or outcome fragment to search",
+                description: "Destination, rule id, outcome, or intent fragment to search",
+              },
+              agentId: {
+                type: "string",
+                description: "Optional agent id to scope the search",
               },
             },
-            required: ["query"],
+            required: name === "lookup_decision" ? ["query"] : [],
+          },
+        },
+      };
+    }
+    if (name === "agent_detail") {
+      return {
+        type: "function" as const,
+        function: {
+          name,
+          description: TOOL_DESCRIPTIONS[name],
+          parameters: {
+            type: "object",
+            properties: {
+              agentName: { type: "string", description: "Agent display name" },
+              agentId: { type: "string", description: "Agent id if known" },
+              query: { type: "string", description: "Fallback name fragment" },
+            },
           },
         },
       };
@@ -182,6 +208,15 @@ export async function runLlmToolLoop(
   } catch {
     /* ignore */
   }
+  let roster = "";
+  try {
+    const agents = store.listAgents(orgId).filter((a) => a.status !== "archived");
+    if (agents.length) {
+      roster = `Agent roster (use these exact names with agent_detail): ${agents.map((a) => a.name).join(", ")}`;
+    }
+  } catch {
+    /* ignore */
+  }
   const messages: OpenAiMessage[] = [
     {
       role: "system",
@@ -190,6 +225,9 @@ export async function runLlmToolLoop(
         "Use tools when you need detail. Live snapshot is already below — do not invent numbers.",
         "Never move money or approve payments — read-only tools only.",
         "Reason briefly: cite policy bands, quiet hours, or rule ids when explaining denials.",
+        "When asked about a named agent, call agent_detail.",
+        "When asked why a payment was denied/reviewed, call explain_decision (and get_policy if useful).",
+        "For guardian seats / who can approve, call governance_status.",
         "For durable notes the guardian teaches you, call remember_fact; to list them call recall_facts.",
         "When asked what to do next, prefer recommend_next.",
         "For MaltBook / LinkedIn / X / web posts or signups, call propose_external_action — do not claim you posted.",
@@ -197,6 +235,7 @@ export async function runLlmToolLoop(
         "",
         "ORG SNAPSHOT:",
         ctx,
+        roster ? `\n${roster}` : "",
         scratch ? `\n${scratch}` : "",
         memories ? `\n${memories}` : "",
       ]

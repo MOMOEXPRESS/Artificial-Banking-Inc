@@ -112,11 +112,22 @@ export function resolveFollowUp(
   if (/\b(quiet)\b/.test(q)) {
     return { query: "quiet hours status", reuseTools: [], scratch };
   }
-  if (/\b(why)\b/.test(q) && (scratch.destinations?.length || priorTools.includes("list_denials"))) {
+  if (/\b(why)\b/.test(q) && (scratch.destinations?.length || priorTools.includes("list_denials") || priorTools.includes("explain_decision"))) {
     const dest = scratch.destinations?.[0];
     return {
-      query: dest ? `lookup decision ${dest}` : "lookup decision deny",
+      query: dest ? `explain decision ${dest}` : "explain decision deny",
       reuseTools: [],
+      scratch,
+    };
+  }
+  if (
+    /\b(them|those|that agent|this agent|him|her)\b/.test(q) &&
+    (scratch.agentNames?.length || priorTools.includes("list_agents") || priorTools.includes("agent_detail"))
+  ) {
+    const name = scratch.agentNames?.[0];
+    return {
+      query: name ? `tell me about ${name}` : "agent detail",
+      reuseTools: name ? [] : ["agent_detail"],
       scratch,
     };
   }

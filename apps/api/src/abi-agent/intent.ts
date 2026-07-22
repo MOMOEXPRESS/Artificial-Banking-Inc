@@ -4,6 +4,7 @@
 export type AbiIntent =
   | "survey"
   | "agents"
+  | "agent_detail"
   | "approvals"
   | "spend"
   | "budgets"
@@ -15,6 +16,7 @@ export type AbiIntent =
   | "books"
   | "burn"
   | "decision_why"
+  | "governance"
   | "recommend"
   | "remember"
   | "recall"
@@ -38,7 +40,15 @@ export function classifyIntent(message: string): AbiIntent {
     return "recommend";
   }
   if (/\b(compare|vs\.?|versus|difference between)\b/.test(q)) return "compare";
-  if (/\b(why|explain).{0,40}\b(deny|denied|blocked|refusal|refused)\b/.test(q)) return "decision_why";
+  if (
+    /\b(why|explain).{0,40}\b(deny|denied|blocked|refusal|refused|decision|payment)\b/.test(q) ||
+    /\b(why was|why did|why that)\b/.test(q)
+  ) {
+    return "decision_why";
+  }
+  if (/\b(guardian|governance|who can approve|approver|quorum seats?)\b/.test(q)) {
+    return "governance";
+  }
   if (/\b(quiet|after hours|off hours)\b/.test(q)) return "quiet";
   if (/\b(policy|band|bands|hitl|ask me|per payment|per tx|daily max|threshold|ceiling)\b/.test(q)) {
     return "policy";
@@ -51,6 +61,12 @@ export function classifyIntent(message: string): AbiIntent {
   if (/\b(vendor|counterparty|who did we pay|where did money)\b/.test(q)) return "vendors";
   if (/\b(budget|envelope|department)\b/.test(q)) return "budgets";
   if (/\b(spend|spent|cost|payment)\b/.test(q)) return "spend";
+  if (
+    /\b(about|detail|profile|how's|how is|tell me about|check on|inspect)\b/.test(q) &&
+    /\b(agent|researcher|writer|stipend)\b/.test(q)
+  ) {
+    return "agent_detail";
+  }
   if (/\b(agent|roster|stipend|researcher|writer)\b/.test(q)) return "agents";
   if (
     /\b(summary|overview|status|how are we|health|snapshot|look around)\b/.test(q) ||

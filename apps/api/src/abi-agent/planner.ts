@@ -10,6 +10,8 @@ export function planTools(intent: AbiIntent, message: string): ToolName[] {
       return ["org_summary", "pending_approvals", "quiet_hours_status"];
     case "agents":
       return ["list_agents"];
+    case "agent_detail":
+      return ["agent_detail"];
     case "approvals":
       return ["pending_approvals"];
     case "spend":
@@ -31,7 +33,9 @@ export function planTools(intent: AbiIntent, message: string): ToolName[] {
     case "burn":
       return ["burn_forecast"];
     case "decision_why":
-      return ["lookup_decision", "get_policy"];
+      return ["explain_decision", "lookup_decision", "get_policy"];
+    case "governance":
+      return ["governance_status", "get_policy"];
     case "recommend":
       return ["recommend_next"];
     case "remember":

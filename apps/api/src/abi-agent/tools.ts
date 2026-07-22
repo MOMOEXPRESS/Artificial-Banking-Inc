@@ -3,7 +3,7 @@
  * Never moves money or approves payments — facts only.
  * External web actions are HITL proposals only (never auto-executed).
  */
-import { accountId, formatMicroToUsdc } from "@policyvault/common";
+import { accountId, formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/common";
 import { anomalies, burnForecast, vendorLedger } from "../analytics.js";
 import { buildSummary } from "../insights.js";
 import { store } from "../store.js";
@@ -17,6 +17,7 @@ import { quietHoursStatus } from "./quiet.js";
 export const TOOL_NAMES = [
   "org_summary",
   "list_agents",
+  "agent_detail",
   "pending_approvals",
   "recent_spend",
   "list_budgets",
@@ -29,6 +30,8 @@ export const TOOL_NAMES = [
   "get_policy",
   "quiet_hours_status",
   "lookup_decision",
+  "explain_decision",
+  "governance_status",
   "treasury_snapshot",
   "compare_agents",
   "recommend_next",
@@ -90,6 +93,63 @@ export function runTool(
           topic: "agents",
           agentIds: agents.map((a) => a.id),
           agentNames: agents.map((a) => a.name),
+        },
+      };
+    }
+    case "agent_detail": {
+      const agents = store.listAgents(orgId).filter((a) => a.status !== "archived");
+      const wantId = String(args.agentId ?? "").trim();
+      const wantName = String(args.agentName ?? args.query ?? "").toLowerCase().trim();
+      let agent =
+        (wantId && agents.find((a) => a.id === wantId)) ||
+        (wantName && agents.find((a) => a.name.toLowerCase() === wantName)) ||
+        (wantName && agents.find((a) => a.name.toLowerCase().includes(wantName))) ||
+        undefined;
+      if (!agent && agents.length === 1) agent = agents[0];
+      if (!agent) {
+        return {
+          tool: name,
+          title: "Agent detail",
+          text: wantName
+            ? `No agent matching “${wantName}” — try list_agents for the roster.`
+            : "Name an agent (e.g. “How is Researcher?”) for a detail card.",
+          goto: "agents",
+        };
+      }
+      const accounts = store.getAccountMap(orgId);
+      const bal = accounts.get(accountId("agent", agent.id))?.balanceMicro ?? 0n;
+      const spent = store.spentLast24h(agent.id);
+      const decisions = store.listDecisionsForAgent(orgId, agent.id, 8);
+      const denied = decisions.filter((d) => d.outcome === "deny").length;
+      const allowed = decisions.filter((d) => d.outcome === "allow").length;
+      const reviewed = decisions.filter((d) => d.outcome === "review").length;
+      const freezes = store
+        .listFreezes(orgId, 30)
+        .filter((f) => f.agentId === agent!.id)
+        .slice(0, 2);
+      const recent = decisions.slice(0, 4).map(
+        (d) =>
+          `  · ${d.outcome.toUpperCase()} $${d.amountUsdc} → ${d.destination} (${d.ruleIds[0] ?? "policy"})`,
+      );
+      const lines = [
+        `${agent.name} — ${agent.status}`,
+        `Stipend available: ${usd(bal)} · 24h spend: ${usd(spent)}`,
+        `Recent outcomes: ${allowed} allow · ${reviewed} review · ${denied} deny (last ${decisions.length} trails)`,
+        freezes.length
+          ? `Freeze history: ${freezes.map((f) => f.reason).join("; ")}`
+          : "No freezes on file.",
+        recent.length ? `Latest:\n${recent.join("\n")}` : "No payment decisions yet for this agent.",
+      ];
+      return {
+        tool: name,
+        title: `Agent · ${agent.name}`,
+        text: lines.join("\n"),
+        goto: "agents",
+        data: {
+          topic: "agents",
+          agentIds: [agent.id],
+          agentNames: [agent.name],
+          destinations: decisions.map((d) => d.destination).slice(0, 5),
         },
       };
     }
@@ -331,6 +391,116 @@ export function runTool(
         },
       };
     }
+    case "explain_decision": {
+      const q = String(args.query ?? args.destination ?? "").toLowerCase().trim();
+      const agentId = String(args.agentId ?? "").trim();
+      const decisions = agentId
+        ? store.listDecisionsForAgent(orgId, agentId, 80)
+        : store.listDecisions(orgId, 400);
+      const matched = q
+        ? decisions.filter(
+            (d) =>
+              d.destination.toLowerCase().includes(q) ||
+              d.outcome.toLowerCase().includes(q) ||
+              d.intentId.toLowerCase().includes(q) ||
+              d.ruleIds.some((r) => r.toLowerCase().includes(q)) ||
+              d.reasons.some((r) => r.toLowerCase().includes(q)),
+          )
+        : decisions.filter((d) => d.outcome === "deny" || d.outcome === "review");
+      const d = matched[0] ?? decisions[0];
+      if (!d) {
+        return {
+          tool: name,
+          title: "Explain decision",
+          text: "No decisions to explain yet — once an agent pays, I can map the outcome to policy bands.",
+          goto: "activity",
+        };
+      }
+      const t = store.getPolicyTemplate(orgId);
+      const agent = store.getAgent(d.agentId);
+      let amountMicro = 0n;
+      try {
+        amountMicro = parseUsdcToMicro(d.amountUsdc);
+      } catch {
+        amountMicro = 0n;
+      }
+      const bandNotes: string[] = [];
+      if (amountMicro > t.perTxMaxMicro) {
+        bandNotes.push(
+          `Amount $${d.amountUsdc} is above the per-payment ceiling ($${formatMicroToUsdc(t.perTxMaxMicro)}) → expect deny.`,
+        );
+      } else if (amountMicro >= t.hitlAboveMicro) {
+        bandNotes.push(
+          `Amount $${d.amountUsdc} is at/above ask-me-above ($${formatMicroToUsdc(t.hitlAboveMicro)}) → expect HITL review.`,
+        );
+      } else {
+        bandNotes.push(
+          `Amount $${d.amountUsdc} is under ask-me-above ($${formatMicroToUsdc(t.hitlAboveMicro)}) — auto-allow unless another rule fired.`,
+        );
+      }
+      if (t.quietHours && t.quietHours.startHour !== t.quietHours.endHour) {
+        const st = quietHoursStatus(t.quietHours, new Date(d.at));
+        if (st.inQuiet) {
+          bandNotes.push(
+            `Quiet hours were active at decision time → policy action ${t.quietHours.action ?? "review"}.`,
+          );
+        }
+      }
+      const text = [
+        `${d.outcome.toUpperCase()} $${d.amountUsdc} → ${d.destination}`,
+        `Agent: ${agent?.name ?? d.agentId} · at ${d.at}`,
+        `Rules: ${d.ruleIds.join(", ") || "policy"}`,
+        `Reasons: ${d.reasons.join("; ") || "—"}`,
+        "",
+        "Band context:",
+        ...bandNotes.map((b) => `• ${b}`),
+        "",
+        `Live bands now: ask-me $${formatMicroToUsdc(t.hitlAboveMicro)} · per-pay $${formatMicroToUsdc(t.perTxMaxMicro)} · daily $${formatMicroToUsdc(t.dailyMaxMicro)}.`,
+      ].join("\n");
+      return {
+        tool: name,
+        title: "Why this decision",
+        text,
+        goto: "activity",
+        data: {
+          topic: "decisions",
+          destinations: [d.destination],
+          agentIds: [d.agentId],
+          agentNames: agent ? [agent.name] : [],
+        },
+      };
+    }
+    case "governance_status": {
+      const guardians = store.listGuardians(orgId).filter((g) => !g.revokedAt);
+      const t = store.getPolicyTemplate(orgId);
+      if (!guardians.length) {
+        return {
+          tool: name,
+          title: "Governance",
+          text: `No guardian seats listed. Quorum for approvals: ${t.approvalQuorum ?? 1}.`,
+          goto: "policy",
+          data: { topic: "governance" },
+        };
+      }
+      const lines = guardians.map((g) => {
+        const bits = [`${g.name} — ${g.role}`];
+        if (g.conditions?.restricted) bits.push("restricted");
+        if (g.conditions?.maxApproveUsdc) bits.push(`max $${g.conditions.maxApproveUsdc}`);
+        if (g.conditions?.note) bits.push(g.conditions.note);
+        return `• ${bits.join(" · ")}`;
+      });
+      const approvers = guardians.filter((g) => g.role === "owner" || g.role === "approver").length;
+      return {
+        tool: name,
+        title: "Governance",
+        text: [
+          `${guardians.length} guardian seat${guardians.length === 1 ? "" : "s"} · ${approvers} can approve · quorum ${t.approvalQuorum ?? 1}`,
+          ...lines,
+        ].join("\n"),
+        goto: "policy",
+        data: { topic: "governance" },
+      };
+    }
     case "treasury_snapshot": {
       const accounts = store.getAccountMap(orgId);
       const vault = accounts.get(accountId("org", orgId))?.balanceMicro ?? 0n;
@@ -401,11 +571,14 @@ export function runTool(
       const pending = store.listApprovals(orgId, "pending", 20);
       const t = store.getPolicyTemplate(orgId);
       const accounts = store.getAccountMap(orgId);
-      const agents = store.listAgents(orgId).filter((a) => a.status === "active");
-      const low = agents.filter((a) => {
+      const agents = store.listAgents(orgId).filter((a) => a.status !== "archived");
+      const active = agents.filter((a) => a.status === "active");
+      const frozen = agents.filter((a) => a.status === "frozen");
+      const low = active.filter((a) => {
         const bal = accounts.get(accountId("agent", a.id))?.balanceMicro ?? 0n;
         return bal < 5_000_000n;
       });
+      const denied = store.listDecisions(orgId, 80).filter((d) => d.outcome === "deny");
       const bullets: string[] = [];
       if (pending.length) {
         const first = pending[0]!;
@@ -413,9 +586,20 @@ export function runTool(
           `Approve or deny ${pending.length} parked payment${pending.length === 1 ? "" : "s"} (e.g. $${first.amountUsdc} → ${first.destination}).`,
         );
       }
+      if (frozen.length) {
+        bullets.push(
+          `Thaw or archive frozen agent${frozen.length === 1 ? "" : "s"}: ${frozen.map((a) => a.name).join(", ")}.`,
+        );
+      }
       if (low.length) {
         bullets.push(
           `Top up low stipends: ${low.map((a) => a.name).join(", ")} (under $5) from a budget or Fund.`,
+        );
+      }
+      if (denied.length >= 3) {
+        const last = denied[0]!;
+        bullets.push(
+          `${denied.length} recent denials (latest $${last.amountUsdc} → ${last.destination}) — check Policy bands or ask “why was that denied?”.`,
         );
       }
       if (t.quietHours && t.quietHours.startHour !== t.quietHours.endHour) {
@@ -433,6 +617,16 @@ export function runTool(
       } catch {
         /* ignore */
       }
+      try {
+        const { concentrationPct } = vendorLedger(orgId);
+        if (concentrationPct >= 60) {
+          bullets.push(
+            `Vendor concentration is ${concentrationPct}% — review Top vendors if that feels tight.`,
+          );
+        }
+      } catch {
+        /* ignore */
+      }
       if (!bullets.length) {
         bullets.push("Inbox clear — optional: review Policy bands or run Simulate on a draft change.");
       }
@@ -440,7 +634,7 @@ export function runTool(
         tool: name,
         title: "What to do next",
         text: bullets.map((b) => `• ${b}`).join("\n"),
-        goto: pending.length ? "approvals" : "overview",
+        goto: pending.length ? "approvals" : frozen.length ? "agents" : "overview",
         data: { topic: "recommend", bullets },
       };
     }
@@ -551,6 +745,12 @@ export function pickTools(qRaw: string): ToolName[] {
   if (has("agent", "roster", "stipend") || (has("who") && has("balance"))) {
     tools.add("list_agents");
   }
+  if (
+    has("about", "detail", "profile", "how's", "how is", "tell me about", "check on", "inspect") &&
+    has("agent", "researcher", "writer")
+  ) {
+    tools.add("agent_detail");
+  }
   if (has("approval", "pending", "waiting", "hitl", "inbox")) {
     tools.add("pending_approvals");
   }
@@ -585,6 +785,13 @@ export function pickTools(qRaw: string): ToolName[] {
     (has("denied") && has("to", "for", "at"))
   ) {
     tools.add("lookup_decision");
+    tools.add("explain_decision");
+  }
+  if (has("explain") && has("deny", "denied", "blocked", "decision", "refusal", "payment")) {
+    tools.add("explain_decision");
+  }
+  if (has("guardian", "governance", "who can approve", "quorum", "approver seat")) {
+    tools.add("governance_status");
   }
   if (has("treasury", "vault", "holding", "btc", "eth") || (has("deposit") && has("org"))) {
     tools.add("treasury_snapshot");

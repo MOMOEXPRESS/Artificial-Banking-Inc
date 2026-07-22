@@ -1,11 +1,15 @@
 /**
- * ABI Agent loop — intent → plan → tools → synthesize advice.
+ * ABI Agent loop — intent → plan → entities → tools → synthesize advice.
  *
  * Prefers OpenAI tool-calling when OPENAI_API_KEY is set; falls back to keywords.
  * Read-only money tools only. External actions are proposals until guardian approves.
  */
 import { answerQuestion } from "../insights.js";
 import { buildOrgContext, formatOrgContext } from "./context.js";
+import {
+  bindEntities,
+  wantsAgentDetail,
+} from "./entities.js";
 import {
   inferExternalArgs,
   type ExternalActionProposal,
@@ -57,7 +61,7 @@ function composeAnswer(results: ToolResult[], orgId: string): string {
   }
   const blocks = results.map((r) => `${r.title}\n${r.text}`);
   const note = anomalyNote(orgId);
-  if (note && !results.some((r) => r.tool === "list_denials" || r.tool === "lookup_decision")) {
+  if (note && !results.some((r) => r.tool === "list_denials" || r.tool === "lookup_decision" || r.tool === "explain_decision")) {
     blocks.push(`Signals\n${note}`);
   }
   const ctx = buildOrgContext(orgId);
@@ -71,8 +75,24 @@ function composeAnswer(results: ToolResult[], orgId: string): string {
 function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): AbiAgentResult {
   const intent = classifyIntent(message);
   const { query, reuseTools, scratch } = resolveFollowUp(message, recent);
+  const entities = bindEntities(orgId, query);
+  // Merge scratch entities when follow-up is pronoun-heavy
+  if (!entities.agentIds.length && scratch.agentIds?.length) {
+    entities.agentIds = scratch.agentIds;
+    entities.agentNames = scratch.agentNames ?? [];
+  }
+  if (!entities.destinations.length && scratch.destinations?.length) {
+    entities.destinations = scratch.destinations;
+  }
+
   const planned = planTools(intent, query);
   const picked = new Set<ToolName>([...planned, ...pickTools(query), ...reuseTools]);
+
+  if (wantsAgentDetail(query, entities) || intent === "agent_detail") {
+    picked.add("agent_detail");
+    // Prefer detail over full roster when a name is bound
+    if (entities.agentIds.length) picked.delete("list_agents");
+  }
 
   if (!picked.size && reuseTools.length) {
     for (const t of reuseTools) picked.add(t);
@@ -95,13 +115,19 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
   }
 
   const toolsUsed = [...picked];
-  // Prefer remember before other tools when teaching
+  // Prefer remember before other tools when teaching; agent_detail before compare
   toolsUsed.sort((a, b) => {
-    if (a === "remember_fact") return -1;
-    if (b === "remember_fact") return 1;
-    if (a === "draft_marketing_blurb") return -1;
-    if (b === "draft_marketing_blurb") return 1;
-    return 0;
+    const rank = (t: ToolName) =>
+      t === "remember_fact"
+        ? 0
+        : t === "draft_marketing_blurb"
+          ? 1
+          : t === "agent_detail"
+            ? 2
+            : t === "explain_decision"
+              ? 3
+              : 10;
+    return rank(a) - rank(b);
   });
   const results: ToolResult[] = [];
   let externalAction: ExternalActionProposal | undefined;
@@ -120,12 +146,23 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
       if (result.externalAction) externalAction = result.externalAction;
       continue;
     }
-    if (t === "lookup_decision") {
-      const dest = scratch.destinations?.[0];
+    if (t === "lookup_decision" || t === "explain_decision") {
+      const dest = entities.destinations[0] || scratch.destinations?.[0];
       const m = message.match(/(?:to|for|at)\s+(\S+)/i);
       results.push(
         runTool(orgId, t, {
           query: dest || m?.[1] || message,
+          agentId: entities.agentIds[0],
+        }),
+      );
+      continue;
+    }
+    if (t === "agent_detail") {
+      results.push(
+        runTool(orgId, t, {
+          agentId: entities.agentIds[0],
+          agentName: entities.agentNames[0],
+          query: entities.agentNames[0] || message,
         }),
       );
       continue;
@@ -157,7 +194,12 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
     }
   }
 
-  const scratchpad = buildScratchpad(results, scratch);
+  const scratchpad = buildScratchpad(results, {
+    ...scratch,
+    agentIds: entities.agentIds.length ? entities.agentIds : scratch.agentIds,
+    agentNames: entities.agentNames.length ? entities.agentNames : scratch.agentNames,
+    destinations: entities.destinations.length ? entities.destinations : scratch.destinations,
+  });
   return {
     answer: composeAnswer(results, orgId),
     goto: preferGoto(results),

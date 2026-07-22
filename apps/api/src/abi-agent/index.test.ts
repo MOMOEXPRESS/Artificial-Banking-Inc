@@ -16,6 +16,8 @@ const { clearExternalProposalsForTests, resolveExternalProposal } = await import
   "./external-actions.js"
 );
 const { runLlmToolLoop } = await import("./llm-loop.js");
+const { bindAgents, bindEntities } = await import("./entities.js");
+const { classifyIntent } = await import("./intent.js");
 
 after(() => {
   try {
@@ -47,9 +49,13 @@ describe("runAbiAgent", () => {
     assert.ok(first.toolsUsed.includes("list_agents"));
     const second = await runAbiAgent(demo.orgId, "what about them?", [
       { role: "user", body: "list our agents" },
-      { role: "assistant", body: first.answer, meta: { toolsUsed: first.toolsUsed } },
+      {
+        role: "assistant",
+        body: first.answer,
+        meta: { toolsUsed: first.toolsUsed, scratchpad: first.scratchpad },
+      },
     ]);
-    assert.ok(second.toolsUsed.includes("list_agents"));
+    assert.ok(second.toolsUsed.includes("list_agents") || second.toolsUsed.includes("agent_detail"));
   });
 
   it("drafts a marketing blurb without moving money", async () => {
@@ -103,6 +109,56 @@ describe("runAbiAgent", () => {
     const res = await runAbiAgent(demo.orgId, "compare our agents");
     assert.ok(res.toolsUsed.includes("compare_agents") || res.toolsUsed.includes("list_agents"));
     assert.match(res.answer, /Researcher|Writer|stipend|spend/i);
+  });
+
+  it("binds a named agent into agent_detail", async () => {
+    const demo = store.bootstrapDemo();
+    const bound = bindAgents(demo.orgId, "How is Researcher doing?");
+    assert.ok(bound.some((a) => /researcher/i.test(a.name)));
+    assert.equal(classifyIntent("How is Researcher?"), "agent_detail");
+
+    const res = await runAbiAgent(demo.orgId, "How is Researcher?");
+    assert.ok(res.toolsUsed.includes("agent_detail"));
+    assert.match(res.answer, /Researcher/i);
+    assert.match(res.answer, /Stipend|24h spend|Recent outcomes/i);
+    assert.ok(res.scratchpad?.agentNames?.some((n) => /researcher/i.test(n)));
+  });
+
+  it("explains a denial against policy bands", async () => {
+    const demo = store.bootstrapDemo();
+    const agents = store.listAgents(demo.orgId);
+    const agent = agents[0]!;
+    store.addDecision({
+      intentId: "int_test_deny",
+      orgId: demo.orgId,
+      agentId: agent.id,
+      outcome: "deny",
+      ruleIds: ["per_tx_max"],
+      reasons: ["Above per-payment ceiling"],
+      tool: "pay",
+      amountUsdc: "999.00",
+      destination: "api.pricey.example",
+      at: new Date().toISOString(),
+    });
+    const res = await runAbiAgent(demo.orgId, "why was api.pricey.example denied?");
+    assert.ok(res.toolsUsed.includes("explain_decision") || res.toolsUsed.includes("lookup_decision"));
+    assert.match(res.answer, /api\.pricey\.example|DENY|Band context|per-payment|ask-me/i);
+  });
+
+  it("surveys governance seats", async () => {
+    const demo = store.bootstrapDemo();
+    const res = await runAbiAgent(demo.orgId, "who can approve payments?");
+    assert.ok(res.toolsUsed.includes("governance_status"));
+    assert.match(res.answer, /guardian|quorum|approve/i);
+  });
+
+  it("bindEntities pulls amount and destination fragments", () => {
+    const demo = store.bootstrapDemo();
+    const e = bindEntities(demo.orgId, "Why was $25 to api.pricey.example blocked?");
+    assert.equal(e.amountUsdc, "25");
+    assert.ok(
+      e.destinations.some((d) => /pricey/i.test(d)) || e.destinations.includes("api.pricey.example"),
+    );
   });
 
   it("queues a MaltBook proposal for HITL without posting", async () => {

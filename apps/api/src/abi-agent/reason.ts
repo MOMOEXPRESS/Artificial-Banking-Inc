@@ -35,9 +35,19 @@ export function synthesizeAdvice(
     bullets.push("Review recent denials — either the agent is probing outside policy or bands are too tight.");
   }
 
-  const agents = results.find((r) => r.tool === "list_agents");
+  const agents = results.find((r) => r.tool === "list_agents" || r.tool === "agent_detail");
   if (agents?.text && /frozen/i.test(agents.text)) {
     bullets.push("At least one agent is frozen — thaw only after you understand the freeze reason.");
+  }
+
+  const explain = results.find((r) => r.tool === "explain_decision");
+  if (explain?.text && /\bDENY\b/.test(explain.text) && !bullets.some((b) => /denial/i.test(b))) {
+    bullets.push("If denials look wrong, open Policy and adjust ask-me-above or the per-payment ceiling.");
+  }
+
+  const gov = results.find((r) => r.tool === "governance_status");
+  if (gov?.text && /restricted/i.test(gov.text)) {
+    bullets.push("Some guardians are restricted — confirm quorum can still clear parked payments.");
   }
 
   if (!bullets.length) return null;

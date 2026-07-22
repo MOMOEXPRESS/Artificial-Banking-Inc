@@ -182,7 +182,7 @@ export function ChatView({
           </div>
         ) : messages.length === 0 ? (
           <Empty icon="spark">
-            ABI can survey the org, explain policy bands, or check quiet hours — try a chip below.
+            ABI can survey agents, explain denials against policy bands, or recommend next steps — try a chip below.
           </Empty>
         ) : (
           messages.map((m) => {
@@ -260,9 +260,9 @@ export function ChatView({
       <div className="suggest" style={{ marginTop: 12 }}>
         {[
           "What should I do next?",
-          "How are the agents?",
+          "How is Researcher?",
+          "Who can approve?",
           "Show policy bands",
-          "Are we in quiet hours?",
           "What do you remember?",
         ].map((s) => (
           <button key={s} disabled={locked} onClick={() => void send(s)}>
