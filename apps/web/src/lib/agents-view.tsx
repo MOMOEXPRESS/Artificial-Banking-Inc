@@ -162,7 +162,11 @@ export function AgentsView({
   // Poll while viewing ops labels so request-path auto-fund sweeps show up.
   useEffect(() => {
     if (tab !== "groups") return;
-    const t = window.setInterval(() => void refreshRoster(), 12_000);
+    const tick = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      void refreshRoster();
+    };
+    const t = window.setInterval(tick, 15_000);
     return () => window.clearInterval(t);
   }, [tab, refreshRoster]);
 

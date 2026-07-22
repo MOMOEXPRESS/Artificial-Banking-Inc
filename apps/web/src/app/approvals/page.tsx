@@ -54,6 +54,7 @@ export default function MobileApprovalsPage() {
 
   const refresh = useCallback(async () => {
     if (!session) return;
+    if (typeof document !== "undefined" && document.hidden) return;
     const [aRes, oRes] = await Promise.all([gFetch("/v1/guardian/approvals"), gFetch("/v1/guardian/org")]);
     const body = (await aRes.json()) as { approvals?: Approval[] } | Approval[];
     const approvals = Array.isArray(body) ? body : (body.approvals ?? []);
@@ -68,7 +69,14 @@ export default function MobileApprovalsPage() {
     if (!session) return;
     void refresh();
     const t = setInterval(() => void refresh(), 8000);
-    return () => clearInterval(t);
+    const onVis = () => {
+      if (!document.hidden) void refresh();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [session, refresh]);
 
   async function resolve(id: string, approve: boolean) {

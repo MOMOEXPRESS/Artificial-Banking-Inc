@@ -2614,9 +2614,7 @@ input[type="range"].slider::-moz-range-thumb {
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  background: var(--color-surface-3);
-  backdrop-filter: var(--blur);
-  -webkit-backdrop-filter: var(--blur);
+  background: var(--color-surface-solid);
   border: 1px solid var(--border-strong, var(--color-border));
   border-left: 3px solid var(--warn, var(--color-warning));
   border-radius: var(--radius-md);
@@ -2722,9 +2720,11 @@ input[type="range"].slider::-moz-range-thumb {
   place-items: center;
   padding: 72px 24px 48px;
   overflow: hidden;
+  /* Cool steel wash — matches console glass, not the old olive cast */
   background:
-    radial-gradient(900px 520px at 50% 42%, rgba(90, 107, 74, 0.14), transparent 58%),
-    radial-gradient(720px 460px at 8% 100%, rgba(10, 10, 12, 0.35), transparent 62%),
+    radial-gradient(880px 500px at 50% 40%, rgba(59, 130, 246, 0.1), transparent 58%),
+    radial-gradient(640px 420px at 90% 10%, rgba(255, 255, 255, 0.04), transparent 55%),
+    radial-gradient(720px 460px at 8% 100%, rgba(10, 10, 12, 0.45), transparent 62%),
     #0c0c10;
   color: var(--color-fg);
 }
@@ -2740,12 +2740,11 @@ input[type="range"].slider::-moz-range-thumb {
   padding: 10px 14px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(22, 22, 26, 0.72);
+  background: rgba(22, 22, 26, 0.92);
   color: #f4f4f6;
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
-  backdrop-filter: blur(8px);
   transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
 }
 
@@ -2816,31 +2815,37 @@ input[type="range"].slider::-moz-range-thumb {
 
 .vault-glow {
   position: absolute;
-  width: 280px;
-  height: 280px;
+  width: 300px;
+  height: 300px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(122, 143, 104, 0.28), transparent 68%);
-  filter: blur(8px);
-  opacity: 0.5;
+  /* Soft blue bloom without filter:blur (cheaper than GPU blur layers) */
+  background: radial-gradient(
+    circle,
+    rgba(59, 130, 246, 0.22) 0%,
+    rgba(59, 130, 246, 0.06) 42%,
+    transparent 70%
+  );
+  opacity: 0.65;
   z-index: 0;
+  pointer-events: none;
 }
 
 .vault.is-playing .vault-glow {
-  animation: vault-glow-pulse 1.2s ease 2.7s forwards;
+  animation: vault-glow-pulse 1.15s ease 2.7s forwards;
 }
 
 @keyframes vault-glow-pulse {
   0% {
-    opacity: 0.5;
+    opacity: 0.65;
     transform: scale(1);
   }
-  50% {
+  45% {
     opacity: 1;
-    transform: scale(1.35);
+    transform: scale(1.28);
   }
   100% {
-    opacity: 0.15;
-    transform: scale(1.6);
+    opacity: 0.12;
+    transform: scale(1.55);
   }
 }
 

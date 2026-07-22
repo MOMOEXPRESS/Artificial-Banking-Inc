@@ -151,62 +151,67 @@ export function Login({
 }
 
 /**
- * Hexagonal vault — dial spins, bolts retract, door swings open on the hinges.
- * Visual language matches the brand vault mark (hex + dial + hinge blocks).
+ * Glass-steel hexagonal vault — same language as the AB mark and console:
+ * cool greys, soft blue accent rim, dial + bolts. No olive/green cast.
  */
 function VaultDoor({ playing }: { playing: boolean }) {
   return (
     <div className={`vault ${playing ? "is-playing" : ""}`}>
-      <div className="vault-glow" />
+      <div className="vault-glow" aria-hidden />
       <div className="vault-scene">
-        {/* Outer fixed frame (stays) */}
         <svg className="vault-svg vault-frame-svg" viewBox="0 0 240 240" aria-hidden>
           <defs>
             <linearGradient id="vault-steel" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#3a3a42" />
-              <stop offset="45%" stopColor="#1c1c22" />
-              <stop offset="100%" stopColor="#0e0e12" />
+              <stop offset="0%" stopColor="#3a3a44" />
+              <stop offset="42%" stopColor="#1a1a20" />
+              <stop offset="100%" stopColor="#0c0c10" />
             </linearGradient>
             <linearGradient id="vault-rim" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#6a6a74" />
-              <stop offset="100%" stopColor="#2a2a32" />
+              <stop offset="0%" stopColor="#8e8e99" />
+              <stop offset="100%" stopColor="#3a3a42" />
+            </linearGradient>
+            <linearGradient id="vault-accent" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#60a5fa" />
+              <stop offset="100%" stopColor="#2563eb" />
             </linearGradient>
           </defs>
           <polygon
-            className="vault-hex-outer"
             points="120,18 198,62 198,178 120,222 42,178 42,62"
             fill="url(#vault-steel)"
             stroke="url(#vault-rim)"
-            strokeWidth="6"
+            strokeWidth="5.5"
             strokeLinejoin="round"
           />
           <polygon
             points="120,34 184,70 184,170 120,206 56,170 56,70"
             fill="none"
-            stroke="#5a6b4a"
-            strokeWidth="2.5"
+            stroke="url(#vault-accent)"
+            strokeWidth="1.75"
             strokeLinejoin="round"
-            opacity="0.85"
+            opacity="0.55"
           />
-          {/* Hinge blocks on the right — suggest the swing axis */}
-          <rect className="vault-hinge" x="192" y="88" width="10" height="16" rx="2" fill="#c8c8d0" />
-          <rect className="vault-hinge" x="192" y="112" width="10" height="16" rx="2" fill="#c8c8d0" />
-          <rect className="vault-hinge" x="192" y="136" width="10" height="16" rx="2" fill="#c8c8d0" />
+          <rect className="vault-hinge" x="192" y="88" width="9" height="15" rx="2" fill="#c8c8d0" />
+          <rect className="vault-hinge" x="192" y="112" width="9" height="15" rx="2" fill="#c8c8d0" />
+          <rect className="vault-hinge" x="192" y="136" width="9" height="15" rx="2" fill="#c8c8d0" />
         </svg>
 
-        {/* Swinging door face */}
         <div className="vault-door-pivot">
           <div className="vault-door-face">
             <svg className="vault-svg" viewBox="0 0 240 240" aria-hidden>
+              <defs>
+                <linearGradient id="vault-dial-accent" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#60a5fa" />
+                  <stop offset="100%" stopColor="#2563eb" />
+                </linearGradient>
+              </defs>
               <polygon
                 points="120,38 180,72 180,168 120,202 60,168 60,72"
-                fill="#16161c"
-                stroke="#2e2e36"
-                strokeWidth="3"
+                fill="#141418"
+                stroke="rgba(255,255,255,0.12)"
+                strokeWidth="2.5"
                 strokeLinejoin="round"
               />
-              {/* Six locking bolts / spokes */}
-              <g className="vault-bolts" fill="#2a2a32" stroke="#8a8a94" strokeWidth="1.5">
+              <g className="vault-bolts" fill="#24242c" stroke="#9a9aa3" strokeWidth="1.4">
                 {[0, 60, 120, 180, 240, 300].map((deg, i) => (
                   <g key={deg} transform={`rotate(${deg} 120 120)`}>
                     <rect
@@ -221,10 +226,17 @@ function VaultDoor({ playing }: { playing: boolean }) {
                   </g>
                 ))}
               </g>
-              {/* Combination dial */}
               <g className="vault-dial">
-                <circle cx="120" cy="120" r="36" fill="#1e1e24" stroke="#6a6a74" strokeWidth="3" />
-                <circle cx="120" cy="120" r="26" fill="none" stroke="#5a6b4a" strokeWidth="2" />
+                <circle cx="120" cy="120" r="36" fill="#1c1c22" stroke="#6b6b76" strokeWidth="2.5" />
+                <circle
+                  cx="120"
+                  cy="120"
+                  r="26"
+                  fill="none"
+                  stroke="url(#vault-dial-accent)"
+                  strokeWidth="1.75"
+                  opacity="0.75"
+                />
                 {Array.from({ length: 12 }).map((_, i) => {
                   const a = ((i * 30 - 90) * Math.PI) / 180;
                   const x = 120 + Math.cos(a) * 30;
@@ -232,18 +244,26 @@ function VaultDoor({ playing }: { playing: boolean }) {
                   return (
                     <rect
                       key={i}
-                      x={x - 2.5}
-                      y={y - 5}
-                      width="5"
-                      height="10"
-                      rx="2"
-                      fill="#7a8f68"
+                      x={x - 2}
+                      y={y - 4.5}
+                      width="4"
+                      height="9"
+                      rx="1.5"
+                      fill="#c8c8d0"
                       transform={`rotate(${i * 30} ${x} ${y})`}
                     />
                   );
                 })}
-                <circle cx="120" cy="120" r="10" fill="#0a0a0c" stroke="#c8c8d0" strokeWidth="2" />
-                <line x1="120" y1="120" x2="120" y2="98" stroke="#f4f4f6" strokeWidth="2.5" strokeLinecap="round" />
+                <circle cx="120" cy="120" r="9" fill="#0a0a0c" stroke="#e8e8ec" strokeWidth="1.75" />
+                <line
+                  x1="120"
+                  y1="120"
+                  x2="120"
+                  y2="99"
+                  stroke="#f4f4f6"
+                  strokeWidth="2.25"
+                  strokeLinecap="round"
+                />
               </g>
             </svg>
           </div>

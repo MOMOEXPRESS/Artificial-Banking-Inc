@@ -66,7 +66,7 @@ describe("runAutoFundSweep", () => {
         ?.balanceMicro ?? 0n;
     assert.equal(before, parseUsdcToMicro("1"));
 
-    const { toppedUp } = runAutoFundSweep();
+    const { toppedUp } = runAutoFundSweep({ force: true });
     assert.equal(toppedUp, 1);
 
     const after =
@@ -74,7 +74,7 @@ describe("runAutoFundSweep", () => {
         ?.balanceMicro ?? 0n;
     assert.equal(after, parseUsdcToMicro("26"));
 
-    // Cooldown: second sweep should no-op.
-    assert.equal(runAutoFundSweep().toppedUp, 0);
+    // Agent cooldown: second forced sweep should no-op (minIntervalMinutes).
+    assert.equal(runAutoFundSweep({ force: true }).toppedUp, 0);
   });
 });

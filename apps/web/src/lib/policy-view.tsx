@@ -91,6 +91,75 @@ function quietWindowStatus(
   };
 }
 
+/** Isolated so the 1s tick doesn't re-render the whole Policy form. */
+function QuietHoursTimer({
+  quiet,
+  active,
+}: {
+  quiet: { startHour: number; endHour: number };
+  active: boolean;
+}) {
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    const t = window.setInterval(() => {
+      if (document.hidden) return;
+      setNowTick(Date.now());
+    }, 1_000);
+    return () => window.clearInterval(t);
+  }, [active]);
+  const quietLive = useMemo(
+    () => quietWindowStatus(quiet, new Date(nowTick)),
+    [quiet, nowTick],
+  );
+  return (
+    <div
+      className={`quiet-timer ${quietLive.inQuiet ? "is-active" : "is-idle"}`}
+      role="timer"
+      aria-live="polite"
+      aria-label={
+        quietLive.inQuiet
+          ? `Quiet hours end in ${quietLive.countdown}`
+          : `Quiet hours begin in ${quietLive.countdown}`
+      }
+    >
+      <div className="quiet-timer-face" aria-hidden>
+        <svg viewBox="0 0 120 120" className="quiet-timer-ring">
+          <circle cx="60" cy="60" r="52" className="quiet-timer-track" />
+          <circle
+            cx="60"
+            cy="60"
+            r="52"
+            className="quiet-timer-progress"
+            style={{
+              strokeDasharray: `${2 * Math.PI * 52}`,
+              strokeDashoffset: `${2 * Math.PI * 52 * (1 - quietLive.progress)}`,
+            }}
+          />
+        </svg>
+        <div className="quiet-timer-core">
+          <span className="quiet-timer-digits mono">{quietLive.timer}</span>
+          <span className="quiet-timer-phase">
+            {quietLive.inQuiet ? "until quiet ends" : "until quiet starts"}
+          </span>
+        </div>
+      </div>
+      <div className="quiet-timer-meta">
+        <b>
+          <Icon name="clock" size={14} />
+          {quietLive.inQuiet ? "Quiet hours active" : "Open for spending"}
+        </b>
+        <span>{quietLive.label}</span>
+        <span className="faint mono">{quietLive.clock}</span>
+        <div className="quiet-timer-bar" aria-hidden>
+          <div style={{ width: `${Math.round(quietLive.progress * 100)}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export type Policy = {
   perTxMaxUsdc: string;
   dailyMaxUsdc: string;
@@ -286,16 +355,6 @@ export function PolicyView({
     policy.quietHours ?? { startHour: 22, endHour: 6, action: "review" as const },
   );
   const [quietOn, setQuietOn] = useState(!!policy.quietHours);
-  const [nowTick, setNowTick] = useState(() => Date.now());
-  const quietLive = useMemo(
-    () => (quietOn ? quietWindowStatus(quiet, new Date(nowTick)) : null),
-    [quietOn, quiet, nowTick],
-  );
-  useEffect(() => {
-    if (!quietOn) return;
-    const t = window.setInterval(() => setNowTick(Date.now()), 1_000);
-    return () => window.clearInterval(t);
-  }, [quietOn]);
   const [automation, setAutomation] = useState(policy.automation ?? []);
   const [touched, setTouched] = useState(false);
   const [versions, setVersions] = useState<
@@ -667,51 +726,7 @@ export function PolicyView({
                 aria-label="Toggle quiet hours"
               />
             </div>
-            {quietOn && quietLive && (
-              <div
-                className={`quiet-timer ${quietLive.inQuiet ? "is-active" : "is-idle"}`}
-                role="timer"
-                aria-live="polite"
-                aria-label={
-                  quietLive.inQuiet
-                    ? `Quiet hours end in ${quietLive.countdown}`
-                    : `Quiet hours begin in ${quietLive.countdown}`
-                }
-              >
-                <div className="quiet-timer-face" aria-hidden>
-                  <svg viewBox="0 0 120 120" className="quiet-timer-ring">
-                    <circle cx="60" cy="60" r="52" className="quiet-timer-track" />
-                    <circle
-                      cx="60"
-                      cy="60"
-                      r="52"
-                      className="quiet-timer-progress"
-                      style={{
-                        strokeDasharray: `${2 * Math.PI * 52}`,
-                        strokeDashoffset: `${2 * Math.PI * 52 * (1 - quietLive.progress)}`,
-                      }}
-                    />
-                  </svg>
-                  <div className="quiet-timer-core">
-                    <span className="quiet-timer-digits mono">{quietLive.timer}</span>
-                    <span className="quiet-timer-phase">
-                      {quietLive.inQuiet ? "until quiet ends" : "until quiet starts"}
-                    </span>
-                  </div>
-                </div>
-                <div className="quiet-timer-meta">
-                  <b>
-                    <Icon name="clock" size={14} />
-                    {quietLive.inQuiet ? "Quiet hours active" : "Open for spending"}
-                  </b>
-                  <span>{quietLive.label}</span>
-                  <span className="faint mono">{quietLive.clock}</span>
-                  <div className="quiet-timer-bar" aria-hidden>
-                    <div style={{ width: `${Math.round(quietLive.progress * 100)}%` }} />
-                  </div>
-                </div>
-              </div>
-            )}
+            {quietOn && <QuietHoursTimer quiet={quiet} active={tab === "rules"} />}
             {quietOn && (
               <div className="row" style={{ gap: 14, flexWrap: "wrap", marginTop: 14 }}>
                 <div className="field" style={{ margin: 0 }}>

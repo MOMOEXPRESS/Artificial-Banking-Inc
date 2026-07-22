@@ -595,7 +595,7 @@ export function registerAgentRoutes(
       // Apply immediately so "save rule" / toggle doesn't wait for a timer.
       let sweep = { toppedUp: 0 };
       try {
-        sweep = runAutoFundSweep();
+        sweep = runAutoFundSweep({ force: true });
       } catch (e) {
         console.error("auto-fund sweep failed:", e);
       }

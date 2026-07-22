@@ -13,7 +13,17 @@ import { id } from "./engine.js";
 import { store } from "./store.js";
 import { emitEvent } from "./webhooks.js";
 
-export function runAutoFundSweep(): { toppedUp: number } {
+/** Coalesce request-path sweeps so every /abi-api hit isn't a full ledger walk. */
+let lastSweepAt = 0;
+const SWEEP_MIN_GAP_MS = 5_000;
+
+export function runAutoFundSweep(opts?: { force?: boolean }): { toppedUp: number } {
+  const now = Date.now();
+  if (!opts?.force && now - lastSweepAt < SWEEP_MIN_GAP_MS) {
+    return { toppedUp: 0 };
+  }
+  lastSweepAt = now;
+
   let toppedUp = 0;
   for (const group of store.listAutoFundEnabledGroups()) {
     const cfg = group.autoFund;
