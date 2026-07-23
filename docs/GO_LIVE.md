@@ -86,6 +86,9 @@ That single approved pay is the week’s definition of “live.”
 
 ## YC one-liner + 60s video (if applying)
 
+**Full draft answers:** [`docs/YC-APPLICATION.md`](./YC-APPLICATION.md)  
+**Apply:** https://www.ycombinator.com/apply — Fall 2026 on-time deadline **July 27, 8pm PT**.
+
 **One-liner**
 
 > Artificial Banking Inc: policy-controlled USDC wallets for AI agents — budgets, stipends, and human approval before spend.
