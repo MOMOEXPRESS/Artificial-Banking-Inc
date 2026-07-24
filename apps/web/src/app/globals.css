@@ -6471,10 +6471,6 @@ button.user-chip {
     grid-template-columns: 1fr;
   }
 }
-  background: color-mix(in srgb, #627eea 24%, transparent);
-  border-color: color-mix(in srgb, #627eea 40%, transparent);
-  color: #9aa7ff;
-}
 
 .wallet-asset-meta {
   display: flex;
