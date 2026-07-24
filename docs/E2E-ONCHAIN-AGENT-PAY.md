@@ -159,7 +159,7 @@ Update this file as work lands.
 3. [x] `rails/evm-usdc-transfer.ts`  
 4. [x] Wire `executeIntent` + rails registry + pre-check  
 5. [x] Smoke steps below (+ `PAY_TO_ADDRESS` on demo-agent)  
-6. [ ] Merge to `main` → redeploy → your live pay test  
+6. [x] Merge to `main` (`a03252f`) → redeploy → your live pay test  
 
 ---
 
