@@ -162,7 +162,49 @@ export function TreasuryView({
     { id: string; symbol: string; decimals: number; chain: string; balance: string }[]
   >([]);
   const [assetId, setAssetId] = useState("asset_usdc");
-
+  const [onchain, setOnchain] = useState<{
+    ok: boolean;
+    error?: string;
+    networkName?: string;
+    network?: string;
+    chainId?: number;
+    vaultAddress?: string | null;
+    usdcContract?: string;
+    explorerAddress?: string;
+    onchainBalanceUsdc?: string;
+    blockNumber?: string;
+    scannedFromBlock?: string;
+    scannedToBlock?: string;
+    transfers?: {
+      txHash: string;
+      logIndex: number;
+      blockNumber: string;
+      from: string;
+      amountUsdc: string;
+      explorerUrl: string;
+      status: "detected" | "credited";
+    }[];
+  } | null>(null);
+  const [onchainBusy, setOnchainBusy] = useState(false);
+  const [vaultActivity, setVaultActivity] = useState<
+    {
+      id: string;
+      kind: string;
+      source: string;
+      assetId?: string;
+      symbol?: string;
+      amountUsdc: string;
+      direction: "in" | "out";
+      at: string;
+      label: string;
+      from?: string;
+      txHash?: string;
+      explorerUrl?: string;
+      network?: string;
+      memo?: string;
+      blockNumber?: string;
+    }[]
+  >([]);
   const depositSchema = z.object({
     amountUsdc: z
       .string()
@@ -200,9 +242,29 @@ export function TreasuryView({
     setHoldings(a.assets ?? []);
   }, [gFetch]);
 
+  const refreshOnchain = useCallback(async () => {
+    setOnchainBusy(true);
+    try {
+      const [d, act] = await Promise.all([
+        gFetch("/v1/guardian/treasury/onchain").then((x) => x.json()),
+        gFetch("/v1/guardian/treasury/vault-activity").then((x) => x.json()),
+      ]);
+      setOnchain(d.onchain ?? null);
+      setVaultActivity(act.items ?? []);
+    } catch {
+      setOnchain({ ok: false, error: "Could not reach on-chain status" });
+    } finally {
+      setOnchainBusy(false);
+    }
+  }, [gFetch]);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (tab === "fund") void refreshOnchain();
+  }, [tab, refreshOnchain, assetId]);
 
   useEffect(() => {
     if (!wallets || from || to) return;
@@ -426,8 +488,11 @@ export function TreasuryView({
                   const sel =
                     holdings.find((h) => h.id === assetId) ??
                     holdings.find((h) => h.id === "asset_usdc");
-                  const sym = sel?.symbol ?? wallets?.asset.symbol ?? "USDC";
-                  const bal = sel?.balance ?? wallets?.org.availableUsdc ?? "0";
+                  const sym = sel?.symbol ?? "USDC";
+                  const bal =
+                    assetId === "asset_usdc"
+                      ? (wallets?.org.availableUsdc ?? sel?.balance ?? "0")
+                      : (sel?.balance ?? "0");
                   const n = Number(bal);
                   return (
                     <>
@@ -442,30 +507,33 @@ export function TreasuryView({
                 })()}
               </div>
               <div className="wallet-hero-chain muted">
-                {(holdings.find((h) => h.id === assetId) ?? holdings[0])?.chain ??
-                  wallets?.asset.chain ??
-                  "—"}
-                {vault ? (
+                {(holdings.find((h) => h.id === assetId) ?? holdings[0])?.chain ?? "—"}
+                {assetId === "asset_usdc" && vault ? (
                   <>
                     {" · "}
                     <code className="mono" style={{ fontSize: 11 }}>
-                      {vault.slice(0, 8)}…{vault.slice(-6)}
+                      {vault.slice(0, 10)}…{vault.slice(-6)}
                     </code>
                     <Button
                       variant="ghost"
                       size="sm"
-                      style={{ marginLeft: 6 }}
+                      style={{ marginLeft: 6, color: "inherit" }}
                       disabled={!vault}
                       onClick={() => void copyVault()}
                     >
-                      {copied ? "Copied" : "Copy"}
+                      {copied ? "Copied" : "Copy address"}
                     </Button>
                   </>
                 ) : null}
+                {assetId === "asset_usdc" ? (
+                  <span className="wallet-hero-pill">Spend rail · agents pay from this</span>
+                ) : (
+                  <span className="wallet-hero-pill">Vault holding</span>
+                )}
               </div>
             </div>
 
-            <div className="wallet-assets" role="list">
+            <div className="wallet-assets" role="list" aria-label="Vault assets">
               {(holdings.length
                 ? holdings
                 : [
@@ -473,13 +541,15 @@ export function TreasuryView({
                       id: "asset_usdc",
                       symbol: "USDC",
                       decimals: 6,
-                      chain: wallets?.asset.chain ?? "base-sepolia",
+                      chain: "base-sepolia",
                       balance: wallets?.org.availableUsdc ?? "0",
                     },
                   ]
               ).map((h) => {
                 const active = h.id === assetId;
-                const n = Number(h.balance);
+                const n = Number(
+                  h.id === "asset_usdc" ? (wallets?.org.availableUsdc ?? h.balance) : h.balance,
+                );
                 return (
                   <button
                     key={h.id}
@@ -493,7 +563,10 @@ export function TreasuryView({
                     </span>
                     <span className="wallet-asset-meta">
                       <b>{h.symbol}</b>
-                      <span className="faint">{h.chain}</span>
+                      <span className="faint">
+                        {h.chain}
+                        {h.id === "asset_usdc" ? " · spend" : ""}
+                      </span>
                     </span>
                     <span className="wallet-asset-bal mono">
                       {Number.isNaN(n)
@@ -506,21 +579,189 @@ export function TreasuryView({
             </div>
           </div>
 
-          <div className="grid g-2 fill">
-            <div className="card wallet-action-card">
+          {assetId === "asset_usdc" && (
+            <div className="card">
               <div className="card-head">
                 <div>
-                  <h2 style={{ margin: 0 }}>Receive</h2>
+                  <h2 style={{ margin: 0 }}>On-chain (Base)</h2>
                   <div className="sub">
-                    Credit the selected asset into the vault (demo ledger for USDC; holdings for BTC/ETH).
+                    Real USDC at this vault address on {onchain?.networkName ?? "Base Sepolia"}. Sync
+                    pulls confirmed Transfer-ins into the spendable ledger.
                   </div>
                 </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={onchainBusy || locked}
+                    onClick={() => void refreshOnchain()}
+                  >
+                    {onchainBusy ? "Checking…" : "Refresh"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={onchainBusy || locked}
+                    onClick={() =>
+                      void act("Sync on-chain deposits", async () => {
+                        setOnchainBusy(true);
+                        try {
+                          const res = await gFetch("/v1/guardian/treasury/onchain/sync", {
+                            method: "POST",
+                          });
+                          const j = await res.json();
+                          if (!res.ok) throw new Error(j.error?.message ?? "Sync failed");
+                          setOnchain(j.onchain ?? null);
+                          await refresh();
+                          await refreshOnchain();
+                          return j.note ?? `Credited ${j.creditedCount ?? 0} deposit(s).`;
+                        } finally {
+                          setOnchainBusy(false);
+                        }
+                      })
+                    }
+                  >
+                    Sync deposits
+                  </Button>
+                </div>
               </div>
+
+              {onchain?.error && !onchain.ok ? (
+                <div className="banner" style={{ marginBottom: 10 }}>
+                  <span className="txt">
+                    <b>Chain read failed</b>
+                    <span>{onchain.error}</span>
+                  </span>
+                </div>
+              ) : null}
+
+              <div className="wallet-onchain-stats">
+                <div>
+                  <span className="faint">On-chain USDC</span>
+                  <b>{onchain?.onchainBalanceUsdc ?? "—"}</b>
+                </div>
+                <div>
+                  <span className="faint">Ledger (spendable)</span>
+                  <b>{fmt(wallets?.org.availableUsdc)}</b>
+                </div>
+                <div>
+                  <span className="faint">Network</span>
+                  <b>
+                    {onchain?.networkName ?? "—"}
+                    {onchain?.chainId ? ` · ${onchain.chainId}` : ""}
+                  </b>
+                </div>
+              </div>
+
+              {onchain?.explorerAddress ? (
+                <p className="faint" style={{ fontSize: 12, marginTop: 8 }}>
+                  <a href={onchain.explorerAddress} target="_blank" rel="noreferrer">
+                    Open vault on Basescan
+                  </a>
+                  {" · "}
+                  USDC {onchain.usdcContract?.slice(0, 8)}…
+                </p>
+              ) : null}
+
+              {(onchain?.transfers?.length ?? 0) > 0 && (
+                <div style={{ marginTop: 14 }}>
+                  <b style={{ fontSize: 13 }}>Detected on chain</b>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                    {onchain!.transfers!.slice(0, 6).map((t) => (
+                      <div key={`${t.txHash}-${t.logIndex}`} className="wallet-tx-row">
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>
+                            +{t.amountUsdc} USDC{" "}
+                            <span className={`pill ${t.status === "credited" ? "ok" : "warn"}`}>
+                              <i /> {t.status}
+                            </span>
+                          </div>
+                          <div className="faint" style={{ fontSize: 11.5, marginTop: 3 }}>
+                            from {t.from.slice(0, 8)}…{t.from.slice(-4)} · block {t.blockNumber}
+                          </div>
+                        </div>
+                        <a href={t.explorerUrl} target="_blank" rel="noreferrer">
+                          Tx
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <h2 style={{ margin: 0 }}>Activity</h2>
+                <div className="sub">
+                  Incoming and outgoing for{" "}
+                  {holdings.find((h) => h.id === assetId)?.symbol ?? "this asset"} — including
+                  external wallet receives once synced.
+                </div>
+              </div>
+            </div>
+            {(() => {
+              const rows = vaultActivity.filter((i) => !assetId || i.assetId === assetId || (!("assetId" in i) && assetId === "asset_usdc"));
+              // vaultActivity items always have assetId from API; filter client-side
+              const filtered = vaultActivity.filter((i) => (i as { assetId?: string }).assetId === assetId || (!(i as { assetId?: string }).assetId && assetId === "asset_usdc"));
+              const list = filtered.length ? filtered : rows;
+              if (list.length === 0) {
+                return (
+                  <p className="faint" style={{ fontSize: 12.5, lineHeight: 1.55 }}>
+                    No history yet for this asset. For USDC: send Base Sepolia USDC to the vault
+                    address, then Sync deposits. For BTC/ETH/others: use Receive below to record a
+                    holding.
+                  </p>
+                );
+              }
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {list.slice(0, 25).map((t) => (
+                    <div key={t.id} className="wallet-tx-row">
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>
+                          {t.direction === "in" ? "+" : "−"}
+                          {t.amountUsdc} {(t as { symbol?: string }).symbol ?? "USDC"}
+                          <span className="faint" style={{ fontWeight: 500, marginLeft: 8 }}>
+                            {t.label}
+                          </span>
+                        </div>
+                        <div className="faint" style={{ fontSize: 11.5, marginTop: 3 }}>
+                          {new Date(t.at).toLocaleString()}
+                          {t.from ? ` · from ${t.from.slice(0, 8)}…` : ""}
+                          {t.network ? ` · ${t.network}` : ""}
+                        </div>
+                      </div>
+                      {t.explorerUrl ? (
+                        <a href={t.explorerUrl} target="_blank" rel="noreferrer">
+                          Tx
+                        </a>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <h2 style={{ margin: 0 }}>Receive / Send</h2>
+                <div className="sub">
+                  {assetId === "asset_usdc"
+                    ? "Prefer Sync deposits for real chain USDC. Manual receive credits the demo ledger."
+                    : `Record ${holdings.find((h) => h.id === assetId)?.symbol ?? "asset"} into vault holdings (manual until chain adapters ship).`}
+                </div>
+              </div>
+            </div>
+            <div className="grid g-2 fill">
               <Form {...depositForm}>
                 <form
                   style={{ display: "flex", flexDirection: "column", gap: 12 }}
                   onSubmit={depositForm.handleSubmit((values) =>
-                    void act("Deposit", async () => {
+                    void act("Receive", async () => {
                       const res = await gFetch("/v1/guardian/treasury/deposit", {
                         method: "POST",
                         body: JSON.stringify({
@@ -531,9 +772,9 @@ export function TreasuryView({
                       const j = await res.json();
                       if (!res.ok) throw new Error(j.error?.message ?? "Deposit failed");
                       await refresh();
+                      await refreshOnchain();
                       depositForm.reset({ amountUsdc: "100" });
-                      const sym = j.symbol ?? "USDC";
-                      return `Received ${j.amountUsdc} ${sym} into the org vault.`;
+                      return `Received ${j.amountUsdc} ${j.symbol ?? "USDC"} into the vault.`;
                     }),
                   )}
                 >
@@ -543,8 +784,7 @@ export function TreasuryView({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          Amount (
-                          {holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
+                          Receive ({holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
                         </FormLabel>
                         <FormControl>
                           <Input {...field} disabled={readOnly} placeholder="100" data-shortcut-ignore />
@@ -558,37 +798,26 @@ export function TreasuryView({
                   </Button>
                 </form>
               </Form>
-            </div>
 
-            <div className="card wallet-action-card">
-              <div className="card-head">
-                <div>
-                  <h2 style={{ margin: 0 }}>Send</h2>
-                  <div className="sub">
-                    Debit USDC from the spend rail (ledger). Non-USDC send coming with custody rails.
-                  </div>
-                </div>
-              </div>
               <Form {...withdrawForm}>
                 <form
                   style={{ display: "flex", flexDirection: "column", gap: 12 }}
                   onSubmit={withdrawForm.handleSubmit((values) =>
-                    void act("Withdraw", async () => {
-                      if (assetId !== "asset_usdc") {
-                        throw new Error("Send is USDC-only on the spend rail for now — switch to USDC.");
-                      }
+                    void act("Send", async () => {
                       const res = await gFetch("/v1/guardian/treasury/withdraw", {
                         method: "POST",
                         body: JSON.stringify({
                           amountUsdc: values.amountUsdc.trim(),
                           destination: values.destination?.trim() || undefined,
+                          assetId,
                         }),
                       });
                       const j = await res.json();
                       if (!res.ok) throw new Error(j.error?.message ?? "Withdraw failed");
                       withdrawForm.reset({ amountUsdc: "", destination: "" });
                       await refresh();
-                      return `Sent ${j.amountUsdc} USDC from org treasury.`;
+                      await refreshOnchain();
+                      return `Sent ${j.amountUsdc} ${j.symbol ?? "USDC"} from the vault.`;
                     }),
                   )}
                 >
@@ -597,9 +826,11 @@ export function TreasuryView({
                     name="amountUsdc"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Amount (USDC)</FormLabel>
+                        <FormLabel>
+                          Send ({holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
+                        </FormLabel>
                         <FormControl>
-                          <Input {...field} disabled={readOnly || assetId !== "asset_usdc"} placeholder="10" data-shortcut-ignore />
+                          <Input {...field} disabled={readOnly} placeholder="10" data-shortcut-ignore />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -610,15 +841,20 @@ export function TreasuryView({
                     name="destination"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Destination memo</FormLabel>
+                        <FormLabel>Destination / memo</FormLabel>
                         <FormControl>
-                          <Input {...field} disabled={readOnly || assetId !== "asset_usdc"} placeholder="external / exchange" data-shortcut-ignore />
+                          <Input
+                            {...field}
+                            disabled={readOnly}
+                            placeholder="external wallet / note"
+                            data-shortcut-ignore
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                  <Button type="submit" size="sm" variant="ghost" disabled={locked || assetId !== "asset_usdc"}>
+                  <Button type="submit" size="sm" variant="ghost" disabled={locked}>
                     <Icon name="send" size={13} /> Send
                   </Button>
                 </form>
@@ -627,7 +863,6 @@ export function TreasuryView({
           </div>
         </div>
       )}
-
       {tab === "wallets" && (
         <>
           <div className="treasury-scope-row" aria-hidden>

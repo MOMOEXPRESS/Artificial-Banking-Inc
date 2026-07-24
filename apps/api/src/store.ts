@@ -831,15 +831,20 @@ migrateSecretsAtRest();
   }
 }
 
-// Seed platform settlement assets once (USDC spend rail + display wallets).
+// Seed platform settlement assets once (majors + USDC spend rail).
 {
   const seed = db.prepare(
     "INSERT OR IGNORE INTO assets (id, org_id, symbol, decimals, chain, contract, created_at) VALUES (?, NULL, ?, ?, ?, ?, ?)",
   );
   const stamp = new Date().toISOString();
+  // Spend rail (ledger) — Base Sepolia USDC by default; CHAIN=base uses mainnet USDC elsewhere.
   seed.run("asset_usdc", "USDC", 6, "base-sepolia", "0x036CbD53842c5426634e7929541eC2318f3dCF7e", stamp);
-  seed.run("asset_btc", "BTC", 8, "bitcoin", null, stamp);
+  seed.run("asset_usdt", "USDT", 6, "ethereum", "0xdAC17F958D2ee523a2206206994597C13D831ec7", stamp);
+  seed.run("asset_eurc", "EURC", 6, "base-sepolia", "0x808456652fdb597867f384939655eD02696bA000", stamp);
   seed.run("asset_eth", "ETH", 18, "ethereum", null, stamp);
+  seed.run("asset_btc", "BTC", 8, "bitcoin", null, stamp);
+  seed.run("asset_sol", "SOL", 9, "solana", null, stamp);
+  seed.run("asset_dai", "DAI", 18, "ethereum", "0x6B175474E89094C44Da98b954EedeAC495271d0F", stamp);
 }
 
 db.exec(`
@@ -849,6 +854,34 @@ CREATE TABLE IF NOT EXISTS org_asset_balances (
   balance_micro TEXT NOT NULL DEFAULT '0',
   PRIMARY KEY (org_id, asset_id)
 );
+
+CREATE TABLE IF NOT EXISTS onchain_deposits (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  chain TEXT NOT NULL,
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number TEXT NOT NULL,
+  from_addr TEXT NOT NULL,
+  to_addr TEXT NOT NULL,
+  amount_micro TEXT NOT NULL,
+  asset_id TEXT NOT NULL DEFAULT 'asset_usdc',
+  credited_at TEXT NOT NULL,
+  UNIQUE (org_id, tx_hash, log_index)
+);
+CREATE INDEX IF NOT EXISTS idx_onchain_deposits_org ON onchain_deposits(org_id, credited_at);
+
+CREATE TABLE IF NOT EXISTS vault_asset_events (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  asset_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  amount_micro TEXT NOT NULL,
+  memo TEXT,
+  counterparty TEXT,
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vault_asset_events_org ON vault_asset_events(org_id, at);
 `);
 
 // Seed platform USDC asset once (legacy path kept for older DBs).
@@ -1544,18 +1577,32 @@ export const store = {
 
   // -------------------------------------------------------------- treasury
   listAssets(orgId: string): AssetRecord[] {
+    const priority: Record<string, number> = {
+      asset_usdc: 0,
+      asset_usdt: 1,
+      asset_eurc: 2,
+      asset_eth: 3,
+      asset_btc: 4,
+      asset_sol: 5,
+      asset_dai: 6,
+    };
     return (
       db
-        .prepare("SELECT * FROM assets WHERE org_id IS NULL OR org_id = ? ORDER BY symbol")
+        .prepare("SELECT * FROM assets WHERE org_id IS NULL OR org_id = ?")
         .all(orgId) as Row[]
-    ).map((r) => ({
-      id: r.id as string,
-      symbol: r.symbol as string,
-      decimals: r.decimals as number,
-      chain: r.chain as string,
-      contract: (r.contract as string | null) ?? null,
-      orgId: (r.org_id as string | null) ?? undefined,
-    }));
+    )
+      .map((r) => ({
+        id: r.id as string,
+        symbol: r.symbol as string,
+        decimals: r.decimals as number,
+        chain: r.chain as string,
+        contract: (r.contract as string | null) ?? null,
+        orgId: (r.org_id as string | null) ?? undefined,
+      }))
+      .sort(
+        (a, b) =>
+          (priority[a.id] ?? 50) - (priority[b.id] ?? 50) || a.symbol.localeCompare(b.symbol),
+      );
   },
 
   getAsset(assetId: string): AssetRecord | undefined {
@@ -1593,6 +1640,66 @@ export const store = {
     if (next < 0n) throw new Error("insufficient asset balance");
     this.setOrgAssetBalance(orgId, assetId, next);
     return next;
+  },
+
+  addVaultAssetEvent(input: {
+    orgId: string;
+    assetId: string;
+    kind: "in" | "out";
+    amountMicro: bigint;
+    memo?: string;
+    counterparty?: string;
+  }): { id: string; at: string } {
+    const row = {
+      id: id("vae"),
+      at: nowIso(),
+    };
+    db.prepare(
+      `INSERT INTO vault_asset_events (id, org_id, asset_id, kind, amount_micro, memo, counterparty, at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      row.id,
+      input.orgId,
+      input.assetId,
+      input.kind,
+      input.amountMicro.toString(),
+      input.memo ?? null,
+      input.counterparty ?? null,
+      row.at,
+    );
+    bumpRevision();
+    return row;
+  },
+
+  listVaultAssetEvents(
+    orgId: string,
+    limit = 80,
+  ): {
+    id: string;
+    orgId: string;
+    assetId: string;
+    kind: "in" | "out";
+    amountMicro: string;
+    memo?: string;
+    counterparty?: string;
+    at: string;
+  }[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM vault_asset_events WHERE org_id = ? ORDER BY at DESC LIMIT ?",
+        )
+        .all(orgId, limit) as Row[]
+    ).map((r) => ({
+      id: r.id as string,
+      orgId: r.org_id as string,
+      assetId: r.asset_id as string,
+      kind: r.kind as "in" | "out",
+      amountMicro: r.amount_micro as string,
+      memo: (r.memo as string | null) ?? undefined,
+      counterparty: (r.counterparty as string | null) ?? undefined,
+      at: r.at as string,
+    }));
   },
 
   listOrgAssetHoldings(orgId: string): { asset: AssetRecord; balanceMicro: bigint }[] {
@@ -1857,6 +1964,121 @@ export const store = {
         : undefined,
       at: r.at as string,
     }));
+  },
+
+  hasOnchainDeposit(orgId: string, txHash: string, logIndex: number): boolean {
+    const r = db
+      .prepare(
+        "SELECT id FROM onchain_deposits WHERE org_id = ? AND tx_hash = ? AND log_index = ?",
+      )
+      .get(orgId, txHash.toLowerCase(), logIndex);
+    return Boolean(r);
+  },
+
+  listOnchainDeposits(
+    orgId: string,
+    limit = 40,
+  ): {
+    id: string;
+    orgId: string;
+    chain: string;
+    txHash: string;
+    logIndex: number;
+    blockNumber: string;
+    from: string;
+    to: string;
+    amountMicro: string;
+    assetId: string;
+    creditedAt: string;
+  }[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM onchain_deposits WHERE org_id = ? ORDER BY credited_at DESC LIMIT ?",
+        )
+        .all(orgId, limit) as Row[]
+    ).map((r) => ({
+      id: r.id as string,
+      orgId: r.org_id as string,
+      chain: r.chain as string,
+      txHash: r.tx_hash as string,
+      logIndex: r.log_index as number,
+      blockNumber: r.block_number as string,
+      from: r.from_addr as string,
+      to: r.to_addr as string,
+      amountMicro: r.amount_micro as string,
+      assetId: r.asset_id as string,
+      creditedAt: r.credited_at as string,
+    }));
+  },
+
+  /**
+   * Idempotently credit a detected on-chain USDC Transfer into org_available.
+   * Returns null if already credited.
+   */
+  creditOnchainUsdcDeposit(input: {
+    orgId: string;
+    chain: string;
+    txHash: string;
+    logIndex: number;
+    blockNumber: string;
+    from: string;
+    to: string;
+    amountMicro: bigint;
+  }): { credited: boolean; id: string; amountMicro: bigint } {
+    const txHash = input.txHash.toLowerCase();
+    if (this.hasOnchainDeposit(input.orgId, txHash, input.logIndex)) {
+      const existing = db
+        .prepare(
+          "SELECT id, amount_micro FROM onchain_deposits WHERE org_id = ? AND tx_hash = ? AND log_index = ?",
+        )
+        .get(input.orgId, txHash, input.logIndex) as Row;
+      return {
+        credited: false,
+        id: existing.id as string,
+        amountMicro: BigInt(existing.amount_micro as string),
+      };
+    }
+    if (input.amountMicro <= 0n) {
+      throw new Error("amount must be positive");
+    }
+    const depId = id("odep");
+    const stamp = nowIso();
+    const externalId = `org:${input.orgId}:external`;
+    const orgAvail = `org:${input.orgId}:available`;
+    const tx = db.transaction(() => {
+      db.prepare(
+        `INSERT INTO onchain_deposits
+          (id, org_id, chain, tx_hash, log_index, block_number, from_addr, to_addr, amount_micro, asset_id, credited_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'asset_usdc', ?)`,
+      ).run(
+        depId,
+        input.orgId,
+        input.chain,
+        txHash,
+        input.logIndex,
+        input.blockNumber,
+        input.from.toLowerCase(),
+        input.to.toLowerCase(),
+        input.amountMicro.toString(),
+        stamp,
+      );
+      this.applyEntries(input.orgId, [
+        {
+          id: id("j"),
+          orgId: input.orgId,
+          memo: `onchain_deposit:${txHash}:${input.logIndex}`,
+          createdAt: stamp,
+          lines: [
+            { accountId: externalId, deltaMicro: -input.amountMicro },
+            { accountId: orgAvail, deltaMicro: input.amountMicro },
+          ],
+        },
+      ]);
+    });
+    tx();
+    bumpRevision();
+    return { credited: true, id: depId, amountMicro: input.amountMicro };
   },
 
   /** Rotate org custody keypair — old address recorded in recovery_events.meta. */
@@ -3209,6 +3431,8 @@ export const store = {
         "external_actions",
         "abi_memories",
         "org_asset_balances",
+        "onchain_deposits",
+        "vault_asset_events",
         "policy_versions",
         "policies",
         "journals",

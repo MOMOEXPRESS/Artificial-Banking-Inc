@@ -89,7 +89,8 @@ export type WebhookEventName =
   | "compliance.flagged"
   | "treasury.move.pending"
   | "treasury.move.executed"
-  | "treasury.recovery";
+  | "treasury.recovery"
+  | "treasury.onchain_deposit";
 
 export interface MoneyIntent {
   agentId: string;
@@ -210,6 +211,37 @@ export function formatMicroToUsdc(micro: MicroUsdc): string {
   const abs = neg ? -micro : micro;
   const whole = abs / MICRO_PER_USDC;
   const frac = (abs % MICRO_PER_USDC).toString().padStart(6, "0");
+  const trimmed = frac.replace(/0+$/, "");
+  const body = trimmed.length ? `${whole}.${trimmed}` : `${whole}`;
+  return neg ? `-${body}` : body;
+}
+
+/** Parse a human amount into base units for an asset with `decimals` (0–18). */
+export function parseAssetAmount(input: string | number, decimals: number): bigint {
+  const s = String(input).trim();
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) {
+    throw new Error("INVALID_DECIMALS");
+  }
+  if (!new RegExp(`^\\d+(\\.\\d{1,${decimals}})?$`).test(s)) {
+    throw new Error("INVALID_ASSET_AMOUNT");
+  }
+  const [whole, frac = ""] = s.split(".");
+  const padded = (frac + "0".repeat(decimals)).slice(0, decimals);
+  const scale = 10n ** BigInt(decimals);
+  return BigInt(whole) * scale + (padded ? BigInt(padded) : 0n);
+}
+
+/** Format base units with the asset's decimals. */
+export function formatAssetAmount(amount: bigint, decimals: number): string {
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) {
+    throw new Error("INVALID_DECIMALS");
+  }
+  const neg = amount < 0n;
+  const abs = neg ? -amount : amount;
+  const scale = 10n ** BigInt(decimals);
+  const whole = abs / scale;
+  if (decimals === 0) return neg ? `-${whole}` : `${whole}`;
+  const frac = (abs % scale).toString().padStart(decimals, "0");
   const trimmed = frac.replace(/0+$/, "");
   const body = trimmed.length ? `${whole}.${trimmed}` : `${whole}`;
   return neg ? `-${body}` : body;

@@ -46,10 +46,12 @@ If still `dev-local`: both CDP keys missing or redeploy not done. Fix env → Re
 ## 3. Fund the vault
 
 1. **Settings → Go live → Organisation** (or **Treasury → Vault**) → copy **vault address**  
-2. Send **Base Sepolia USDC** to that address (any faucet / bridge you use for Sepolia USDC)  
-3. Optional: a little Sepolia ETH only if a step complains about gas  
+2. Send **Base Sepolia USDC** to that address (Circle faucet or CDP faucet — network must be Base Sepolia)  
+3. Console → **Treasury → Fund** → **On-chain vault** → **Refresh chain** (should show balance) → **Sync deposits** (credits ledger)  
+4. Confirm Transfer-in rows show tx links on Basescan  
 
-Product money = **USDC**. Do not put a Solana meme token here.
+Product money = **USDC**. Do not put a Solana meme token here.  
+**Receive (demo ledger)** is still available for offline demos without a faucet.
 
 ---
 

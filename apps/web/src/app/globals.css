@@ -6402,6 +6402,77 @@ button.user-chip {
 .wallet-asset-icon.eth {
   background: color-mix(in srgb, #627eea 24%, transparent);
   border-color: color-mix(in srgb, #627eea 40%, transparent);
+  color: #8b9cf7;
+}
+
+.wallet-hero-pill {
+  display: inline-flex;
+  margin-left: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.wallet-onchain-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.wallet-onchain-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--color-surface-2, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--color-border, var(--border));
+}
+
+.wallet-onchain-stats b {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wallet-tx-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border, var(--border));
+  border-radius: 12px;
+}
+
+.wallet-asset-icon.usdt {
+  background: #26a17b22;
+  color: #26a17b;
+}
+.wallet-asset-icon.eurc {
+  background: #2775ca22;
+  color: #2775ca;
+}
+.wallet-asset-icon.sol {
+  background: #9945ff22;
+  color: #9945ff;
+}
+.wallet-asset-icon.dai {
+  background: #f5ac3722;
+  color: #f5ac37;
+}
+
+@media (max-width: 720px) {
+  .wallet-onchain-stats {
+    grid-template-columns: 1fr;
+  }
+}
+  background: color-mix(in srgb, #627eea 24%, transparent);
+  border-color: color-mix(in srgb, #627eea 40%, transparent);
   color: #9aa7ff;
 }
 

@@ -5,7 +5,9 @@
 import {
   USDC_ASSET_ID,
   accountId,
+  formatAssetAmount,
   formatMicroToUsdc,
+  parseAssetAmount,
   parseUsdcToMicro,
   type WalletRef,
   type WalletScope,
@@ -28,6 +30,8 @@ import {
   heldKind,
 } from "./treasury.js";
 import { emitEvent } from "./webhooks.js";
+import { readVaultOnchain } from "./chain/deposits.js";
+import { activeChain } from "./chain/network.js";
 
 type GuardianRoute = (
   handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
@@ -201,8 +205,10 @@ export function registerTreasuryRoutes(
     guardianRoute((org, _req, res) => {
       const holdings = store.listOrgAssetHoldings(org.id).map(({ asset, balanceMicro }) => ({
         ...asset,
-        balance: formatMicroToUsdc(balanceMicro),
+        balance: formatAssetAmount(balanceMicro, asset.decimals),
         balanceMicro: balanceMicro.toString(),
+        spendRail: asset.id === "asset_usdc",
+        onchainSync: asset.id === "asset_usdc",
       }));
       res.json({ assets: holdings });
     }),
@@ -533,7 +539,7 @@ export function registerTreasuryRoutes(
     }),
   );
 
-  /** Mock / recorded deposit into org treasury (credits org_available from external). */
+  /** Recorded deposit into org treasury / vault holdings. */
   app.post(
     "/v1/guardian/treasury/deposit",
     guardianRoute((org, req, res) => {
@@ -549,7 +555,17 @@ export function registerTreasuryRoutes(
       if (!asset) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Unknown asset" } });
       }
-      const amount = parseUsdcToMicro(body.amountUsdc);
+      let amount: bigint;
+      try {
+        amount =
+          assetId === "asset_usdc"
+            ? parseUsdcToMicro(body.amountUsdc)
+            : parseAssetAmount(body.amountUsdc, asset.decimals);
+      } catch {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: `Invalid ${asset.symbol} amount` },
+        });
+      }
       if (amount <= 0n) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Amount must be positive" } });
       }
@@ -583,18 +599,25 @@ export function registerTreasuryRoutes(
       }
 
       const bal = store.creditOrgAsset(org.id, assetId, amount);
+      store.addVaultAssetEvent({
+        orgId: org.id,
+        assetId,
+        kind: "in",
+        amountMicro: amount,
+        memo: body.memo ?? "vault_receive",
+      });
       recordObs({ name: "treasury.deposit", orgId: org.id, attrs: { amountUsdc: body.amountUsdc, assetId } });
       res.json({
         ok: true,
         amountUsdc: body.amountUsdc,
         assetId,
         symbol: asset.symbol,
-        balance: formatMicroToUsdc(bal),
+        balance: formatAssetAmount(bal, asset.decimals),
       });
     }, { ownerOnly: true }),
   );
 
-  /** Withdraw from org treasury to external (recorded outflow). */
+  /** Withdraw from org treasury / holdings to external (recorded outflow). */
   app.post(
     "/v1/guardian/treasury/withdraw",
     guardianRoute((org, req, res) => {
@@ -603,32 +626,75 @@ export function registerTreasuryRoutes(
           amountUsdc: z.string(),
           destination: z.string().optional(),
           memo: z.string().max(120).optional(),
+          assetId: z.string().optional(),
         })
         .parse(req.body);
-      const amount = parseUsdcToMicro(body.amountUsdc);
-      const orgAvail = accountId("org", org.id);
-      const available = store.getAccountMap(org.id).get(orgAvail)?.balanceMicro ?? 0n;
+      const assetId = body.assetId?.trim() || "asset_usdc";
+      const asset = store.getAsset(assetId);
+      if (!asset) {
+        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Unknown asset" } });
+      }
+
+      if (assetId === "asset_usdc") {
+        const amount = parseUsdcToMicro(body.amountUsdc);
+        const orgAvail = accountId("org", org.id);
+        const available = store.getAccountMap(org.id).get(orgAvail)?.balanceMicro ?? 0n;
+        if (amount <= 0n || amount > available) {
+          return res.status(400).json({
+            error: {
+              code: "INSUFFICIENT_STIPEND",
+              message: `Org has ${formatMicroToUsdc(available)} available`,
+            },
+          });
+        }
+        store.applyEntries(org.id, [
+          {
+            id: id("j"),
+            orgId: org.id,
+            memo: body.memo ?? `treasury_withdraw:${body.destination ?? "external"}`,
+            createdAt: new Date().toISOString(),
+            lines: [
+              { accountId: orgAvail, deltaMicro: -amount },
+              { accountId: `org:${org.id}:external`, deltaMicro: amount },
+            ],
+          },
+        ]);
+        return res.json({ ok: true, amountUsdc: body.amountUsdc, assetId, symbol: asset.symbol });
+      }
+
+      let amount: bigint;
+      try {
+        amount = parseAssetAmount(body.amountUsdc, asset.decimals);
+      } catch {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: `Invalid ${asset.symbol} amount` },
+        });
+      }
+      const available = store.getOrgAssetBalance(org.id, assetId);
       if (amount <= 0n || amount > available) {
         return res.status(400).json({
           error: {
             code: "INSUFFICIENT_STIPEND",
-            message: `Org has ${formatMicroToUsdc(available)} available`,
+            message: `Vault has ${formatAssetAmount(available, asset.decimals)} ${asset.symbol}`,
           },
         });
       }
-      store.applyEntries(org.id, [
-        {
-          id: id("j"),
-          orgId: org.id,
-          memo: body.memo ?? `treasury_withdraw:${body.destination ?? "external"}`,
-          createdAt: new Date().toISOString(),
-          lines: [
-            { accountId: orgAvail, deltaMicro: -amount },
-            { accountId: `org:${org.id}:external`, deltaMicro: amount },
-          ],
-        },
-      ]);
-      res.json({ ok: true, amountUsdc: body.amountUsdc });
+      const bal = store.creditOrgAsset(org.id, assetId, -amount);
+      store.addVaultAssetEvent({
+        orgId: org.id,
+        assetId,
+        kind: "out",
+        amountMicro: amount,
+        memo: body.memo ?? "vault_send",
+        counterparty: body.destination,
+      });
+      res.json({
+        ok: true,
+        amountUsdc: body.amountUsdc,
+        assetId,
+        symbol: asset.symbol,
+        balance: formatAssetAmount(bal, asset.decimals),
+      });
     }, { ownerOnly: true }),
   );
 
@@ -710,6 +776,234 @@ export function registerTreasuryRoutes(
       res.json({
         vaultAddress: store.getVaultAddress(org.id),
         events: store.listRecoveryEvents(org.id),
+      });
+    }),
+  );
+
+  /**
+   * Live chain view of the org vault: USDC balanceOf + recent Transfer-in logs.
+   * Does not mutate the ledger — use POST …/onchain/sync to credit new deposits.
+   */
+  app.get(
+    "/v1/guardian/treasury/onchain",
+    guardianRoute(async (org, _req, res) => {
+      const snap = await readVaultOnchain(store.getVaultAddress(org.id));
+      const credited = store.listOnchainDeposits(org.id);
+      const creditedKeys = new Set(credited.map((d) => `${d.txHash}:${d.logIndex}`));
+      const transfers = snap.transfers.map((t) => ({
+        ...t,
+        status: creditedKeys.has(`${t.txHash.toLowerCase()}:${t.logIndex}`)
+          ? ("credited" as const)
+          : ("detected" as const),
+      }));
+      res.json({
+        onchain: { ...snap, transfers },
+        credited,
+        ledgerAvailableUsdc: formatMicroToUsdc(
+          store.getAccountMap(org.id).get(`org:${org.id}:available`)?.balanceMicro ?? 0n,
+        ),
+      });
+    }),
+  );
+
+  /**
+   * Unified vault activity: on-chain credits + demo deposits/withdraws from the ledger.
+   * This is what Treasury → Fund shows as history.
+   */
+  app.get(
+    "/v1/guardian/treasury/vault-activity",
+    guardianRoute((org, req, res) => {
+      const chain = activeChain();
+      const filterAsset = typeof req.query.assetId === "string" ? req.query.assetId : undefined;
+
+      const onchain = store.listOnchainDeposits(org.id, 80).map((d) => ({
+        id: d.id,
+        kind: "onchain_in" as const,
+        source: "chain" as const,
+        assetId: "asset_usdc",
+        symbol: "USDC",
+        amount: formatMicroToUsdc(BigInt(d.amountMicro)),
+        amountUsdc: formatMicroToUsdc(BigInt(d.amountMicro)),
+        direction: "in" as const,
+        at: d.creditedAt,
+        network: d.chain,
+        from: d.from,
+        to: d.to,
+        txHash: d.txHash,
+        blockNumber: d.blockNumber,
+        explorerUrl: chain.explorerTx(d.txHash),
+        label: "Received on-chain",
+      }));
+
+      const journals = store.listJournals(org.id, 200);
+      const ledgerItems: {
+        id: string;
+        kind: "demo_in" | "withdraw";
+        source: "ledger";
+        assetId: string;
+        symbol: string;
+        amount: string;
+        amountUsdc: string;
+        direction: "in" | "out";
+        at: string;
+        label: string;
+        memo: string;
+      }[] = [];
+
+      for (const j of journals) {
+        const memo = j.memo.toLowerCase();
+        if (memo.startsWith("onchain_deposit:")) continue;
+        const orgAvail = `org:${org.id}:available`;
+        const line = j.lines.find((l) => l.accountId === orgAvail);
+        if (!line) continue;
+        const delta = BigInt(line.deltaMicro);
+        if (delta === 0n) continue;
+        const amt = formatMicroToUsdc(delta > 0n ? delta : -delta);
+
+        if (memo.includes("treasury_deposit") || memo.includes("seed") || memo === "deposit") {
+          ledgerItems.push({
+            id: j.id,
+            kind: "demo_in",
+            source: "ledger",
+            assetId: "asset_usdc",
+            symbol: "USDC",
+            amount: amt,
+            amountUsdc: amt,
+            direction: delta > 0n ? "in" : "out",
+            at: j.createdAt,
+            label: "Demo ledger credit",
+            memo: j.memo,
+          });
+        } else if (memo.includes("treasury_withdraw") || memo.includes("withdraw")) {
+          ledgerItems.push({
+            id: j.id,
+            kind: "withdraw",
+            source: "ledger",
+            assetId: "asset_usdc",
+            symbol: "USDC",
+            amount: amt,
+            amountUsdc: amt,
+            direction: delta < 0n ? "out" : "in",
+            at: j.createdAt,
+            label: "Ledger send / withdraw",
+            memo: j.memo,
+          });
+        }
+      }
+
+      const holdingItems = store.listVaultAssetEvents(org.id, 80).map((e) => {
+        const asset = store.getAsset(e.assetId);
+        const amount = formatAssetAmount(BigInt(e.amountMicro), asset?.decimals ?? 6);
+        return {
+          id: e.id,
+          kind: e.kind === "in" ? ("holding_in" as const) : ("holding_out" as const),
+          source: "holdings" as const,
+          assetId: e.assetId,
+          symbol: asset?.symbol ?? e.assetId,
+          amount,
+          amountUsdc: amount,
+          direction: e.kind,
+          at: e.at,
+          label: e.kind === "in" ? `Received ${asset?.symbol ?? "asset"}` : `Sent ${asset?.symbol ?? "asset"}`,
+          memo: e.memo,
+          from: e.counterparty,
+        };
+      });
+
+      let items = [...onchain, ...ledgerItems, ...holdingItems].sort(
+        (a, b) => Date.parse(b.at) - Date.parse(a.at),
+      );
+      if (filterAsset) items = items.filter((i) => i.assetId === filterAsset);
+
+      res.json({
+        items,
+        vaultAddress: store.getVaultAddress(org.id),
+        network: chain.id,
+        networkName: chain.name,
+      });
+    }),
+  );
+
+  /** Scan chain and credit any new USDC Transfers into the org vault ledger. */
+  app.post(
+    "/v1/guardian/treasury/onchain/sync",
+    guardianRoute(async (org, _req, res) => {
+      const snap = await readVaultOnchain(store.getVaultAddress(org.id));
+      if (!snap.ok) {
+        return res.status(502).json({
+          error: {
+            code: "CHAIN_UNAVAILABLE",
+            message: snap.error ?? "Could not read vault on-chain",
+            network: snap.network,
+          },
+        });
+      }
+      const newly: {
+        txHash: string;
+        logIndex: number;
+        amountUsdc: string;
+        explorerUrl: string;
+        blockNumber: string;
+        from: string;
+      }[] = [];
+      for (const t of snap.transfers) {
+        const result = store.creditOnchainUsdcDeposit({
+          orgId: org.id,
+          chain: snap.network,
+          txHash: t.txHash,
+          logIndex: t.logIndex,
+          blockNumber: t.blockNumber,
+          from: t.from,
+          to: t.to,
+          amountMicro: BigInt(t.amountMicro),
+        });
+        if (result.credited) {
+          newly.push({
+            txHash: t.txHash,
+            logIndex: t.logIndex,
+            amountUsdc: t.amountUsdc,
+            explorerUrl: t.explorerUrl,
+            blockNumber: t.blockNumber,
+            from: t.from,
+          });
+          recordObs({
+            name: "treasury.onchain_deposit",
+            orgId: org.id,
+            attrs: { txHash: t.txHash, amountUsdc: t.amountUsdc, network: snap.network },
+          });
+          emitEvent(org.id, "treasury.onchain_deposit", {
+            txHash: t.txHash,
+            amountUsdc: t.amountUsdc,
+            network: snap.network,
+            explorerUrl: t.explorerUrl,
+          });
+        }
+      }
+      const credited = store.listOnchainDeposits(org.id);
+      const creditedKeys = new Set(credited.map((d) => `${d.txHash}:${d.logIndex}`));
+      res.json({
+        ok: true,
+        newlyCredited: newly,
+        creditedCount: newly.length,
+        onchain: {
+          ...snap,
+          transfers: snap.transfers.map((t) => ({
+            ...t,
+            status: creditedKeys.has(`${t.txHash.toLowerCase()}:${t.logIndex}`)
+              ? "credited"
+              : "detected",
+          })),
+        },
+        credited,
+        ledgerAvailableUsdc: formatMicroToUsdc(
+          store.getAccountMap(org.id).get(`org:${org.id}:available`)?.balanceMicro ?? 0n,
+        ),
+        note:
+          newly.length > 0
+            ? `Credited ${newly.length} on-chain deposit(s) into the org vault ledger.`
+            : snap.transfers.length === 0
+              ? `No USDC Transfer-in found on ${snap.networkName} in the last ~${snap.scannedToBlock === "0" ? "0" : "8k"} blocks. Confirm Base Sepolia USDC to this vault on the explorer.`
+              : "All detected transfers were already credited.",
       });
     }),
   );
