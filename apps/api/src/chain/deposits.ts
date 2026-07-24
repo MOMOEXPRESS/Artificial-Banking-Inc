@@ -9,7 +9,6 @@ import {
   parseAbiItem,
   type Address,
   type Hex,
-  type Log,
 } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import { activeChain, rpcUrl, type ChainConfig } from "./network.js";
@@ -73,15 +72,22 @@ function clientFor(cfg: ChainConfig) {
   });
 }
 
+type TransferLog = {
+  args: { from?: Address; to?: Address; value?: bigint };
+  transactionHash: Hex | null;
+  logIndex: number | null;
+  blockNumber: bigint | null;
+};
+
 async function getTransferLogsChunked(
   client: ReturnType<typeof clientFor>,
   cfg: ChainConfig,
   vault: Address,
   latest: bigint,
-): Promise<{ logs: Log[]; fromBlock: bigint }> {
+): Promise<{ logs: TransferLog[]; fromBlock: bigint }> {
   const totalWindow = MAX_LOG_RANGE * SCAN_CHUNKS;
   const fromBlock = latest > totalWindow ? latest - totalWindow : 0n;
-  const logs: Log[] = [];
+  const logs: TransferLog[] = [];
 
   for (let start = fromBlock; start <= latest; start += MAX_LOG_RANGE) {
     let end = start + MAX_LOG_RANGE - 1n;
@@ -93,7 +99,7 @@ async function getTransferLogsChunked(
       fromBlock: start,
       toBlock: end,
     });
-    logs.push(...chunk);
+    logs.push(...(chunk as TransferLog[]));
   }
 
   return { logs, fromBlock };
@@ -139,7 +145,7 @@ export async function readVaultOnchain(vaultAddress: string | undefined): Promis
 
     const transfers: DetectedTransfer[] = logs
       .map((log) => {
-        const args = log.args as { from?: Address; to?: Address; value?: bigint };
+        const args = log.args;
         const value = args.value ?? 0n;
         const hash = log.transactionHash!;
         return {

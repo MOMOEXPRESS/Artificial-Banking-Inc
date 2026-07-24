@@ -17,6 +17,7 @@ import {
 import { evaluatePolicy, type PolicyRules } from "@policyvault/policy";
 import { X402Error, X402Rail } from "./rails/x402.js";
 import { TransferMockRail } from "./rails/transfer-mock.js";
+import { EvmUsdcTransferRail, isEvmPayDestination } from "./rails/evm-usdc-transfer.js";
 import type { PaymentRail } from "./rails/types.js";
 import { screenDestination } from "./platform/compliance.js";
 import { notify } from "./platform/notifier.js";
@@ -29,6 +30,10 @@ export const ESCROW_DEFAULT_TIMEOUT_MINUTES = Number(process.env.ESCROW_TIMEOUT_
 
 const x402Rail: PaymentRail = new X402Rail();
 const transferMockRail: PaymentRail = new TransferMockRail();
+const evmUsdcTransferRail: PaymentRail = new EvmUsdcTransferRail();
+
+/** Escape hatch for offline demos — never use for the Coinbase/Sepolia proof. */
+const forceMockTransfer = process.env.POLICYVAULT_MOCK_TRANSFER === "1";
 
 export function id(prefix: string): string {
   return `${prefix}_${randomBytes(6).toString("hex")}`;
@@ -95,8 +100,9 @@ export type ExecResult =
 
 /**
  * Execute an already-allowed intent against the ledger + rail.
- * pay_api with an http(s) destination goes through the real x402 client dance
- * (signed by the org custody key); everything else uses the instant mock rail.
+ * - pay_api + http(s) → x402 (EIP-712; seller/facilitator settles)
+ * - pay / withdraw + 0x address → real Base USDC ERC-20 transfer from vault
+ * - otherwise → transfer-mock (vendor strings / offline demo)
  */
 export async function executeIntent(input: ExecInput): Promise<ExecResult> {
   const agentAvailableId = accountId("agent", input.agentId, "available");
@@ -311,8 +317,17 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     };
   }
 
-  const selectedRail: PaymentRail =
-    input.tool === "pay_api" && isUrl ? x402Rail : transferMockRail;
+  const selectedRail: PaymentRail = (() => {
+    if (input.tool === "pay_api" && isUrl) return x402Rail;
+    if (
+      !forceMockTransfer &&
+      (input.tool === "pay" || input.tool === "withdraw") &&
+      isEvmPayDestination(input.destination)
+    ) {
+      return evmUsdcTransferRail;
+    }
+    return transferMockRail;
+  })();
 
   try {
     const settled = await selectedRail.settle({
@@ -335,12 +350,24 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     resource = settled.resource;
   } catch (e) {
     releaseFullHold();
+    const railCode =
+      e && typeof e === "object" && "code" in e && typeof (e as { code: unknown }).code === "string"
+        ? (e as { code: string }).code
+        : undefined;
     const code =
       e instanceof X402Error
         ? e.code === "CUSTODY_UNAVAILABLE"
           ? "CUSTODY_UNAVAILABLE"
           : e.code
-        : "RAIL_FAILED";
+        : railCode === "CUSTODY_UNAVAILABLE"
+          ? "CUSTODY_UNAVAILABLE"
+          : railCode === "INSUFFICIENT_ONCHAIN_USDC"
+            ? "INSUFFICIENT_ONCHAIN_USDC"
+            : railCode === "INSUFFICIENT_GAS"
+              ? "INSUFFICIENT_GAS"
+              : railCode === "INVALID_DESTINATION"
+                ? "INVALID_DESTINATION"
+                : "RAIL_FAILED";
     emitEvent(input.orgId, "payment.failed", {
       intentId: input.intentId,
       tool: input.tool,
@@ -349,9 +376,17 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       destination: input.destination,
       reason: String(e),
     });
+    const status =
+      code === "CUSTODY_UNAVAILABLE"
+        ? 502
+        : code === "INSUFFICIENT_ONCHAIN_USDC" || code === "INSUFFICIENT_GAS"
+          ? 402
+          : code === "INVALID_DESTINATION"
+            ? 400
+            : 402;
     return {
       ok: false,
-      status: code === "CUSTODY_UNAVAILABLE" ? 502 : 402,
+      status,
       payload: {
         intentId: input.intentId,
         error: { code, message: e instanceof Error ? e.message : String(e) },

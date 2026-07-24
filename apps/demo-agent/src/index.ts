@@ -106,4 +106,34 @@ if (payeeAgentId) {
 }
 
 log("final budget", await vault.getBudget());
+
+// 7. Optional: real on-chain USDC pay to your Base Sepolia wallet (E2E proof).
+// Requires: vault USDC+ETH, stipend, address on policy allowlist. See docs/E2E-ONCHAIN-AGENT-PAY.md
+const payTo = process.env.PAY_TO_ADDRESS?.trim();
+const payAmount = process.env.PAY_TO_AMOUNT?.trim() || "0.10";
+if (payTo) {
+  const onchain = await vault.pay({
+    amountUsdc: payAmount,
+    destination: payTo,
+    idempotencyKey: idem("onchain_wallet"),
+    memo: "e2e sepolia wallet proof",
+  });
+  log(`on-chain pay $${payAmount} → ${payTo}`, onchain);
+  if (onchain.outcome === "review" && (onchain as { approvalId?: string }).approvalId) {
+    const approvalId = (onchain as { approvalId: string }).approvalId;
+    console.log("\nWaiting up to 120s for guardian approval of on-chain pay...");
+    const approval = await vault.waitForApproval(approvalId, { pollMs: 2_000, maxWaitMs: 120_000 });
+    log("on-chain pay approval", approval);
+  }
+  const tx = (onchain as { txHash?: string; resource?: { explorerUrl?: string } }).txHash;
+  const explorer = (onchain as { resource?: { explorerUrl?: string } }).resource?.explorerUrl;
+  if (tx || explorer) {
+    console.log(`\nBasescan: ${explorer ?? tx}`);
+  }
+} else {
+  console.log(
+    "\n(Skip on-chain wallet pay — set PAY_TO_ADDRESS=0x… and optionally PAY_TO_AMOUNT=0.10)",
+  );
+}
+
 console.log("\nDemo agent done. Every step above is in the guardian's decision trace.");

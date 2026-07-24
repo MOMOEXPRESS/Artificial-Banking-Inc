@@ -74,6 +74,8 @@ Product money = **USDC**. Do not put a Solana meme token here.
 
 That single approved pay is the week’s definition of “live.”
 
+**Harder proof (real USDC to your wallet):** after Sync works, follow [`docs/E2E-ONCHAIN-AGENT-PAY.md`](./E2E-ONCHAIN-AGENT-PAY.md) — agent `pay` to an allowlisted Base Sepolia wallet broadcasts an ERC-20 Transfer from the vault. Use a Sepolia-capable wallet (not a Coinbase exchange deposit address).
+
 ---
 
 ## 6. Optional same-week extras (not blocking)

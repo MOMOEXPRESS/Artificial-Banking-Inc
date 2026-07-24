@@ -37,6 +37,13 @@ export function registerPaymentRoutes(
       res.json({
         rails: [
           {
+            id: "evm-usdc-transfer",
+            tools: ["pay", "withdraw"],
+            description:
+              "Broadcasts USDC ERC-20 transfer from the org vault EOA to an allowlisted 0x address (Base / Base Sepolia)",
+            status: "live",
+          },
+          {
             id: "x402",
             tools: ["pay_api"],
             description: "HTTP 402 facilitate + custody EIP-712 (URL destinations)",
@@ -44,8 +51,9 @@ export function registerPaymentRoutes(
           },
           {
             id: "transfer-mock",
-            tools: ["pay", "pay_api"],
-            description: "Dev settlement for address/vendor destinations (no chain broadcast)",
+            tools: ["pay_api"],
+            description:
+              "Dev settlement for vendor-string destinations (no chain). Disabled for 0x pay unless POLICYVAULT_MOCK_TRANSFER=1",
             status: "live",
           },
           {
@@ -56,8 +64,8 @@ export function registerPaymentRoutes(
           },
         ],
         asset: "USDC",
-        chain: "base-sepolia",
-        note: "LLM proposes; policy + signer authorize. Keys never enter the model.",
+        chain: process.env.CHAIN === "base" ? "base" : "base-sepolia",
+        note: "LLM proposes; policy + signer authorize. Keys never enter the model. Agent pay to 0x is on-chain.",
       });
     }),
   );
