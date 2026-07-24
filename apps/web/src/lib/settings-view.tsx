@@ -200,7 +200,7 @@ export function SettingsView({
       done: false,
       title: "E2E proof: agent USDC → your wallet",
       body:
-        "1) Vault USDC + ETH → Sync  2) Move stipend to agent  3) Policy → address allowlist = your Base Sepolia wallet (not Coinbase exchange)  4) Playground “On-chain wallet pay” or curl  5) Approve if HITL  6) Basescan Transfer. Track: docs/E2E-ONCHAIN-AGENT-PAY.md",
+        "1) Vault USDC + ETH (Fund auto-credits)  2) Move stipend to agent  3) Playground → Agent pays your wallet — paste Base Sepolia 0x → Run  4) Approve if HITL  5) Basescan Transfer. NOT Treasury Send. Track: docs/E2E-ONCHAIN-AGENT-PAY.md",
     },
     {
       done: !!setup?.telegram,

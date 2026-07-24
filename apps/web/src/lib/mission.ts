@@ -34,6 +34,10 @@ export interface MissionCtx {
   payeeAgentId?: string;
   sellerUrl: string;
   runId: string;
+  /** Base Sepolia receive address for agent on-chain wallet pay proof. */
+  e2eWallet?: string;
+  /** Small USDC amount for that proof (default 0.10). */
+  e2eAmountUsdc?: string;
   emit: (steps: RunStep[]) => void;
   onBlocked: (step: RunStep) => void;
   onUnblocked: (step: RunStep, outcome: "approved" | "denied" | "expired") => void;
@@ -51,7 +55,7 @@ export interface Mission {
   category: "commerce" | "governance" | "security" | "ops";
   /** What the guardian gets to read at the end. */
   deliverableKind: string;
-  build: () => StepDef[];
+  build: (ctx: MissionCtx) => StepDef[];
   deliverable: (state: RunState) => string;
 }
 
@@ -283,6 +287,7 @@ const payToWallet = (amount: string, address: string): StepDef => ({
       amount: String(data.amountUsdc),
       destination: dest,
       rail: String(data.rail ?? "evm-usdc-transfer"),
+      txHash: typeof data.txHash === "string" ? data.txHash : undefined,
     });
     const explorer =
       (data.resource as { explorerUrl?: string } | undefined)?.explorerUrl ??
@@ -292,6 +297,50 @@ const payToWallet = (amount: string, address: string): StepDef => ({
       summary: explorer
         ? `Settled $${data.amountUsdc} on-chain. Basescan: ${explorer}`
         : `Settled $${data.amountUsdc} on-chain to ${dest.slice(0, 10)}…`,
+      output: pretty(data),
+    };
+  },
+});
+
+/** Ensure destination is on the org address allowlist (guardian). Agent pay requires it. */
+const ensureWalletAllowlisted = (address: string): StepDef => ({
+  id: "allowlist_wallet",
+  title: "Allowlist your wallet on policy",
+  detail: "Guardian adds the receive address so agent pay is permitted (policy gate — not Treasury Send).",
+  async run(ctx) {
+    const dest = address.trim();
+    const { status: gStatus, data: pol } = await guardianCall(ctx, "GET", "/v1/guardian/policy");
+    if (gStatus >= 400) {
+      return {
+        summary: `Could not load policy: ${errMsg(pol) || errCode(pol)}`,
+        output: pretty(pol),
+        softFail: true,
+        abort: true,
+      };
+    }
+    const list = ((pol.policy ?? pol) as { addressAllowlist?: string[] }).addressAllowlist ?? [];
+    const norm = (a: string) => a.toLowerCase();
+    if (list.some((a) => norm(a) === norm(dest))) {
+      return {
+        summary: `Already allowlisted: ${dest.slice(0, 10)}…`,
+        output: pretty({ addressAllowlist: list }),
+      };
+    }
+    const next = [...list, dest];
+    const { status, data } = await guardianCall(ctx, "POST", "/v1/guardian/policy", {
+      addressAllowlist: next,
+    });
+    if (status >= 400) {
+      return {
+        summary: `Allowlist update failed: ${errMsg(data) || errCode(data)}`,
+        output: pretty(data),
+        softFail: true,
+        abort: true,
+      };
+    }
+    ctx.log(`allowlisted ${dest}`);
+    return {
+      summary: `Policy address allowlist now includes ${dest.slice(0, 10)}… — agent may pay this wallet.`,
       output: pretty(data),
     };
   },
@@ -559,7 +608,7 @@ export const MISSIONS: Mission[] = [
     brief:
       "The agent checks its budget, buys a paid data report over x402, pays a small API, hires a peer agent under escrow, then delivers. Everything should stay inside policy.",
     deliverableKind: "Competitor pricing brief",
-    build: () => [
+    build: (_ctx) => [
       checkBudget,
       dryRun("2", "api.openai.com"),
       buyViaX402("2"),
@@ -618,7 +667,7 @@ ${state.escrowId ? `A peer agent was hired under escrow \`${state.escrowId}\` an
     brief:
       "The agent tries a purchase above your approval threshold. It will PARK and wait — the console alerts you. Approve or deny and watch the agent react live.",
     deliverableKind: "Purchase decision record",
-    build: () => [checkBudget, payVendor("15", "api.openai.com", "bulk dataset licence"), summarize],
+    build: (_ctx) => [checkBudget, payVendor("15", "api.openai.com", "bulk dataset licence"), summarize],
     deliverable: (state) => `# Purchase decision record
 
 An agent requested a **$15.00** bulk dataset licence — above the configured approval threshold, so
@@ -652,7 +701,7 @@ Remaining agent budget: **$${state.finalBudget ?? "—"}**.
     brief:
       "Simulates a prompt-injected agent attempting to drain the vault to an unapproved address, then hammering with retries. Every attempt should be denied with an explainable rule.",
     deliverableKind: "Security exercise report",
-    build: () => [
+    build: (_ctx) => [
       checkBudget,
       drainAttempt("5", "0x1111111111111111111111111111111111111111"),
       drainAttempt("25", "0x2222222222222222222222222222222222222222"),
@@ -705,7 +754,7 @@ the signer. Authorisation is enforced deterministically outside the model.
     brief:
       "Agent locks escrow to hire a peer, then refunds instead of releasing — proving the refund path and that payee never receives funds.",
     deliverableKind: "Escrow refund record",
-    build: () => [checkBudget, hirePeer("4"), refundEscrow, summarize],
+    build: (_ctx) => [checkBudget, hirePeer("4"), refundEscrow, summarize],
     deliverable: (state) => `# Escrow refund record
 
 Escrow \`${state.escrowId ?? "—"}\` was locked then refunded to the payer.
@@ -721,7 +770,7 @@ Peer was **not** paid. Remaining budget: **$${state.finalBudget ?? "—"}**
     brief:
       "No money moves. Checks budget, dry-runs an allowlisted vendor, and pulls activity — fastest confidence check after deploy.",
     deliverableKind: "Smoke checklist",
-    build: () => [checkBudget, dryRun("1", "api.openai.com"), listActivity, summarize],
+    build: (_ctx) => [checkBudget, dryRun("1", "api.openai.com"), listActivity, summarize],
     deliverable: (state) => `# Smoke checklist
 
 - Budget readable: **$${state.finalBudget ?? "—"}**
@@ -739,7 +788,7 @@ No USDC left the agent wallet in this run.
     brief:
       "Several small allowlisted pay_api calls under velocity caps — useful for watching daily burn and vendor rollups in Insights.",
     deliverableKind: "Vendor burst log",
-    build: () => [
+    build: (_ctx) => [
       checkBudget,
       payVendor("0.50", "api.openai.com", "burst call 1"),
       payVendor("0.50", "api.openai.com", "burst call 2"),
@@ -756,28 +805,31 @@ Denials: ${state.denials.length}. Remaining: **$${state.finalBudget ?? "—"}**
   },
   {
     id: "onchain_wallet",
-    title: "On-chain wallet pay (E2E proof)",
-    persona: "Founder proving agent + policy move real Sepolia USDC",
+    title: "Agent pays your wallet (E2E proof)",
+    persona: "Founder proving the agent — not Treasury Send — moves real Sepolia USDC",
     category: "commerce",
     brief:
-      "End-to-end proof: agent pay broadcasts vault USDC to YOUR Base Sepolia wallet. Before Run: Policy → add your 0x to address allowlist; vault has USDC + ETH; agent has stipend. Paste your wallet below into Custom → On-chain wallet pay, or set sessionStorage key abi_e2e_wallet. Do not use a Coinbase exchange deposit address.",
+      "THE proof that the platform works: the AGENT calls /v1/agent/pay; policy allowlists your wallet; the vault broadcasts USDC.transfer. Paste your Base Sepolia wallet (Coinbase Wallet / MetaMask on Sepolia — not Coinbase exchange). Prerequisites: vault has USDC + ETH, agent has stipend. Treasury Send is NOT this test.",
     deliverableKind: "On-chain transfer receipt",
-    build: () => {
-      const dest =
-        typeof window !== "undefined"
-          ? (sessionStorage.getItem("abi_e2e_wallet") ?? "").trim()
-          : "";
+    build: (ctx) => {
+      const dest = (
+        ctx.e2eWallet ??
+        (typeof window !== "undefined" ? sessionStorage.getItem("abi_e2e_wallet") : "") ??
+        ""
+      ).trim();
+      const amount = (ctx.e2eAmountUsdc ?? "0.10").trim() || "0.10";
       if (!/^0x[a-fA-F0-9]{40}$/.test(dest)) {
         return [
           {
             id: "need_wallet",
-            title: "Set your Base Sepolia receive address",
+            title: "Paste your Base Sepolia wallet above",
             detail:
-              "Playground → Custom mission → step “On-chain wallet pay” with your 0x, or in DevTools: sessionStorage.setItem('abi_e2e_wallet','0x…') then re-run this mission.",
+              "Use the wallet field under this scenario (or Custom → On-chain wallet pay). Not a Coinbase exchange deposit address.",
             async run() {
               return {
                 summary:
-                  "No abi_e2e_wallet in sessionStorage. Use a Custom mission with step “On-chain wallet pay” and paste your Base Sepolia wallet (Coinbase Wallet / MetaMask on Sepolia).",
+                  "No receive address. Paste your Base Sepolia 0x in the field under this scenario, then Run again.",
+                output: "missing e2eWallet",
                 softFail: true,
                 abort: true,
               };
@@ -785,15 +837,33 @@ Denials: ${state.denials.length}. Remaining: **$${state.finalBudget ?? "—"}**
           },
         ];
       }
-      return [checkBudget, payToWallet("0.10", dest), listActivity, summarize];
+      try {
+        if (typeof window !== "undefined") sessionStorage.setItem("abi_e2e_wallet", dest);
+      } catch {
+        /* ignore */
+      }
+      return [
+        checkBudget,
+        ensureWalletAllowlisted(dest),
+        payToWallet(amount, dest),
+        listActivity,
+        summarize,
+      ];
     },
-    deliverable: (state) => `# On-chain wallet pay receipt
+    deliverable: (state) => `# Agent on-chain wallet pay receipt
+
+This run used **agent** \`/v1/agent/pay\` (not Treasury Send).
 
 ${costTable(state)}
 
-Confirm the Transfer on Basescan and your wallet USDC balance on Base Sepolia.
+${
+  state.purchases
+    .filter((p) => p.rail === "evm-usdc-transfer" || p.txHash)
+    .map((p) => `- $${p.amount} → \`${p.destination}\` rail \`${p.rail}\`${p.txHash ? ` · \`${p.txHash}\`` : ""}`)
+    .join("\n") || "_No on-chain purchase recorded in state — check step output for txHash / explorerUrl._"
+}
 
-See docs/E2E-ONCHAIN-AGENT-PAY.md.
+Confirm Transfer on Basescan and your wallet USDC on Base Sepolia.
 `,
   },
   {
@@ -804,7 +874,7 @@ See docs/E2E-ONCHAIN-AGENT-PAY.md.
     brief:
       "Budget check → hire peer under escrow → release on acceptance. Models a research agent outsourcing writing to a peer in the same org.",
     deliverableKind: "Swarm handoff memo",
-    build: () => [checkBudget, hirePeer("6"), acceptDelivery, summarize],
+    build: (_ctx) => [checkBudget, hirePeer("6"), acceptDelivery, summarize],
     deliverable: (state) => `# Swarm handoff memo
 
 Peer hired under escrow \`${state.escrowId ?? "—"}\` and paid on acceptance.
@@ -822,7 +892,7 @@ Remaining: **$${state.finalBudget ?? "—"}**
     brief:
       "What a webhook is: ABI pushes signed JSON to YOUR URL when money events happen — so you don’t poll the console. This mission registers the built-in demo inbox, fires a test event, confirms delivery, then does a small live pay so you see payment.succeeded land again.",
     deliverableKind: "Webhook integration brief",
-    build: () => [
+    build: (_ctx) => [
       registerDemoWebhook,
       fireWebhookTest,
       checkWebhookDeliveries,
@@ -1004,7 +1074,7 @@ export function compileCustomMission(input: {
       input.brief?.trim() ||
       "User-authored sequence — every step hits the real agent API, policy engine, and ledger.",
     deliverableKind: "Custom mission record",
-    build: () => steps.map(stepFromDraft),
+    build: (_ctx) => steps.map(stepFromDraft),
     deliverable: (state) => `# ${title}
 
 Custom mission run under live ABI policy.
@@ -1120,7 +1190,7 @@ async function persistRun(
 }
 
 export async function runMission(mission: Mission, ctx: MissionCtx): Promise<void> {
-  const defs = mission.build();
+  const defs = mission.build(ctx);
   const steps: RunStep[] = defs.map((d) => ({
     id: d.id,
     title: d.title,

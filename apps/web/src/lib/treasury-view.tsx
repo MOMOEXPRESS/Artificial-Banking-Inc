@@ -780,10 +780,10 @@ export function TreasuryView({
           <div className="card">
             <div className="card-head">
               <div>
-                <h2 style={{ margin: 0 }}>Receive / Send</h2>
+                <h2 style={{ margin: 0 }}>Manual ledger receive / send</h2>
                 <div className="sub">
                   {assetId === "asset_usdc"
-                    ? "Prefer Sync deposits for real chain USDC. Manual receive credits the demo ledger."
+                    ? "Demo books only — does NOT broadcast on-chain. The real proof is Playground → Agent pays your wallet (agent /v1/agent/pay)."
                     : `Record ${holdings.find((h) => h.id === assetId)?.symbol ?? "asset"} into vault holdings (manual until chain adapters ship).`}
                 </div>
               </div>

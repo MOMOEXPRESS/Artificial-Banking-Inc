@@ -1,194 +1,107 @@
-# Progress — E2E on-chain agent pay (Base Sepolia → your wallet)
+# Progress — E2E **agent** on-chain pay (Base Sepolia → your wallet)
 
-**Deliverable:** An AI agent (`pv_agent_…`), under policy (+ optional HITL), causes a **real** Base Sepolia USDC `Transfer` from the org vault EOA to **your** Base Sepolia–capable wallet. Basescan + wallet balance prove it.
+**Correct understanding (locked):** The proof is the **agent** calling `POST /v1/agent/pay` under policy. The vault then broadcasts a real USDC `Transfer` to your wallet.
 
-**Not the proof:** Guardian Treasury Send, ledger-only mock `0xmock_…`, or Coinbase **exchange** deposit (mainnet-only). Use Coinbase Wallet / MetaMask / any EOA on **Base Sepolia**.
-
-**North star loop**
+**Not the proof:** Guardian Treasury **Send / Receive** (ledger demo only). That is *not* what we are building toward.
 
 ```
-Fund vault USDC (+ ETH gas) → Sync → stipend agent
-  → allowlist your 0x → agent POST /v1/agent/pay
-  → policy allow | HITL approve
-  → vault broadcasts USDC.transfer
-  → Basescan Transfer + wallet balance
+Vault funded (USDC + ETH) → auto-credit ledger → Move stipend to agent
+  → allowlist your 0x (Playground can do this)
+  → AGENT /v1/agent/pay  → policy / HITL
+  → EvmUsdcTransferRail broadcasts USDC.transfer
+  → Basescan + your wallet balance
 ```
 
 ---
 
-## Status legend
+## What’s left (honest)
 
-| Mark | Meaning |
-|------|---------|
-| `[x]` | Done in repo / verified |
-| `[~]` | Partial / ops remaining |
-| `[ ]` | Not done |
+| Layer | Build left? | You (ops)? |
+|-------|-------------|------------|
+| L0 Proof wallet on Sepolia | no | yes — paste `0x` |
+| L1 Fund vault USDC + ETH | no | yes |
+| L1 Auto-credit deposits | **done** | open Fund |
+| L2 Agent key in Playground | no | paste agent key once |
+| L3 Allowlist | **done in Playground mission** | or Policy UI |
+| L4 Intent / HITL | done | Approve if parked |
+| L5 Real USDC rail for agent `pay` | **done** | — |
+| L6 Broadcast from vault key | **done** | vault needs ETH gas |
+| L7–L8 Pre-check + txHash | done | confirm Basescan |
+| L9 KYC / chat stubs | skip | — |
+| L10 Production deploy | tip of `main` | wait for Vercel |
 
-Update this file as work lands.
-
----
-
-## L0 — Outer proof surface
-
-| ID | Item | Status | Notes |
-|----|------|--------|-------|
-| L0.1 | Destination wallet on **Base Sepolia** | `[~]` | Ops: you supply receive `0x` |
-| L0.2 | Do **not** use Coinbase exchange deposit for Sepolia | `[x]` | Documented — use Sepolia-capable wallet |
-| L0.3 | Acceptance = Basescan Transfer + wallet USDC | `[~]` | Ops after first pay |
-| L0.4 | Playground optional (same `/v1/agent/pay`) | `[x]` | Curl / SDK / demo-agent enough |
-
-## L1 — Org / money in
-
-| ID | Item | Status | Notes |
-|----|------|--------|-------|
-| L1.1 | Org + guardian key (non-wipe create) | `[x]` | `POST /v1/guardian/orgs` or existing key |
-| L1.2 | Vault EOA address | `[x]` | Treasury → Vault |
-| L1.3 | On-chain deposit detect + **auto-credit** (GET Fund / poll / background sweep) | `[x]` | Manual Sync optional as Force re-scan |
-| L1.4 | Vault has Sepolia **USDC** | `[~]` | Ops: faucet → Sync |
-| L1.5 | Vault has Sepolia **ETH** for gas | `[~]` | Ops: required for ERC-20 transfer |
-| L1.6 | Move vault → budget → agent stipend | `[x]` | Treasury → Move |
-
-## L2 — Agent identity
-
-| ID | Item | Status | Notes |
-|----|------|--------|-------|
-| L2.1 | Create agent + one-time `pv_agent_…` | `[x]` | Agents console / API |
-| L2.2 | BYO runtime or smoke curl | `[~]` | Smoke steps in this doc |
-| L2.3 | Chat / browser stubs | skip | Out of path |
-
-## L3 — Policy
-
-| ID | Item | Status | Notes |
-|----|------|--------|-------|
-| L3.1 | `pay` requires `0x` + non-empty `addressAllowlist` | `[x]` | Engine already denies empty list |
-| L3.2 | Add your wallet to address allowlist | `[~]` | Ops: Policy → Allowlists |
-| L3.3 | HITL / amount bands | `[x]` | Approve once for the story |
-| L3.4 | Do **not** use `pay_api`/x402 for wallet EOA | `[x]` | Documented |
-
-## L4 — API / intent spine
-
-| ID | Item | Status | Notes |
-|----|------|--------|-------|
-| L4.1 | `handleIntent` → policy → HITL → `executeIntent` | `[x]` | |
-| L4.2 | Approvals inbox (+ optional Telegram) | `[x]` | |
-| L4.3 | Idempotency keys | `[x]` | |
-
-## L5 — Settlement rail (core gap)
-
-| ID | Item | Status | Notes |
-|----|------|--------|-------|
-| L5.1 | `EvmUsdcTransferRail` — vault `USDC.transfer` | `[x]` | `apps/api/src/rails/evm-usdc-transfer.ts` |
-| L5.2 | `executeIntent`: `pay` + `0x` → real rail (not mock) | `[x]` | Mock only if `POLICYVAULT_MOCK_TRANSFER=1` |
-| L5.3 | Keep mock for non-address / vendor `pay_api` | `[x]` | |
-| L5.4 | Register rail in `/v1/guardian/payments/rails` | `[x]` | |
-| L5.5 | Clear errors: no key / no USDC / no ETH gas | `[x]` | `INSUFFICIENT_*` / `CUSTODY_UNAVAILABLE` |
-
-## L6 — Custody
-
-| ID | Item | Status | Notes |
-|----|------|--------|-------|
-| L6.1 | Vault key lookup + EIP-712 sign (x402) | `[x]` | |
-| L6.2 | Broadcast path using vault key (viem wallet client) | `[x]` | `apps/api/src/chain/transfer.ts` |
-| L6.3 | True CDP Server Wallet | skip | Later; not needed for Sepolia proof |
-| L6.4 | Paymaster / gas sponsorship | skip | Fund vault with ETH instead |
-
-## L7 — Ledger vs chain
-
-| ID | Item | Status | Notes |
-|----|------|--------|-------|
-| L7.1 | Hold / finalize stipend on pay | `[x]` | |
-| L7.2 | Pre-check on-chain USDC ≥ amount before broadcast | `[x]` | Also ETH ≠ 0 gas floor |
-| L7.3 | After pay: Refresh shows lower vault USDC | `[~]` | Follows from real transfer |
-
-## L8 — Observability
-
-| ID | Item | Status | Notes |
-|----|------|--------|-------|
-| L8.1 | Return real `txHash` on pay result | `[x]` | Pay payload `txHash` |
-| L8.2 | Explorer URL in response / activity when possible | `[x]` | `resource.explorerUrl` |
-| L8.3 | Webhooks on payment events | `[x]` | Existing emits |
-
-## L9 — Compliance (out of critical path)
-
-| ID | Item | Status | Notes |
-|----|------|--------|-------|
-| L9.1 | KYC / full KYT | skip | Allowlist + HITL for this proof |
-| L9.2 | Compliance screen hook | `[x]` | Allow-all default |
-
-## L10 — Hosting / env
-
-| ID | Item | Status | Notes |
-|----|------|--------|-------|
-| L10.1 | Production on tip of `main` | `[~]` | Ops redeploy |
-| L10.2 | `CHAIN=base-sepolia`, bootstrap=`0`, pepper | `[~]` | Ops |
-| L10.3 | CDP keys | optional | Label only today |
+**Crucial remaining = ops only (C3–C6):** fund vault, stipend agent, run Playground **Agent pays your wallet**, confirm Basescan.
 
 ---
 
-## Crucial vs little things
+## Status by layer
 
-### Crucial (deliverable dies without these)
+### L0 — Outer proof
+| ID | Status | Notes |
+|----|--------|-------|
+| L0.1 Sepolia-capable wallet | `[~]` | You supply `0x` |
+| L0.2 Not Coinbase exchange | `[x]` | |
+| L0.3 Basescan acceptance | `[~]` | After first agent pay |
+| L0.4 Playground = same agent API | `[x]` | |
 
-- [x] **C1** Real USDC transfer rail + `executeIntent` switch  
-- [x] **C2** Vault can broadcast with its key  
-- [ ] **C3** Vault funded with USDC **and** ETH *(ops — you)*  
-- [ ] **C4** Address allowlist includes your receive `0x` *(ops — you)*  
-- [ ] **C5** Agent stipend + policy allow / HITL approve *(ops — you)*  
-- [ ] **C6** Confirm on Basescan + wallet — not console alone *(ops — you)*  
+### L1 — Money in
+| ID | Status |
+|----|--------|
+| L1.1–L1.3 Org, vault, auto-credit | `[x]` |
+| L1.4 USDC on vault | `[~]` ops |
+| L1.5 ETH gas on vault | `[~]` ops |
+| L1.6 Stipend via Move | `[x]` product / `[~]` ops once |
 
-### Important (secondary)
+### L2 — Agent
+| ID | Status |
+|----|--------|
+| L2.1 Create agent + key | `[x]` |
+| L2.2 Playground / SDK / curl | `[x]` |
+| L2.3 Chat stubs | skip |
 
-- [x] **I1** On-chain USDC pre-check before settle  
-- [x] **I2** Real `txHash` + explorer link in API payload  
-- [x] **I3** Rail registry updated  
-- [x] **I4** Mock `0x` pays only if `POLICYVAULT_MOCK_TRANSFER=1`  
+### L3 — Policy
+| ID | Status |
+|----|--------|
+| L3.1–L3.4 Allowlist + HITL + not pay_api | `[x]` |
+| L3.2 Your address on list | `[~]` ops / auto in Playground mission |
 
-### Little / later
-
-- [ ] **T1** CDP Server Wallet  
-- [ ] **T2** Paymaster  
-- [ ] **T3** Postgres, signup UI, KYC, chat browser  
-- [ ] **T4** Base mainnet + exchange deposit (separate track)  
+### L4 — Spine | `[x]`
+### L5 — Agent settlement rail | `[x]` **this is the product**
+### L6 — Custody broadcast | `[x]`
+### L7–L8 Ledger + observability | `[x]`
+### L9 Compliance extras | skip
+### L10 Hosting | `[~]` redeploy tip
 
 ---
 
-## Build order (this branch)
+## Crucial vs little
 
-1. [x] Progress sheet (this file)  
-2. [x] `chain/transfer.ts` — `transferUsdcFromVault`  
-3. [x] `rails/evm-usdc-transfer.ts`  
-4. [x] Wire `executeIntent` + rails registry + pre-check  
-5. [x] Smoke steps below (+ `PAY_TO_ADDRESS` on demo-agent)  
-6. [x] Merge to `main` (`a03252f`) → redeploy → your live pay test  
+### Crucial
+- [x] C1 Agent `pay` → real USDC rail  
+- [x] C2 Vault can broadcast  
+- [ ] C3 Vault USDC + ETH *(you)*  
+- [ ] C4 Allowlist *(you or Playground mission)*  
+- [ ] C5 Stipend + Run agent mission / HITL *(you)*  
+- [ ] C6 Basescan + wallet *(you)*  
+
+### Important UX (this branch)
+- [x] Playground wallet field + amount for agent proof  
+- [x] Mission auto-allowlists address via guardian policy  
+- [x] Label Treasury Send as **not** the proof  
+- [x] Progress sheet rectified to agent-only  
+
+### Later (not needed for proof)
+- [ ] T1 CDP Server Wallet · T2 Paymaster · T3 Postgres/signup/KYC/chat · T4 Mainnet exchange  
 
 ---
 
-## Smoke (after deploy)
+## How you run the proof (after deploy)
 
-Replace placeholders. Amount should be small (e.g. `0.10`).
+1. Treasury → Fund: vault shows USDC (auto-credit) + some ETH  
+2. Treasury → Move: stipend the agent  
+3. Playground: paste **agent** key if needed  
+4. Scenario **Agent pays your wallet (E2E proof)** → paste your Base Sepolia `0x` → amount `0.10` → **Run mission**  
+5. Approve if HITL  
+6. Open Basescan link in the step output — wallet USDC up  
 
-```bash
-# 1) Guardian: allowlist your Base Sepolia wallet
-curl -s -X POST "$API/v1/guardian/policy" \
-  -H "Authorization: Bearer $GUARDIAN_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"addressAllowlist":["0xYOUR_WALLET"]}'
-
-# 2) Ensure agent has stipend (Treasury → Move in console, or allocate API)
-
-# 3) Agent pay
-curl -s -X POST "$API/v1/agent/pay" \
-  -H "Authorization: Bearer $AGENT_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "amountUsdc":"0.10",
-    "destination":"0xYOUR_WALLET",
-    "idempotencyKey":"e2e_pay_1",
-    "memo":"e2e sepolia wallet proof"
-  }'
-
-# 4) If 202 NEEDS_APPROVAL → Approvals → Approve, then re-check decision / Basescan
-# 5) Open explorerTx from response — confirm Transfer vault → you
-```
-
-**Pass criteria:** USDC balance increases in your Base Sepolia wallet; Basescan shows the Transfer from the org vault.
+That is the entire system working: **agent + policy + custody + chain**.

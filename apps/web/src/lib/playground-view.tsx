@@ -48,6 +48,14 @@ export function Playground({
   const [pasteKey, setPasteKey] = useState("");
   const [shownRaw, setShownRaw] = useState<Record<string, boolean>>({});
   const [runMode, setRunMode] = useState<RunMode>("once");
+  const [e2eWallet, setE2eWallet] = useState(() => {
+    try {
+      return typeof window !== "undefined" ? sessionStorage.getItem("abi_e2e_wallet") ?? "" : "";
+    } catch {
+      return "";
+    }
+  });
+  const [e2eAmount, setE2eAmount] = useState("0.10");
   const [catFilter, setCatFilter] = useState<"all" | Mission["category"]>("all");
   const [source, setSource] = useState<"scenarios" | "custom">("scenarios");
   const [customTitle, setCustomTitle] = useState("Would we survive?");
@@ -128,6 +136,8 @@ export function Playground({
           runId,
           payeeAgentId: peer?.agentId,
           sellerUrl: SELLER,
+          e2eWallet: e2eWallet.trim() || undefined,
+          e2eAmountUsdc: e2eAmount.trim() || "0.10",
           emit: (nextSteps) => setMission((prev) => ({ ...prev, steps: nextSteps })),
           log: (line) =>
             setMission((prev) => ({
@@ -400,6 +410,55 @@ export function Playground({
                     </button>
                   ))}
                 </div>
+                {missionId === "onchain_wallet" ? (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: 12,
+                      borderRadius: 12,
+                      border: "1px solid var(--border)",
+                      background: "var(--surface-3)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                    }}
+                  >
+                    <div className="faint" style={{ fontSize: 12, lineHeight: 1.45 }}>
+                      <b style={{ color: "var(--fg)" }}>Agent pay — not Treasury Send.</b> Paste your
+                      Base Sepolia wallet. The agent will call{" "}
+                      <code>/v1/agent/pay</code>; policy + vault broadcast USDC on-chain.
+                    </div>
+                    <label className="field" style={{ margin: 0 }}>
+                      <span>Your Base Sepolia wallet (0x…)</span>
+                      <input
+                        className="mono"
+                        value={e2eWallet}
+                        disabled={running || readOnly}
+                        placeholder="0x…"
+                        onChange={(e) => {
+                          const v = e.target.value.trim();
+                          setE2eWallet(v);
+                          try {
+                            if (/^0x[a-fA-F0-9]{40}$/.test(v)) {
+                              sessionStorage.setItem("abi_e2e_wallet", v);
+                            }
+                          } catch {
+                            /* ignore */
+                          }
+                        }}
+                      />
+                    </label>
+                    <label className="field" style={{ margin: 0 }}>
+                      <span>Amount (USDC)</span>
+                      <input
+                        value={e2eAmount}
+                        disabled={running || readOnly}
+                        placeholder="0.10"
+                        onChange={(e) => setE2eAmount(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                ) : null}
               </>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
