@@ -23,6 +23,7 @@ Use these three first when coding or reviewing scope:
 | **Deploy** | [`docs/DEPLOY.md`](./DEPLOY.md) | Docker Compose, domain/TLS, SQLite vs Postgres, CDP go-live checklist. |
 | **Go live click path** | [`docs/GO_LIVE.md`](./GO_LIVE.md) | Zero-theory Production checklist (CDP, Sync, Move, Approve). |
 | **E2E on-chain agent pay** | [`docs/E2E-ONCHAIN-AGENT-PAY.md`](./E2E-ONCHAIN-AGENT-PAY.md) | Progress sheet: agent → policy → real Base Sepolia USDC to your wallet. |
+| **Real org start (newbie)** | [`docs/REAL-ORG-START.md`](./REAL-ORG-START.md) | Create real org vs demo, connect agents, instruct, pay now. |
 | **UI Audit** | [`docs/UI-AUDIT.md`](./UI-AUDIT.md) | Full frontend audit vs design skill references (Jul 2026). |
 | **Validation Build Rundown** | [`docs/VALIDATION-BUILD-RUNDOWN.md`](./VALIDATION-BUILD-RUNDOWN.md) | Sign-off-ready MVP rundown: architecture, features, UI, agent surfaces, phases, validation checklist. |
 | **Full-Scale Build Plan** | [`docs/FULL-SCALE-BUILD-PLAN.md`](./FULL-SCALE-BUILD-PLAN.md) | Master engineering/product plan: bounded contexts, data model, money flows, SDK/MCP, roadmap, NFRs, DoD. |

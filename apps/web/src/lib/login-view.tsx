@@ -47,7 +47,7 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-function keysMarkdown(session: Session): string {
+function keysMarkdown(session: Session, kind: "real" | "demo"): string {
   const when = new Date().toISOString();
   const agents = session.agentKeys
     .map((a) => `### ${a.name}\n\n\`${a.key}\`\n\nAgent id: \`${a.agentId}\``)
@@ -56,6 +56,7 @@ function keysMarkdown(session: Session): string {
 
 Generated: ${when}
 ${session.orgId ? `Org id: \`${session.orgId}\`` : ""}
+Kind: ${kind === "demo" ? "demo bootstrap (destructive wipe)" : "real organization"}
 
 Treat these like root passwords. Anyone with the guardian key can approve spend and change policy.
 We cannot show them again from the server — only a hash is stored.
@@ -66,16 +67,23 @@ We cannot show them again from the server — only a hash is stored.
 
 ## Agent API keys
 
-${agents || "_No agent keys in this session._"}
+${
+  agents ||
+  "_No agents yet._ Create them in Console → Agents, then save each `pv_agent_…` key once."
+}
 
 ---
 
-Not a bank. Not FDIC insured. Demo float is sample money unless you fund the vault yourself.
+Not a bank. Not FDIC insured. ${
+    kind === "demo"
+      ? "Demo float is sample ledger money unless you fund the vault yourself."
+      : "Fund the vault with real network USDC (and ETH for gas) before agents can pay on-chain."
+  }
 `;
 }
 
-function downloadKeysFile(session: Session) {
-  const body = keysMarkdown(session);
+function downloadKeysFile(session: Session, kind: "real" | "demo") {
+  const body = keysMarkdown(session, kind);
   const blob = new Blob([body], { type: "text/markdown;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -89,6 +97,7 @@ function downloadKeysFile(session: Session) {
 }
 
 type Phase = "intro" | "ready" | "keys";
+type LoginMode = "create" | "key" | "demo";
 
 export function Login({
   onLogin,
@@ -98,9 +107,12 @@ export function Login({
   setToast: (m: string, k?: "ok" | "err" | "info") => void;
 }) {
   const [key, setKey] = useState("");
+  const [orgName, setOrgName] = useState("");
+  const [mode, setMode] = useState<LoginMode>("create");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>("intro");
   const [pending, setPending] = useState<Session | null>(null);
+  const [pendingKind, setPendingKind] = useState<"real" | "demo">("real");
   const [savedAck, setSavedAck] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -136,6 +148,41 @@ export function Login({
     }
   }
 
+  async function createRealOrg() {
+    const name = orgName.trim() || "My organization";
+    setBusy(true);
+    try {
+      const res = await fetch(`${API}/v1/guardian/orgs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, depositUsdc: "0" }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        throw new Error(
+          d.error?.message ??
+            d.error?.code ??
+            `HTTP ${res.status}. If create is disabled, set POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE=1 on the API and redeploy.`,
+        );
+      }
+      const session: Session = {
+        guardianKey: d.guardianKey,
+        orgId: d.orgId,
+        agentKeys: [],
+      };
+      setPending(session);
+      setPendingKind("real");
+      setSavedAck(false);
+      setCopied(null);
+      setPhase("keys");
+      setToast("Organization created — save your guardian key before entering.", "ok");
+    } catch (e) {
+      setToast(`Create org failed: ${String(e)}`, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function bootstrap() {
     setBusy(true);
     try {
@@ -153,10 +200,11 @@ export function Login({
         ],
       };
       setPending(session);
+      setPendingKind("demo");
       setSavedAck(false);
       setCopied(null);
       setPhase("keys");
-      setToast("Org created — save your keys before entering the console.", "ok");
+      setToast("Demo org created — save your keys before entering the console.", "ok");
     } catch (e) {
       setToast(`Bootstrap failed: ${String(e)}`, "err");
     } finally {
@@ -210,38 +258,95 @@ export function Login({
         {showLogin && (
           <div className="login-card">
             <p className="login-sub">
-              Paste a guardian key if you already have one, or start a demo org with sample money and
-              two agents ready to try.
+              Policy-controlled USDC wallets for AI agents. Create a real org (empty — you add
+              agents), open an existing one with a guardian key, or try the demo desk.
             </p>
-            <div className="field">
-              <label>Guardian key</label>
-              <input
-                placeholder="pv_guardian_…"
-                value={key}
-                onChange={(e) => setKey(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && key.trim() && void connect()}
-                autoFocus
-              />
+
+            <div className="login-mode-row" role="tablist" aria-label="How to enter">
+              {(
+                [
+                  ["create", "Create org"],
+                  ["key", "I have a key"],
+                  ["demo", "Demo"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === id}
+                  className={`login-mode-btn ${mode === id ? "on" : ""}`}
+                  disabled={busy}
+                  onClick={() => setMode(id)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-            <button
-              style={{ width: "100%" }}
-              disabled={busy || !key.trim()}
-              onClick={() => void connect()}
-            >
-              Open console
-            </button>
-            <div className="or">or</div>
-            <Button
-              variant="ghost"
-              style={{ width: "100%" }}
-              disabled={busy}
-              onClick={() => void bootstrap()}
-            >
-              Launch demo org with $100 float
-            </Button>
+
+            {mode === "create" && (
+              <>
+                <div className="field">
+                  <label>Organization name</label>
+                  <input
+                    placeholder="Acme Ops"
+                    value={orgName}
+                    onChange={(e) => setOrgName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && void createRealOrg()}
+                    autoFocus
+                  />
+                </div>
+                <button style={{ width: "100%" }} disabled={busy} onClick={() => void createRealOrg()}>
+                  Create organization
+                </button>
+                <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.55 }}>
+                  Starts empty: no demo agents, no sample stipend. You get a guardian key once, then
+                  create agents and fund the vault yourself.
+                </p>
+              </>
+            )}
+
+            {mode === "key" && (
+              <>
+                <div className="field">
+                  <label>Guardian key</label>
+                  <input
+                    placeholder="pv_guardian_…"
+                    value={key}
+                    onChange={(e) => setKey(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && key.trim() && void connect()}
+                    autoFocus
+                  />
+                </div>
+                <button
+                  style={{ width: "100%" }}
+                  disabled={busy || !key.trim()}
+                  onClick={() => void connect()}
+                >
+                  Open console
+                </button>
+              </>
+            )}
+
+            {mode === "demo" && (
+              <>
+                <Button
+                  variant="ghost"
+                  style={{ width: "100%" }}
+                  disabled={busy}
+                  onClick={() => void bootstrap()}
+                >
+                  Launch demo org with $100 float
+                </Button>
+                <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.55 }}>
+                  Resets local data and seeds Researcher + Writer with sample money. Side path for
+                  trying the rails — not your production org.
+                </p>
+              </>
+            )}
+
             <p className="faint" style={{ fontSize: 11.5, marginTop: 20, lineHeight: 1.6 }}>
-              The demo resets local data and creates a fresh org with two agents. Not a bank. Not FDIC
-              insured.
+              Not a bank. Not FDIC insured.
             </p>
           </div>
         )}
@@ -249,13 +354,14 @@ export function Login({
         {showKeys && pending && (
           <KeyRevealCard
             session={pending}
+            kind={pendingKind}
             savedAck={savedAck}
             setSavedAck={setSavedAck}
             copied={copied}
             busy={busy}
             onCopy={onCopy}
             onDownload={() => {
-              downloadKeysFile(pending);
+              downloadKeysFile(pending, pendingKind);
               setToast("Downloaded keys markdown file", "ok");
             }}
             onEnter={enterConsole}
@@ -268,6 +374,7 @@ export function Login({
 
 function KeyRevealCard({
   session,
+  kind,
   savedAck,
   setSavedAck,
   copied,
@@ -277,6 +384,7 @@ function KeyRevealCard({
   onEnter,
 }: {
   session: Session;
+  kind: "real" | "demo";
   savedAck: boolean;
   setSavedAck: (v: boolean) => void;
   copied: string | null;
@@ -292,10 +400,15 @@ function KeyRevealCard({
           <Icon name="key" size={14} />
           Save these keys
         </span>
-        <h2 className="login-keys-title">Your org credentials</h2>
+        <h2 className="login-keys-title">
+          {kind === "real" ? "Your organization credentials" : "Your demo credentials"}
+        </h2>
         <p className="login-sub" style={{ marginBottom: 0 }}>
           Shown once. Copy them or download the file — we only store hashes on the server, so we
           cannot email these back later.
+          {kind === "real"
+            ? " No agents yet — create them in the console and save each agent key when it appears."
+            : ""}
         </p>
       </div>
 
@@ -317,6 +430,13 @@ function KeyRevealCard({
           onCopy={() => void onCopy(`${a.name} API key`, a.key)}
         />
       ))}
+
+      {session.agentKeys.length === 0 ? (
+        <p className="faint" style={{ fontSize: 12, lineHeight: 1.5, margin: "4px 0 0" }}>
+          Next inside the console: <b>Agents → Create</b>, then Treasury (fund vault + stipend),
+          then connect your agent runtime with the new <code>pv_agent_…</code> key.
+        </p>
+      ) : null}
 
       <div className="login-keys-toolbar">
         <Button
@@ -356,7 +476,8 @@ function KeyRevealCard({
       </button>
       <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.6 }}>
         Clearing this site’s browser data signs you out. You’ll need the guardian key to get back
-        in — or launch a new demo org (that resets the float).
+        in
+        {kind === "demo" ? " — or launch a new demo org (that resets the float)." : "."}
       </p>
     </div>
   );

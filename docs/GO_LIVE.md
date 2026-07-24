@@ -20,6 +20,7 @@ Longer context: `docs/LAUNCH.md`. This file is only the buttons.
 | --- | --- |
 | `ABI_KEY_PEPPER` | long random string (required) |
 | `POLICYVAULT_ALLOW_BOOTSTRAP` | `0` |
+| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE` | `1` (so login **Create org** works; set `0` later if you want invite-only) |
 | `CHAIN` | `base-sepolia` |
 | `CDP_API_KEY_ID` | from [Coinbase Developer Platform](https://portal.cdp.coinbase.com/) |
 | `CDP_API_KEY_SECRET` | same portal — **both** required |

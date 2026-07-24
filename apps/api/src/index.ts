@@ -699,7 +699,8 @@ app.post("/v1/demo/bootstrap", (_req, res) => {
 // Guardian routes (Bearer pv_guardian_... — org derived from the key)
 // ---------------------------------------------------------------------------
 
-/** Create a real org with a mock USDC deposit (on-chain deposit is a later phase). */
+/** Create a real org (empty agent roster). Ledger depositUsdc is optional mock float;
+ * live USDC comes from on-chain vault funding + auto-credit. */
 const ALLOW_PUBLIC_ORG_CREATE =
   process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE === "1" ||
   (process.env.NODE_ENV !== "production" && process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE !== "0");

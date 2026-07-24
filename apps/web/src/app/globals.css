@@ -3497,6 +3497,38 @@ input[type="range"].slider::-moz-range-thumb {
   margin: 0 0 22px;
 }
 
+.login-mode-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.login-mode-btn {
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 6px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.login-mode-btn.on {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.login-mode-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .login-card-keys {
   max-width: 520px;
   padding: 28px 30px 30px;
