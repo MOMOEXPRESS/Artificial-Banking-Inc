@@ -58,6 +58,10 @@ export type OnchainVaultSnapshot = {
   explorerAddress?: string;
   onchainBalanceMicro: string;
   onchainBalanceUsdc: string;
+  /** Native ETH (wei) on the vault — required for gas on agent USDC transfers. */
+  nativeBalanceWei: string;
+  nativeBalanceEth: string;
+  hasGas: boolean;
   blockNumber: string;
   transfers: DetectedTransfer[];
   scannedFromBlock: string;
@@ -118,6 +122,9 @@ export async function readVaultOnchain(vaultAddress: string | undefined): Promis
     explorerAddress: undefined,
     onchainBalanceMicro: "0",
     onchainBalanceUsdc: "0.00",
+    nativeBalanceWei: "0",
+    nativeBalanceEth: "0",
+    hasGas: false,
     blockNumber: "0",
     transfers: [],
     scannedFromBlock: "0",
@@ -133,13 +140,14 @@ export async function readVaultOnchain(vaultAddress: string | undefined): Promis
     const client = clientFor(cfg);
     const latest = await client.getBlockNumber();
 
-    const [balance, { logs, fromBlock }] = await Promise.all([
+    const [balance, ethBal, { logs, fromBlock }] = await Promise.all([
       client.readContract({
         address: cfg.usdc,
         abi: erc20Abi,
         functionName: "balanceOf",
         args: [vault],
       }),
+      client.getBalance({ address: vault }),
       getTransferLogsChunked(client, cfg, vault, latest),
     ]);
 
@@ -161,6 +169,12 @@ export async function readVaultOnchain(vaultAddress: string | undefined): Promis
       })
       .sort((a, b) => Number(b.blockNumber) - Number(a.blockNumber));
 
+    // 18-decimal ETH display (trim trailing zeros lightly)
+    const ethWhole = ethBal / 10n ** 18n;
+    const ethFrac = ethBal % 10n ** 18n;
+    const ethFracStr = ethFrac.toString().padStart(18, "0").replace(/0+$/, "").slice(0, 6);
+    const nativeBalanceEth = ethFracStr ? `${ethWhole}.${ethFracStr}` : ethWhole.toString();
+
     return {
       ok: true,
       network: cfg.id,
@@ -172,6 +186,9 @@ export async function readVaultOnchain(vaultAddress: string | undefined): Promis
       explorerAddress: cfg.explorerAddress(vault),
       onchainBalanceMicro: balance.toString(),
       onchainBalanceUsdc: formatMicroToUsdc(balance),
+      nativeBalanceWei: ethBal.toString(),
+      nativeBalanceEth,
+      hasGas: ethBal > 0n,
       blockNumber: latest.toString(),
       transfers,
       scannedFromBlock: fromBlock.toString(),

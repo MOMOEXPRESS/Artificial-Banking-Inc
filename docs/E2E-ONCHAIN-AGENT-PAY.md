@@ -43,7 +43,7 @@ Update this file as work lands.
 |----|------|--------|-------|
 | L1.1 | Org + guardian key (non-wipe create) | `[x]` | `POST /v1/guardian/orgs` or existing key |
 | L1.2 | Vault EOA address | `[x]` | Treasury → Vault |
-| L1.3 | On-chain deposit detect + Sync (≤2000 block chunks) | `[x]` | `794c3b8` on main |
+| L1.3 | On-chain deposit detect + **auto-credit** (GET Fund / poll / background sweep) | `[x]` | Manual Sync optional as Force re-scan |
 | L1.4 | Vault has Sepolia **USDC** | `[~]` | Ops: faucet → Sync |
 | L1.5 | Vault has Sepolia **ETH** for gas | `[~]` | Ops: required for ERC-20 transfer |
 | L1.6 | Move vault → budget → agent stipend | `[x]` | Treasury → Move |

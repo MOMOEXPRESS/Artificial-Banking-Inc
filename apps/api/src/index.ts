@@ -50,6 +50,7 @@ import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./webhook-url.js";
 import { registerAgentRoutes } from "./agent-routes.js";
 import { runAutoFundSweep } from "./auto-fund.js";
+import { runOnchainDepositSweep } from "./chain/sync-deposits.js";
 import { registerPaymentRoutes } from "./payment-routes.js";
 import { registerPlatformRoutes } from "./platform-routes.js";
 import { registerPolicyRoutes } from "./policy-routes.js";
@@ -2076,7 +2077,15 @@ if (!embedded) {
     } catch (e) {
       console.error("auto-fund sweep failed:", e);
     }
+    void runOnchainDepositSweep().catch((e) => console.error("onchain deposit sweep failed:", e));
   }, 10_000).unref();
+
+  // Deposits can sit a few blocks; sweep a bit more often than reconcile.
+  setInterval(() => {
+    void runOnchainDepositSweep({ force: true }).catch((e) =>
+      console.error("onchain deposit sweep failed:", e),
+    );
+  }, 30_000).unref();
 
   setInterval(() => {
     for (const orgId of store.listOrgIds()) {

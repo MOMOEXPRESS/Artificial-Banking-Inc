@@ -30,7 +30,11 @@ import {
   heldKind,
 } from "./treasury.js";
 import { emitEvent } from "./webhooks.js";
-import { readVaultOnchain } from "./chain/deposits.js";
+import {
+  decorateOnchainTransfers,
+  syncOrgOnchainDeposits,
+  runOnchainDepositSweep,
+} from "./chain/sync-deposits.js";
 import { activeChain } from "./chain/network.js";
 
 type GuardianRoute = (
@@ -145,6 +149,10 @@ export function registerTreasuryRoutes(
   app.get(
     "/v1/guardian/wallets",
     guardianRoute((org, _req, res) => {
+      // Vercel embed has no setInterval — opportunistic deposit credit on console traffic.
+      void runOnchainDepositSweep().catch((e) =>
+        console.error("onchain deposit sweep failed:", e),
+      );
       const accounts = store.getAccountMap(org.id);
       const bal = (scope: WalletScope, ownerId: string) => {
         const a = accounts.get(accountId(scope, ownerId))?.balanceMicro ?? 0n;
@@ -781,27 +789,39 @@ export function registerTreasuryRoutes(
   );
 
   /**
-   * Live chain view of the org vault: USDC balanceOf + recent Transfer-in logs.
-   * Does not mutate the ledger — use POST …/onchain/sync to credit new deposits.
+   * Live chain view of the org vault. Automatically credits any new USDC
+   * Transfer-ins into the ledger (same as POST …/onchain/sync) so guardians
+   * do not need a manual Sync click after a faucet send.
    */
   app.get(
     "/v1/guardian/treasury/onchain",
     guardianRoute(async (org, _req, res) => {
-      const snap = await readVaultOnchain(store.getVaultAddress(org.id));
-      const credited = store.listOnchainDeposits(org.id);
-      const creditedKeys = new Set(credited.map((d) => `${d.txHash}:${d.logIndex}`));
-      const transfers = snap.transfers.map((t) => ({
-        ...t,
-        status: creditedKeys.has(`${t.txHash.toLowerCase()}:${t.logIndex}`)
-          ? ("credited" as const)
-          : ("detected" as const),
-      }));
+      const result = await syncOrgOnchainDeposits(org.id);
+      if (!result.ok) {
+        return res.status(502).json({
+          error: {
+            code: "CHAIN_UNAVAILABLE",
+            message: result.error ?? "Could not read vault on-chain",
+            network: result.snap.network,
+          },
+          onchain: result.snap,
+          newlyCredited: [],
+          creditedCount: 0,
+          ledgerAvailableUsdc: result.ledgerAvailableUsdc,
+        });
+      }
+      const { credited, transfers } = decorateOnchainTransfers(result.snap, org.id);
       res.json({
-        onchain: { ...snap, transfers },
+        onchain: { ...result.snap, transfers },
+        newlyCredited: result.newly,
+        creditedCount: result.newly.length,
         credited,
-        ledgerAvailableUsdc: formatMicroToUsdc(
-          store.getAccountMap(org.id).get(`org:${org.id}:available`)?.balanceMicro ?? 0n,
-        ),
+        ledgerAvailableUsdc: result.ledgerAvailableUsdc,
+        autoSynced: true,
+        note:
+          result.newly.length > 0
+            ? `Auto-credited ${result.newly.length} on-chain deposit(s) into the org vault ledger.`
+            : undefined,
       });
     }),
   );
@@ -924,85 +944,33 @@ export function registerTreasuryRoutes(
     }),
   );
 
-  /** Scan chain and credit any new USDC Transfers into the org vault ledger. */
+  /** Force a chain re-scan (GET /onchain already auto-credits; this is for explicit retries). */
   app.post(
     "/v1/guardian/treasury/onchain/sync",
     guardianRoute(async (org, _req, res) => {
-      const snap = await readVaultOnchain(store.getVaultAddress(org.id));
-      if (!snap.ok) {
+      const result = await syncOrgOnchainDeposits(org.id);
+      if (!result.ok) {
         return res.status(502).json({
           error: {
             code: "CHAIN_UNAVAILABLE",
-            message: snap.error ?? "Could not read vault on-chain",
-            network: snap.network,
+            message: result.error ?? "Could not read vault on-chain",
+            network: result.snap.network,
           },
         });
       }
-      const newly: {
-        txHash: string;
-        logIndex: number;
-        amountUsdc: string;
-        explorerUrl: string;
-        blockNumber: string;
-        from: string;
-      }[] = [];
-      for (const t of snap.transfers) {
-        const result = store.creditOnchainUsdcDeposit({
-          orgId: org.id,
-          chain: snap.network,
-          txHash: t.txHash,
-          logIndex: t.logIndex,
-          blockNumber: t.blockNumber,
-          from: t.from,
-          to: t.to,
-          amountMicro: BigInt(t.amountMicro),
-        });
-        if (result.credited) {
-          newly.push({
-            txHash: t.txHash,
-            logIndex: t.logIndex,
-            amountUsdc: t.amountUsdc,
-            explorerUrl: t.explorerUrl,
-            blockNumber: t.blockNumber,
-            from: t.from,
-          });
-          recordObs({
-            name: "treasury.onchain_deposit",
-            orgId: org.id,
-            attrs: { txHash: t.txHash, amountUsdc: t.amountUsdc, network: snap.network },
-          });
-          emitEvent(org.id, "treasury.onchain_deposit", {
-            txHash: t.txHash,
-            amountUsdc: t.amountUsdc,
-            network: snap.network,
-            explorerUrl: t.explorerUrl,
-          });
-        }
-      }
-      const credited = store.listOnchainDeposits(org.id);
-      const creditedKeys = new Set(credited.map((d) => `${d.txHash}:${d.logIndex}`));
+      const { credited, transfers } = decorateOnchainTransfers(result.snap, org.id);
       res.json({
         ok: true,
-        newlyCredited: newly,
-        creditedCount: newly.length,
-        onchain: {
-          ...snap,
-          transfers: snap.transfers.map((t) => ({
-            ...t,
-            status: creditedKeys.has(`${t.txHash.toLowerCase()}:${t.logIndex}`)
-              ? "credited"
-              : "detected",
-          })),
-        },
+        newlyCredited: result.newly,
+        creditedCount: result.newly.length,
+        onchain: { ...result.snap, transfers },
         credited,
-        ledgerAvailableUsdc: formatMicroToUsdc(
-          store.getAccountMap(org.id).get(`org:${org.id}:available`)?.balanceMicro ?? 0n,
-        ),
+        ledgerAvailableUsdc: result.ledgerAvailableUsdc,
         note:
-          newly.length > 0
-            ? `Credited ${newly.length} on-chain deposit(s) into the org vault ledger.`
-            : snap.transfers.length === 0
-              ? `No USDC Transfer-in found on ${snap.networkName} in the last ~${snap.scannedToBlock === "0" ? "0" : "8k"} blocks. Confirm Base Sepolia USDC to this vault on the explorer.`
+          result.newly.length > 0
+            ? `Credited ${result.newly.length} on-chain deposit(s) into the org vault ledger.`
+            : result.snap.transfers.length === 0
+              ? `No USDC Transfer-in found on ${result.snap.networkName} in the scanned window. Confirm Base Sepolia USDC to this vault on the explorer.`
               : "All detected transfers were already credited.",
       });
     }),

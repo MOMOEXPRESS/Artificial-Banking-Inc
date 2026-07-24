@@ -47,7 +47,7 @@ If still `dev-local`: both CDP keys missing or redeploy not done. Fix env → Re
 
 1. **Settings → Go live → Organisation** (or **Treasury → Vault**) → copy **vault address**  
 2. Send **Base Sepolia USDC** to that address (Circle faucet or CDP faucet — network must be Base Sepolia)  
-3. Console → **Treasury → Fund** → **On-chain vault** → **Refresh chain** (should show balance) → **Sync deposits** (credits ledger)  
+3. Console → **Treasury → Fund** → open the tab (auto-credits Transfer-ins; Refresh if needed). Optional **Force re-scan**.  
 4. Confirm Transfer-in rows show tx links on Basescan  
 
 Product money = **USDC**. Do not put a Solana meme token here.  

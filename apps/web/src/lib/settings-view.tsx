@@ -193,8 +193,14 @@ export function SettingsView({
       title: `On-chain settlement (${networkLabel})`,
       body:
         setup?.cdpWired
-          ? `Settling on ${networkLabel} via CDP. Fund the vault with USDC on that network.`
-          : `Handshake and policy are real; settlement is still mocked until CDP is wired. Fund the vault with ${networkLabel} USDC after CDP is green.`,
+          ? `Settling on ${networkLabel}. Fund the vault with USDC + ETH (gas), Sync, allowlist your wallet, then agent pay.`
+          : `Handshake and policy are real; CDP label is optional for Sepolia ERC-20 pays. Still fund vault with ${networkLabel} USDC + ETH.`,
+    },
+    {
+      done: false,
+      title: "E2E proof: agent USDC → your wallet",
+      body:
+        "1) Vault USDC + ETH → Sync  2) Move stipend to agent  3) Policy → address allowlist = your Base Sepolia wallet (not Coinbase exchange)  4) Playground “On-chain wallet pay” or curl  5) Approve if HITL  6) Basescan Transfer. Track: docs/E2E-ONCHAIN-AGENT-PAY.md",
     },
     {
       done: !!setup?.telegram,
@@ -307,7 +313,9 @@ export function SettingsView({
                 <label>Vault address</label>
                 <div className="code">{org?.vaultAddress}</div>
                 <div className="hint">
-                  Fund this with {networkLabel} USDC after Settings → Go live shows custody <b>cdp</b>.
+                  Fund with {networkLabel} <b>USDC</b> (agent spend) and a little <b>ETH</b> (gas for
+                  on-chain agent pays). Sync deposits on Treasury → Vault. Proof path:{" "}
+                  <code>docs/E2E-ONCHAIN-AGENT-PAY.md</code>.
                 </div>
               </div>
               <div className="kv">

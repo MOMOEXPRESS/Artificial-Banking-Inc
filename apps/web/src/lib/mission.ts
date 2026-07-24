@@ -239,6 +239,64 @@ const payVendor = (amount: string, vendor: string, memo: string): StepDef => ({
   },
 });
 
+/** Real Base USDC ERC-20 transfer from org vault → allowlisted wallet. */
+const payToWallet = (amount: string, address: string): StepDef => ({
+  id: `pay_wallet_${address.slice(0, 10)}`,
+  title: `On-chain pay $${amount} USDC → ${address.slice(0, 10)}…`,
+  detail:
+    "Broadcasts vault USDC.transfer to your allowlisted Base Sepolia wallet. Needs vault USDC + ETH gas + address allowlist.",
+  async run(ctx, state) {
+    const dest = address.trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(dest)) {
+      return {
+        summary: "Set a valid 0x receive address (Base Sepolia wallet — not Coinbase exchange).",
+        output: dest,
+        softFail: true,
+        abort: true,
+      };
+    }
+    const { status, data } = await agentCall(ctx, "POST", "/v1/agent/pay", {
+      amountUsdc: amount,
+      destination: dest,
+      idempotencyKey: idem("wallet"),
+      jobId: ctx.runId,
+      memo: "e2e sepolia wallet proof",
+    });
+    if (status === 202 && data.approvalId) {
+      state.blocks.push({ amount, destination: dest, outcome: "pending" });
+      return {
+        summary: `Parked for HITL — approve in Approvals, then the vault will broadcast USDC to ${dest.slice(0, 10)}…`,
+        output: pretty(data),
+        approvalId: String(data.approvalId),
+      };
+    }
+    if (status >= 400) {
+      state.denials.push({ amount, destination: dest, code: errCode(data), reason: errMsg(data) });
+      return {
+        summary: `On-chain pay failed: ${errMsg(data) || errCode(data)}. Check allowlist, stipend, vault USDC + ETH.`,
+        output: pretty(data),
+        softFail: true,
+      };
+    }
+    state.spentUsd += Number(data.amountUsdc);
+    state.purchases.push({
+      amount: String(data.amountUsdc),
+      destination: dest,
+      rail: String(data.rail ?? "evm-usdc-transfer"),
+    });
+    const explorer =
+      (data.resource as { explorerUrl?: string } | undefined)?.explorerUrl ??
+      (data.txHash ? `https://sepolia.basescan.org/tx/${data.txHash}` : undefined);
+    ctx.log(`on-chain $${data.amountUsdc} → ${dest}${data.txHash ? ` tx ${data.txHash}` : ""}`);
+    return {
+      summary: explorer
+        ? `Settled $${data.amountUsdc} on-chain. Basescan: ${explorer}`
+        : `Settled $${data.amountUsdc} on-chain to ${dest.slice(0, 10)}…`,
+      output: pretty(data),
+    };
+  },
+});
+
 const hirePeer = (amount: string): StepDef => ({
   id: "escrow_lock",
   title: `Hire the peer agent under $${amount} escrow`,
@@ -697,6 +755,48 @@ Denials: ${state.denials.length}. Remaining: **$${state.finalBudget ?? "—"}**
 `,
   },
   {
+    id: "onchain_wallet",
+    title: "On-chain wallet pay (E2E proof)",
+    persona: "Founder proving agent + policy move real Sepolia USDC",
+    category: "commerce",
+    brief:
+      "End-to-end proof: agent pay broadcasts vault USDC to YOUR Base Sepolia wallet. Before Run: Policy → add your 0x to address allowlist; vault has USDC + ETH; agent has stipend. Paste your wallet below into Custom → On-chain wallet pay, or set sessionStorage key abi_e2e_wallet. Do not use a Coinbase exchange deposit address.",
+    deliverableKind: "On-chain transfer receipt",
+    build: () => {
+      const dest =
+        typeof window !== "undefined"
+          ? (sessionStorage.getItem("abi_e2e_wallet") ?? "").trim()
+          : "";
+      if (!/^0x[a-fA-F0-9]{40}$/.test(dest)) {
+        return [
+          {
+            id: "need_wallet",
+            title: "Set your Base Sepolia receive address",
+            detail:
+              "Playground → Custom mission → step “On-chain wallet pay” with your 0x, or in DevTools: sessionStorage.setItem('abi_e2e_wallet','0x…') then re-run this mission.",
+            async run() {
+              return {
+                summary:
+                  "No abi_e2e_wallet in sessionStorage. Use a Custom mission with step “On-chain wallet pay” and paste your Base Sepolia wallet (Coinbase Wallet / MetaMask on Sepolia).",
+                softFail: true,
+                abort: true,
+              };
+            },
+          },
+        ];
+      }
+      return [checkBudget, payToWallet("0.10", dest), listActivity, summarize];
+    },
+    deliverable: (state) => `# On-chain wallet pay receipt
+
+${costTable(state)}
+
+Confirm the Transfer on Basescan and your wallet USDC balance on Base Sepolia.
+
+See docs/E2E-ONCHAIN-AGENT-PAY.md.
+`,
+  },
+  {
     id: "swarm_handoff",
     title: "Swarm handoff (hire peer)",
     persona: "Multi-agent research desk",
@@ -774,6 +874,7 @@ export type CustomStepKind =
   | "budget"
   | "simulate"
   | "pay_api"
+  | "pay_wallet"
   | "x402"
   | "escrow_lock"
   | "escrow_release"
@@ -813,6 +914,14 @@ export const CUSTOM_STEP_CATALOG: {
     detail: "Real pay_api call against allowlists + caps.",
   },
   {
+    kind: "pay_wallet",
+    label: "On-chain wallet pay",
+    needsAmount: true,
+    needsDestination: true,
+    detail:
+      "Real USDC.transfer from vault to your 0x (Base Sepolia). Destination must be on Policy address allowlist.",
+  },
+  {
     kind: "x402",
     label: "Buy x402 report",
     needsAmount: true,
@@ -848,6 +957,15 @@ function stepFromDraft(d: CustomStepDraft): StepDef {
       return { ...dryRun(amount, dest), id: d.id };
     case "pay_api":
       return { ...payVendor(amount, dest, memo), id: d.id };
+    case "pay_wallet":
+      try {
+        if (typeof window !== "undefined" && /^0x[a-fA-F0-9]{40}$/.test(dest)) {
+          sessionStorage.setItem("abi_e2e_wallet", dest);
+        }
+      } catch {
+        /* ignore */
+      }
+      return { ...payToWallet(amount, dest), id: d.id };
     case "x402":
       return { ...buyViaX402(amount), id: d.id };
     case "escrow_lock":
@@ -919,13 +1037,16 @@ export function newCustomStep(kind: CustomStepKind = "pay_api"): CustomStepDraft
   return {
     id: `cs_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e4)}`,
     kind,
-    amount: meta?.needsAmount ? "5" : undefined,
+    amount: meta?.needsAmount ? (kind === "pay_wallet" ? "0.10" : "5") : undefined,
     destination: meta?.needsDestination
       ? kind === "drain"
         ? "0x1111111111111111111111111111111111111111"
-        : "api.openai.com"
+        : kind === "pay_wallet"
+          ? ""
+          : "api.openai.com"
       : undefined,
-    memo: kind === "pay_api" ? "custom spend" : undefined,
+    memo:
+      kind === "pay_api" ? "custom spend" : kind === "pay_wallet" ? "e2e sepolia wallet proof" : undefined,
   };
 }
 

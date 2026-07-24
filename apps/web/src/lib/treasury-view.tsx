@@ -172,6 +172,8 @@ export function TreasuryView({
     usdcContract?: string;
     explorerAddress?: string;
     onchainBalanceUsdc?: string;
+    nativeBalanceEth?: string;
+    hasGas?: boolean;
     blockNumber?: string;
     scannedFromBlock?: string;
     scannedToBlock?: string;
@@ -251,19 +253,34 @@ export function TreasuryView({
       ]);
       setOnchain(d.onchain ?? null);
       setVaultActivity(act.items ?? []);
+      if ((d.creditedCount ?? 0) > 0) {
+        await refresh();
+      }
+      return d as {
+        creditedCount?: number;
+        note?: string;
+        newlyCredited?: { amountUsdc: string; txHash: string }[];
+      };
     } catch {
       setOnchain({ ok: false, error: "Could not reach on-chain status" });
+      return null;
     } finally {
       setOnchainBusy(false);
     }
-  }, [gFetch]);
+  }, [gFetch, refresh]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   useEffect(() => {
-    if (tab === "fund") void refreshOnchain();
+    if (tab !== "fund") return;
+    void refreshOnchain();
+    // Auto-poll while Fund is open so faucet deposits credit without a Sync click.
+    const t = window.setInterval(() => {
+      void refreshOnchain();
+    }, 25_000);
+    return () => window.clearInterval(t);
   }, [tab, refreshOnchain, assetId]);
 
   useEffect(() => {
@@ -585,8 +602,9 @@ export function TreasuryView({
                 <div>
                   <h2 style={{ margin: 0 }}>On-chain (Base)</h2>
                   <div className="sub">
-                    Real USDC at this vault address on {onchain?.networkName ?? "Base Sepolia"}. Sync
-                    pulls confirmed Transfer-ins into the spendable ledger.
+                    Real USDC at this vault on {onchain?.networkName ?? "Base Sepolia"}. Deposits
+                    auto-credit into the spendable ledger when you open Fund (and every ~25s while
+                    this tab is open).
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -599,10 +617,11 @@ export function TreasuryView({
                     {onchainBusy ? "Checking…" : "Refresh"}
                   </Button>
                   <Button
+                    variant="ghost"
                     size="sm"
                     disabled={onchainBusy || locked}
                     onClick={() =>
-                      void act("Sync on-chain deposits", async () => {
+                      void act("Force deposit re-scan", async () => {
                         setOnchainBusy(true);
                         try {
                           const res = await gFetch("/v1/guardian/treasury/onchain/sync", {
@@ -620,7 +639,7 @@ export function TreasuryView({
                       })
                     }
                   >
-                    Sync deposits
+                    Force re-scan
                   </Button>
                 </div>
               </div>
@@ -644,6 +663,13 @@ export function TreasuryView({
                   <b>{fmt(wallets?.org.availableUsdc)}</b>
                 </div>
                 <div>
+                  <span className="faint">ETH (gas)</span>
+                  <b style={{ color: onchain?.hasGas ? undefined : "var(--amber, var(--warn))" }}>
+                    {onchain?.nativeBalanceEth != null ? `${onchain.nativeBalanceEth} ETH` : "—"}
+                    {onchain && !onchain.hasGas ? " · needed" : ""}
+                  </b>
+                </div>
+                <div>
                   <span className="faint">Network</span>
                   <b>
                     {onchain?.networkName ?? "—"}
@@ -651,6 +677,12 @@ export function TreasuryView({
                   </b>
                 </div>
               </div>
+
+              <p className="faint" style={{ fontSize: 12, marginTop: 10, lineHeight: 1.5 }}>
+                Agent pays to an allowlisted wallet broadcast real USDC from this vault — fund{" "}
+                <b>USDC</b> and a little <b>ETH</b> for gas, Sync, then Policy → address allowlist →
+                Playground “On-chain wallet pay” (or curl / demo-agent).
+              </p>
 
               {onchain?.explorerAddress ? (
                 <p className="faint" style={{ fontSize: 12, marginTop: 8 }}>
