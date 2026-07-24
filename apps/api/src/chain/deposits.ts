@@ -9,6 +9,7 @@ import {
   parseAbiItem,
   type Address,
   type Hex,
+  type Log,
 } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import { activeChain, rpcUrl, type ChainConfig } from "./network.js";
@@ -27,8 +28,13 @@ const erc20Abi = [
   },
 ] as const;
 
-/** How far back to scan Transfer logs (public RPCs cap eth_getLogs range). */
-const SCAN_BLOCK_WINDOW = 8_000n;
+/**
+ * Public Base Sepolia RPCs reject eth_getLogs when (to - from) > ~2000.
+ * Keep each chunk at most 2000 inclusive blocks (to = from + 1999).
+ * Walk several chunks so Sync still covers recent history (~10k blocks).
+ */
+const MAX_LOG_RANGE = 2_000n;
+const SCAN_CHUNKS = 5n;
 
 export type DetectedTransfer = {
   txHash: Hex;
@@ -67,6 +73,32 @@ function clientFor(cfg: ChainConfig) {
   });
 }
 
+async function getTransferLogsChunked(
+  client: ReturnType<typeof clientFor>,
+  cfg: ChainConfig,
+  vault: Address,
+  latest: bigint,
+): Promise<{ logs: Log[]; fromBlock: bigint }> {
+  const totalWindow = MAX_LOG_RANGE * SCAN_CHUNKS;
+  const fromBlock = latest > totalWindow ? latest - totalWindow : 0n;
+  const logs: Log[] = [];
+
+  for (let start = fromBlock; start <= latest; start += MAX_LOG_RANGE) {
+    let end = start + MAX_LOG_RANGE - 1n;
+    if (end > latest) end = latest;
+    const chunk = await client.getLogs({
+      address: cfg.usdc,
+      event: transferEvent,
+      args: { to: vault },
+      fromBlock: start,
+      toBlock: end,
+    });
+    logs.push(...chunk);
+  }
+
+  return { logs, fromBlock };
+}
+
 export async function readVaultOnchain(vaultAddress: string | undefined): Promise<OnchainVaultSnapshot> {
   const cfg = activeChain();
   const baseSnap: OnchainVaultSnapshot = {
@@ -94,33 +126,27 @@ export async function readVaultOnchain(vaultAddress: string | undefined): Promis
   try {
     const client = clientFor(cfg);
     const latest = await client.getBlockNumber();
-    const fromBlock = latest > SCAN_BLOCK_WINDOW ? latest - SCAN_BLOCK_WINDOW : 0n;
 
-    const [balance, logs] = await Promise.all([
+    const [balance, { logs, fromBlock }] = await Promise.all([
       client.readContract({
         address: cfg.usdc,
         abi: erc20Abi,
         functionName: "balanceOf",
         args: [vault],
       }),
-      client.getLogs({
-        address: cfg.usdc,
-        event: transferEvent,
-        args: { to: vault },
-        fromBlock,
-        toBlock: latest,
-      }),
+      getTransferLogsChunked(client, cfg, vault, latest),
     ]);
 
     const transfers: DetectedTransfer[] = logs
       .map((log) => {
-        const value = (log.args.value ?? 0n) as bigint;
+        const args = log.args as { from?: Address; to?: Address; value?: bigint };
+        const value = args.value ?? 0n;
         const hash = log.transactionHash!;
         return {
           txHash: hash,
           logIndex: log.logIndex ?? 0,
           blockNumber: (log.blockNumber ?? 0n).toString(),
-          from: (log.args.from ?? "0x0000000000000000000000000000000000000000") as Address,
+          from: (args.from ?? "0x0000000000000000000000000000000000000000") as Address,
           to: vault,
           amountMicro: value.toString(),
           amountUsdc: formatMicroToUsdc(value),
