@@ -22,6 +22,7 @@ Use these three first when coding or reviewing scope:
 | **Pillar 10/10 Requirements** | [`docs/PILLAR-10-REQUIREMENTS.md`](./PILLAR-10-REQUIREMENTS.md) | Why each pillar was &lt;10, what 10 means, status after depth pass. |
 | **Deploy** | [`docs/DEPLOY.md`](./DEPLOY.md) | Docker Compose, domain/TLS, SQLite vs Postgres, CDP go-live checklist. |
 | **Go live click path** | [`docs/GO_LIVE.md`](./GO_LIVE.md) | Zero-theory Production checklist (CDP, Sync, Move, Approve). |
+| **YC video handoff** | [`docs/yc-video-assets/HANDOFF.md`](./yc-video-assets/HANDOFF.md) | Founder VO + CapCut/Nano Banana/Runway edit pack (silent B-roll, title cards). |
 | **E2E on-chain agent pay** | [`docs/E2E-ONCHAIN-AGENT-PAY.md`](./E2E-ONCHAIN-AGENT-PAY.md) | Progress sheet: agent → policy → real Base Sepolia USDC to your wallet. |
 | **Real org start (newbie)** | [`docs/REAL-ORG-START.md`](./REAL-ORG-START.md) | Create real org vs demo, connect agents, instruct, pay now. |
 | **UI Audit** | [`docs/UI-AUDIT.md`](./UI-AUDIT.md) | Full frontend audit vs design skill references (Jul 2026). |
