@@ -15,6 +15,7 @@ Use these three first when coding or reviewing scope:
 | **Budgets vs membership (ADR)** | [`docs/decisions/2026-07-21-budgets-vs-team-membership.md`](./decisions/2026-07-21-budgets-vs-team-membership.md) | Locked Picture A: budgets = money envelopes; agents = spenders; no dept/pool/group trinity. Re-read if the Finance/Research membership confusion returns. |
 | **Console consistency audit** | [`docs/CONSOLE-CONSISTENCY-AUDIT.md`](./CONSOLE-CONSISTENCY-AUDIT.md) | Full Overview→Policy/Settings pass for promise-vs-reality bugs (Jul 2026). Fix order P0–P2. |
 | **Platform Architecture** | [`docs/PLATFORM-ARCHITECTURE.md`](./PLATFORM-ARCHITECTURE.md) | Live extension-point map for the 13 platform pillars — **read before adding features.** |
+| **Full product audit (Jul 25)** | [`docs/FULL-AUDIT-2026-07-25.md`](./FULL-AUDIT-2026-07-25.md) | Website + console P0–P3: auth/401 durability, money-path honesty, embed vs GO_LIVE, marketing, lag. |
 | **Audit Findings** | [`docs/AUDIT-FINDINGS.md`](./AUDIT-FINDINGS.md) | Verified security findings: fixed / open / deferred with reasoning. |
 | **Console UX Audit** | [`docs/CONSOLE-UX-AUDIT.md`](./CONSOLE-UX-AUDIT.md) | UI/UX + stress probe + interactability ranking (Jul 2026). |
 | **Full System Review** | [`docs/FULL-SYSTEM-REVIEW.md`](./FULL-SYSTEM-REVIEW.md) | End-to-end action catalog, scores, pillar depth, live probe results. |
