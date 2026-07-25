@@ -193,7 +193,7 @@ export function SettingsView({
       title: `On-chain settlement (${networkLabel})`,
       body:
         setup?.cdpWired
-          ? `Settling on ${networkLabel}. Fund the vault with USDC + ETH (gas), Sync, allowlist your wallet, then agent pay.`
+          ? `Settling on ${networkLabel}. Fund the vault with USDC + ETH (gas), Refresh / Force re-scan, allowlist your wallet, then agent pay.`
           : `Handshake and policy are real; CDP label is optional for Sepolia ERC-20 pays. Still fund vault with ${networkLabel} USDC + ETH.`,
     },
     {
@@ -314,7 +314,7 @@ export function SettingsView({
                 <div className="code">{org?.vaultAddress}</div>
                 <div className="hint">
                   Fund with {networkLabel} <b>USDC</b> (agent spend) and a little <b>ETH</b> (gas for
-                  on-chain agent pays). Sync deposits on Treasury → Vault. Proof path:{" "}
+                  on-chain agent pays). Refresh deposits on Treasury → Fund. Proof path:{" "}
                   <code>docs/E2E-ONCHAIN-AGENT-PAY.md</code>.
                 </div>
               </div>

@@ -74,13 +74,17 @@ async function proxyToOrigin(req: NextRequest, pathSegments: string[], origin: s
 }
 
 function ensureEmbedEnv() {
-  // Evaluated before the API module loads — enables demo bootstrap on Vercel production.
-  if (process.env.POLICYVAULT_ALLOW_BOOTSTRAP === undefined) {
-    process.env.POLICYVAULT_ALLOW_BOOTSTRAP = "1";
+  // Align with docs/GO_LIVE.md: do NOT force bootstrap on (it wipes all orgs).
+  // Production NODE_ENV keeps bootstrap off unless POLICYVAULT_ALLOW_BOOTSTRAP=1.
+  // Enable public org create when unset so "Create org" works on Hobby deploys.
+  if (process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE === undefined) {
+    process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE = "1";
   }
   if (!process.env.POLICYVAULT_DB) {
     process.env.POLICYVAULT_DB = "/tmp/policyvault.db";
   }
+  // Keep the historical embed pepper so existing Vercel keys still verify.
+  // API also accepts abi-dev-pepper-change-me via lookupHashes().
   if (!process.env.ABI_KEY_PEPPER && !process.env.POLICYVAULT_KEY_PEPPER) {
     process.env.ABI_KEY_PEPPER = "abi-vercel-demo-pepper";
   }
@@ -99,53 +103,67 @@ type EmbeddedApi = {
 /** Warm isolate: API module already opened SQLite; hydrate must reload from disk. */
 let embeddedApi: EmbeddedApi | null = null;
 
+/** Serialize embed close→hydrate→dispatch→persist (prevents mid-request DB clobber). */
+let embedLock: Promise<void> = Promise.resolve();
+
+function withEmbedLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = embedLock.then(fn, fn);
+  embedLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 async function handleEmbedded(req: NextRequest, pathSegments: string[]) {
   ensureEmbedEnv();
   const dbPath = process.env.POLICYVAULT_DB ?? "/tmp/policyvault.db";
 
-  try {
-    // Order: close (warm) → hydrate file → import (cold) or reloadDbFromDisk (warm).
-    if (embeddedApi) {
-      embeddedApi.closeDb();
-    }
-    await hydrateDbFromCache(dbPath);
-
-    if (embeddedApi) {
-      embeddedApi.reloadDbFromDisk();
-    } else {
-      const mod = await import("@policyvault/api");
-      embeddedApi = mod as unknown as EmbeddedApi;
-    }
-
-    // Embedded isolates skip the API process setInterval — sweep before
-    // serving so list/balance reads reflect any due auto-fund top-ups.
+  return withEmbedLock(async () => {
     try {
-      embeddedApi.runAutoFundSweep?.();
+      // Order: close (warm) → hydrate file → import (cold) or reloadDbFromDisk (warm).
+      if (embeddedApi) {
+        embeddedApi.closeDb();
+      }
+      await hydrateDbFromCache(dbPath);
+
+      if (embeddedApi) {
+        embeddedApi.reloadDbFromDisk();
+      } else {
+        const mod = await import("@policyvault/api");
+        embeddedApi = mod as unknown as EmbeddedApi;
+      }
+
+      // Embedded isolates skip the API process setInterval — sweep before
+      // serving so list/balance reads reflect any due auto-fund top-ups.
+      try {
+        embeddedApi.runAutoFundSweep?.();
+      } catch (e) {
+        console.error("[abi-api auto-fund]", e);
+      }
+
+      const joined = pathSegments.map(encodeURIComponent).join("/");
+      const search = new URL(req.url).search;
+      const pathAndQuery = `/${joined}${search}`;
+      const response = await dispatchExpress(embeddedApi.app, req, pathAndQuery);
+
+      embeddedApi.flushDbForPersist();
+      await persistDbToCache(embeddedApi.getDbPath());
+
+      return response;
     } catch (e) {
-      console.error("[abi-api auto-fund]", e);
-    }
-
-    const joined = pathSegments.map(encodeURIComponent).join("/");
-    const search = new URL(req.url).search;
-    const pathAndQuery = `/${joined}${search}`;
-    const response = await dispatchExpress(embeddedApi.app, req, pathAndQuery);
-
-    embeddedApi.flushDbForPersist();
-    await persistDbToCache(embeddedApi.getDbPath());
-
-    return response;
-  } catch (e) {
-    console.error("[abi-api embed]", e);
-    return NextResponse.json(
-      {
-        error: {
-          code: "API_EMBED_FAILED",
-          message: e instanceof Error ? e.message : String(e),
+      console.error("[abi-api embed]", e);
+      return NextResponse.json(
+        {
+          error: {
+            code: "API_EMBED_FAILED",
+            message: e instanceof Error ? e.message : String(e),
+          },
         },
-      },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
-    );
-  }
+        { status: 500, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+  });
 }
 
 async function handle(req: NextRequest, pathSegments: string[]) {

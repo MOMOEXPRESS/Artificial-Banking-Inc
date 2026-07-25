@@ -130,14 +130,16 @@ function tabForAliasView(view: View): string | null {
   return null;
 }
 
-function readConsoleQuery(): { view: View | null; tab: string | null } {
-  if (typeof window === "undefined") return { view: null, tab: null };
+function readConsoleQuery(): { view: View | null; tab: string | null; demo: boolean } {
+  if (typeof window === "undefined") return { view: null, tab: null, demo: false };
   const params = new URLSearchParams(window.location.search);
   const viewRaw = params.get("view");
   const tabRaw = params.get("tab");
+  const demoRaw = params.get("demo");
   return {
     view: isView(viewRaw) ? viewRaw : null,
     tab: tabRaw && tabRaw.trim() ? tabRaw.trim() : null,
+    demo: demoRaw === "1" || demoRaw === "true",
   };
 }
 
@@ -175,6 +177,7 @@ export default function Console() {
   const [session, setSession] = useState<Session | null>(null);
   const [prefs, setPrefs] = useState<Prefs>({ autoJump: true });
   const [hydrated, setHydrated] = useState(false);
+  const [loginDemo, setLoginDemo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [view, setViewState] = useState<View>("overview");
   const [tabHint, setTabHint] = useState<string | null>(null);
@@ -381,21 +384,44 @@ export default function Console() {
     setter(value);
   }, []);
 
+  const authFailStreak = useRef(0);
+
   const refreshFast = useCallback(async () => {
     if (!sessionRef.current) return;
     if (typeof document !== "undefined" && document.hidden) return;
     try {
-      const res = await Promise.all(
-        [
-          "/v1/guardian/org",
-          "/v1/guardian/approvals",
-          "/v1/guardian/activity?limit=80",
-          "/v1/guardian/escrows",
-        ].map((p) => gFetch(p)),
-      );
+      const paths = [
+        "/v1/guardian/org",
+        "/v1/guardian/approvals",
+        "/v1/guardian/activity?limit=80",
+        "/v1/guardian/escrows",
+      ];
+      let res = await Promise.all(paths.map((p) => gFetch(p)));
+      // Soft-retry a lone 401 — embed hydrate races can miss the org for one tick.
       if (res[0].status === 401) {
-        saveSession(null);
-        setToast("Guardian key rejected — signed out.", "err");
+        await new Promise((r) => setTimeout(r, 350));
+        if (!sessionRef.current) return;
+        res = await Promise.all(paths.map((p) => gFetch(p)));
+      }
+      if (res[0].status === 401) {
+        authFailStreak.current += 1;
+        setConnected(false);
+        setLoading(false);
+        if (authFailStreak.current >= 2) {
+          saveSession(null);
+          setToast(
+            "Guardian key not recognized — signed out. If this key worked before, Demo may have wiped the shared demo DB, or ABI_KEY_PEPPER changed.",
+            "err",
+          );
+        } else {
+          setToast("Could not verify guardian key — retrying…", "info");
+        }
+        return;
+      }
+      authFailStreak.current = 0;
+      if (!res[0].ok) {
+        setConnected(false);
+        setLoading(false);
         return;
       }
       const [o, ap, a, es] = await Promise.all(res.map((r) => r.json()));
@@ -407,6 +433,7 @@ export default function Console() {
       setLoading(false);
     } catch {
       setConnected(false);
+      setLoading(false);
     }
   }, [gFetch, saveSession, setToast, setIfChanged]);
 
@@ -628,8 +655,10 @@ export default function Console() {
   });
 
   if (!hydrated) return null;
-  if (!session)
-    return <Login onLogin={saveSession} setToast={setToast} />;
+  if (!session) {
+    const q = typeof window !== "undefined" ? readConsoleQuery() : { demo: false };
+    return <Login onLogin={saveSession} setToast={setToast} initialMode={q.demo ? "demo" : undefined} />;
+  }
 
   const readOnly = org?.actor?.role === "viewer";
   const shared = { busy, act, gFetch, agentName, org, setToast, setView, readOnly };
@@ -879,6 +908,34 @@ export default function Console() {
 
           {loading ? (
             <ConsoleSkeleton />
+          ) : !connected && !org ? (
+            <div className="view">
+              <div className="card" style={{ maxWidth: 480 }}>
+                <div className="card-head">
+                  <div>
+                    <h2>Reconnecting…</h2>
+                    <div className="sub">
+                      The console could not reach the money API. Your session is still here — try
+                      again, or sign out if the key was wiped (Demo wipe / pepper change).
+                    </div>
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setLoading(true);
+                      void refreshFast();
+                    }}
+                  >
+                    Retry
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => saveSession(null)}>
+                    Sign out
+                  </Button>
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="view">
               <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />

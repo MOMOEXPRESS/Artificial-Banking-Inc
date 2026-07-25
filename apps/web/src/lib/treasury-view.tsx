@@ -276,7 +276,7 @@ export function TreasuryView({
   useEffect(() => {
     if (tab !== "fund") return;
     void refreshOnchain();
-    // Auto-poll while Fund is open so faucet deposits credit without a Sync click.
+    // Auto-poll while Fund is open so faucet deposits credit without a Force re-scan click.
     const t = window.setInterval(() => {
       void refreshOnchain();
     }, 25_000);
@@ -680,7 +680,8 @@ export function TreasuryView({
 
               <p className="faint" style={{ fontSize: 12, marginTop: 10, lineHeight: 1.5 }}>
                 Agent pays to an allowlisted wallet broadcast real USDC from this vault — fund{" "}
-                <b>USDC</b> and a little <b>ETH</b> for gas, Sync, then Policy → address allowlist →
+                <b>USDC</b> and a little <b>ETH</b> for gas, then Refresh / Force re-scan if needed,
+                then Policy → address allowlist →
                 Playground “On-chain wallet pay” (or curl / demo-agent).
               </p>
 
@@ -742,7 +743,7 @@ export function TreasuryView({
                 return (
                   <p className="faint" style={{ fontSize: 12.5, lineHeight: 1.55 }}>
                     No history yet for this asset. For USDC: send Base Sepolia USDC to the vault
-                    address, then Sync deposits. For BTC/ETH/others: use Receive below to record a
+                    address, then Refresh (or Force re-scan). For BTC/ETH/others: use Ledger receive below to record a
                     holding.
                   </p>
                 );
@@ -783,7 +784,7 @@ export function TreasuryView({
                 <h2 style={{ margin: 0 }}>Manual ledger receive / send</h2>
                 <div className="sub">
                   {assetId === "asset_usdc"
-                    ? "Demo books only — does NOT broadcast on-chain. The real proof is Playground → Agent pays your wallet (agent /v1/agent/pay)."
+                    ? "Ledger books only — does NOT broadcast on-chain. Real Base USDC out is Playground → Agent pays your wallet (POST /v1/agent/pay)."
                     : `Record ${holdings.find((h) => h.id === assetId)?.symbol ?? "asset"} into vault holdings (manual until chain adapters ship).`}
                 </div>
               </div>
@@ -806,7 +807,7 @@ export function TreasuryView({
                       await refresh();
                       await refreshOnchain();
                       depositForm.reset({ amountUsdc: "100" });
-                      return `Received ${j.amountUsdc} ${j.symbol ?? "USDC"} into the vault.`;
+                      return `Ledger credited ${j.amountUsdc} ${j.symbol ?? "USDC"} (not on-chain).`;
                     }),
                   )}
                 >
@@ -816,7 +817,7 @@ export function TreasuryView({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          Receive ({holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
+                          Ledger receive ({holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
                         </FormLabel>
                         <FormControl>
                           <Input {...field} disabled={readOnly} placeholder="100" data-shortcut-ignore />
@@ -826,7 +827,7 @@ export function TreasuryView({
                     )}
                   />
                   <Button type="submit" size="sm" disabled={locked}>
-                    <Icon name="plus" size={13} /> Receive
+                    <Icon name="plus" size={13} /> Ledger receive
                   </Button>
                 </form>
               </Form>
@@ -835,7 +836,7 @@ export function TreasuryView({
                 <form
                   style={{ display: "flex", flexDirection: "column", gap: 12 }}
                   onSubmit={withdrawForm.handleSubmit((values) =>
-                    void act("Send", async () => {
+                    void act("Ledger send", async () => {
                       const res = await gFetch("/v1/guardian/treasury/withdraw", {
                         method: "POST",
                         body: JSON.stringify({
@@ -849,7 +850,7 @@ export function TreasuryView({
                       withdrawForm.reset({ amountUsdc: "", destination: "" });
                       await refresh();
                       await refreshOnchain();
-                      return `Sent ${j.amountUsdc} ${j.symbol ?? "USDC"} from the vault.`;
+                      return `Ledger debited ${j.amountUsdc} ${j.symbol ?? "USDC"} (not on-chain).`;
                     }),
                   )}
                 >
@@ -859,7 +860,7 @@ export function TreasuryView({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          Send ({holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
+                          Ledger send ({holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
                         </FormLabel>
                         <FormControl>
                           <Input {...field} disabled={readOnly} placeholder="10" data-shortcut-ignore />
@@ -887,7 +888,7 @@ export function TreasuryView({
                     )}
                   />
                   <Button type="submit" size="sm" variant="ghost" disabled={locked}>
-                    <Icon name="send" size={13} /> Send
+                    <Icon name="send" size={13} /> Ledger send
                   </Button>
                 </form>
               </Form>

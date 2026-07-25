@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { describe, it } from "node:test";
 import { hashSecret, isHashedSecret, secretMatches } from "./secrets.js";
 
@@ -25,5 +26,14 @@ describe("A13 secrets", () => {
     assert.equal(secretMatches("pv_agent_old", "pv_agent_old"), true);
     assert.equal(isHashedSecret("pv_agent_old"), false);
     assert.equal(isHashedSecret(hashSecret("x")), true);
+  });
+
+  it("verifies hashes produced under the historical Vercel embed pepper", () => {
+    process.env.ABI_KEY_PEPPER = "abi-dev-pepper-change-me";
+    const raw = "pv_guardian_legacycheck";
+    const embedHash =
+      "h1:" +
+      createHash("sha256").update("abi-vercel-demo-pepper").update("\0").update(raw).digest("hex");
+    assert.equal(secretMatches(raw, embedHash), true);
   });
 });

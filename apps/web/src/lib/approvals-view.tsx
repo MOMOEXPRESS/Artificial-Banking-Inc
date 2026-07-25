@@ -40,8 +40,11 @@ export function Approvals({
 
   const resolve = (id: string, approve: boolean) => {
     const card = listRef.current?.querySelector(`[data-approval-id="${id}"]`) as HTMLElement | null;
-    const reduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (card && !reduced) {
+    const reduced =
+      typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const animateOut = () => {
+      if (!card || reduced) return;
       const state = Flip.getState(card);
       gsap.to(card, {
         x: approve ? 40 : -40,
@@ -54,7 +57,8 @@ export function Approvals({
         ease: "power2.in",
         onComplete: () => Flip.from(state, { duration: 0.25, ease: "power1.out" }),
       });
-    }
+    };
+
     return act("Approval", async () => {
       const res = await gFetch(`/v1/guardian/approvals/${id}/resolve`, {
         method: "POST",
@@ -62,6 +66,7 @@ export function Approvals({
       });
       const d = await res.json();
       if (!res.ok) throw new Error(JSON.stringify(d.error ?? d));
+      animateOut();
       if (d.pendingQuorum) {
         return d.message ?? `Vote recorded — ${d.have} of ${d.need} guardians.`;
       }

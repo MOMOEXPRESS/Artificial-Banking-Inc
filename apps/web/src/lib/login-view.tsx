@@ -6,6 +6,7 @@ import { ABLockup } from "./brand";
 import { Icon } from "./ui";
 import type { AgentKey, Session } from "./console-types";
 import { Button } from "@/components/ui/button";
+import { isGuardianKey, normalizeSecret } from "./secrets-normalize";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 
@@ -15,8 +16,14 @@ const INTRO_MS = 4200;
 async function readApiError(res: Response): Promise<string> {
   try {
     const d = (await res.json()) as { error?: { code?: string; message?: string } };
-    if (d.error?.code === "API_NOT_CONFIGURED" || d.error?.code === "API_UNREACHABLE") {
+    if (d.error?.code === "API_UNREACHABLE" || d.error?.code === "API_EMBED_FAILED") {
       return d.error.message ?? d.error.code;
+    }
+    if (res.status === 401) {
+      return (
+        d.error?.message ??
+        "Key not recognized. Check for a full pv_guardian_… key (no Bearer/quotes), or create a new org if Demo wiped the shared demo database."
+      );
     }
     if (d.error?.message) return d.error.message;
   } catch {
@@ -102,19 +109,26 @@ type LoginMode = "create" | "key" | "demo";
 export function Login({
   onLogin,
   setToast,
+  initialMode,
 }: {
   onLogin: (s: Session) => void;
   setToast: (m: string, k?: "ok" | "err" | "info") => void;
+  /** From `/console?demo=1` marketing CTAs. */
+  initialMode?: LoginMode;
 }) {
   const [key, setKey] = useState("");
   const [orgName, setOrgName] = useState("");
-  const [mode, setMode] = useState<LoginMode>("create");
+  const [mode, setMode] = useState<LoginMode>(initialMode ?? "create");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>("intro");
   const [pending, setPending] = useState<Session | null>(null);
   const [pendingKind, setPendingKind] = useState<"real" | "demo">("real");
   const [savedAck, setSavedAck] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialMode) setMode(initialMode);
+  }, [initialMode]);
 
   useEffect(() => {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -133,14 +147,35 @@ export function Login({
   }, [copied]);
 
   async function connect() {
+    const normalized = normalizeSecret(key);
+    if (!isGuardianKey(normalized)) {
+      setToast(
+        "Paste a full guardian key starting with pv_guardian_ (no Bearer prefix or quotes).",
+        "err",
+      );
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch(`${API}/v1/guardian/org`, {
-        headers: { Authorization: `Bearer ${key.trim()}` },
+        headers: { Authorization: `Bearer ${normalized}` },
       });
       if (!res.ok) throw new Error(await readApiError(res));
       const data = await res.json();
-      onLogin({ guardianKey: key.trim(), orgId: data.org.id, agentKeys: [] });
+      // Keep any previously saved agent keys for this org when reconnecting.
+      let agentKeys: AgentKey[] = [];
+      try {
+        const raw = localStorage.getItem("pv_session");
+        if (raw) {
+          const prev = JSON.parse(raw) as Session;
+          if (prev.orgId === data.org.id && Array.isArray(prev.agentKeys)) {
+            agentKeys = prev.agentKeys;
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+      onLogin({ guardianKey: normalized, orgId: data.org.id, agentKeys });
     } catch (e) {
       setToast(`Connect failed: ${String(e)}`, "err");
     } finally {
@@ -339,8 +374,9 @@ export function Login({
                   Launch demo org with $100 float
                 </Button>
                 <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.55 }}>
-                  Resets local data and seeds Researcher + Writer with sample money. Side path for
-                  trying the rails — not your production org.
+                  Destructive on shared demo hosts: wipes every org in the database, then seeds
+                  Researcher + Writer with sample money. Do not use if you already saved a real
+                  guardian key on this deploy.
                 </p>
               </>
             )}

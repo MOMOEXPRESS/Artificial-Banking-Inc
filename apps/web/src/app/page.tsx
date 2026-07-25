@@ -520,7 +520,7 @@ const STEPS = [
     body: "The guardian key is how you (a person) open the console. Coinbase CDP can hold the vault keys — you are not pasting private keys into agent configs or chat prompts.",
     visual: {
       label: "Org setup",
-      lines: ["org  demo-corp", "guardian  gsk_…", "vault  +$1,000 USDC"],
+      lines: ["org  demo-corp", "guardian  pv_guardian_…", "vault  +$1,000 USDC"],
     },
   },
   {
@@ -530,7 +530,7 @@ const STEPS = [
     body: "Create agents in the console, then put the key in your Python, Node, or MCP setup. From the first call, spend is tied to that agent — so you always know who spent what.",
     visual: {
       label: "New agent",
-      lines: ["name  research-bot", "key  agk_…", "budget  $100"],
+      lines: ["name  research-bot", "key  pv_agent_…", "budget  $100"],
     },
   },
   {

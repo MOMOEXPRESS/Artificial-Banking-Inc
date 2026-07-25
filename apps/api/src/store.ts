@@ -27,7 +27,7 @@ import type {
   WalletScope,
 } from "@policyvault/common";
 import { agentApiKeyIsLive, formatMicroToUsdc } from "@policyvault/common";
-import { hashSecret, isHashedSecret, lookupHash } from "./secrets.js";
+import { hashSecret, isHashedSecret, lookupHash, lookupHashes } from "./secrets.js";
 
 export type OrgStatus = "active" | "frozen" | "archived";
 export type AgentStatus = "active" | "frozen" | "archived";
@@ -1214,13 +1214,16 @@ export const store = {
   },
 
   findOrgByGuardianKey(key: string): OrgRow | undefined {
-    const hashed = lookupHash(key);
-    let r = db.prepare("SELECT * FROM orgs WHERE guardian_key = ?").get(hashed) as Row | undefined;
-    if (!r) {
-      r = db.prepare("SELECT * FROM orgs WHERE guardian_key = ?").get(key) as Row | undefined;
-      if (r && !isHashedSecret(String(r.guardian_key))) {
-        db.prepare("UPDATE orgs SET guardian_key = ? WHERE id = ?").run(hashed, r.id);
-      }
+    const hashes = lookupHashes(key);
+    for (const hashed of hashes) {
+      const r = db.prepare("SELECT * FROM orgs WHERE guardian_key = ?").get(hashed) as Row | undefined;
+      if (r) return rowToOrg(r);
+    }
+    const r = db.prepare("SELECT * FROM orgs WHERE guardian_key = ?").get(key) as Row | undefined;
+    if (r && !isHashedSecret(String(r.guardian_key))) {
+      const primary = lookupHash(key);
+      db.prepare("UPDATE orgs SET guardian_key = ? WHERE id = ?").run(primary, r.id);
+      return rowToOrg(r);
     }
     return r ? rowToOrg(r) : undefined;
   },
@@ -1256,13 +1259,14 @@ export const store = {
 
   getAgentByKey(apiKey: string): AgentRow | undefined {
     if (!agentApiKeyIsLive(apiKey)) return undefined;
-    const hashed = lookupHash(apiKey);
-    let r = db.prepare("SELECT * FROM agents WHERE api_key = ?").get(hashed) as Row | undefined;
-    if (!r) {
-      r = db.prepare("SELECT * FROM agents WHERE api_key = ?").get(apiKey) as Row | undefined;
-      if (r && !isHashedSecret(String(r.api_key))) {
-        db.prepare("UPDATE agents SET api_key = ? WHERE id = ?").run(hashed, r.id);
-      }
+    for (const hashed of lookupHashes(apiKey)) {
+      const r = db.prepare("SELECT * FROM agents WHERE api_key = ?").get(hashed) as Row | undefined;
+      if (r) return rowToAgent(r);
+    }
+    const r = db.prepare("SELECT * FROM agents WHERE api_key = ?").get(apiKey) as Row | undefined;
+    if (r && !isHashedSecret(String(r.api_key))) {
+      db.prepare("UPDATE agents SET api_key = ? WHERE id = ?").run(lookupHash(apiKey), r.id);
+      return rowToAgent(r);
     }
     return r ? rowToAgent(r) : undefined;
   },
@@ -3040,17 +3044,26 @@ export const store = {
 
   /** Secondary guardians authenticate here; the org's founding key is separate. */
   findGuardianByKey(key: string): GuardianRow | undefined {
-    const hashed = lookupHash(key);
-    let r = db
-      .prepare("SELECT * FROM guardians WHERE guardian_key = ? AND revoked_at IS NULL")
-      .get(hashed) as Row | undefined;
-    if (!r) {
-      r = db
+    for (const hashed of lookupHashes(key)) {
+      const r = db
         .prepare("SELECT * FROM guardians WHERE guardian_key = ? AND revoked_at IS NULL")
-        .get(key) as Row | undefined;
-      if (r && !isHashedSecret(String(r.guardian_key))) {
-        db.prepare("UPDATE guardians SET guardian_key = ? WHERE id = ?").run(hashed, r.id);
+        .get(hashed) as Row | undefined;
+      if (r) {
+        return {
+          id: r.id,
+          orgId: r.org_id,
+          name: r.name,
+          role: r.role,
+          guardianKey: r.guardian_key,
+          createdAt: r.created_at,
+        };
       }
+    }
+    const r = db
+      .prepare("SELECT * FROM guardians WHERE guardian_key = ? AND revoked_at IS NULL")
+      .get(key) as Row | undefined;
+    if (r && !isHashedSecret(String(r.guardian_key))) {
+      db.prepare("UPDATE guardians SET guardian_key = ? WHERE id = ?").run(lookupHash(key), r.id);
     }
     return r
       ? {
