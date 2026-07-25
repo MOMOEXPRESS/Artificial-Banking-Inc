@@ -394,10 +394,14 @@ export function AgentsView({
                               disabled={locked}
                               onClick={() =>
                                 void act("Freeze", async () => {
-                                  await gFetch(`/v1/guardian/agents/${a.id}/freeze`, {
+                                  const res = await gFetch(`/v1/guardian/agents/${a.id}/freeze`, {
                                     method: "POST",
                                     body: JSON.stringify({ reason: "guardian kill switch" }),
                                   });
+                                  if (!res.ok) {
+                                    const d = await res.json().catch(() => ({}));
+                                    throw new Error(d.error?.message ?? `HTTP ${res.status}`);
+                                  }
                                   await refresh();
                                   return `${a.name} frozen.`;
                                 })
@@ -411,10 +415,14 @@ export function AgentsView({
                               disabled={locked}
                               onClick={() =>
                                 void act("Unfreeze", async () => {
-                                  await gFetch(`/v1/guardian/agents/${a.id}/unfreeze`, {
+                                  const res = await gFetch(`/v1/guardian/agents/${a.id}/unfreeze`, {
                                     method: "POST",
                                     body: JSON.stringify({}),
                                   });
+                                  if (!res.ok) {
+                                    const d = await res.json().catch(() => ({}));
+                                    throw new Error(d.error?.message ?? `HTTP ${res.status}`);
+                                  }
                                   await refresh();
                                   return `${a.name} unfrozen.`;
                                 })

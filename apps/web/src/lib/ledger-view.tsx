@@ -27,9 +27,19 @@ export function Ledger({
         <Stat label="In flight" value={fmtUsd(metrics?.balancesUsdc?.agentHeld ?? "0")} foot="held mid-payment" />
         <Stat
           label="Reconciliation"
-          value={recon?.ok ? "Clean" : "DRIFT"}
-          foot={`${recon?.journalsReplayed ?? 0} entries replayed · ${recon?.accountsChecked ?? 0} accounts`}
-          delta={recon?.ok ? { dir: "up", text: "0 drift" } : { dir: "down", text: `${recon?.drift.length} bad` }}
+          value={recon == null ? "Checking…" : recon.ok ? "Clean" : "DRIFT"}
+          foot={
+            recon == null
+              ? "watchdog not back yet"
+              : `${recon.journalsReplayed ?? 0} entries replayed · ${recon.accountsChecked ?? 0} accounts`
+          }
+          delta={
+            recon == null
+              ? { dir: "flat", text: "…" }
+              : recon.ok
+                ? { dir: "up", text: "0 drift" }
+                : { dir: "down", text: `${recon.drift?.length ?? 0} bad` }
+          }
         />
       </div>
 

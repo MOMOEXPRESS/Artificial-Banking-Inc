@@ -175,7 +175,7 @@ export function InsightsView({
         setEcon(next.econ);
         setLoaded(true);
       } catch {
-        /* the shell owns the connection indicator */
+        if (alive) setLoaded(true);
       }
     };
     void load();

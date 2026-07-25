@@ -31,7 +31,11 @@ export function Webhooks({
 
   const del = (id: string) =>
     act("Delete", async () => {
-      await gFetch(`/v1/guardian/webhooks/${id}`, { method: "DELETE" });
+      const res = await gFetch(`/v1/guardian/webhooks/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error?.message ?? `HTTP ${res.status}`);
+      }
       return "Endpoint removed.";
     });
 

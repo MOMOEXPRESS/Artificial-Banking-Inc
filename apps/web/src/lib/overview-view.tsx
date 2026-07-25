@@ -145,10 +145,14 @@ export function Overview({
 
   const freeze = (id: string, on: boolean) =>
     act("Freeze", async () => {
-      await gFetch(`/v1/guardian/${on ? "freeze" : "unfreeze"}`, {
+      const res = await gFetch(`/v1/guardian/${on ? "freeze" : "unfreeze"}`, {
         method: "POST",
         body: JSON.stringify({ agentId: id, ...(on ? { reason: "guardian kill switch" } : {}) }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error?.message ?? JSON.stringify(d.error ?? d) ?? `HTTP ${res.status}`);
+      }
       return `${agentName(id)} ${on ? "frozen — all spending stopped" : "unfrozen"}.`;
     });
 
