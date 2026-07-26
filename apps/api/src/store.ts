@@ -896,6 +896,16 @@ CREATE TABLE IF NOT EXISTS vault_key_archive (
   reason TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_vault_key_archive_org ON vault_key_archive(org_id, retired_at);
+
+-- Advisory leases for background jobs. Sweeps used to run on a bare
+-- setInterval inside the API process, so a second instance would double-run
+-- them — and a subscription charge that runs twice is a double-spend.
+CREATE TABLE IF NOT EXISTS job_locks (
+  name TEXT PRIMARY KEY,
+  holder TEXT NOT NULL,
+  acquired_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
 `);
 
 // Seed platform USDC asset once (legacy path kept for older DBs).
@@ -1100,6 +1110,28 @@ function rowToApproval(r: Row): ApprovalRow {
   };
 }
 
+/**
+ * Read a money column that should hold an integer string.
+ *
+ * Tolerates a REAL-shaped value ("2000000.0") left by an older build rather
+ * than throwing — a single malformed row used to 500 the entire list endpoint,
+ * turning a cosmetic write bug into a total outage of the Subscriptions screen.
+ */
+function parseMicroColumn(value: unknown): bigint {
+  if (typeof value === "bigint") return value;
+  const raw = String(value ?? "0").trim();
+  if (!raw) return 0n;
+  try {
+    return BigInt(raw);
+  } catch {
+    // "2000000.0" / "2e6" — truncate toward zero, which is what the intended
+    // integer arithmetic would have produced.
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 0n;
+    return BigInt(Math.trunc(n));
+  }
+}
+
 function rowToSub(r: Row): SubscriptionRow {
   return {
     id: r.id,
@@ -1113,8 +1145,8 @@ function rowToSub(r: Row): SubscriptionRow {
     nextRunAt: r.next_run_at,
     lastRunAt: r.last_run_at ?? undefined,
     runs: r.runs,
-    spentMicro: BigInt(r.spent_micro ?? "0"),
-    maxTotalMicro: r.max_total_micro ? BigInt(r.max_total_micro) : undefined,
+    spentMicro: parseMicroColumn(r.spent_micro),
+    maxTotalMicro: r.max_total_micro ? parseMicroColumn(r.max_total_micro) : undefined,
     memo: r.memo ?? undefined,
     lastError: r.last_error ?? undefined,
   };
@@ -2144,6 +2176,46 @@ export const store = {
     });
     bumpRevision();
     return { address, previousAddress, archivedKeyId: archiveId };
+  },
+
+  /**
+   * Take a time-boxed lease on a named background job.
+   *
+   * Returns false when another holder's lease is still live, so exactly one
+   * process runs a given sweep at a time. A lease expires rather than
+   * unlocking, so a crashed holder cannot wedge the job forever.
+   */
+  acquireJobLock(name: string, holder: string, ttlMs: number): boolean {
+    const now = new Date();
+    const nowStr = now.toISOString();
+    const expires = new Date(now.getTime() + ttlMs).toISOString();
+    const tx = db.transaction(() => {
+      const row = db.prepare("SELECT holder, expires_at FROM job_locks WHERE name = ?").get(name) as
+        | Row
+        | undefined;
+      if (row && String(row.expires_at) > nowStr && String(row.holder) !== holder) return false;
+      db.prepare(
+        `INSERT INTO job_locks (name, holder, acquired_at, expires_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(name) DO UPDATE SET holder = excluded.holder,
+                                         acquired_at = excluded.acquired_at,
+                                         expires_at = excluded.expires_at`,
+      ).run(name, holder, nowStr, expires);
+      return true;
+    });
+    return tx() as boolean;
+  },
+
+  /** Release a lease early so a peer can pick the job up without waiting it out. */
+  releaseJobLock(name: string, holder: string): void {
+    db.prepare("DELETE FROM job_locks WHERE name = ? AND holder = ?").run(name, holder);
+  },
+
+  /**
+   * Test-only: write a raw spent_micro value so the tolerant reader can be
+   * exercised against rows an older build produced ("2000000.0").
+   */
+  setSubscriptionSpentForTests(subId: string, raw: string): void {
+    db.prepare("UPDATE subscriptions SET spent_micro = ? WHERE id = ?").run(raw, subId);
   },
 
   /**
@@ -3238,21 +3310,32 @@ export const store = {
     nextRunAt: string;
     error?: string;
   }): void {
-    db.prepare(
-      `UPDATE subscriptions
-       SET runs = runs + 1,
-           spent_micro = CAST(CAST(spent_micro AS INTEGER) + ? AS TEXT),
-           last_run_at = ?,
-           next_run_at = ?,
-           last_error = ?
-       WHERE id = ?`,
-    ).run(
-      Number(args.chargedMicro),
-      nowIso(),
-      args.nextRunAt,
-      args.error ?? null,
-      args.subId,
-    );
+    // Accumulate in JS with bigints and write TEXT, the way every other money
+    // column in this schema is handled.
+    //
+    // This used to do the arithmetic in SQL against a bound JS `number`, which
+    // SQLite binds as REAL: `CAST(spent_micro AS INTEGER) + 2000000.0` yields
+    // 2000000.0, stored as the string "2000000.0", and `BigInt("2000000.0")`
+    // throws. Every subsequent read of the subscription list returned HTTP 500
+    // — permanently, from the first successful charge onward. It stayed hidden
+    // because the sweep that charges subscriptions never ran in production.
+    const tx = db.transaction(() => {
+      const row = db.prepare("SELECT spent_micro FROM subscriptions WHERE id = ?").get(args.subId) as
+        | Row
+        | undefined;
+      if (!row) return;
+      const spent = parseMicroColumn(row.spent_micro) + args.chargedMicro;
+      db.prepare(
+        `UPDATE subscriptions
+         SET runs = runs + 1,
+             spent_micro = ?,
+             last_run_at = ?,
+             next_run_at = ?,
+             last_error = ?
+         WHERE id = ?`,
+      ).run(spent.toString(), nowIso(), args.nextRunAt, args.error ?? null, args.subId);
+    });
+    tx();
   },
 
   // -------------------------------------------------------------- invoices

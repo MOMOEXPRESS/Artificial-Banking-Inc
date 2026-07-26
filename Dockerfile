@@ -24,9 +24,9 @@ RUN npm run build -w @policyvault/common \
   && npm run build -w @policyvault/policy \
   && npm run build -w @policyvault/ledger \
   && npm run build -w @policyvault/custody \
-  && npm run build -w @policyvault/db \
   && npm run build -w @policyvault/sdk \
   && npm run build -w @policyvault/api \
+  && npm run build -w @policyvault/worker \
   && npm run build -w @policyvault/web
 
 FROM node:22-bookworm-slim AS api
@@ -48,3 +48,15 @@ ENV PORT=3000
 COPY --from=build /app /app
 EXPOSE 3000
 CMD ["npm", "run", "start", "-w", "@policyvault/web"]
+
+# Background jobs. Runs the same scheduler as the API, but as its own process
+# so sweeps are not coupled to request traffic. Both take the same database
+# leases, so at most one ever runs a given job.
+FROM node:22-bookworm-slim AS worker
+WORKDIR /app
+ENV NODE_ENV=production
+ENV POLICYVAULT_DB=/data/policyvault.db
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++   && rm -rf /var/lib/apt/lists/*
+COPY --from=build /app /app
+RUN mkdir -p /data
+CMD ["node", "apps/worker/dist/index.js"]

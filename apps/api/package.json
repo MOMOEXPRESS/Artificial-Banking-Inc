@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./jobs": {
+      "types": "./dist/jobs/scheduler.d.ts",
+      "import": "./dist/jobs/scheduler.js",
+      "default": "./dist/jobs/scheduler.js"
     }
   },
   "scripts": {

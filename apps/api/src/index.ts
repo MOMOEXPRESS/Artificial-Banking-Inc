@@ -51,8 +51,7 @@ import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./outbound-url.js";
 import { hashSecret } from "./secrets.js";
 import { registerAgentRoutes } from "./routes/agent-routes.js";
-import { runAutoFundSweep } from "./auto-fund.js";
-import { runOnchainDepositSweep } from "./chain/sync-deposits.js";
+import { startScheduler } from "./jobs/scheduler.js";
 import { registerPaymentRoutes } from "./routes/payment-routes.js";
 import { registerPlatformRoutes } from "./routes/platform-routes.js";
 import { registerPolicyRoutes } from "./routes/policy-routes.js";
@@ -2081,160 +2080,39 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
 });
 
+/** Exported so tests can drive the API over an ephemeral port. */
+export { app };
+
 /**
- * Charge due subscriptions. Each run goes through the same policy engine as
- * any other agent payment — a recurring charge gets no special authority, so a
- * frozen agent or a blown cap stops it exactly like a one-off.
+ * Tests import `app` to drive it over an ephemeral port, so they suppress the
+ * listener. Everything else — including every deployment — listens.
  */
-async function runDueSubscriptions(): Promise<void> {
-  for (const sub of store.listDueSubscriptions()) {
-    if (sub.maxTotalMicro && sub.spentMicro >= sub.maxTotalMicro) {
-      store.setSubscriptionStatus(sub.id, "exhausted");
-      continue;
-    }
-    const nextRunAt = new Date(Date.now() + sub.intervalHours * 3600_000).toISOString();
-    // Claim the due slot BEFORE awaiting the rail — otherwise a 10s sweep can
-    // overlap an in-flight charge and double-spend.
-    if (!store.claimSubscriptionRun(sub.id, sub.nextRunAt, nextRunAt)) continue;
+const noListen = process.env.ABI_NO_LISTEN === "1";
 
-    const intentId = id("int");
-    const decision = evaluatePolicy(
-      {
-        agentId: sub.agentId,
-        orgId: sub.orgId,
-        tool: "pay_api",
-        amountMicro: sub.amountMicro,
-        destination: sub.vendor,
-        idempotencyKey: `sub_${sub.id}_${sub.runs}`,
-      },
-      rulesFor(sub.agentId, sub.orgId),
-      "subscription",
+/**
+ * Background jobs run in-process by default, which is correct for the
+ * single-instance topology. Set ABI_RUN_JOBS=0 when running `apps/worker`
+ * alongside the API so the two do not compete for the same leases.
+ */
+const runJobsInProcess = process.env.ABI_RUN_JOBS !== "0";
+
+if (!noListen) {
+  if (runJobsInProcess) {
+    startScheduler();
+    startTelegramPolling();
+  } else {
+    console.log(
+      JSON.stringify({
+        type: "abi.jobs.delegated",
+        note: "ABI_RUN_JOBS=0 — background jobs are expected from the worker process.",
+      }),
     );
-    recordDecision({
-      intentId,
-      orgId: sub.orgId,
-      agentId: sub.agentId,
-      outcome: decision.outcome,
-      ruleIds: decision.ruleIds,
-      reasons: decision.reasons,
-      tool: "pay_api",
-      amountUsdc: formatMicroToUsdc(sub.amountMicro),
-      destination: sub.vendor,
-    });
-
-    if (decision.outcome === "review") {
-      const approval: ApprovalRow = {
-        id: id("apr"),
-        orgId: sub.orgId,
-        agentId: sub.agentId,
-        intentId,
-        tool: "pay_api",
-        amountMicro: sub.amountMicro,
-        amountUsdc: formatMicroToUsdc(sub.amountMicro),
-        destination: sub.vendor,
-        memo: sub.memo ?? `subscription ${sub.id}`,
-        idempotencyKey: `sub_${sub.id}_${sub.runs}`,
-        ruleIds: decision.ruleIds,
-        reasons: decision.reasons,
-        status: "pending",
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + APPROVAL_TTL_MINUTES * 60_000).toISOString(),
-      };
-      store.createApproval(approval);
-      void notify({ kind: "approval.pending", approval });
-      emitEvent(sub.orgId, "approval.pending", {
-        approvalId: approval.id,
-        intentId,
-        agentId: sub.agentId,
-        tool: "pay_api",
-        amountUsdc: approval.amountUsdc,
-        destination: sub.vendor,
-        reasons: decision.reasons,
-        expiresAt: approval.expiresAt,
-        source: "subscription",
-        subscriptionId: sub.id,
-      });
-      store.recordSubscriptionRun({
-        subId: sub.id,
-        chargedMicro: 0n,
-        nextRunAt,
-        error: `review: pending approval ${approval.id}`,
-      });
-      continue;
-    }
-
-    if (decision.outcome !== "allow") {
-      store.recordSubscriptionRun({
-        subId: sub.id,
-        chargedMicro: 0n,
-        nextRunAt,
-        error: `${decision.outcome}: ${decision.reasons[0] ?? ""}`,
-      });
-      continue;
-    }
-    const result = await executeIntent({
-      orgId: sub.orgId,
-      agentId: sub.agentId,
-      tool: "pay_api",
-      amountMicro: sub.amountMicro,
-      amountUsdc: formatMicroToUsdc(sub.amountMicro),
-      destination: sub.vendor,
-      intentId,
-      memo: sub.memo ?? `subscription ${sub.id}`,
-    });
-    store.recordSubscriptionRun({
-      subId: sub.id,
-      chargedMicro: result.ok ? sub.amountMicro : 0n,
-      nextRunAt,
-      error: result.ok ? undefined : JSON.stringify(result.payload.error),
-    });
   }
-}
-
-/** Embedded into Next `/abi-api` on Vercel — do not listen or start long polls. */
-export { app, runAutoFundSweep };
-
-const embedded =
-  process.env.VERCEL === "1" ||
-  process.env.ABI_EMBEDDED === "1" ||
-  process.env.ABI_NO_LISTEN === "1";
-
-if (!embedded) {
-  setInterval(() => {
-    sweepEscrowTimeouts();
-    sweepApprovalExpiry();
-    for (const orgId of store.listOrgIds()) store.sweepOverdueInvoices(orgId);
-    void runDueSubscriptions().catch((e) => console.error("subscription sweep failed:", e));
-    try {
-      runAutoFundSweep();
-    } catch (e) {
-      console.error("auto-fund sweep failed:", e);
-    }
-    void runOnchainDepositSweep().catch((e) => console.error("onchain deposit sweep failed:", e));
-  }, 10_000).unref();
-
-  // Deposits can sit a few blocks; sweep a bit more often than reconcile.
-  setInterval(() => {
-    void runOnchainDepositSweep({ force: true }).catch((e) =>
-      console.error("onchain deposit sweep failed:", e),
-    );
-  }, 30_000).unref();
-
-  setInterval(() => {
-    for (const orgId of store.listOrgIds()) {
-      const result = store.reconcileOrg(orgId);
-      if (!result.ok) {
-        console.error(`RECONCILE DRIFT org=${orgId}:`, JSON.stringify(result.drift));
-      }
-    }
-  }, 60_000).unref();
-
-  startTelegramPolling();
 
   app.listen(PORT, () => {
-    console.log(`PolicyVault API on http://localhost:${PORT} (SQLite-backed)`);
+    console.log(`ABI API on http://localhost:${PORT} (SQLite-backed, persistent process)`);
     console.log(LEGAL_FOOTER);
   });
 }
 
-export { closeDb, flushDbForPersist, getDbPath, reloadDbFromDisk } from "./store.js";
+export { closeDb, getDbPath } from "./store.js";

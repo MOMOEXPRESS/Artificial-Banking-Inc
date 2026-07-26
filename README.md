@@ -46,7 +46,8 @@ exist.
 | **Per-agent programmable budgets** | 🚧 **Partial** | Money envelopes are per-agent; **policy rules are org-wide only** |
 | **x402 payments** | 🚧 **Partial** | Real client implementation, but only proven against the bundled dev facilitator |
 | **Treasury** | 🚧 **Partial** | On-chain deposit detection is real; manual "receive/send" is ledger-only |
-| **Durable persistence** | ❌ **Not production-ready** | The Vercel deployment loses concurrent writes — see [ADR](docs/adr/2026-07-26-persistent-api-over-serverless.md) |
+| Durable persistence | ✅ **Fixed** | Persistent API process, real transactions. Postgres is next for horizontal scale ([ADR](docs/adr/2026-07-26-persistent-api-over-serverless.md)) |
+| Background jobs | ✅ **Fixed** | Subscriptions, escrow timeouts, approval expiry and reconcile now actually run, with leases so scaling cannot double-charge |
 | **Authentication** | ❌ **Not built** | No users, passwords, SSO, MFA, or account recovery. Access is a bearer key |
 | **Managed custody** | ❌ **Not built** | Self-custody: vault keys are held unencrypted by this application |
 | **Compliance screening** | ❌ **Not built** | Extension point exists; no OFAC/KYT data source behind it |
@@ -337,11 +338,15 @@ Docker Compose and a Dockerfile are included:
 docker compose up
 ```
 
-> **Do not deploy this publicly yet.** The current Vercel topology embeds the
-> API into Next.js and synchronises SQLite through a runtime cache, which loses
-> concurrent writes. The reasoning and the replacement are in
-> [`docs/adr/2026-07-26-persistent-api-over-serverless.md`](docs/adr/2026-07-26-persistent-api-over-serverless.md).
-> Until roadmap Phase 2 lands, keep any deployment behind access control.
+This brings up three processes sharing one volume: `api` (persistent HTTP
+service, owns the database), `worker` (background sweeps), and `web` (console,
+proxying `/abi-api` to the API). Set `ABI_KEY_PEPPER` first — the API refuses to
+boot in production without it.
+
+> **Still not ready for real customer funds.** Persistence and background jobs
+> are fixed, but there is no authentication system and vault keys are held
+> unencrypted by the application (roadmap Phases 3–4). Keep any deployment
+> behind access control.
 
 Details: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 

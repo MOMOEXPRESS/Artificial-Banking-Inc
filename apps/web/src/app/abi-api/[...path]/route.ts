@@ -1,19 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dispatchExpress } from "@/lib/express-fetch";
-import { hydrateDbFromCache, persistDbToCache } from "@/lib/vercel-db-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-/** Bootstrap + policy eval can exceed default hobby limits on cold start. */
-export const maxDuration = 60;
 
 /**
- * Same-origin API for the Guardian Console.
+ * Same-origin proxy to the ABI API.
  *
- * - If ABI_API_ORIGIN (or absolute POLICYVAULT_API_URL / NEXT_PUBLIC_API_URL) is set → proxy.
- * - Else on Vercel → embed @policyvault/api in-process (SQLite under /tmp) so Bootstrap works
- *   without a separate API host.
- * - Else locally → proxy to http://127.0.0.1:8787 (run `npm run dev:api`).
+ * This route used to *embed* the API in-process on Vercel, running SQLite under
+ * /tmp and synchronising the whole database through Vercel Runtime Cache on
+ * every request. That was a read-modify-write cycle on a shared blob with no
+ * compare-and-swap: concurrent requests each hydrated the same snapshot and
+ * each persisted, so the loser's journals, payments and idempotency
+ * reservations vanished *after* the caller had already received HTTP 200. It
+ * also meant no background job ever ran, and a settlement slower than the
+ * function timeout could move real USDC on-chain while discarding every write
+ * that recorded it.
+ *
+ * See docs/adr/2026-07-26-persistent-api-over-serverless.md.
+ *
+ * The API is now a long-lived process. This file only forwards to it, and says
+ * so plainly when it has not been told where that process lives — rather than
+ * silently starting a lossy one.
  */
 function resolveOrigin(): string | null {
   const candidates = [
@@ -27,21 +34,52 @@ function resolveOrigin(): string | null {
     if (!trimmed || trimmed === "/abi-api") continue;
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
   }
+  // Local development convenience: `npm run dev:api` listens here.
   if (!process.env.VERCEL) return "http://127.0.0.1:8787";
   return null;
 }
 
-async function proxyToOrigin(req: NextRequest, pathSegments: string[], origin: string) {
+const HOP_BY_HOP = new Set([
+  "connection",
+  "keep-alive",
+  "transfer-encoding",
+  "upgrade",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+]);
+
+function notConfigured() {
+  return NextResponse.json(
+    {
+      error: {
+        code: "API_NOT_CONFIGURED",
+        message:
+          "No ABI API origin is configured. Set ABI_API_ORIGIN to the URL of the running API " +
+          "(see docs/DEPLOY.md). The API is a persistent service; it is deliberately no longer " +
+          "embedded in this deployment.",
+      },
+    },
+    { status: 503, headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
   const joined = pathSegments.map(encodeURIComponent).join("/");
   const incoming = new URL(req.url);
   const dest = `${origin}/${joined}${incoming.search}`;
 
   const headers = new Headers();
-  const pass = ["authorization", "content-type", "accept", "idempotency-key", "x-request-id"];
-  for (const key of pass) {
-    const v = req.headers.get(key);
-    if (v) headers.set(key, v);
-  }
+  req.headers.forEach((value, key) => {
+    const k = key.toLowerCase();
+    // `host` must reflect the upstream, and hop-by-hop headers are per-connection.
+    if (k === "host" || k === "content-length" || HOP_BY_HOP.has(k)) return;
+    headers.set(key, value);
+  });
+  // Preserve the caller's address for the API's per-IP limits.
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) headers.set("x-forwarded-for", forwarded);
 
   let body: ArrayBuffer | undefined;
   if (req.method !== "GET" && req.method !== "HEAD") {
@@ -56,8 +94,10 @@ async function proxyToOrigin(req: NextRequest, pathSegments: string[], origin: s
       redirect: "manual",
     });
     const outHeaders = new Headers();
-    const ct = upstream.headers.get("content-type");
-    if (ct) outHeaders.set("content-type", ct);
+    for (const pass of ["content-type", "www-authenticate", "retry-after"]) {
+      const v = upstream.headers.get(pass);
+      if (v) outHeaders.set(pass, v);
+    }
     outHeaders.set("Cache-Control", "no-store");
     return new NextResponse(upstream.body, { status: upstream.status, headers: outHeaders });
   } catch (e) {
@@ -65,7 +105,9 @@ async function proxyToOrigin(req: NextRequest, pathSegments: string[], origin: s
       {
         error: {
           code: "API_UNREACHABLE",
-          message: `Could not reach API at ${origin}: ${e instanceof Error ? e.message : String(e)}`,
+          message: `Could not reach the ABI API at ${origin}: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
         },
       },
       { status: 502, headers: { "Cache-Control": "no-store" } },
@@ -73,122 +115,21 @@ async function proxyToOrigin(req: NextRequest, pathSegments: string[], origin: s
   }
 }
 
-function ensureEmbedEnv() {
-  // NOTE: this used to force POLICYVAULT_ALLOW_BOOTSTRAP="1" here, before the
-  // API module read it — silently defeating the gate the API had put in front
-  // of a destructive, unauthenticated endpoint. Demo seeding is now opt-in via
-  // real configuration like every other flag, and it no longer wipes anything.
-  if (!process.env.POLICYVAULT_DB) {
-    process.env.POLICYVAULT_DB = "/tmp/policyvault.db";
-  }
-  // Likewise, a hardcoded pepper is a published secret. Fall back only outside
-  // production; production now refuses to boot without ABI_KEY_PEPPER set.
-  if (
-    process.env.NODE_ENV !== "production" &&
-    !process.env.ABI_KEY_PEPPER &&
-    !process.env.POLICYVAULT_KEY_PEPPER
-  ) {
-    process.env.ABI_KEY_PEPPER = "abi-local-embed-pepper";
-  }
-  process.env.ABI_EMBEDDED = "1";
-}
-
-type EmbeddedApi = {
-  app: Parameters<typeof dispatchExpress>[0];
-  closeDb: () => void;
-  reloadDbFromDisk: () => void;
-  flushDbForPersist: () => void;
-  getDbPath: () => string;
-  runAutoFundSweep?: () => { toppedUp: number };
-};
-
-/** Warm isolate: API module already opened SQLite; hydrate must reload from disk. */
-let embeddedApi: EmbeddedApi | null = null;
-
-async function handleEmbedded(req: NextRequest, pathSegments: string[]) {
-  ensureEmbedEnv();
-  const dbPath = process.env.POLICYVAULT_DB ?? "/tmp/policyvault.db";
-
-  try {
-    // Order: close (warm) → hydrate file → import (cold) or reloadDbFromDisk (warm).
-    if (embeddedApi) {
-      embeddedApi.closeDb();
-    }
-    await hydrateDbFromCache(dbPath);
-
-    if (embeddedApi) {
-      embeddedApi.reloadDbFromDisk();
-    } else {
-      const mod = await import("@policyvault/api");
-      embeddedApi = mod as unknown as EmbeddedApi;
-    }
-
-    // Embedded isolates skip the API process setInterval — sweep before
-    // serving so list/balance reads reflect any due auto-fund top-ups.
-    try {
-      embeddedApi.runAutoFundSweep?.();
-    } catch (e) {
-      console.error("[abi-api auto-fund]", e);
-    }
-
-    const joined = pathSegments.map(encodeURIComponent).join("/");
-    const search = new URL(req.url).search;
-    const pathAndQuery = `/${joined}${search}`;
-    const response = await dispatchExpress(embeddedApi.app, req, pathAndQuery);
-
-    embeddedApi.flushDbForPersist();
-    await persistDbToCache(embeddedApi.getDbPath());
-
-    return response;
-  } catch (e) {
-    console.error("[abi-api embed]", e);
-    return NextResponse.json(
-      {
-        error: {
-          code: "API_EMBED_FAILED",
-          message: e instanceof Error ? e.message : String(e),
-        },
-      },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
-    );
-  }
-}
-
 async function handle(req: NextRequest, pathSegments: string[]) {
   const origin = resolveOrigin();
-  if (origin) return proxyToOrigin(req, pathSegments, origin);
-  // Vercel with no external API → run the money API in-process.
-  if (process.env.VERCEL) return handleEmbedded(req, pathSegments);
-  return proxyToOrigin(req, pathSegments, "http://127.0.0.1:8787");
+  if (!origin) return notConfigured();
+  return proxy(req, pathSegments, origin);
 }
 
 type Ctx = { params: Promise<{ path: string[] }> };
 
-export async function GET(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return handle(req, path ?? []);
-}
-export async function POST(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return handle(req, path ?? []);
-}
-export async function PUT(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return handle(req, path ?? []);
-}
-export async function PATCH(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return handle(req, path ?? []);
-}
-export async function DELETE(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return handle(req, path ?? []);
-}
-export async function HEAD(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return handle(req, path ?? []);
-}
-export async function OPTIONS(req: NextRequest, ctx: Ctx) {
-  const { path } = await ctx.params;
-  return handle(req, path ?? []);
-}
+const route = (req: NextRequest, ctx: Ctx) =>
+  ctx.params.then(({ path }) => handle(req, path ?? []));
+
+export const GET = route;
+export const POST = route;
+export const PUT = route;
+export const PATCH = route;
+export const DELETE = route;
+export const HEAD = route;
+export const OPTIONS = route;
