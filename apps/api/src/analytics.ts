@@ -6,7 +6,7 @@
  * simulator in particular replays real decisions against a candidate ruleset
  * so "what would this change have done" is answered with your actual traffic.
  */
-import { formatMicroToUsdc, parseUsdcToMicro, type MicroUsdc } from "@policyvault/common";
+import { formatMicroToUsdc, normalizeHitlCategories, parseUsdcToMicro, type MicroUsdc } from "@policyvault/common";
 import { evaluatePolicy, type PolicyRules } from "@policyvault/policy";
 import { currentRevision, store } from "./store.js";
 
@@ -91,7 +91,7 @@ export function simulatePolicy(
     ...(change.vendorAllowlist && { vendorAllowlist: change.vendorAllowlist }),
     ...(change.blocklist && { blocklist: change.blocklist }),
     ...(change.hitlCategories && {
-      hitlCategories: change.hitlCategories as import("@policyvault/policy").PolicyTemplate["hitlCategories"],
+      hitlCategories: normalizeHitlCategories(change.hitlCategories),
     }),
     ...(change.quietHours !== undefined && {
       quietHours: change.quietHours ?? undefined,

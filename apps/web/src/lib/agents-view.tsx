@@ -149,7 +149,8 @@ export function AgentsView({
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
   const [analytics, setAnalytics] = useState<Record<string, unknown> | null>(null);
-  const [tab, setTab] = useState<"roster" | "groups" | "sessions" | "freezes">("roster");
+  const [tab, setTab] = useState<"roster" | "groups">("roster");
+  const [detailPane, setDetailPane] = useState<"profile" | "sessions" | "audit">("profile");
 
   const [newName, setNewName] = useState("");
   const [groupName, setGroupName] = useState("");
@@ -203,18 +204,12 @@ export function AgentsView({
 
   const refresh = useCallback(async () => {
     await refreshRoster();
-    if (tab === "freezes") await refreshFreezes();
-    if (tab === "sessions") await refreshSessions();
-  }, [refreshRoster, refreshFreezes, refreshSessions, tab]);
+    await Promise.all([refreshFreezes(), refreshSessions()]);
+  }, [refreshRoster, refreshFreezes, refreshSessions]);
 
   useEffect(() => {
-    void refreshRoster();
-  }, [refreshRoster]);
-
-  useEffect(() => {
-    if (tab === "freezes") void refreshFreezes();
-    if (tab === "sessions") void refreshSessions();
-  }, [tab, refreshFreezes, refreshSessions]);
+    void refresh();
+  }, [refresh]);
 
   // Poll while viewing ops labels so request-path auto-fund sweeps show up.
   useEffect(() => {
@@ -313,7 +308,7 @@ export function AgentsView({
       <div className="card-head" style={{ marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: 0 }}>Agents</h2>
-          <div className="sub">Identity, ops labels, keys, sessions, freeze audit</div>
+          <div className="sub">Roster, ops labels, sessions & freeze — one place</div>
         </div>
         <SegTabs
           value={tab}
@@ -322,143 +317,70 @@ export function AgentsView({
             [
               { value: "roster", label: "Roster" },
               { value: "groups", label: "Ops labels" },
-              { value: "sessions", label: "Sessions" },
-              { value: "freezes", label: "Freezes" },
             ] as const
           }
         />
       </div>
 
       {tab === "roster" && (
-        <div className="grid g-main fill">
-          <div className="card">
-            <div className="card-head">
+        <div className="agents-roster-layout">
+          <div className="card agents-roster-list">
+            <div className="card-head agents-roster-head">
               <div>
                 <h2>Roster</h2>
                 <div className="sub">{agents.length} agents</div>
               </div>
-              <div className="row" style={{ gap: 8 }}>
-                <input
-                  placeholder="New agent name"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && newName.trim() && void createAgent()}
-                />
-                <Button size="sm"
-                  disabled={locked || !newName.trim()}
-                  onClick={() => void createAgent()}
-                >
-                  Create
-                </Button>
-              </div>
+            </div>
+            <div className="agents-roster-create row" style={{ gap: 8 }}>
+              <input
+                placeholder="New agent name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && newName.trim() && void createAgent()}
+              />
+              <Button size="sm" disabled={locked || !newName.trim()} onClick={() => void createAgent()}>
+                Add
+              </Button>
             </div>
             {agents.length === 0 ? (
-              <Empty icon="robot">No agents yet — create one to start allocating stipends.</Empty>
+              <Empty icon="robot">No agents yet — add one to start allocating stipends.</Empty>
             ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Ops label</th>
-                    <th>Available</th>
-                    <th>24h</th>
-                    <th>Key</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {agents.map((a) => (
-                    <tr key={a.id} className={selected === a.id ? "on" : undefined}>
-                      <td>
-                        <Button variant="ghost" size="sm"
-                          style={{ padding: 0, fontWeight: 600 }}
-                          onClick={() => void loadDetail(a.id)}
-                        >
-                          {a.name}
-                        </Button>
-                      </td>
-                      <td>
+              <div className="agents-roster-scroll" role="list">
+                {agents.map((a) => {
+                  const on = selected === a.id;
+                  const label =
+                    (a.groupNames?.length ? a.groupNames.join(", ") : a.groupName) ?? "—";
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      role="listitem"
+                      className={`agents-roster-row ${on ? "on" : ""}`}
+                      onClick={() => {
+                        setDetailPane("profile");
+                        void loadDetail(a.id);
+                      }}
+                    >
+                      <span className="agents-roster-row-main">
+                        <b>{a.name}</b>
+                        <span className="faint">{label}</span>
+                      </span>
+                      <span className="agents-roster-row-meta">
                         <span className={`pill ${statusTone(a.status)}`}>
                           <i /> {a.status}
                         </span>
-                      </td>
-                      <td className="faint">{(a.groupNames?.length ? a.groupNames.join(", ") : a.groupName) ?? "—"}</td>
-                      <td className="mono">{fmt(a.availableUsdc)}</td>
-                      <td className="mono faint">{fmt(a.spent24hUsdc)}</td>
-                      <td className="faint">{a.apiKeyLive ? "live" : "revoked"}</td>
-                      <td>
-                        <div className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
-                          {a.status === "active" && (
-                            <Button variant="ghost" size="sm"
-                              disabled={locked}
-                              onClick={() =>
-                                void act("Freeze", async () => {
-                                  await gFetch(`/v1/guardian/agents/${a.id}/freeze`, {
-                                    method: "POST",
-                                    body: JSON.stringify({ reason: "guardian kill switch" }),
-                                  });
-                                  await refresh();
-                                  return `${a.name} frozen.`;
-                                })
-                              }
-                            >
-                              Freeze
-                            </Button>
-                          )}
-                          {a.status === "frozen" && (
-                            <Button variant="ghost" size="sm"
-                              disabled={locked}
-                              onClick={() =>
-                                void act("Unfreeze", async () => {
-                                  await gFetch(`/v1/guardian/agents/${a.id}/unfreeze`, {
-                                    method: "POST",
-                                    body: JSON.stringify({}),
-                                  });
-                                  await refresh();
-                                  return `${a.name} unfrozen.`;
-                                })
-                              }
-                            >
-                              Unfreeze
-                            </Button>
-                          )}
-                          {a.status !== "archived" && (
-                            <Button variant="ghost" size="sm"
-                              disabled={locked}
-                              onClick={() =>
-                                void act("Rotate key", async () => {
-                                  const res = await gFetch(
-                                    `/v1/guardian/agents/${a.id}/rotate-key`,
-                                    { method: "POST" },
-                                  );
-                                  const d = await res.json();
-                                  if (!res.ok) throw new Error(JSON.stringify(d.error));
-                                  onKeyRevealed?.({
-                                    agentId: a.id,
-                                    name: `${a.name} (rotated)`,
-                                    key: d.apiKey,
-                                  });
-                                  await refresh();
-                                  return "Key rotated.";
-                                })
-                              }
-                            >
-                              Rotate
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        <span className="mono faint">{fmt(a.availableUsdc)}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
 
-          <div className="card">
+          <div className="card agents-roster-detail">
             {!selected || !detail ? (
-              <Empty icon="robot">Select an agent for profile, ownership, and analytics.</Empty>
+              <Empty icon="robot">Select an agent for profile, sessions, and freeze.</Empty>
             ) : (
               <>
                 <div className="card-head">
@@ -466,359 +388,579 @@ export function AgentsView({
                     <h2>{(detail.identity as AgentRow)?.name}</h2>
                     <div className="sub mono faint">{selected}</div>
                   </div>
-                  <span className={`pill ${statusTone((detail.identity as AgentRow)?.status ?? "")}`}>
-                    <i /> {(detail.identity as AgentRow)?.status}
-                  </span>
-                </div>
-
-                <div className="grid g-2" style={{ marginBottom: 18, gap: 14 }}>
-                  <div
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: 10,
-                      background: "var(--surface-3)",
-                    }}
-                  >
-                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
-                      Available
-                    </div>
-                    <div className="mono" style={{ fontSize: 20, fontWeight: 600 }}>
-                      {fmt(detail.availableUsdc as string)}
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: 10,
-                      background: "var(--surface-3)",
-                    }}
-                  >
-                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
-                      Held
-                    </div>
-                    <div className="mono" style={{ fontSize: 20, fontWeight: 600 }}>
-                      {fmt(detail.heldUsdc as string)}
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: 10,
-                      background: "var(--surface-3)",
-                    }}
-                  >
-                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
-                      24h spend
-                    </div>
-                    <div className="mono" style={{ fontSize: 16 }}>
-                      {fmt(detail.spent24hUsdc as string)}
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: 10,
-                      background: "var(--surface-3)",
-                    }}
-                  >
-                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
-                      Lifetime settled
-                    </div>
-                    <div className="mono" style={{ fontSize: 16 }}>
-                      {fmt((analytics?.lifetimeSettledUsdc as string) ?? "0")}
-                    </div>
+                  <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <span className={`pill ${statusTone((detail.identity as AgentRow)?.status ?? "")}`}>
+                      <i /> {(detail.identity as AgentRow)?.status}
+                    </span>
+                    {selectedAgent?.status === "active" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={locked}
+                        onClick={() =>
+                          void act("Freeze", async () => {
+                            await gFetch(`/v1/guardian/agents/${selected}/freeze`, {
+                              method: "POST",
+                              body: JSON.stringify({ reason: "guardian kill switch" }),
+                            });
+                            await refresh();
+                            await loadDetail(selected!);
+                            setDetailPane("audit");
+                            return `${selectedAgent.name} frozen.`;
+                          })
+                        }
+                      >
+                        Freeze
+                      </Button>
+                    )}
+                    {selectedAgent?.status === "frozen" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={locked}
+                        onClick={() =>
+                          void act("Unfreeze", async () => {
+                            await gFetch(`/v1/guardian/agents/${selected}/unfreeze`, {
+                              method: "POST",
+                              body: JSON.stringify({}),
+                            });
+                            await refresh();
+                            await loadDetail(selected!);
+                            return `${selectedAgent.name} unfrozen.`;
+                          })
+                        }
+                      >
+                        Unfreeze
+                      </Button>
+                    )}
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 12,
-                    marginBottom: 18,
-                    padding: "4px 0 8px",
-                  }}
-                >
-                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-                    Display name
-                    <input value={rename} disabled={readOnly} onChange={(e) => setRename(e.target.value)} />
-                  </label>
-                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-                    Runtime
-                    <input
-                      placeholder="langgraph / eliza / custom"
-                      value={runtime}
-                      disabled={readOnly}
-                      onChange={(e) => setRuntime(e.target.value)}
-                    />
-                  </label>
-                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-                    Tags (comma-separated)
-                    <input value={tags} disabled={readOnly} onChange={(e) => setTags(e.target.value)} />
-                  </label>
-                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-                    Owner guardian id
-                    <input value={ownerId} disabled={readOnly} onChange={(e) => setOwnerId(e.target.value)} />
-                  </label>
-                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-                    Ops labels (multi)
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
-                      {groups
-                        .filter((g) => g.status === "active")
-                        .map((g) => (
-                          <label key={g.id} className="row" style={{ gap: 6, fontSize: 12.5 }}>
-                            <input
-                              type="checkbox"
-                              disabled={readOnly}
-                              checked={editGroupIds.includes(g.id)}
-                              onChange={(e) =>
-                                setEditGroupIds((prev) =>
-                                  e.target.checked
-                                    ? [...prev, g.id]
-                                    : prev.filter((x) => x !== g.id),
-                                )
+                <div className="grid g-2" style={{ marginBottom: 14, gap: 10 }}>
+                  <div className="agents-kpi">
+                    <div className="muted">Available</div>
+                    <div className="mono">{fmt(detail.availableUsdc as string)}</div>
+                  </div>
+                  <div className="agents-kpi">
+                    <div className="muted">24h spend</div>
+                    <div className="mono">{fmt(detail.spent24hUsdc as string)}</div>
+                  </div>
+                </div>
+
+                <SegTabs
+                  value={detailPane}
+                  onValueChange={(v) => setDetailPane(v as typeof detailPane)}
+                  items={
+                    [
+                      { value: "profile", label: "Profile" },
+                      { value: "sessions", label: "Sessions" },
+                      { value: "audit", label: "Freeze" },
+                    ] as const
+                  }
+                />
+
+                {detailPane === "profile" && (
+                  <div className="agents-detail-pane">
+                    <label className="muted agents-field">
+                      Display name
+                      <input value={rename} disabled={readOnly} onChange={(e) => setRename(e.target.value)} />
+                    </label>
+                    <label className="muted agents-field">
+                      Runtime
+                      <input
+                        placeholder="langgraph / eliza / custom"
+                        value={runtime}
+                        disabled={readOnly}
+                        onChange={(e) => setRuntime(e.target.value)}
+                      />
+                    </label>
+                    <label className="muted agents-field">
+                      Tags (comma-separated)
+                      <input value={tags} disabled={readOnly} onChange={(e) => setTags(e.target.value)} />
+                    </label>
+                    <label className="muted agents-field">
+                      Owner guardian id
+                      <input value={ownerId} disabled={readOnly} onChange={(e) => setOwnerId(e.target.value)} />
+                    </label>
+                    <label className="muted agents-field">
+                      Ops labels
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
+                        {groups
+                          .filter((g) => g.status === "active")
+                          .map((g) => (
+                            <label key={g.id} className="row" style={{ gap: 6, fontSize: 12.5 }}>
+                              <input
+                                type="checkbox"
+                                disabled={readOnly}
+                                checked={editGroupIds.includes(g.id)}
+                                onChange={(e) =>
+                                  setEditGroupIds((prev) =>
+                                    e.target.checked
+                                      ? [...prev, g.id]
+                                      : prev.filter((x) => x !== g.id),
+                                  )
+                                }
+                              />
+                              {g.name}
+                            </label>
+                          ))}
+                        {!groups.some((g) => g.status === "active") && (
+                          <span className="faint">
+                            No labels yet — create one under Ops labels, or a Treasury budget.
+                          </span>
+                        )}
+                      </div>
+                    </label>
+                    <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                      <Button
+                        size="sm"
+                        disabled={locked}
+                        onClick={() =>
+                          void act("Save profile", async () => {
+                            const profile: Record<string, unknown> = {
+                              runtime: runtime.trim() || undefined,
+                              tags: tags
+                                .split(",")
+                                .map((t) => t.trim())
+                                .filter(Boolean),
+                              ownerGuardianId: ownerId.trim() || "owner",
+                              groupId: editGroupIds[0] ?? "",
+                            };
+                            const res = await gFetch(`/v1/guardian/agents/${selected}`, {
+                              method: "PATCH",
+                              body: JSON.stringify({
+                                name: rename.trim() || undefined,
+                                profile,
+                              }),
+                            });
+                            const d = await res.json();
+                            if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
+                            const desired = new Set(editGroupIds);
+                            const current = new Set(
+                              groups
+                                .filter((g) => g.members.some((m) => m.id === selected))
+                                .map((g) => g.id),
+                            );
+                            for (const gid of desired) {
+                              if (!current.has(gid)) {
+                                await gFetch(`/v1/guardian/agent-groups/${gid}/assign`, {
+                                  method: "POST",
+                                  body: JSON.stringify({ agentIds: [selected] }),
+                                });
                               }
-                            />
-                            {g.name}
-                          </label>
-                        ))}
-                      {!groups.some((g) => g.status === "active") && (
-                        <span className="faint">No ops labels yet — create a budget or label first.</span>
+                            }
+                            for (const gid of current) {
+                              if (!desired.has(gid)) {
+                                await gFetch(`/v1/guardian/agent-groups/${gid}/unassign`, {
+                                  method: "POST",
+                                  body: JSON.stringify({ agentIds: [selected] }),
+                                });
+                              }
+                            }
+                            await refresh();
+                            await loadDetail(selected!);
+                            return "Profile + ops labels saved.";
+                          })
+                        }
+                      >
+                        Save identity
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={locked || selectedAgent?.status === "archived"}
+                        onClick={() =>
+                          void act("Rotate key", async () => {
+                            const res = await gFetch(`/v1/guardian/agents/${selected}/rotate-key`, {
+                              method: "POST",
+                            });
+                            const d = await res.json();
+                            if (!res.ok) throw new Error(JSON.stringify(d.error));
+                            onKeyRevealed?.({
+                              agentId: selected!,
+                              name: `${rename} (rotated)`,
+                              key: d.apiKey,
+                            });
+                            await refresh();
+                            return "Key rotated.";
+                          })
+                        }
+                      >
+                        Rotate key
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={locked || selectedAgent?.status === "archived"}
+                        onClick={() =>
+                          void act("Revoke keys", async () => {
+                            const res = await gFetch(`/v1/guardian/agents/${selected}/revoke-key`, {
+                              method: "POST",
+                            });
+                            const d = await res.json();
+                            if (!res.ok) throw new Error(JSON.stringify(d.error));
+                            await refresh();
+                            await loadDetail(selected!);
+                            return `Revoked API key + ${d.sessionsRevoked} session(s).`;
+                          })
+                        }
+                      >
+                        Revoke keys
+                      </Button>
+                      {selectedAgent?.status !== "archived" ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={locked}
+                          onClick={() =>
+                            void act("Archive", async () => {
+                              await gFetch(`/v1/guardian/agents/${selected}/archive`, {
+                                method: "POST",
+                              });
+                              await refresh();
+                              await loadDetail(selected!);
+                              return "Agent archived — non-spendable, keys dead.";
+                            })
+                          }
+                        >
+                          Archive
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          disabled={locked}
+                          onClick={() =>
+                            void act("Unarchive", async () => {
+                              const res = await gFetch(`/v1/guardian/agents/${selected}/unarchive`, {
+                                method: "POST",
+                              });
+                              const d = await res.json();
+                              if (!res.ok) throw new Error(JSON.stringify(d.error));
+                              onKeyRevealed?.({
+                                agentId: selected!,
+                                name: `${rename} (restored)`,
+                                key: d.apiKey,
+                              });
+                              await refresh();
+                              await loadDetail(selected!);
+                              return "Agent restored with a fresh API key.";
+                            })
+                          }
+                        >
+                          Unarchive
+                        </Button>
                       )}
                     </div>
-                  </label>
-                  <button
-                    disabled={locked}
-                    onClick={() =>
-                      void act("Save profile", async () => {
-                        const profile: Record<string, unknown> = {
-                          runtime: runtime.trim() || undefined,
-                          tags: tags
-                            .split(",")
-                            .map((t) => t.trim())
-                            .filter(Boolean),
-                          ownerGuardianId: ownerId.trim() || "owner",
-                          groupId: editGroupIds[0] ?? "",
-                        };
-                        const res = await gFetch(`/v1/guardian/agents/${selected}`, {
-                          method: "PATCH",
-                          body: JSON.stringify({
-                            name: rename.trim() || undefined,
-                            profile,
-                          }),
-                        });
-                        const d = await res.json();
-                        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-                        const desired = new Set(editGroupIds);
-                        const current = new Set(
-                          groups
-                            .filter((g) => g.members.some((m) => m.id === selected))
-                            .map((g) => g.id),
-                        );
-                        for (const gid of desired) {
-                          if (!current.has(gid)) {
-                            await gFetch(`/v1/guardian/agent-groups/${gid}/assign`, {
-                              method: "POST",
-                              body: JSON.stringify({ agentIds: [selected] }),
-                            });
-                          }
-                        }
-                        for (const gid of current) {
-                          if (!desired.has(gid)) {
-                            await gFetch(`/v1/guardian/agent-groups/${gid}/unassign`, {
-                              method: "POST",
-                              body: JSON.stringify({ agentIds: [selected] }),
-                            });
-                          }
-                        }
-                        await refresh();
-                        await loadDetail(selected!);
-                        return "Profile + ops labels saved.";
-                      })
-                    }
-                  >
-                    Save identity
-                  </button>
-                </div>
 
-                <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-                  <Button variant="ghost" size="sm"
-                    disabled={locked || selectedAgent?.status === "archived"}
-                    onClick={() =>
-                      void act("Revoke keys", async () => {
-                        const res = await gFetch(`/v1/guardian/agents/${selected}/revoke-key`, {
-                          method: "POST",
-                        });
-                        const d = await res.json();
-                        if (!res.ok) throw new Error(JSON.stringify(d.error));
-                        await refresh();
-                        await loadDetail(selected!);
-                        return `Revoked API key + ${d.sessionsRevoked} session(s).`;
-                      })
-                    }
-                  >
-                    Revoke all keys
-                  </Button>
-                  {selectedAgent?.status !== "archived" ? (
-                    <Button variant="ghost" size="sm"
-                      disabled={locked}
-                      onClick={() =>
-                        void act("Archive", async () => {
-                          await gFetch(`/v1/guardian/agents/${selected}/archive`, {
-                            method: "POST",
-                          });
-                          await refresh();
-                          await loadDetail(selected!);
-                          return "Agent archived — non-spendable, keys dead.";
-                        })
-                      }
-                    >
-                      Archive
-                    </Button>
-                  ) : (
-                    <Button size="sm"
-                      disabled={locked}
-                      onClick={() =>
-                        void act("Unarchive", async () => {
-                          const res = await gFetch(`/v1/guardian/agents/${selected}/unarchive`, {
-                            method: "POST",
-                          });
-                          const d = await res.json();
-                          if (!res.ok) throw new Error(JSON.stringify(d.error));
-                          onKeyRevealed?.({
-                            agentId: selected!,
-                            name: `${rename} (restored)`,
-                            key: d.apiKey,
-                          });
-                          await refresh();
-                          await loadDetail(selected!);
-                          return "Agent restored with a fresh API key.";
-                        })
-                      }
-                    >
-                      Unarchive
-                    </Button>
-                  )}
-                  <div className="field" style={{ margin: "0 0 10px", flex: "1 1 160px" }}>
-                    <label>Session label</label>
-                    <input
-                      value={sessionLabel}
-                      disabled={locked || selectedAgent?.status !== "active"}
-                      onChange={(e) => setSessionLabel(e.target.value)}
-                      placeholder="console"
-                    />
-                  </div>
-                  <div className="row" style={{ gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
-                    {(["read", "pay", "escrow"] as const).map((scope) => (
-                      <label key={scope} className="row" style={{ gap: 6, fontSize: 12.5 }}>
-                        <input
-                          type="checkbox"
-                          disabled={locked || selectedAgent?.status !== "active"}
-                          checked={sessionScopes.includes(scope)}
-                          onChange={(e) =>
-                            setSessionScopes((prev) =>
-                              e.target.checked
-                                ? [...prev, scope]
-                                : prev.filter((s) => s !== scope),
-                            )
-                          }
-                        />
-                        {scope}
-                      </label>
-                    ))}
-                  </div>
-                  <Button size="sm"
-                    disabled={locked || selectedAgent?.status !== "active" || sessionScopes.length === 0}
-                    onClick={() =>
-                      void act("Mint session", async () => {
-                        const res = await gFetch(
-                          `/v1/guardian/agents/${selected}/session-keys`,
-                          {
-                            method: "POST",
-                            body: JSON.stringify({
-                              label: sessionLabel.trim() || "console",
-                              ttlHours: 24,
-                              scopes: sessionScopes,
-                            }),
-                          },
-                        );
-                        const d = await res.json();
-                        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-                        setRevealedSession(d.sessionKey.token);
-                        setSessionLabel("");
-                        await refresh();
-                        return `Session minted with scopes: ${sessionScopes.join(", ")}.`;
-                      })
-                    }
-                  >
-                    Mint 24h session
-                  </Button>
-                </div>
+                    {analytics && (
+                      <div className="sub" style={{ marginTop: 12 }}>
+                        Decisions allow {(analytics.decisions as { allow: number })?.allow ?? 0} · deny{" "}
+                        {(analytics.decisions as { deny: number })?.deny ?? 0} · review{" "}
+                        {(analytics.decisions as { review: number })?.review ?? 0}
+                        {" · "}lifetime {fmt((analytics.lifetimeSettledUsdc as string) ?? "0")}
+                      </div>
+                    )}
 
-                {revealedSession && (
-                  <div className="card" style={{ marginBottom: 12, background: "var(--surface-2, #f6f4ef)" }}>
-                    <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
-                      Session token (once)
+                    <div className="muted" style={{ fontSize: 12, margin: "14px 0 6px" }}>
+                      Recent decisions
                     </div>
-                    <code className="mono" style={{ wordBreak: "break-all", fontSize: 12 }}>
-                      {revealedSession}
-                    </code>
+                    <div style={{ maxHeight: 140, overflow: "auto" }}>
+                      {(
+                        (detail.recentDecisions as {
+                          outcome: string;
+                          tool: string;
+                          amountUsdc: string;
+                          at: string;
+                        }[]) ?? []
+                      )
+                        .slice(0, 6)
+                        .map((d, i) => (
+                          <div key={i} className="between" style={{ fontSize: 12, padding: "4px 0" }}>
+                            <span>
+                              <span
+                                className={`pill ${d.outcome === "allow" ? "ok" : d.outcome === "deny" ? "bad" : "warn"}`}
+                              >
+                                <i /> {d.outcome}
+                              </span>{" "}
+                              {d.tool}
+                            </span>
+                            <span className="mono faint">{fmt(d.amountUsdc)}</span>
+                          </div>
+                        ))}
+                      {!((detail.recentDecisions as unknown[]) ?? []).length && (
+                        <div className="faint" style={{ fontSize: 12 }}>
+                          No decisions yet.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
-                {analytics && (
-                  <div className="sub" style={{ marginBottom: 8 }}>
-                    Decisions allow {(analytics.decisions as { allow: number })?.allow ?? 0} · deny{" "}
-                    {(analytics.decisions as { deny: number })?.deny ?? 0} · review{" "}
-                    {(analytics.decisions as { review: number })?.review ?? 0}
+                {detailPane === "sessions" && (
+                  <div className="agents-detail-pane">
+                    <p className="faint" style={{ fontSize: 12.5, margin: "0 0 10px", lineHeight: 1.45 }}>
+                      Short-lived <code>pv_sess_…</code> tokens. Revoked on freeze/archive.
+                    </p>
+                    <div className="field" style={{ marginBottom: 10 }}>
+                      <label>Session label</label>
+                      <input
+                        value={sessionLabel}
+                        disabled={locked || selectedAgent?.status !== "active"}
+                        onChange={(e) => setSessionLabel(e.target.value)}
+                        placeholder="console"
+                      />
+                    </div>
+                    <div className="row" style={{ gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+                      {(["read", "pay", "escrow"] as const).map((scope) => (
+                        <label key={scope} className="row" style={{ gap: 6, fontSize: 12.5 }}>
+                          <input
+                            type="checkbox"
+                            disabled={locked || selectedAgent?.status !== "active"}
+                            checked={sessionScopes.includes(scope)}
+                            onChange={(e) =>
+                              setSessionScopes((prev) =>
+                                e.target.checked
+                                  ? [...prev, scope]
+                                  : prev.filter((s) => s !== scope),
+                              )
+                            }
+                          />
+                          {scope}
+                        </label>
+                      ))}
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={
+                        locked || selectedAgent?.status !== "active" || sessionScopes.length === 0
+                      }
+                      onClick={() =>
+                        void act("Mint session", async () => {
+                          const res = await gFetch(
+                            `/v1/guardian/agents/${selected}/session-keys`,
+                            {
+                              method: "POST",
+                              body: JSON.stringify({
+                                label: sessionLabel.trim() || "console",
+                                ttlHours: 24,
+                                scopes: sessionScopes,
+                              }),
+                            },
+                          );
+                          const d = await res.json();
+                          if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
+                          setRevealedSession(d.sessionKey.token);
+                          setSessionLabel("");
+                          await refresh();
+                          return `Session minted with scopes: ${sessionScopes.join(", ")}.`;
+                        })
+                      }
+                    >
+                      Mint 24h session
+                    </Button>
+
+                    {revealedSession && (
+                      <div
+                        className="card"
+                        style={{ marginTop: 12, background: "var(--surface-2, #f6f4ef)", padding: 12 }}
+                      >
+                        <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+                          Session token (once)
+                        </div>
+                        <code className="mono" style={{ wordBreak: "break-all", fontSize: 12 }}>
+                          {revealedSession}
+                        </code>
+                      </div>
+                    )}
+
+                    <div className="muted" style={{ fontSize: 12, margin: "16px 0 8px" }}>
+                      This agent&apos;s sessions
+                    </div>
+                    {(() => {
+                      const mine = sessions.filter((s) => s.agentId === selected);
+                      if (!mine.length) {
+                        return (
+                          <p className="faint" style={{ fontSize: 12.5, margin: 0 }}>
+                            No session keys yet for this agent.
+                          </p>
+                        );
+                      }
+                      return (
+                        <div className="agents-mini-table-wrap">
+                          <table className="agents-mini-table">
+                            <thead>
+                              <tr>
+                                <th>Label</th>
+                                <th>Scopes</th>
+                                <th>Status</th>
+                                <th />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {mine.map((s) => {
+                                const dead =
+                                  Boolean(s.revokedAt) ||
+                                  new Date(s.expiresAt).getTime() < Date.now();
+                                return (
+                                  <tr key={s.id}>
+                                    <td>{s.label ?? "—"}</td>
+                                    <td className="faint">{s.scopes.join(", ")}</td>
+                                    <td>
+                                      <span className={`pill ${dead ? "bad" : "ok"}`}>
+                                        <i />{" "}
+                                        {s.revokedAt ? "revoked" : dead ? "expired" : "live"}
+                                      </span>
+                                    </td>
+                                    <td>
+                                      {!s.revokedAt && (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          disabled={locked}
+                                          onClick={() =>
+                                            void act("Revoke session", async () => {
+                                              await gFetch(
+                                                `/v1/guardian/session-keys/${s.id}/revoke`,
+                                                { method: "POST" },
+                                              );
+                                              await refresh();
+                                            })
+                                          }
+                                        >
+                                          Revoke
+                                        </Button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 
-                <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
-                  Recent decisions
-                </div>
-                <div style={{ maxHeight: 180, overflow: "auto" }}>
-                  {((detail.recentDecisions as { outcome: string; tool: string; amountUsdc: string; at: string }[]) ?? [])
-                    .slice(0, 8)
-                    .map((d, i) => (
-                      <div key={i} className="between" style={{ fontSize: 12, padding: "4px 0" }}>
-                        <span>
-                          <span className={`pill ${d.outcome === "allow" ? "ok" : d.outcome === "deny" ? "bad" : "warn"}`}>
-                            <i /> {d.outcome}
-                          </span>{" "}
-                          {d.tool}
-                        </span>
-                        <span className="mono faint">{fmt(d.amountUsdc)}</span>
+                {detailPane === "audit" && (
+                  <div className="agents-detail-pane">
+                    <p className="faint" style={{ fontSize: 12.5, margin: "0 0 10px", lineHeight: 1.45 }}>
+                      Freeze / unfreeze from the header. Audit for this agent and recent org events.
+                    </p>
+                    <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                      {selectedAgent?.status === "active" && (
+                        <Button
+                          size="sm"
+                          disabled={locked}
+                          onClick={() =>
+                            void act("Freeze", async () => {
+                              await gFetch(`/v1/guardian/agents/${selected}/freeze`, {
+                                method: "POST",
+                                body: JSON.stringify({ reason: "guardian kill switch" }),
+                              });
+                              await refresh();
+                              await loadDetail(selected!);
+                              return `${selectedAgent.name} frozen.`;
+                            })
+                          }
+                        >
+                          Freeze agent
+                        </Button>
+                      )}
+                      {selectedAgent?.status === "frozen" && (
+                        <Button
+                          size="sm"
+                          disabled={locked}
+                          onClick={() =>
+                            void act("Unfreeze", async () => {
+                              await gFetch(`/v1/guardian/agents/${selected}/unfreeze`, {
+                                method: "POST",
+                                body: JSON.stringify({}),
+                              });
+                              await refresh();
+                              await loadDetail(selected!);
+                              return `${selectedAgent.name} unfrozen.`;
+                            })
+                          }
+                        >
+                          Unfreeze agent
+                        </Button>
+                      )}
+                    </div>
+                    <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+                      Events for {(detail.identity as AgentRow)?.name}
+                    </div>
+                    {(() => {
+                      const mine = freezes.filter(
+                        (f) => f.agentId === selected || f.agentName === selectedAgent?.name,
+                      );
+                      if (!mine.length) {
+                        return (
+                          <p className="faint" style={{ fontSize: 12.5, margin: "0 0 14px" }}>
+                            No freeze events for this agent yet.
+                          </p>
+                        );
+                      }
+                      return (
+                        <div className="agents-mini-table-wrap" style={{ marginBottom: 14 }}>
+                          <table className="agents-mini-table">
+                            <thead>
+                              <tr>
+                                <th>When</th>
+                                <th>Scope</th>
+                                <th>Reason</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {mine.slice(0, 12).map((f) => (
+                                <tr key={f.id}>
+                                  <td className="mono faint" style={{ fontSize: 11 }}>
+                                    {new Date(f.at).toLocaleString()}
+                                  </td>
+                                  <td>{f.scope}</td>
+                                  <td>{f.reason}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
+                    <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+                      Recent org freezes
+                    </div>
+                    {freezes.length === 0 ? (
+                      <p className="faint" style={{ fontSize: 12.5, margin: 0 }}>
+                        No org freeze events yet.
+                      </p>
+                    ) : (
+                      <div className="agents-mini-table-wrap">
+                        <table className="agents-mini-table">
+                          <thead>
+                            <tr>
+                              <th>When</th>
+                              <th>Target</th>
+                              <th>Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {freezes.slice(0, 10).map((f) => (
+                              <tr key={f.id}>
+                                <td className="mono faint" style={{ fontSize: 11 }}>
+                                  {new Date(f.at).toLocaleString()}
+                                </td>
+                                <td>
+                                  {f.agentName ?? (f.scope === "org" ? "Organization" : "—")}
+                                </td>
+                                <td>{f.reason}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    ))}
-                  {!((detail.recentDecisions as unknown[]) ?? []).length && (
-                    <div className="faint" style={{ fontSize: 12 }}>No decisions yet.</div>
-                  )}
-                </div>
-
-                <div className="muted" style={{ fontSize: 12, margin: "14px 0 6px" }}>
-                  Recent runs
-                </div>
-                <div style={{ maxHeight: 140, overflow: "auto" }}>
-                  {((detail.recentRuns as { id: string; status: string; startedAt: string; title?: string }[]) ?? [])
-                    .slice(0, 8)
-                    .map((r) => (
-                      <div key={r.id} className="between" style={{ fontSize: 12, padding: "4px 0" }}>
-                        <span>
-                          <span className={`pill ${r.status === "completed" ? "ok" : r.status === "failed" ? "bad" : "warn"}`}>
-                            <i /> {r.status}
-                          </span>{" "}
-                          {r.title ?? r.id.slice(0, 12)}
-                        </span>
-                        <span className="faint mono">
-                          {r.startedAt ? new Date(r.startedAt).toLocaleString() : ""}
-                        </span>
-                      </div>
-                    ))}
-                  {!((detail.recentRuns as unknown[]) ?? []).length && (
-                    <div className="faint" style={{ fontSize: 12 }}>No runs yet — try Playground missions.</div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -1318,112 +1460,6 @@ export function AgentsView({
         </div>
       )}
 
-      {tab === "sessions" && (
-        <div className="card">
-          <div className="card-head">
-            <div>
-              <h2>Session keys</h2>
-              <div className="sub">
-                Short-lived <code>pv_sess_…</code> tokens — scopes enforced on agent API routes;
-                revoked on freeze/archive
-              </div>
-            </div>
-          </div>
-          {sessions.length === 0 ? (
-            <Empty icon="zap">No session keys. Open an agent detail and mint a 24h session.</Empty>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Label</th>
-                  <th>Agent</th>
-                  <th>Scopes</th>
-                  <th>Expires</th>
-                  <th>Status</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.map((s) => {
-                  const agent = agents.find((a) => a.id === s.agentId);
-                  const dead = Boolean(s.revokedAt) || new Date(s.expiresAt).getTime() < Date.now();
-                  return (
-                    <tr key={s.id}>
-                      <td>{s.label ?? "—"}</td>
-                      <td>{agent?.name ?? s.agentId.slice(0, 10)}</td>
-                      <td className="faint">{s.scopes.join(", ")}</td>
-                      <td className="mono faint" style={{ fontSize: 11 }}>
-                        {new Date(s.expiresAt).toLocaleString()}
-                      </td>
-                      <td>
-                        <span className={`pill ${dead ? "bad" : "ok"}`}>
-                          <i /> {s.revokedAt ? "revoked" : dead ? "expired" : "live"}
-                        </span>
-                      </td>
-                      <td>
-                        {!s.revokedAt && (
-                          <Button variant="ghost" size="sm"
-                            disabled={locked}
-                            onClick={() =>
-                              void act("Revoke session", async () => {
-                                await gFetch(`/v1/guardian/session-keys/${s.id}/revoke`, {
-                                  method: "POST",
-                                });
-                                await refresh();
-                              })
-                            }
-                          >
-                            Revoke
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {tab === "freezes" && (
-        <div className="card">
-          <div className="card-head">
-            <div>
-              <h2>Freeze audit</h2>
-              <div className="sub">Kill-switch events, rotations, revokes, archives</div>
-            </div>
-          </div>
-          {freezes.length === 0 ? (
-            <p className="faint" style={{ margin: "8px 0 4px", fontSize: 13 }}>
-              No freeze events yet. Freeze an agent from the Roster tab.
-            </p>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Scope</th>
-                  <th>Target</th>
-                  <th>Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {freezes.map((f) => (
-                  <tr key={f.id}>
-                    <td className="mono faint" style={{ fontSize: 11 }}>
-                      {new Date(f.at).toLocaleString()}
-                    </td>
-                    <td>{f.scope}</td>
-                    <td>{f.agentName ?? (f.scope === "org" ? "Organization" : "—")}</td>
-                    <td>{f.reason}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
     </>
   );
 }

@@ -88,7 +88,7 @@ export function Webhooks({
           </div>
           <div className="row">
             <input
-              style={{ width: 300 }}
+              style={{ width: "100%", maxWidth: 300 }}
               placeholder="https://your-server/policyvault-hook"
               value={url}
               disabled={readOnly}

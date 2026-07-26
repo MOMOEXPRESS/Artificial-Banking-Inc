@@ -38,6 +38,7 @@ export type Policy = {
   }[];
 };
 
+/** Must match API `toolEnum` / packages/common IntentTool — never invent labels. */
 const HITL_TOOLS = [
   "pay",
   "pay_api",
@@ -47,6 +48,39 @@ const HITL_TOOLS = [
   "escrow_refund",
   "withdraw",
 ] as const;
+
+type HitlTool = (typeof HITL_TOOLS)[number];
+
+const HITL_TOOL_LABEL: Record<HitlTool, string> = {
+  pay: "pay (wallet)",
+  pay_api: "pay_api",
+  transfer_internal: "transfer_internal",
+  escrow_lock: "escrow_lock",
+  escrow_release: "escrow_release",
+  escrow_refund: "escrow_refund",
+  withdraw: "withdraw",
+};
+
+/** Legacy UI chips that used to POST invalid enum values. */
+const HITL_ALIASES: Record<string, HitlTool> = {
+  pay_address: "pay",
+  x402: "pay_api",
+  escrow: "escrow_lock",
+};
+
+function normalizeHitlCategories(raw: string[] | undefined | null): HitlTool[] {
+  if (!raw?.length) return [];
+  const allowed = new Set<string>(HITL_TOOLS);
+  const out: HitlTool[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const mapped = HITL_ALIASES[item] ?? item;
+    if (!allowed.has(mapped) || seen.has(mapped)) continue;
+    seen.add(mapped);
+    out.push(mapped as HitlTool);
+  }
+  return out;
+}
 
 /** Editable list of counterparties rendered as removable chips. */
 function ListEditor({
@@ -195,7 +229,7 @@ export function PolicyView({
     domainAllowlist: policy.domainAllowlist,
     addressAllowlist: policy.addressAllowlist,
     blocklist: policy.blocklist,
-    hitlCategories: policy.hitlCategories ?? [],
+    hitlCategories: normalizeHitlCategories(policy.hitlCategories),
   });
   const [quiet, setQuiet] = useState(
     policy.quietHours ?? { startHour: 22, endHour: 6, action: "review" as const },
@@ -254,7 +288,7 @@ export function PolicyView({
       domainAllowlist: policy.domainAllowlist,
       addressAllowlist: policy.addressAllowlist,
       blocklist: policy.blocklist,
-      hitlCategories: policy.hitlCategories ?? [],
+      hitlCategories: normalizeHitlCategories(policy.hitlCategories),
     });
     setQuietOn(!!policy.quietHours);
     if (policy.quietHours) setQuiet(policy.quietHours);
@@ -308,7 +342,7 @@ export function PolicyView({
           domainAllowlist: f.domainAllowlist,
           addressAllowlist: f.addressAllowlist,
           blocklist: f.blocklist,
-          hitlCategories: f.hitlCategories,
+          hitlCategories: normalizeHitlCategories(f.hitlCategories),
           quietHours: quietOn ? quiet : null,
           automation,
         }),
@@ -331,7 +365,7 @@ export function PolicyView({
       domainAllowlist: policy.domainAllowlist,
       addressAllowlist: policy.addressAllowlist,
       blocklist: policy.blocklist,
-      hitlCategories: policy.hitlCategories ?? [],
+      hitlCategories: normalizeHitlCategories(policy.hitlCategories),
     });
     setQuietOn(!!policy.quietHours);
     setAutomation(policy.automation ?? []);
@@ -521,7 +555,7 @@ export function PolicyView({
                 Always ask me for these tools
               </div>
               <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                {(["pay_api", "pay_address", "x402", "escrow"] as const).map((cat) => {
+                {HITL_TOOLS.map((cat) => {
                   const on = f.hitlCategories.includes(cat);
                   return (
                     <button
@@ -535,11 +569,11 @@ export function PolicyView({
                           ...s,
                           hitlCategories: on
                             ? s.hitlCategories.filter((c) => c !== cat)
-                            : [...s.hitlCategories, cat],
+                            : normalizeHitlCategories([...s.hitlCategories, cat]),
                         }));
                       }}
                     >
-                      <i /> {cat}
+                      <i /> {HITL_TOOL_LABEL[cat]}
                     </button>
                   );
                 })}

@@ -56,7 +56,7 @@ export function Playground({
     }
   });
   const [e2eAmount, setE2eAmount] = useState("0.10");
-  const [catFilter, setCatFilter] = useState<"all" | Mission["category"]>("all");
+  const [catFilter, setCatFilter] = useState<Mission["category"]>("commerce");
   const [source, setSource] = useState<"scenarios" | "custom">("scenarios");
   const [customTitle, setCustomTitle] = useState("Would we survive?");
   const [customBrief, setCustomBrief] = useState("");
@@ -93,8 +93,32 @@ export function Playground({
   const activeMission = source === "custom" ? customMission : mission;
   const actor = session.agentKeys.find((k) => k.agentId === actorId) ?? session.agentKeys[0];
   const peer = session.agentKeys.find((k) => k.agentId !== actor?.agentId);
-  const visibleMissions =
-    catFilter === "all" ? MISSIONS : MISSIONS.filter((m) => m.category === catFilter);
+  const visibleMissions = useMemo(
+    () => MISSIONS.filter((m) => m.category === catFilter),
+    [catFilter],
+  );
+  const scenarioIndex = Math.max(
+    0,
+    visibleMissions.findIndex((m) => m.id === missionId),
+  );
+  const activeScenario =
+    visibleMissions[scenarioIndex] ?? visibleMissions[0] ?? MISSIONS[0];
+
+  useEffect(() => {
+    if (!visibleMissions.length) return;
+    if (!visibleMissions.some((m) => m.id === missionId)) {
+      patch({ missionId: visibleMissions[0].id });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catFilter, visibleMissions, missionId]);
+
+  function stepScenario(dir: -1 | 1) {
+    if (running || visibleMissions.length < 2) return;
+    const i = visibleMissions.findIndex((m) => m.id === missionId);
+    const base = i < 0 ? 0 : i;
+    const next = (base + dir + visibleMissions.length) % visibleMissions.length;
+    patch({ missionId: visibleMissions[next].id });
+  }
 
   useEffect(() => {
     if (!actorId && session.agentKeys[0]) patch({ actorId: session.agentKeys[0].agentId });
@@ -384,7 +408,6 @@ export function Playground({
                   }}
                   items={
                     [
-                      { value: "all", label: "All" },
                       { value: "commerce", label: "Commerce" },
                       { value: "governance", label: "Governance" },
                       { value: "security", label: "Security" },
@@ -392,23 +415,68 @@ export function Playground({
                     ] as const
                   }
                 />
-                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                  {visibleMissions.map((m) => (
-                    <button
-                      key={m.id}
-                      className={`mission-card ${m.id === missionId ? "sel" : ""}`}
-                      onClick={() => patch({ missionId: m.id })}
-                      disabled={running}
-                    >
-                      <b>{m.title}</b>
-                      <p>
-                        <span className="faint" style={{ display: "block", marginBottom: 4 }}>
-                          {m.persona} · {m.category}
-                        </span>
-                        {m.brief}
+                <div className="mission-carousel">
+                  <button
+                    type="button"
+                    className="mission-carousel-nav"
+                    aria-label="Previous scenario"
+                    disabled={running || visibleMissions.length < 2}
+                    onClick={() => stepScenario(-1)}
+                  >
+                    <Icon name="arrowLeft" size={16} />
+                  </button>
+                  <div className="mission-carousel-stage">
+                    {activeScenario ? (
+                      <button
+                        type="button"
+                        className={`mission-card sel`}
+                        onClick={() => patch({ missionId: activeScenario.id })}
+                        disabled={running}
+                      >
+                        <b>{activeScenario.title}</b>
+                        <p>
+                          <span className="faint" style={{ display: "block", marginBottom: 4 }}>
+                            {activeScenario.persona} · {activeScenario.category}
+                          </span>
+                          {activeScenario.brief}
+                        </p>
+                      </button>
+                    ) : (
+                      <p className="faint" style={{ margin: 0, fontSize: 13 }}>
+                        No scenarios in this category.
                       </p>
-                    </button>
-                  ))}
+                    )}
+                    <div className="mission-carousel-meta">
+                      <span className="faint">
+                        {visibleMissions.length
+                          ? `${scenarioIndex + 1} / ${visibleMissions.length}`
+                          : "0 / 0"}
+                      </span>
+                      {visibleMissions.length > 1 ? (
+                        <span className="faint mission-carousel-dots" aria-hidden>
+                          {visibleMissions.map((m, i) => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              className={`mission-dot ${i === scenarioIndex ? "on" : ""}`}
+                              disabled={running}
+                              aria-label={`Scenario ${i + 1}`}
+                              onClick={() => patch({ missionId: m.id })}
+                            />
+                          ))}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="mission-carousel-nav"
+                    aria-label="Next scenario"
+                    disabled={running || visibleMissions.length < 2}
+                    onClick={() => stepScenario(1)}
+                  >
+                    <Icon name="arrowRight" size={16} />
+                  </button>
                 </div>
                 {missionId === "onchain_wallet" ? (
                   <div

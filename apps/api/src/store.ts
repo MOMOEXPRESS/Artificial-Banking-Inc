@@ -26,7 +26,7 @@ import type {
   SessionKeyRecord,
   WalletScope,
 } from "@policyvault/common";
-import { agentApiKeyIsLive, formatMicroToUsdc } from "@policyvault/common";
+import { agentApiKeyIsLive, formatMicroToUsdc, normalizeHitlCategories } from "@policyvault/common";
 import { hashSecret, isHashedSecret, lookupHash } from "./secrets.js";
 
 export type OrgStatus = "active" | "frozen" | "archived";
@@ -1428,14 +1428,22 @@ export const store = {
       | Row
       | undefined;
     if (!r) return templateSoloSwarm();
-    return JSON.parse(r.rules_json, (_k, v) =>
+    const parsed = JSON.parse(r.rules_json, (_k, v) =>
       typeof v === "string" && v.startsWith("bigint:") ? BigInt(v.slice(7)) : v,
     ) as PolicyRulesTemplate;
+    return {
+      ...parsed,
+      hitlCategories: normalizeHitlCategories(parsed.hitlCategories),
+    };
   },
 
   setPolicyTemplate(orgId: string, template: PolicyRulesTemplate, note?: string): string {
     const version = `v${Date.now()}`;
-    const rulesJson = JSON.stringify(template, (_k, v) =>
+    const cleaned: PolicyRulesTemplate = {
+      ...template,
+      hitlCategories: normalizeHitlCategories(template.hitlCategories),
+    };
+    const rulesJson = JSON.stringify(cleaned, (_k, v) =>
       typeof v === "bigint" ? `bigint:${v}` : v,
     );
     const tx = db.transaction(() => {
