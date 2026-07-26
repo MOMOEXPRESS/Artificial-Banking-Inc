@@ -48,7 +48,7 @@ exist.
 | **Treasury** | 🚧 **Partial** | On-chain deposit detection is real; manual "receive/send" is ledger-only |
 | Durable persistence | ✅ **Fixed** | Persistent API process, real transactions. Postgres is next for horizontal scale ([ADR](docs/adr/2026-07-26-persistent-api-over-serverless.md)) |
 | Background jobs | ✅ **Fixed** | Subscriptions, escrow timeouts, approval expiry and reconcile now actually run, with leases so scaling cannot double-charge |
-| Authentication | 🚧 **Partial** | Accounts, hashed passwords, httpOnly session cookies + CSRF, memberships, invitations. No MFA/SSO/recovery yet |
+| Authentication | ✅ **Built** | Accounts, hashed passwords, httpOnly sessions + CSRF, memberships, invitations, TOTP MFA, step-up on large approvals, password reset. SSO/SAML still ahead |
 | **Managed custody** | ❌ **Not built** | Self-custody: vault keys are held unencrypted by this application |
 | **Compliance screening** | ❌ **Not built** | Extension point exists; no OFAC/KYT data source behind it |
 | Destructive endpoints | ✅ **Removed** | Demo seeding no longer wipes tenants; the global reset is a local script |

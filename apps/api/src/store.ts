@@ -1000,6 +1000,50 @@ CREATE TABLE IF NOT EXISTS invitations (
   revoked_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_invitations_org ON invitations(org_id);
+
+-- Second factor. last_step records the TOTP window a code was accepted in:
+-- a code stays valid for its whole 30s window, so without this a
+-- shoulder-surfed code works a second time inside it.
+CREATE TABLE IF NOT EXISTS user_mfa (
+  user_id TEXT PRIMARY KEY REFERENCES users(id),
+  secret TEXT NOT NULL,
+  confirmed_at TEXT,
+  last_step INTEGER,
+  created_at TEXT NOT NULL
+);
+
+-- Single-use codes for a lost device. Hashed at rest; without these, losing a
+-- phone means losing the organization.
+CREATE TABLE IF NOT EXISTS user_recovery_codes (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  code_hash TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_recovery_codes_user ON user_recovery_codes(user_id);
+
+-- Password reset. Tokens are hashed, single-use and short-lived; a forgotten
+-- password previously meant a permanently lost organization.
+CREATE TABLE IF NOT EXISTS password_resets (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at TEXT
+);
+
+-- Step-up: proof that a human re-authenticated recently, consumed by
+-- high-value approvals.
+CREATE TABLE IF NOT EXISTS step_up_grants (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  session_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stepup_session ON step_up_grants(session_id);
 `);
 
 // Seed platform USDC asset once (legacy path kept for older DBs).
@@ -2543,6 +2587,135 @@ export const store = {
       .prepare("UPDATE invitations SET revoked_at = ? WHERE id = ? AND org_id = ?")
       .run(nowIso(), invitationId, orgId);
     return info.changes > 0;
+  },
+
+  // ---------------------------------------------------------------- MFA
+
+  startMfaEnrolment(userId: string, secret: string): void {
+    db.prepare(
+      `INSERT INTO user_mfa (user_id, secret, created_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET secret = excluded.secret,
+                                          confirmed_at = NULL,
+                                          last_step = NULL,
+                                          created_at = excluded.created_at`,
+    ).run(userId, secret, nowIso());
+    bumpRevision();
+  },
+
+  getMfa(
+    userId: string,
+  ): { secret: string; confirmed: boolean; lastStep?: number } | undefined {
+    const r = db.prepare("SELECT * FROM user_mfa WHERE user_id = ?").get(userId) as Row | undefined;
+    if (!r) return undefined;
+    return {
+      secret: String(r.secret),
+      confirmed: Boolean(r.confirmed_at),
+      lastStep: r.last_step === null || r.last_step === undefined ? undefined : Number(r.last_step),
+    };
+  },
+
+  confirmMfa(userId: string, step: number): void {
+    db.prepare("UPDATE user_mfa SET confirmed_at = ?, last_step = ? WHERE user_id = ?").run(
+      nowIso(),
+      step,
+      userId,
+    );
+    bumpRevision();
+  },
+
+  /** Burn the TOTP window so the same code cannot be replayed inside it. */
+  recordMfaStep(userId: string, step: number): void {
+    db.prepare("UPDATE user_mfa SET last_step = ? WHERE user_id = ?").run(step, userId);
+  },
+
+  disableMfa(userId: string): void {
+    const tx = db.transaction(() => {
+      db.prepare("DELETE FROM user_mfa WHERE user_id = ?").run(userId);
+      db.prepare("DELETE FROM user_recovery_codes WHERE user_id = ?").run(userId);
+    });
+    tx();
+    bumpRevision();
+  },
+
+  replaceRecoveryCodes(userId: string, codes: string[]): void {
+    const tx = db.transaction(() => {
+      db.prepare("DELETE FROM user_recovery_codes WHERE user_id = ?").run(userId);
+      const insert = db.prepare(
+        "INSERT INTO user_recovery_codes (id, user_id, code_hash, created_at) VALUES (?, ?, ?, ?)",
+      );
+      for (const code of codes) insert.run(id("rcv"), userId, hashSecret(code), nowIso());
+    });
+    tx();
+  },
+
+  /** Consume a recovery code. Single use — returns false if already spent. */
+  useRecoveryCode(userId: string, code: string): boolean {
+    const hash = hashSecret(code.trim().toLowerCase());
+    const info = db
+      .prepare(
+        "UPDATE user_recovery_codes SET used_at = ? WHERE user_id = ? AND code_hash = ? AND used_at IS NULL",
+      )
+      .run(nowIso(), userId, hash);
+    return info.changes > 0;
+  },
+
+  countUnusedRecoveryCodes(userId: string): number {
+    const r = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM user_recovery_codes WHERE user_id = ? AND used_at IS NULL",
+      )
+      .get(userId) as Row;
+    return Number(r.c);
+  },
+
+  // ------------------------------------------------------------- step-up
+
+  grantStepUp(userId: string, sessionId: string, ttlMs: number): string {
+    const grantId = id("step");
+    db.prepare(
+      "INSERT INTO step_up_grants (id, user_id, session_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(grantId, userId, sessionId, nowIso(), new Date(Date.now() + ttlMs).toISOString());
+    return grantId;
+  },
+
+  hasLiveStepUp(sessionId: string): boolean {
+    const r = db
+      .prepare("SELECT id FROM step_up_grants WHERE session_id = ? AND expires_at > ? LIMIT 1")
+      .get(sessionId, nowIso());
+    return Boolean(r);
+  },
+
+  // ------------------------------------------------------ password reset
+
+  createPasswordReset(userId: string, token: string, ttlMs: number): { expiresAt: string } {
+    const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+    // One live reset per user: issuing a new link invalidates the old one.
+    const tx = db.transaction(() => {
+      db.prepare("UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL").run(
+        nowIso(),
+        userId,
+      );
+      db.prepare(
+        "INSERT INTO password_resets (id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+      ).run(id("pwr"), userId, hashSecret(token), nowIso(), expiresAt);
+    });
+    tx();
+    return { expiresAt };
+  },
+
+  /** Consume a reset token. Single use, and never matches an expired row. */
+  consumePasswordReset(token: string): { userId: string } | undefined {
+    const row = db
+      .prepare(
+        "SELECT id, user_id FROM password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
+      )
+      .get(hashSecret(token), nowIso()) as Row | undefined;
+    if (!row) return undefined;
+    const info = db
+      .prepare("UPDATE password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL")
+      .run(nowIso(), row.id);
+    if (info.changes === 0) return undefined; // lost a concurrent race
+    return { userId: String(row.user_id) };
   },
 
   /**

@@ -52,6 +52,7 @@ import { webhookUrlProblem } from "./outbound-url.js";
 import { hashSecret } from "./secrets.js";
 import { csrfProblem } from "./auth/session.js";
 import { currentUser, registerAuthRoutes } from "./routes/auth-routes.js";
+import { registerMfaRoutes, stepUpThresholdMicro } from "./routes/mfa-routes.js";
 import { registerAgentRoutes } from "./routes/agent-routes.js";
 import { startScheduler } from "./jobs/scheduler.js";
 import { registerPaymentRoutes } from "./routes/payment-routes.js";
@@ -529,6 +530,7 @@ function guardianRoute(
 }
 
 registerAuthRoutes(app);
+registerMfaRoutes(app);
 registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
 registerAgentRoutes(app, { guardianRoute });
 registerPolicyRoutes(app, { guardianRoute });
@@ -1768,6 +1770,36 @@ app.post(
         resolvedBy: z.string().default("guardian"),
       })
       .parse(req.body);
+
+    // Step-up: approving a large payment must require more than possession of
+    // a live session. Only approvals are gated — a deny is always allowed to
+    // proceed, because making it harder to stop money is the wrong asymmetry.
+    if (body.approve) {
+      const ctx = (req as express.Request & { guardianCtx?: GuardianCtx }).guardianCtx;
+      const approval = store.getApproval(req.params.id, org.id);
+      const threshold = stepUpThresholdMicro();
+      if (
+        approval &&
+        threshold > 0n &&
+        approval.amountMicro >= threshold &&
+        ctx?.via === "session" &&
+        !store.hasLiveStepUp(currentUser(req)?.sessionId ?? "")
+      ) {
+        return res.status(403).json({
+          error: {
+            code: "STEP_UP_REQUIRED",
+            message:
+              `Approving $${approval.amountUsdc} requires re-confirming your identity. ` +
+              "POST /v1/auth/step-up, then retry.",
+          },
+          stepUp: {
+            thresholdUsdc: (Number(threshold) / 1e6).toString(),
+            amountUsdc: approval.amountUsdc,
+          },
+        });
+      }
+    }
+
     const outcome = await resolveApproval(
       org.id,
       req.params.id,

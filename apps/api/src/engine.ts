@@ -500,6 +500,27 @@ function guardianApproveGate(
 ): { ok: true } | { ok: false; message: string } {
   if (!approve) return { ok: true };
   if (guardianId === "owner" || guardianId.startsWith("tg:")) return { ok: true };
+
+  // Signed-in users authorize through their org membership, not a guardian
+  // seat. Without this branch every session-authenticated approval was refused
+  // as "unknown guardian" — the identity layer and the approval gate had no
+  // shared notion of who a person is.
+  if (guardianId.startsWith("user:")) {
+    const userId = guardianId.slice("user:".length);
+    const membership = store.getMembership(userId, orgId);
+    if (!membership) {
+      return { ok: false, message: "You are not a member of this organization." };
+    }
+    if (membership.role === "viewer") {
+      const user = store.getUser(userId);
+      return {
+        ok: false,
+        message: `${user?.name ?? "This account"} is view-only and cannot approve payments.`,
+      };
+    }
+    return { ok: true };
+  }
+
   const seat = store.listGuardians(orgId).find((g) => g.id === guardianId && !g.revokedAt);
   if (!seat) {
     return { ok: false, message: "Unknown guardian — cannot approve this payment." };
