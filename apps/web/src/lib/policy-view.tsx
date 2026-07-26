@@ -38,16 +38,6 @@ export type Policy = {
   }[];
 };
 
-const HITL_TOOLS = [
-  "pay",
-  "pay_api",
-  "transfer_internal",
-  "escrow_lock",
-  "escrow_release",
-  "escrow_refund",
-  "withdraw",
-] as const;
-
 /** Editable list of counterparties rendered as removable chips. */
 function ListEditor({
   label,

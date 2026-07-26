@@ -1,0 +1,28 @@
+# Code ownership and required review.
+#
+# The money path had no independent human review before July 2026 — every
+# commit was authored by a single contributor, largely agent-generated, with no
+# CI gate. These paths now require a second pair of eyes. See
+# docs/CONTRIBUTING.md for the invariants that must not regress.
+
+# Default
+*                               @MOMOEXPRESS
+
+# Money path — policy decisions, ledger arithmetic, settlement, custody.
+# A defect here loses funds silently.
+/apps/api/src/engine.ts         @MOMOEXPRESS
+/apps/api/src/store.ts          @MOMOEXPRESS
+/apps/api/src/rails/            @MOMOEXPRESS
+/apps/api/src/chain/            @MOMOEXPRESS
+/packages/policy/               @MOMOEXPRESS
+/packages/ledger/               @MOMOEXPRESS
+/packages/custody/              @MOMOEXPRESS
+
+# Security posture and public claims. Changes here alter what customers are
+# told about how their money is held.
+/docs/SECURITY.md               @MOMOEXPRESS
+/apps/web/src/app/page.tsx      @MOMOEXPRESS
+/README.md                      @MOMOEXPRESS
+
+# Build and release gating
+/.github/workflows/             @MOMOEXPRESS

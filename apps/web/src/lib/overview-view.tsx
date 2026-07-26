@@ -14,8 +14,6 @@ export function Overview({
   readOnly,
   metrics,
   decisions,
-  approvals,
-  escrows,
   policy,
   busy,
   act,

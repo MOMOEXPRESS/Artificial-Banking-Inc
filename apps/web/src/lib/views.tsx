@@ -110,7 +110,7 @@ function parseMarkdown(src: string): React.ReactNode[] {
     }
     // paragraph
     const para: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^[#|\-]/.test(lines[i].trim())) {
+    while (i < lines.length && lines[i].trim() && !/^[#|-]/.test(lines[i].trim())) {
       para.push(lines[i]);
       i++;
     }

@@ -21,3 +21,7 @@ contracts/cache/
 contracts/broadcast/
 contracts/.env
 
+# Archived code is not built, but keep stray installs out of the tree
+archive/**/node_modules/
+archive/**/dist/
+docs/archive/**/node_modules/

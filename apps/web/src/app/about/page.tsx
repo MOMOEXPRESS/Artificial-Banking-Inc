@@ -39,9 +39,9 @@ export default function AboutPage() {
             n="01"
             title="What we are"
             lead="A place to hold company funds for agents, set rules, and approve big spends."
-            body="Wallets, spending rules, approvals, API payments (x402), and an audit log. You fund a vault, give agents budgets, and set what they must clear before a cent moves. Payments can settle as USDC on Base. Coinbase CDP can hold the keys so they stay out of your app and out of the model."
+            body="Wallets, spending rules, approvals, API payments (x402), and an audit log. You fund a vault, give agents budgets, and set what they must clear before a cent moves. Payments can settle as USDC on Base. The vault holds its own signing key, so keys stay out of your app and out of the model."
             flip={false}
-            src="/about/we-are.png"
+            src="/about/we-are.webp"
             alt="AB vault mark with propose, authorize, and settle symbols"
           />
           <AboutPane
@@ -50,7 +50,7 @@ export default function AboutPage() {
             lead="Not a consumer bank. Not a trading app. Not a chat that moves money."
             body="We are not FDIC insured. We do not hold retail deposits. We are not a crypto trading wallet. We do not treat free-text chat as the way money moves. Your ledger of record is the journal — not a conversation transcript."
             flip
-            src="/about/we-are-not.png"
+            src="/about/we-are-not.webp"
             alt="Bank and chat icons cancelled by a prohibition mark"
           />
           <AboutPane
@@ -59,7 +59,7 @@ export default function AboutPage() {
             lead="One path for money: ask → check rules → move → write it down."
             body="We ship what works today without boxing in what comes next — more payment rails, richer approvals, deeper reports. Agents should keep using the same spend path even as the product grows around it."
             flip={false}
-            src="/about/how-we-build.png"
+            src="/about/how-we-build.webp"
             alt="Person building at a laptop on a clean desk"
           />
           <AboutPane
@@ -68,7 +68,7 @@ export default function AboutPage() {
             lead="Teams that want agents to spend — under budget, with a human able to stop large payments."
             body="Start in the playground. Move to production when the agents prove useful. People set the rules. Agents call the same API you will use in production."
             flip
-            src="/about/who-for.png"
+            src="/about/who-for.webp"
             alt="Operators reviewing a shared spend-control card"
           />
         </div>

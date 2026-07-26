@@ -2,6 +2,13 @@
 /**
  * Once-and-for-all Vercel access harden for Artificial Banking Inc.
  *
+ * ⚠️  WARNING — step 3 below *disables* Deployment Protection, making the
+ * deployment publicly reachable. Until the roadmap's Phase 1 and Phase 2 land
+ * (unauthenticated destructive endpoints removed, durable persistence,
+ * real authentication), the deployment should stay PROTECTED and this script
+ * should not be run. It used to execute automatically on every push to main;
+ * that workflow has been deleted. It is now a deliberate manual action only.
+ *
  * Fixes dashboard issues that surface as “404 NOT_FOUND” / a Vercel login wall
  * / ignored Project Settings:
  *   1. rootDirectory → apps/web (so dashboard Build settings apply; no legacy

@@ -171,7 +171,6 @@ export function SmoothBarChart({
       <div className="smooth-bars-row" style={{ height }}>
         {columns.map((c, i) => {
           const { lo, hi } = boundsFor(c);
-          const span = Math.max(hi - lo, 0.0001);
           // Visual fill uses shared chart scale so bars stay comparable;
           // interaction bounds stay on the column's declared max.
           const visualHi = Math.max(scale, hi);

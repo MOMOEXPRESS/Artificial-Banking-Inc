@@ -4,7 +4,7 @@ import {
   formatMicroToUsdc,
   parseUsdcToMicro,
 } from "@policyvault/common";
-import { DevLocalProvider, CdpVaultProvider, cdpEnvConfigured, getCustodyProvider, setCustodyProvider } from "@policyvault/custody";
+import { DevLocalProvider, SelfCustodyVaultProvider, cdpEnvConfigured, getCustodyProvider, setCustodyProvider } from "@policyvault/custody";
 import { recogniseRevenue, transferAvailable } from "@policyvault/ledger";
 import { evaluatePolicy, matchedAutomationRules } from "@policyvault/policy";
 import cors from "cors";
@@ -48,13 +48,13 @@ import { recordObs, setObservabilitySink, PrometheusSink, getObservabilitySink }
 import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./webhook-url.js";
-import { registerAgentRoutes } from "./agent-routes.js";
+import { registerAgentRoutes } from "./routes/agent-routes.js";
 import { runAutoFundSweep } from "./auto-fund.js";
 import { runOnchainDepositSweep } from "./chain/sync-deposits.js";
-import { registerPaymentRoutes } from "./payment-routes.js";
-import { registerPlatformRoutes } from "./platform-routes.js";
-import { registerPolicyRoutes } from "./policy-routes.js";
-import { registerTreasuryRoutes } from "./treasury-routes.js";
+import { registerPaymentRoutes } from "./routes/payment-routes.js";
+import { registerPlatformRoutes } from "./routes/platform-routes.js";
+import { registerPolicyRoutes } from "./routes/policy-routes.js";
+import { registerTreasuryRoutes } from "./routes/treasury-routes.js";
 
 const app = express();
 app.use(cors());
@@ -173,7 +173,14 @@ registerNotifier("webhook", (payload) => {
   }
 });
 
-/** Custody: CDP-backed existent vault when CDP_API_KEY_ID+SECRET set; else DevLocal. */
+/**
+ * Custody selection.
+ *
+ * Both branches are SELF-CUSTODY: the org's private key is read from the
+ * database and signed with locally. CDP credentials only pick the
+ * production-mode label; they are not used to call Coinbase. Real CDP Server
+ * Wallet custody is roadmap P4-T1.
+ */
 {
   const lookup = (orgId: string) => {
     const privateKey = store.getVaultPrivateKey(orgId);
@@ -204,7 +211,7 @@ registerNotifier("webhook", (payload) => {
   };
   if (cdpEnvConfigured()) {
     setCustodyProvider(
-      new CdpVaultProvider(lookup, sign, {
+      new SelfCustodyVaultProvider(lookup, sign, {
         apiKeyId: process.env.CDP_API_KEY_ID!,
         network: process.env.CHAIN === "base" ? "base" : "base-sepolia",
       }),
@@ -212,8 +219,10 @@ registerNotifier("webhook", (payload) => {
     console.log(
       JSON.stringify({
         type: "abi.custody",
-        provider: "cdp",
-        note: "Signing via existent vault; fund vaultAddress shown in Treasury → Fund",
+        provider: "self-custody",
+        note:
+          "Production mode. Keys are held by this application, NOT by Coinbase CDP. " +
+          "Fund vaultAddress shown in Treasury → Fund.",
       }),
     );
   } else {
@@ -1503,7 +1512,15 @@ app.get(
   }),
 );
 
-/** Integration/go-live status for the Settings screen. */
+/**
+ * Integration / go-live status for the Settings screen.
+ *
+ * This endpoint is the product's own disclosure surface, so it must not
+ * overstate. It previously reported `custody: "cdp"` and `cdpWired: true`
+ * whenever CDP env vars were present, while the signer was a locally-held
+ * private key — the console, and therefore the customer, were told their keys
+ * were in Coinbase custody. The fields below say what is actually true.
+ */
 app.get(
   "/v1/guardian/setup",
   guardianRoute((_org, _req, res) => {
@@ -1514,22 +1531,33 @@ app.get(
       /* unregistered */
     }
     const network = process.env.CHAIN === "base" ? "base" : "base-sepolia";
-    const cdpEnv = cdpEnvConfigured();
+    const productionMode = cdpEnvConfigured();
     res.json({
       setup: {
         custody: custodyName,
+        // Every provider shipped today holds the key in this application.
+        custodyModel: "self-custody",
+        managedCustodyProvider: null,
+        custodyDisclosure:
+          "Vault keys are generated and held by this application. They are NOT in Coinbase CDP, " +
+          "an HSM, or MPC custody. Treat this deployment as self-custodied.",
         network,
         settlement:
-          custodyName === "cdp" ? `onchain (cdp) · ${network}` : "mock (dev facilitator / transfer-mock)",
-        cdpApiKeyConfigured: cdpEnv,
-        cdpWired: custodyName === "cdp",
+          custodyName === "self-custody"
+            ? `onchain (self-custodied signer) · ${network}`
+            : "mock (dev facilitator / transfer-mock)",
+        productionMode,
+        // Retained so older console builds keep rendering, but always false:
+        // no Coinbase integration exists in this codebase.
+        cdpApiKeyConfigured: productionMode,
+        cdpWired: false,
         keysHashedAtRest: true,
+        // API keys are hashed at rest; vault private keys are not.
+        vaultKeysEncryptedAtRest: false,
         note:
-          !cdpEnv && custodyName === "dev-local"
-            ? "Set CDP_API_KEY_ID + CDP_API_KEY_SECRET (both) and redeploy — custody flips to cdp automatically behind the existent vault address."
-            : cdpEnv && custodyName !== "cdp"
-              ? "CDP env is set but custody is not cdp — restart the API process after setting both keys."
-              : undefined,
+          custodyName === "dev-local"
+            ? "Dev custody. Set CDP_API_KEY_ID + CDP_API_KEY_SECRET to switch to production mode — still self-custodied."
+            : "Production mode, self-custodied. Managed custody (Coinbase CDP Server Wallets) is not yet implemented.",
         telegram: telegramEnabled,
         rateLimitPerMin: RATE_LIMIT_PER_MIN,
         approvalTtlMinutes: APPROVAL_TTL_MINUTES,

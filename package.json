@@ -13,15 +13,20 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @policyvault/common -w @policyvault/policy -w @policyvault/ledger -w @policyvault/custody -w @policyvault/db -w @policyvault/sdk -w @policyvault/api -w @policyvault/mcp-server -w @policyvault/worker -w @policyvault/web",
+    "build": "npm run build -w @policyvault/common -w @policyvault/policy -w @policyvault/ledger -w @policyvault/custody -w @policyvault/sdk -w @policyvault/api -w @policyvault/mcp-server -w @policyvault/worker -w @policyvault/web",
     "dev:api": "npm run dev -w @policyvault/api",
     "dev:web": "npm run dev -w @policyvault/web",
     "dev:mcp": "npm run dev -w @policyvault/mcp-server",
     "dev:worker": "npm run dev -w @policyvault/worker",
     "demo:agent": "npm run start -w @policyvault/demo-agent",
-    "test": "npm run test -w @policyvault/policy -w @policyvault/ledger -w @policyvault/api",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "db:generate": "npm run generate -w @policyvault/db",
-    "lint": "echo \"lint: add eslint in later pass\"",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --check .",
+    "format:write": "prettier --write .",
+    "probe:stress": "node apps/api/scripts/stress-probe.mjs",
     "vercel:harden": "node scripts/vercel-harden.mjs"
   },
   "engines": {
@@ -30,5 +35,15 @@
   "overrides": {
     "zod": "3.25.76"
   },
-  "packageManager": "npm@10"
+  "packageManager": "npm@10",
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@next/eslint-plugin-next": "^15.5.22",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^9.1.2",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^15.15.0",
+    "prettier": "^3.9.6",
+    "typescript-eslint": "^8.65.0"
+  }
 }

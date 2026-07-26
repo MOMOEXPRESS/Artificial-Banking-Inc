@@ -18,7 +18,7 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Artificial Banking Incorporated — Financial infrastructure for autonomous AI",
   description:
-    "Programmable AI agent wallets with policies, human approvals, Coinbase CDP custody and x402 payments — the authorization layer between AI agents and real money.",
+    "Programmable AI agent wallets with policies, human approvals, and x402 payments — the authorization layer between AI agents and real money.",
   icons: {
     icon: [
       { url: "/favicon-16.png", sizes: "16x16", type: "image/png" },

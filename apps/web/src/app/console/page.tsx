@@ -25,7 +25,7 @@ import { toast } from "../../lib/toast";
 import { useTheme } from "../../lib/theme-provider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar, SidebarFolder, SidebarItem } from "@/components/ui/sidebar";
 import { RailQuietClock } from "../../lib/quiet-hours-clock";
 import {

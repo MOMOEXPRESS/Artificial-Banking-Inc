@@ -4,6 +4,7 @@
  */
 import type { PaymentRail, PaymentRailContext, PaymentRailResult } from "./types.js";
 import { transferUsdcFromVault, VaultTransferError } from "../chain/transfer.js";
+import { X402Error } from "./x402.js";
 
 export class EvmUsdcTransferRail implements PaymentRail {
   readonly name = "evm-usdc-transfer";
@@ -30,11 +31,14 @@ export class EvmUsdcTransferRail implements PaymentRail {
       };
     } catch (e) {
       if (e instanceof VaultTransferError) {
-        // Map to X402Error-compatible codes via a typed rethrow the engine already understands.
-        const err = new Error(e.message) as Error & { code: string };
-        err.code = e.code;
-        err.name = "VaultTransferError";
-        throw err;
+        // VaultTransferError's codes are part of RailErrorCode, so rethrow as
+        // the typed rail error the engine already handles. This used to be a
+        // plain Error with a duck-typed `code` property, which type-checked
+        // but left the contract undocumented.
+        if (e.code === "TRANSFER_FAILED") {
+          throw new X402Error("RAIL_FAILED", e.message);
+        }
+        throw new X402Error(e.code, e.message);
       }
       throw e;
     }

@@ -1,0 +1,69 @@
+name: CI
+
+# Every push and pull request must build, typecheck, lint and pass tests.
+# This is the gate that was missing: money-path code (engine, policy, ledger,
+# custody) had no mechanical safeguard against regression.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep CI deterministic and offline-ish; never touch a real chain or LLM.
+  CI: "true"
+  NODE_ENV: test
+
+jobs:
+  verify:
+    name: Build · Typecheck · Lint · Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22.x satisfies the ESLint 9 engine range (^22.13). Do not pin below.
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Build workspaces
+        run: npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+  # Formatting is configured (.prettierrc.json) but not yet enforced: the
+  # existing tree predates Prettier and a repo-wide sweep belongs in its own
+  # commit, not mixed into feature diffs. Flip `continue-on-error` off once
+  # that sweep has landed.
+  format:
+    name: Format (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run format

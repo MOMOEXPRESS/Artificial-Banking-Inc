@@ -64,7 +64,11 @@ export class DevLocalProvider implements CustodyProvider {
   }
 }
 
-/** Placeholder so CDP can drop in without touching payment rails. */
+/**
+ * Placeholder for real Coinbase CDP Server Wallet custody (roadmap P4-T1).
+ * Deliberately throws: nothing should be able to report "cdp" until there is
+ * an actual Coinbase integration behind it.
+ */
 export class CdpProviderStub implements CustodyProvider {
   readonly name = "cdp";
 
@@ -78,18 +82,27 @@ export class CdpProviderStub implements CustodyProvider {
 }
 
 /**
- * Go-live custody behind the **existent org vault address**.
+ * Production-mode **self-custody** provider.
  *
- * - `getAddress` always returns the Fund-tab vault (deposit USDC here).
- * - Signing uses the vault key held in the host process (same DevLocal lookup),
- *   so rails/x402 do not change.
- * - CDP API credentials are required to activate this provider (proves go-live
- *   intent). Optional `CDP_API_BASE` reserved for Server Wallet swap later.
+ * ⚠️  This is NOT Coinbase CDP. It was previously named `CdpVaultProvider` with
+ * `name = "cdp"`, which caused the API, the Settings screen and the marketing
+ * site to report Coinbase custody that does not exist. There is no Coinbase
+ * dependency anywhere in this monorepo.
  *
- * Keys never enter the LLM; they never leave the custody boundary.
+ * What it actually does: reads the org's private key via the same `lookup`
+ * closure as {@link DevLocalProvider} and signs locally. Requiring CDP API
+ * credentials to activate it only signals go-live *intent*; the credentials are
+ * never used to call Coinbase.
+ *
+ * Real CDP Server Wallet custody is roadmap **P4-T1** and will implement this
+ * same interface — see {@link CdpProviderStub}. Until then the honest
+ * description of this posture is "self-custodied hot key".
+ *
+ * Keys never enter the LLM. They do, however, live in the application
+ * database — which is exactly why P4-T1 exists.
  */
-export class CdpVaultProvider implements CustodyProvider {
-  readonly name = "cdp";
+export class SelfCustodyVaultProvider implements CustodyProvider {
+  readonly name = "self-custody";
 
   constructor(
     private readonly lookup: (orgId: string) =>
@@ -119,6 +132,13 @@ export class CdpVaultProvider implements CustodyProvider {
   }
 }
 
+/**
+ * True when both CDP credentials are present. Today this only selects
+ * {@link SelfCustodyVaultProvider} over {@link DevLocalProvider} — the
+ * credentials are not used to call Coinbase. Renaming this to
+ * `productionModeRequested` is deferred to P4-T1, when it will gain its real
+ * meaning.
+ */
 export function cdpEnvConfigured(): boolean {
   return Boolean(process.env.CDP_API_KEY_ID?.trim() && process.env.CDP_API_KEY_SECRET?.trim());
 }

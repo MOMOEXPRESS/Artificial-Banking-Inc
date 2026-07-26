@@ -29,7 +29,7 @@ export default function HomePage() {
         eyebrow="Company money → rules → agent wallet"
         title="Check the rules first. Move the money second."
         body="You keep company funds in a vault. Agents only get what you give them. Nothing leaves until it clears your spending rules."
-        src="/home/interstitial-vault.png"
+        src="/home/interstitial-vault.webp"
         alt="Vault, policy shield, and wallet connected in sequence"
       />
       <ProductTour />
@@ -39,7 +39,7 @@ export default function HomePage() {
         eyebrow="Approve → unlock → receipt"
         title="You stay in the loop on anything big."
         body="Set a dollar limit. Over that, payments wait for a person. Approve or deny, and the record stays with the payment — not buried in a chat log."
-        src="/home/interstitial-approve.png"
+        src="/home/interstitial-approve.webp"
         alt="Approval stamp, key, and receipt connected in sequence"
         flip
       />
@@ -87,8 +87,8 @@ function Hero() {
             </div>
             <div className="sep" />
             <div>
-              <b>Coinbase CDP</b>
-              <span>holds the keys for you</span>
+              <b>Policy engine</b>
+              <span>checks every payment first</span>
             </div>
           </div>
         </div>
@@ -180,16 +180,21 @@ function HeroGraphic() {
   );
 }
 
+/**
+ * Only technologies actually present in the codebase belong here. Coinbase CDP
+ * and ERC-4337 were listed previously and are not implemented — CDP custody is
+ * on the roadmap, account abstraction is not yet scoped. Do not re-add either
+ * until there is shipping code behind it.
+ */
 function TrustStrip() {
   return (
     <section className="trust-strip">
-      <span>Built with</span>
+      <span>Built on</span>
       <div className="trust-logos partner-logos">
-        <PartnerLogo abbr="CDP">Coinbase CDP</PartnerLogo>
         <PartnerLogo abbr="BASE">Base</PartnerLogo>
-        <PartnerLogo abbr="x402">x402</PartnerLogo>
         <PartnerLogo abbr="USDC">USDC</PartnerLogo>
-        <PartnerLogo abbr="4337">ERC-4337</PartnerLogo>
+        <PartnerLogo abbr="x402">x402</PartnerLogo>
+        <PartnerLogo abbr="712">EIP-712</PartnerLogo>
       </div>
     </section>
   );
@@ -238,7 +243,7 @@ function MetricsBand() {
         </div>
         <div className="home-float-token" aria-hidden>
           <Image
-            src="/home/accent-token.png"
+            src="/home/accent-token.webp"
             alt=""
             width={112}
             height={112}
@@ -413,7 +418,7 @@ const FEATURES: {
     icon: "shield",
     title: "Keys stay out of the AI",
     lead: "The model can ask to spend. It never holds the wallet.",
-    body: "Coinbase CDP (or your signer) moves the money. A kill switch can stop work in flight. Custody stays outside the prompt.",
+    body: "A dedicated signer moves the money, never the model. A kill switch can stop work in flight. Custody stays outside the prompt.",
     visual: {
       label: "Who does what",
       lines: ["AI  asks only", "rules  decide", "signer  moves money"],
@@ -517,7 +522,7 @@ const STEPS = [
     n: "01",
     title: "Set up your organization",
     lead: "Create an org, get a guardian key, and put money in the vault.",
-    body: "The guardian key is how you (a person) open the console. Coinbase CDP can hold the vault keys — you are not pasting private keys into agent configs or chat prompts.",
+    body: "The guardian key is how you (a person) open the console. The vault keeps its own signing key — you are not pasting private keys into agent configs or chat prompts.",
     visual: {
       label: "Org setup",
       lines: ["org  demo-corp", "guardian  gsk_…", "vault  +$1,000 USDC"],
@@ -550,7 +555,7 @@ const STEPS = [
     body: "Holds, refunds, and blocks all land in one journal you can export. Same path every time — whether the amount is $1 or $100.",
     visual: {
       label: "Live payment",
-      lines: ["ask  allowed", "sign  CDP", "settle  Base · USDC"],
+      lines: ["ask  allowed", "sign  vault", "settle  Base · USDC"],
     },
   },
 ];

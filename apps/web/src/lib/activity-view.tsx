@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Empty, Icon, Stat, fmtTime, fmtUsd, relTime } from "./ui";
+import { Empty, Icon, Stat, fmtTime, fmtUsd } from "./ui";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Decision } from "./console-types";

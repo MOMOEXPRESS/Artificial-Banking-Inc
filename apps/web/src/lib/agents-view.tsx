@@ -17,7 +17,6 @@ type AgentRow = {
   availableUsdc?: string;
   heldUsdc?: string;
   spent24hUsdc?: string;
-  groupName?: string;
   groupIds?: string[];
   groupNames?: string[];
 };
@@ -383,7 +382,7 @@ export function AgentsView({
                           <i /> {a.status}
                         </span>
                       </td>
-                      <td className="faint">{(a.groupNames?.length ? a.groupNames.join(", ") : a.groupName) ?? "—"}</td>
+                      <td className="faint">{a.groupNames?.length ? a.groupNames.join(", ") : "—"}</td>
                       <td className="mono">{fmt(a.availableUsdc)}</td>
                       <td className="mono faint">{fmt(a.spent24hUsdc)}</td>
                       <td className="faint">{a.apiKeyLive ? "live" : "revoked"}</td>

@@ -89,7 +89,15 @@ export type Setup = {
   telegram: boolean;
   rateLimitPerMin: number;
   approvalTtlMinutes: number;
+  /** Always "self-custody" today — no managed custody provider is integrated. */
+  custodyModel?: string;
+  managedCustodyProvider?: string | null;
+  custodyDisclosure?: string;
+  /** CDP env vars present → production mode. Does NOT mean Coinbase custody. */
+  productionMode?: boolean;
+  vaultKeysEncryptedAtRest?: boolean;
   cdpApiKeyConfigured?: boolean;
+  /** Kept for older builds; the API always returns false (no CDP integration). */
   cdpWired?: boolean;
   note?: string;
 };

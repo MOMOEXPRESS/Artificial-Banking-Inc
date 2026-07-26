@@ -1,0 +1,14 @@
+node_modules
+dist
+.next
+coverage
+package-lock.json
+archive
+docs/archive
+contracts/out
+contracts/cache
+contracts/broadcast
+apps/web/next-env.d.ts
+*.png
+*.svg
+*.db

@@ -11,6 +11,11 @@ export type Setup = {
   telegram: boolean;
   rateLimitPerMin: number;
   approvalTtlMinutes: number;
+  custodyModel?: string;
+  managedCustodyProvider?: string | null;
+  custodyDisclosure?: string;
+  productionMode?: boolean;
+  vaultKeysEncryptedAtRest?: boolean;
   cdpApiKeyConfigured?: boolean;
   cdpWired?: boolean;
   note?: string;
@@ -47,7 +52,6 @@ export function SettingsView({
   session,
   org,
   metrics,
-  agents,
   busy,
   act,
   gFetch,
@@ -177,24 +181,29 @@ export function SettingsView({
   const networkLabel =
     setup?.network === "base" ? "Base" : setup?.network === "base-sepolia" ? "Base Sepolia" : setup?.network ?? "Base Sepolia";
 
+  const productionMode = !!setup?.productionMode;
+
   const golive = [
     {
-      done: !!setup?.cdpWired,
-      title: "Real custody (Coinbase CDP)",
+      // Never "done": managed custody is not implemented (roadmap P4-T1).
+      // This row used to tick green whenever CDP env vars were set, telling
+      // operators their keys were in Coinbase custody. They never were.
+      done: false,
+      title: "Managed custody (not yet implemented)",
       body:
-        setup?.cdpWired
-          ? `CDP custody active on ${networkLabel} — vault address unchanged; set both CDP keys and redeployed.`
-          : setup?.cdpApiKeyConfigured
-            ? "CDP keys look set but custody is still dev-local — redeploy / restart the API so CdpVaultProvider loads."
-            : `Currently ${setup?.custody ?? "dev-local"}. In Vercel → Environment Variables set CDP_API_KEY_ID + CDP_API_KEY_SECRET, then Redeploy.`,
+        `Vault keys are generated and held by this application — self-custody. They are not in ` +
+        `Coinbase CDP, an HSM, or MPC custody. ${
+          productionMode
+            ? "Production mode is on, which changes the label only, not where the key lives."
+            : "Currently dev custody."
+        } Treat this deployment accordingly until managed custody ships.`,
     },
     {
-      done: !!setup?.cdpWired,
+      done: productionMode,
       title: `On-chain settlement (${networkLabel})`,
-      body:
-        setup?.cdpWired
-          ? `Settling on ${networkLabel}. Fund the vault with USDC + ETH (gas), Sync, allowlist your wallet, then agent pay.`
-          : `Handshake and policy are real; CDP label is optional for Sepolia ERC-20 pays. Still fund vault with ${networkLabel} USDC + ETH.`,
+      body: productionMode
+        ? `Settling on ${networkLabel} from the self-custodied vault. Fund it with USDC + ETH (gas), Sync, allowlist your wallet, then agent pay.`
+        : `Handshake and policy are real. Fund the vault with ${networkLabel} USDC + ETH to settle on-chain.`,
     },
     {
       done: false,
@@ -277,7 +286,10 @@ export function SettingsView({
               {[
                 ["Network", setup?.network ?? "—"],
                 ["Custody", setup?.custody ?? "—"],
-                ["CDP keys", setup?.cdpApiKeyConfigured ? "configured" : "missing"],
+                ["Custody model", setup?.custodyModel ?? "self-custody"],
+                ["Managed custody", setup?.managedCustodyProvider ?? "none"],
+                ["Vault keys encrypted at rest", setup?.vaultKeysEncryptedAtRest ? "yes" : "no"],
+                ["Mode", setup?.productionMode ? "production" : "dev"],
                 ["Settlement", setup?.settlement ?? "—"],
                 ["Telegram", setup?.telegram ? "connected" : "not configured"],
                 ["Rate limit", `${setup?.rateLimitPerMin ?? "—"}/min per key`],
@@ -289,15 +301,32 @@ export function SettingsView({
                   <span
                     className="v"
                     style={
-                      k === "Custody"
-                        ? { color: setup?.cdpWired ? "var(--green)" : "var(--amber, var(--warn))" }
-                        : undefined
+                      // Amber, always: self-custody is a caution state, not a
+                      // success state. It turns green when P4-T1 lands managed
+                      // custody and `managedCustodyProvider` is non-null.
+                      k === "Custody" || k === "Custody model"
+                        ? {
+                            color: setup?.managedCustodyProvider
+                              ? "var(--green)"
+                              : "var(--amber, var(--warn))",
+                          }
+                        : k === "Vault keys encrypted at rest" && !setup?.vaultKeysEncryptedAtRest
+                          ? { color: "var(--amber, var(--warn))" }
+                          : undefined
                     }
                   >
                     {v}
                   </span>
                 </div>
               ))}
+              {setup?.custodyDisclosure ? (
+                <div
+                  className="hint"
+                  style={{ marginTop: 10, color: "var(--amber, var(--warn))" }}
+                >
+                  {setup.custodyDisclosure}
+                </div>
+              ) : null}
               {setup?.note ? (
                 <div className="hint" style={{ marginTop: 10 }}>
                   {setup.note}

@@ -127,7 +127,7 @@ export function MarketingFooter() {
             ]}
           />
           <FooterCol
-            title="Ecosystem"
+            title="Ecosystem reading"
             links={[
               ["Coinbase CDP", "https://www.coinbase.com/developer-platform"],
               ["x402", "https://x402.org"],

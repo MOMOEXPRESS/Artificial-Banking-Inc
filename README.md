@@ -1,270 +1,414 @@
-# PolicyVault
+<div align="center">
 
-Policy-gated **USDC treasury & payments OS** for AI agents.
+# Artificial Banking Incorporated
 
-> LLM proposes. Policy + signer authorize. Keys never enter the model.  
-> **Not a bank. Not FDIC insured.**
+**The authorization layer between AI agents and real money.**
 
-**Live console (Vercel):** https://artificial-banking-inc-gaia10.vercel.app  
-Do **not** open `artificial-banking-inc.vercel.app` — that hostname is unassigned and returns Vercel platform 404. Access harden: `VERCEL_TOKEN=… npm run vercel:harden` (see [`docs/VERCEL.md`](docs/VERCEL.md)).
+Policy-gated USDC wallets for autonomous agents. The model proposes a payment.
+A deterministic policy engine authorizes it. A human approves anything large.
+Keys never enter the prompt.
 
-Validated build rundown and all planning docs: see [`docs/INDEX.md`](docs/INDEX.md) (canonical: validation rundown + full-scale build plan + this README).
+[![CI](https://github.com/MOMOEXPRESS/Artificial-Banking-Inc/actions/workflows/ci.yml/badge.svg)](https://github.com/MOMOEXPRESS/Artificial-Banking-Inc/actions/workflows/ci.yml)
+![Node](https://img.shields.io/badge/node-%E2%89%A522.13-informational)
+![Status](https://img.shields.io/badge/status-pre--beta-orange)
+![License](https://img.shields.io/badge/license-proprietary-lightgrey)
 
-## Monorepo
+*Not a bank. Not FDIC insured.*
 
-| Path | Role |
-|------|------|
-| `apps/api` | Guardian + agent HTTP API (in-memory demo ledger) |
-| `apps/web` | Guardian console (Next.js) |
-| `apps/mcp-server` | MCP tools for agent runtimes |
-| `apps/worker` | Reconcile/webhook stub |
-| `apps/demo-agent` | Runnable example agent (SDK, full money loop) |
-| `apps/x402-seller` | Demo paid API (x402 seller) + dev facilitator |
-| `packages/common` | Money types (micro-USDC), error codes |
-| `packages/policy` | Deterministic policy engine |
-| `packages/ledger` | Double-entry helpers |
-| `packages/sdk` | TypeScript agent client |
-| `packages/db` | Prisma schema (Postgres — next wiring step) |
+</div>
+
+---
+
+## Status — read this first
+
+**ABI is pre-beta and is not safe to run against real customer funds.**
+
+An independent audit in July 2026 found critical defects in persistence,
+custody, and authentication. They are being worked through in order; the plan is
+[`docs/ROADMAP.md`](docs/ROADMAP.md) and the audit is
+[`docs/archive/2026-07-26-independent-audit.md`](docs/archive/2026-07-26-independent-audit.md).
+
+This table is the honest maturity picture. It is maintained deliberately,
+because a previous version of this README described capabilities that did not
+exist.
+
+| Capability | State | Notes |
+|---|---|---|
+| Deterministic policy engine | ✅ **Built** | Caps, velocity, allow/blocklists, quiet hours, HITL bands, IF/THEN automation, versioning, replay simulator |
+| Double-entry ledger | ✅ **Built** | Balanced journals, no-negative asset accounts, cross-tenant guard, genesis-replay reconciliation |
+| Human-in-the-loop approvals | ✅ **Built** | Park → notify → quorum → atomic claim → **policy re-check** → execute |
+| Agent lifecycle | ✅ **Built** | Create, profile, group, scoped session keys, freeze, archive, rotate, revoke |
+| Escrow between agents | ✅ **Built** | Lock, release, refund, timeout auto-refund |
+| Signed webhooks | ✅ **Built** | HMAC-SHA256, rotatable secret, delivery dedupe, SSRF-guarded |
+| Real Base USDC transfers | ✅ **Built** | Genuine ERC-20 `transfer` from the org vault, verifiable on Basescan |
+| Guardian console | ✅ **Built** | Treasury, agents, payments, policy, insights, playground, audit |
+| MCP server + TypeScript SDK | ✅ **Built** | Not yet published to npm |
+| **Per-agent programmable budgets** | 🚧 **Partial** | Money envelopes are per-agent; **policy rules are org-wide only** |
+| **x402 payments** | 🚧 **Partial** | Real client implementation, but only proven against the bundled dev facilitator |
+| **Treasury** | 🚧 **Partial** | On-chain deposit detection is real; manual "receive/send" is ledger-only |
+| **Durable persistence** | ❌ **Not production-ready** | The Vercel deployment loses concurrent writes — see [ADR](docs/adr/2026-07-26-persistent-api-over-serverless.md) |
+| **Authentication** | ❌ **Not built** | No users, passwords, SSO, MFA, or account recovery. Access is a bearer key |
+| **Managed custody** | ❌ **Not built** | Self-custody: vault keys are held unencrypted by this application |
+| **Compliance screening** | ❌ **Not built** | Extension point exists; no OFAC/KYT data source behind it |
+| **Python SDK** | ❌ **Not built** | TypeScript only |
+| ERC-4337 / account abstraction | ❌ **Not scoped** | — |
+
+---
+
+## The problem
+
+An AI agent can now decide to buy something. Nothing stops it from being wrong.
+
+The usual answers are both bad. Give the agent a card and you have handed an
+unpredictable process unbounded authority. Put a human in front of every action
+and you have deleted the reason to use an agent at all.
+
+ABI is the third answer: give the agent a wallet whose limits are enforced
+outside the model. The agent asks. Deterministic rules decide. Anything past
+your threshold waits for a person. Every outcome — allowed, held, denied — lands
+in one auditable ledger with the exact rule that fired.
+
+> **LLM proposes. Policy authorizes. Keys never enter the model.**
+
+### Who it is for
+
+- Teams running agents that pay for APIs, data, compute, or other agents
+- Finance functions that need spend controls before they will approve autonomy
+- Anyone who needs to answer "what did the agents spend, on what, under whose approval?"
+
+---
+
+## How it works
+
+```
+                 ┌──────────────────────────────────────────────┐
+   AI agent      │  ABI                                         │
+   ─────────►    │                                              │
+   "pay $12 to   │   1. Policy engine  ──► allow / review / deny│
+    api.foo.com" │   2. Ledger hold                             │
+                 │   3. Human approval  (if review)             │
+                 │   4. Rail settles    (x402 · Base USDC)      │
+                 │   5. Finalize + release unspent remainder    │
+                 │   6. Journal · receipt · webhook             │
+                 └──────────────────────────────────────────────┘
+                                    │
+                          Guardian console · audit
+```
+
+Three outcomes, always explained:
+
+| Outcome | What happens |
+|---|---|
+| **allow** | Funds held, rail settles, exact charge booked, remainder released |
+| **review** | Payment parks; guardian notified; agent polls; **policy re-runs at execution** |
+| **deny** | Nothing moves; the rule that fired is recorded on the decision |
+
+The re-check on approval matters more than it looks. A guardian's approval
+satisfies the human-in-the-loop rule — it does not waive caps, freezes, or the
+blocklist. Without it, a queue of individually-legal approvals can collectively
+blow the daily limit.
+
+---
+
+## Architecture
+
+```
+apps/
+  api/           Guardian + agent HTTP API — policy, ledger, rails, engine
+  web/           Guardian console + marketing site (Next.js 15, App Router)
+  mcp-server/    MCP tools so Claude / LangGraph / Eliza runtimes can spend
+  worker/        Background jobs (stub — becomes the job runner in P2-T3)
+  demo-agent/    Runnable example: budget → simulate → pay → denied → HITL → escrow
+  x402-seller/   Demo paid API + dev facilitator, for local x402 testing
+
+packages/
+  common/        Money types (micro-USDC bigint), error codes, account ids
+  policy/        Deterministic policy engine — no I/O, fully unit tested
+  ledger/        Double-entry primitives: hold, finalize, release, escrow
+  custody/       CustodyProvider interface — the only place keys are touched
+  sdk/           TypeScript agent + guardian client
+  db/            Prisma schema, staged for the Postgres migration (P2-T2)
+
+contracts/       ABINC community token (ERC-20, Base) — NOT wired to the product
+archive/         Reference code, excluded from build and CI
+```
+
+### Extension seams
+
+The interfaces below exist so the corresponding implementations can be swapped
+without touching the engine. Several are currently backed by development
+implementations — that is the honest state, and each is a roadmap item.
+
+| Seam | Interface | Today | Next |
+|---|---|---|---|
+| Custody | `CustodyProvider` | Self-custody, local key | Coinbase CDP Server Wallets (P4-T1) |
+| Payment rails | `PaymentRail` | x402 · Base ERC-20 · mock | Real facilitator (P5-T2) |
+| Compliance | `ComplianceScreener` | Env denylist | Chainalysis / TRM / OFAC (P11-T1) |
+| Storage | `store.ts` | SQLite | Postgres (P2-T2) |
+| Notifications | `registerNotifier` | in-app, Telegram, Slack, email | — |
+| Observability | `ObservabilitySink` | Prometheus text | Real monitoring (P12-T1) |
+
+Full detail: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+---
+
+## Technology
+
+| Layer | Choice | Why |
+|---|---|---|
+| Language | TypeScript (strict, ESM) | One language across API, web, SDK, agents |
+| API | Express 4 | Small surface; the value is in the domain, not the framework |
+| Web | Next.js 15 · React 19 | App Router, Tailwind, Radix primitives |
+| Money | `bigint` micro-USDC | Floating point has no place in a ledger |
+| Chain | viem · Base / Base Sepolia | USDC settlement, EIP-712 signing |
+| Storage | better-sqlite3 → Postgres | All SQL behind one module, so the swap is contained |
+| Validation | Zod | Every request body parsed at the boundary |
+| Tests | `node:test` | No runner dependency |
+
+---
 
 ## Quick start
 
+**Requires Node 22.13+.**
+
 ```bash
-cd C:\Users\ebale\Projects\policyvault
+git clone https://github.com/MOMOEXPRESS/Artificial-Banking-Inc.git
+cd Artificial-Banking-Inc
 npm install
-npm run build -w @policyvault/common -w @policyvault/policy -w @policyvault/ledger -w @policyvault/sdk
-npm run test
-npm run dev:api
+npm run build
+npm test
 ```
 
-In another terminal:
+Start the API and the console in two terminals:
+
+```bash
+npm run dev:api
+```
 
 ```bash
 npm run dev:web
 ```
 
-1. Open http://localhost:3000  
-2. Click **Bootstrap demo org**  
-3. **Allocate to Researcher**  
-4. **Agent pay $1.20 (allow)** — should succeed  
-5. **Agent pay $15 (review)** — lands in the **Approvals inbox**; Approve executes it, Deny kills it  
-6. **Simulate drain (deny)** — should return `POLICY_DENIED`  
-7. **Escrow $5 → Writer** — locks funds; Release moves them to Writer, Refund returns them (auto-refund on timeout)  
-8. **Freeze agent** — kill switch; further pays deny with an `agent_frozen` trace. **Unfreeze** restores.  
+Open <http://localhost:3000/console>, choose **Demo**, and save the keys it shows
+you once.
 
-API default: `http://localhost:8787`  
-Web expects `NEXT_PUBLIC_API_URL` (defaults to that).
+### Walk the money path
 
-### Policy bands (demo template)
+1. **Agent pay $1.20** — allowed, settles, receipt
+2. **Agent pay $15** — parks in the Approvals inbox; approve and the agent resumes
+3. **Simulate drain** — `POLICY_DENIED`, with the rule that fired
+4. **Escrow $5 → Writer** — locks funds; release pays, refund returns, timeout auto-refunds
+5. **Freeze agent** — kill switch; further pays deny with an `agent_frozen` trace
 
-Allow < **$10** ≤ needs guardian approval (review) < **$25** ≤ hard deny (`per_tx_max`).  
-Daily cap $50, max 10 pays/minute, allowlist-only destinations, unknown counterparties go to review.
+Default demo bands: allow under **$10** · guardian approval **$10–$25** · hard
+deny at **$25** · daily cap **$50** · 10 payments/minute · allowlist-only
+destinations · unknown counterparties go to review.
 
-### HTTP surface
-
-Agent (Bearer `pv_agent_...`): `GET /v1/agent/budget`, `POST /v1/agent/simulate`,
-`POST /v1/agent/pay`, `POST /v1/agent/pay_api`, `POST /v1/agent/escrow/lock`,
-`GET /v1/agent/escrow/:id`, `POST /v1/agent/escrow/:id/release|refund`,
-`GET /v1/agent/approvals/:id` (poll after a 202 `NEEDS_APPROVAL`).
-
-Guardian: `GET /v1/guardian/org|activity|approvals|escrows`,
-`POST /v1/guardian/allocate|freeze|unfreeze`,
-`POST /v1/guardian/approvals/:id/resolve`, `POST /v1/guardian/escrows/:id/resolve`.
-
-Approvals expire (default 10 min) and locked escrows auto-refund at timeout via a background sweep.
-
-### Try it yourself — the Agent Playground
-
-Open the console → **Agent Playground**. Pick a mission, press **Run**, and watch a real agent
-spend real balances through the real policy engine. Nothing is mocked for the demo — every step
-is the same HTTP API a production agent would call.
-
-| Mission | What you'll see |
-|---|---|
-| **Research brief** | Budget check → x402 purchase → API payment → hires a peer under escrow → releases it |
-| **Large purchase** | The agent hits your approval threshold, **parks**, alerts you, and resumes by itself once you approve |
-| **Compromised agent** | Prompt-injected drain attempts, all denied with the exact rule that fired |
-
-Missions keep running if you navigate away — the rail shows a live dot while one is in flight.
-Each step reports a plain-English result with the raw API response tucked behind a toggle, and
-every finished run is archived in **Work & deliverables** with the document it produced, the full
-step history and what it cost. From there you can bill the work as an invoice in one click.
-
-### Insights
-
-The **Insights** screen answers four questions from your own ledger — no models,
-no estimates, every number traceable to a row:
-
-- **P&L** — what each mission cost against what it was billed for, with the return multiple
-- **Vendors** — spend per counterparty, allowlist status, blocked attempts, concentration warning
-- **Forecast** — burn per hour and when each agent hits its cap. Refuses to project from a window
-  too short to be meaningful rather than printing an impressive-looking fabrication
-- **Anomalies** — confidence-scored oddities in *allowed* spend (unusual size, odd hour, first-ever
-  counterparty, burst activity) so you can tighten a rule that a hard limit would not have caught
-
-### Policy simulator
-
-The Policy screen replays the last 7 days of real decisions against your unsaved edits:
-*"5 of 13 past decisions would change. Expect roughly 0.7 more approval interruptions per day.
-$13.20 of past spend would have been stopped."* Drag a limit, see the consequence, then decide.
-
-### Moving money
-
-Funds move three ways, all as single balanced journals:
-
-| Direction | Endpoint | Use |
-|---|---|---|
-| Treasury → agent | `POST /v1/guardian/allocate` | Fund an agent |
-| Agent → treasury | `POST /v1/guardian/reclaim` | Undo a mistaken allocation |
-| Agent → agent | `POST /v1/guardian/transfer` | Funded the wrong agent |
-
-Reclaim and transfer accept an omitted amount to move everything available.
-Neither can touch funds held mid-payment or locked in escrow — those belong to
-an in-flight commitment.
-
-### Security posture
-
-The money paths are covered by a regression suite (`security.mjs`) that proves
-the guarantees hold, not just that the happy path works:
-
-- **Idempotency is reserved before execution**, so two concurrent retries of the
-  same payment settle exactly once — the x402 rail awaits network I/O for up to
-  25s, and a check-then-write left that whole window open to double-spend.
-- **Approvals re-run the policy engine at execution time.** A guardian's
-  approval satisfies the human-in-the-loop rule; it does not waive caps,
-  freezes or the blocklist. A queue of individually-legal approvals can no
-  longer collectively blow the daily cap.
-- **Approvals are claimed atomically** — console and Telegram pressing Approve
-  simultaneously execute once.
-- **Allowlists vote only when configured.** An empty list never means "allow
-  everything"; a domain-only setup no longer waves through every destination.
-  Suffix matching is dot-anchored, so `api.openai.com.attacker.net` is refused.
-- **The x402 rail validates what it signs**: token contract pinned per network,
-  payee format-checked and blocklist-checked, price sanity-checked, and the
-  authorization validity window clamped regardless of what the seller asks.
-- **Quorum counts authenticated identities**, so one guardian cannot satisfy a
-  2-of-N quorum by voting twice under different names.
-
-### Connecting an agent
-
-An agent is just an HTTP client with a Bearer key. It never touches keys or the
-vault — it calls money verbs; the policy engine decides.
+### Try x402 locally
 
 ```bash
-# 1. Create an org (mock USDC deposit) — returns { orgId, guardianKey } once
-curl -s -X POST http://localhost:8787/v1/guardian/orgs \
-  -H "Content-Type: application/json" -d '{"name":"Acme Agent Co","depositUsdc":"50"}'
+npm run dev -w @policyvault/x402-seller
+```
 
-# 2. Guardian creates an agent (guardian key required from here on)
+```bash
+curl -s -X POST http://localhost:8787/v1/guardian/policy \
+  -H "Authorization: Bearer pv_guardian_..." -H "Content-Type: application/json" \
+  -d '{"domainAllowlist":["localhost"]}'
+```
+
+```bash
+curl -s -X POST http://localhost:8787/v1/agent/pay_api \
+  -H "Authorization: Bearer pv_agent_..." -H "Content-Type: application/json" \
+  -d '{"amountUsdc":"2","destination":"http://localhost:9402/report","idempotencyKey":"try_x402_1"}'
+```
+
+The bundled facilitator verifies the EIP-712 signature cryptographically but
+**fakes on-chain settlement**. Settling against a real facilitator is roadmap
+**P5-T2**, and a signing-domain bug must be fixed first (**P5-T1**).
+
+---
+
+## Connecting an agent
+
+An agent is an HTTP client with a bearer key. It never touches keys or the
+vault — it calls money verbs and the policy engine decides.
+
+```bash
+curl -s -X POST http://localhost:8787/v1/guardian/orgs \
+  -H "Content-Type: application/json" -d '{"name":"Acme Agent Co"}'
+```
+
+```bash
 curl -s -X POST http://localhost:8787/v1/guardian/agents \
   -H "Authorization: Bearer pv_guardian_..." \
   -H "Content-Type: application/json" -d '{"name":"Analyst"}'
-# -> returns { agentId, apiKey } — the key is shown exactly once
+```
 
-# 3. Guardian allocates a stipend
+```bash
 curl -s -X POST http://localhost:8787/v1/guardian/allocate \
   -H "Authorization: Bearer pv_guardian_..." \
   -H "Content-Type: application/json" \
   -d '{"agentId":"agt_...","amountUsdc":"30"}'
-
-# 4. The agent spends under policy
-curl -s http://localhost:8787/v1/agent/budget -H "Authorization: Bearer pv_agent_..."
 ```
-
-Three integration surfaces, same API key:
-
-- **REST** — the curl calls above
-- **TypeScript SDK** — `new PolicyVaultClient({ baseUrl, apiKey })` from `@policyvault/sdk`
-- **MCP** — `apps/mcp-server` exposes the verbs as MCP tools for Claude/Eliza/LangGraph runtimes
-
-Runnable example (full loop: budget → simulate → pay → denied drain → HITL
-approval wait → escrow hire):
 
 ```bash
-set POLICYVAULT_API_KEY=pv_agent_...
-set PAYEE_AGENT_ID=agt_...   # optional, enables the escrow demo
-npm run demo:agent
+curl -s http://localhost:8787/v1/agent/budget \
+  -H "Authorization: Bearer pv_agent_..."
 ```
 
-### Persistence
+Three integration surfaces, one key:
 
-The API is backed by **SQLite** (better-sqlite3, WAL) at
-`apps/api/data/policyvault.db` — real tables, transactional double-entry
-journal application, durable across restarts, no Docker needed. All SQL lives
-behind `apps/api/src/store.ts`; swapping in Postgres/Prisma (`packages/db`)
-later means reimplementing that one module.
+- **REST** — the calls above; OpenAPI at `GET /v1/openapi.json`
+- **TypeScript SDK** — `new PolicyVaultClient({ baseUrl, apiKey })`
+- **MCP** — `apps/mcp-server` exposes the verbs as tools for agent runtimes
 
-### Guardian auth
-
-Every `/v1/guardian/*` route requires `Authorization: Bearer pv_guardian_...`.
-The key is returned once by `POST /v1/guardian/orgs` (or dev bootstrap); the
-org is always derived from the key, never from request params.
-
-### x402 payments (real protocol, local settlement)
-
-`pay_api` with an **http(s) destination** runs the actual x402 client dance:
-PolicyVault fetches the resource, receives the HTTP 402 payment requirements,
-checks the seller's price against the policy-authorized amount, signs an
-EIP-712 `TransferWithAuthorization` with the org's custody key (a real EVM
-keypair generated per org), retries with the `X-PAYMENT` header, and hands the
-**paid resource + settlement receipt** back to the agent. Only the seller's
-actual price is settled — the unspent remainder of the hold is released.
-
-Try it (seller runs on :9402, charges $1.20):
+A full runnable loop lives in `apps/demo-agent`:
 
 ```bash
-npm run dev -w @policyvault/x402-seller   # paid API + dev facilitator
-# allowlist the seller domain, then:
-curl -s -X POST http://localhost:8787/v1/guardian/policy \
-  -H "Authorization: Bearer pv_guardian_..." -H "Content-Type: application/json" \
-  -d '{"domainAllowlist":["localhost"]}'
-curl -s -X POST http://localhost:8787/v1/agent/pay_api \
-  -H "Authorization: Bearer pv_agent_..." -H "Content-Type: application/json" \
-  -d '{"amountUsdc":"2","destination":"http://localhost:9402/report","idempotencyKey":"try_x402_1"}'
-# -> { rail: "x402", amountUsdc: "1.2", txHash, resource: {...the report...} }
+POLICYVAULT_API_KEY=pv_agent_... npm run demo:agent
 ```
 
-The dev facilitator verifies signatures cryptographically but fakes onchain
-settlement. **Go-live path:** point the seller at the hosted x402 facilitator,
-fund the org wallet with Base USDC, and swap dev keys for CDP/TEE custody —
-the client dance is unchanged.
+> The SDK is **not yet published to npm** (roadmap P10-T1) and there is **no
+> Python SDK** (P10-T2). Today, integrating means vendoring the client or
+> calling REST directly.
 
-### Policy editing
+### Agent endpoints
 
-`GET /v1/guardian/policy` shows current rules; `POST /v1/guardian/policy`
-merges partial updates (`perTxMaxUsdc`, `dailyMaxUsdc`, `hitlAboveUsdc`,
-allowlists, blocklist, `hitlCategories`, velocity). Bands must nest:
-allow < `hitlAboveUsdc` ≤ review < `perTxMaxUsdc` ≤ deny.
+`GET /v1/agent/budget` · `POST /v1/agent/simulate` · `POST /v1/agent/pay` ·
+`POST /v1/agent/pay_api` · `POST /v1/agent/escrow/lock` ·
+`GET|POST /v1/agent/escrow/:id[/release|refund]` ·
+`GET /v1/agent/approvals/:id` (poll after a `202 NEEDS_APPROVAL`) ·
+`GET /v1/agent/activity` · `GET /v1/agent/decisions/:intentId`
 
-### Webhooks
+Guardian routes are under `/v1/guardian/*` and always derive the organization
+from the key, never from the request.
+
+---
+
+## Environment
+
+Copy `.env.example` and adjust. Every variable, with what happens if it is unset:
+
+| Variable | Default | Required in production | Effect |
+|---|---|---|---|
+| `PORT` | `8787` | no | API port |
+| `POLICYVAULT_DB` | `./apps/api/data/policyvault.db` | no | SQLite path |
+| `ABI_KEY_PEPPER` | *built-in dev value* | **yes** | Salt for API-key hashing. Leaving the default is a security defect |
+| `NEXT_PUBLIC_API_URL` | `/abi-api` | no | Console → API origin |
+| `POLICYVAULT_ALLOW_BOOTSTRAP` | on outside production | **set to `0`** | Enables a **destructive** demo endpoint that wipes every org |
+| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE` | on outside production | **set to `0`** | Unauthenticated org creation |
+| `CHAIN` | `base-sepolia` | no | `base` or `base-sepolia` |
+| `CHAIN_RPC_URL` | public RPC | recommended | Use a paid RPC; public endpoints rate-limit |
+| `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET` | — | no | Selects production-mode custody. **Does not enable Coinbase custody** — see [SECURITY.md](docs/SECURITY.md) |
+| `OPENAI_API_KEY` | — | no | Enables the console assistant. **Sends org financial data to OpenAI** (P8-T2) |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | — | no | Approve from Telegram |
+| `SLACK_WEBHOOK_URL`, `RESEND_API_KEY`, `ABI_NOTIFY_EMAIL_TO` | — | no | Notification channels; log a stub when unset |
+| `ABI_COMPLIANCE_DENYLIST` | empty | no | Comma-separated denied destinations |
+| `ABI_COMPLIANCE_FAIL_CLOSED` | off | **yes** | Block rather than allow when a screener errors |
+| `RATE_LIMIT_PER_MIN` | `5000` | no | Abuse protection, not throttling |
+| `APPROVAL_TTL_MINUTES` | `10` | no | How long a parked payment waits |
+
+---
+
+## Development
 
 ```bash
-curl -s -X POST http://localhost:8787/v1/guardian/webhooks \
-  -H "Authorization: Bearer pv_guardian_..." \
-  -H "Content-Type: application/json" -d '{"url":"https://your-receiver/hook"}'
-# -> { id, secret }  (secret shown once)
+npm run build
+npm run typecheck
+npm run lint
+npm test
 ```
 
-Events: `payment.succeeded|failed`, `policy.denied`, `approval.pending|resolved`,
-`escrow.locked|released|refunded`. Each POST carries
-`x-policyvault-signature` (HMAC-SHA256 of the raw body with your endpoint
-secret) and `x-policyvault-delivery` (dedupe id). Retries: 3 attempts with
-backoff; inspect `GET /v1/guardian/webhooks/deliveries`.
+CI runs all four on every push and pull request. See
+[`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) for conventions and the extra
+review rules that apply to money-path code.
 
-### MCP
+---
+
+## Deployment
+
+Docker Compose and a Dockerfile are included:
 
 ```bash
-set POLICYVAULT_API_URL=http://localhost:8787
-set POLICYVAULT_API_KEY=pv_agent_...
-npm run dev:mcp
+docker compose up
 ```
 
-## Phase map
+> **Do not deploy this publicly yet.** The current Vercel topology embeds the
+> API into Next.js and synchronises SQLite through a runtime cache, which loses
+> concurrent writes. The reasoning and the replacement are in
+> [`docs/adr/2026-07-26-persistent-api-over-serverless.md`](docs/adr/2026-07-26-persistent-api-over-serverless.md).
+> Until roadmap Phase 2 lands, keep any deployment behind access control.
 
-- **Now:** policy engine, double-entry ledger with revenue accounts, SQLite-backed API (durable, transactional, journal-replay reconciliation), guardian auth + rate limiting, signed webhooks with retries + test events, **real x402 client rail** (EIP-712 signing, exact-price settlement, dev facilitator), org EVM custody keys, policy editing API + UI, **insights engine** (period summary + ask-anything over your own data), **invoices & revenue** with payment score, **mission runs archive with generated deliverable documents**, Telegram approvals (set `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`), glass-design guardian console (overview, playground, work, approvals, invoices, escrows, ledger, policy, webhooks, activity, settings), escrow v0, HITL approvals, org/agent lifecycle, SDK/MCP tools, demo agent + demo paid API  
-- **Next:** go-live on Base Sepolia (CDP custody + hosted facilitator + funded testnet wallet — needs a CDP API key); guardian login (Auth.js); hosted deploy  
-- **Later:** Postgres swap (`store.ts` seam), KYT/screening, design partners, public metrics  
-- **Optional (separate):** community token `ABINC` under [`contracts/`](./contracts/) — fixed-supply ERC-20 for Base; **not** wired into the console or agent USDC vaults. See `contracts/README.md`. 
+Details: [`docs/DEPLOY.md`](docs/DEPLOY.md).
+
+---
+
+## Screenshots
+
+<!-- Placeholders. Replace with real captures once the console settles after Phase 9. -->
+
+| | |
+|---|---|
+| `docs/assets/screenshot-overview.png` | `docs/assets/screenshot-approvals.png` |
+| **Overview** — vault, agents, live activity | **Approvals** — parked payments awaiting a person |
+| `docs/assets/screenshot-policy.png` | `docs/assets/screenshot-playground.png` |
+| **Policy** — replay real history against unsaved rule edits | **Playground** — a real agent spending through the real engine |
+
+---
+
+## Roadmap
+
+Full plan with dependencies, complexity and priority:
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
+
+| Phase | Focus |
+|---|---|
+| **0** | Repository hygiene, CI, truthful claims ← *current* |
+| **1** | Remove destructive endpoints and fund-loss paths |
+| **2** | Persistent API + Postgres; restore background jobs |
+| **3** | Authentication, sessions, roles, recovery |
+| **4** | Managed custody, key encryption, gas |
+| **5** | Settlement correctness; real x402 |
+| **6** | Per-agent programmable budgets |
+| **7** | Treasury integrity + on-chain reconciliation |
+| **8** | Agent depth and runtime adapters — **beta gate** |
+| **9–12** | UX, SDKs, compliance, launch — **public launch gate** |
+
+---
+
+## Documentation
+
+| Document | Purpose |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System design and extension points |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Phased plan, dependencies, beta/launch gates |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Actual posture, enforced guarantees, disclosure |
+| [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | Setup, conventions, money-path review rules |
+| [`docs/DEPLOY.md`](docs/DEPLOY.md) | Deployment and go-live |
+| [`docs/adr/`](docs/adr/) | Decision records |
+| [`docs/strategy/`](docs/strategy/) | Positioning, GTM, fundraising |
+| [`docs/archive/`](docs/archive/) | Dated, point-in-time documents — not maintained |
+
+---
+
+## Contributing
+
+See [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). In short: branch, make CI
+green, one clean commit, open a PR. Changes to the policy engine, ledger,
+custody, or rails need a second reviewer and a test.
+
+## Security
+
+Do not open a public issue for an exploitable defect — see
+[`docs/SECURITY.md`](docs/SECURITY.md), which also states the current posture
+plainly, including what is not yet protected.
 
 ## License
 
-Private / all rights reserved until published.
+Proprietary. All rights reserved pending a licensing decision (roadmap P12-T5).
+
+---
+
+<div align="center">
+<sub>Not a bank. Not FDIC insured. Nothing here is financial advice.</sub>
+</div>

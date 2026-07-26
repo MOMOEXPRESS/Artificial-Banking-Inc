@@ -39,15 +39,26 @@ export interface X402Receipt {
   settled: boolean;
 }
 
+/**
+ * Failure codes the engine maps to HTTP statuses. The on-chain transfer rail
+ * raises the last three; they belong in this union so the type describes the
+ * real contract rather than being smuggled through a duck-typed `code` on a
+ * plain Error (see rails/evm-usdc-transfer.ts).
+ */
+export type RailErrorCode =
+  | "PRICE_EXCEEDS_AUTHORIZED"
+  | "NO_PAYMENT_REQUIRED"
+  | "UNSUPPORTED_SCHEME"
+  | "SELLER_REJECTED"
+  | "RAIL_FAILED"
+  | "CUSTODY_UNAVAILABLE"
+  | "INVALID_DESTINATION"
+  | "INSUFFICIENT_ONCHAIN_USDC"
+  | "INSUFFICIENT_GAS";
+
 export class X402Error extends Error {
   constructor(
-    public code:
-      | "PRICE_EXCEEDS_AUTHORIZED"
-      | "NO_PAYMENT_REQUIRED"
-      | "UNSUPPORTED_SCHEME"
-      | "SELLER_REJECTED"
-      | "RAIL_FAILED"
-      | "CUSTODY_UNAVAILABLE",
+    public code: RailErrorCode,
     message: string,
   ) {
     super(message);

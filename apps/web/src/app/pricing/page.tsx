@@ -38,8 +38,8 @@ const TIERS = [
     price: "Custom",
     note: "custody + compliance",
     points: [
-      "Coinbase CDP custody",
-      "Pluggable compliance checks",
+      "Managed custody (roadmap)",
+      "Pluggable compliance checks (roadmap)",
       "SSO / SCIM (roadmap)",
       "Dedicated support",
     ],
@@ -60,8 +60,8 @@ const COMPARE_ROWS: { feature: string; developer: Cell; team: Cell; enterprise: 
   { feature: "Multi-guardian quorum", developer: false, team: true, enterprise: true },
   { feature: "Signed webhooks", developer: false, team: true, enterprise: true },
   { feature: "Burn & vendor analytics", developer: false, team: true, enterprise: true },
-  { feature: "Coinbase CDP custody", developer: false, team: "Optional", enterprise: true },
-  { feature: "Compliance screeners", developer: false, team: false, enterprise: true },
+  { feature: "Managed custody", developer: false, team: "Roadmap", enterprise: "Roadmap" },
+  { feature: "Compliance screeners", developer: false, team: false, enterprise: "Roadmap" },
   { feature: "SSO / SCIM", developer: false, team: false, enterprise: "Roadmap" },
   { feature: "Dedicated support", developer: false, team: "Business hours", enterprise: true },
 ];
