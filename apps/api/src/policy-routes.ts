@@ -2,7 +2,7 @@
  * Financial Policies HTTP surface — caps, lists, quiet hours, HITL, quorum,
  * automation, versions, templates, history simulator.
  */
-import { formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/common";
+import { formatMicroToUsdc, normalizeHitlCategories, parseUsdcToMicro } from "@policyvault/common";
 import {
   listPolicyTemplateCatalog,
   policyTemplateById,
@@ -28,6 +28,12 @@ const toolEnum = z.enum([
   "withdraw",
 ]);
 
+/** Accept legacy aliases (pay_address / x402 / escrow) then coerce to IntentTool. */
+const hitlCategoriesField = z.preprocess(
+  (v) => normalizeHitlCategories(v),
+  z.array(toolEnum),
+);
+
 export function policyView(template: ReturnType<typeof store.getPolicyTemplate>) {
   return {
     perTxMaxUsdc: formatMicroToUsdc(template.perTxMaxMicro),
@@ -39,7 +45,7 @@ export function policyView(template: ReturnType<typeof store.getPolicyTemplate>)
     domainAllowlist: template.domainAllowlist,
     vendorAllowlist: template.vendorAllowlist,
     blocklist: template.blocklist,
-    hitlCategories: template.hitlCategories,
+    hitlCategories: normalizeHitlCategories(template.hitlCategories),
     quietHours: template.quietHours ?? null,
     approvalQuorum: template.approvalQuorum ?? 1,
     automation: (template.automation ?? []).map((rule) => ({
@@ -116,7 +122,7 @@ export function registerPolicyRoutes(
           domainAllowlist: z.array(z.string()).optional(),
           vendorAllowlist: z.array(z.string()).optional(),
           blocklist: z.array(z.string()).optional(),
-          hitlCategories: z.array(toolEnum).optional(),
+          hitlCategories: hitlCategoriesField.optional(),
           quietHours: z
             .object({
               startHour: z.number().int().min(0).max(23),
@@ -220,7 +226,7 @@ export function registerPolicyRoutes(
           domainAllowlist: z.array(z.string()).optional(),
           vendorAllowlist: z.array(z.string()).optional(),
           blocklist: z.array(z.string()).optional(),
-          hitlCategories: z.array(toolEnum).optional(),
+          hitlCategories: hitlCategoriesField.optional(),
           quietHours: z
             .object({
               startHour: z.number().int().min(0).max(23),
@@ -284,7 +290,7 @@ export function registerPolicyRoutes(
         ...(body.domainAllowlist && { domainAllowlist: body.domainAllowlist }),
         ...(body.vendorAllowlist && { vendorAllowlist: body.vendorAllowlist }),
         ...(body.blocklist && { blocklist: body.blocklist }),
-        ...(body.hitlCategories && { hitlCategories: body.hitlCategories }),
+        ...(body.hitlCategories && { hitlCategories: normalizeHitlCategories(body.hitlCategories) }),
         ...(body.quietHours !== undefined && { quietHours: body.quietHours ?? undefined }),
         ...(body.automation !== undefined && {
           automation: body.automation.map((rule) => {

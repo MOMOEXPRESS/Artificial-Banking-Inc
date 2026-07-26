@@ -33,6 +33,44 @@ export type IntentTool =
   | "escrow_refund"
   | "withdraw";
 
+/** Canonical IntentTool values — keep UI chips + Zod enums in sync with this list. */
+export const INTENT_TOOLS = [
+  "pay",
+  "pay_api",
+  "transfer_internal",
+  "escrow_lock",
+  "escrow_release",
+  "escrow_refund",
+  "withdraw",
+] as const satisfies readonly IntentTool[];
+
+/**
+ * Legacy / mistaken UI labels that used to be written into hitlCategories.
+ * Map them onto real IntentTool ids so old drafts and bad clients still save.
+ */
+const HITL_CATEGORY_ALIASES: Record<string, IntentTool> = {
+  pay_address: "pay",
+  x402: "pay_api",
+  escrow: "escrow_lock",
+};
+
+/** Drop unknowns, expand aliases, dedupe — never throw. */
+export function normalizeHitlCategories(raw: unknown): IntentTool[] {
+  if (!Array.isArray(raw)) return [];
+  const allowed = new Set<string>(INTENT_TOOLS);
+  const out: IntentTool[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== "string" || !item.trim()) continue;
+    const key = item.trim();
+    const mapped = HITL_CATEGORY_ALIASES[key] ?? key;
+    if (!allowed.has(mapped) || seen.has(mapped)) continue;
+    seen.add(mapped);
+    out.push(mapped as IntentTool);
+  }
+  return out;
+}
+
 /**
  * Wallet scopes — org + agent are fully wired; department + shared are first-class
  * treasury wallets with the same account-id scheme.

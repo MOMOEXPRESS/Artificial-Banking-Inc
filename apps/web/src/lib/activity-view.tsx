@@ -153,7 +153,7 @@ export function Activity({
 
         <div className="row" style={{ marginBottom: 14, gap: 8 }}>
           <Select value={agentF} onValueChange={setAgentF}>
-            <SelectTrigger style={{ width: 170 }}>
+            <SelectTrigger className="mobile-fluid-select" style={{ width: 170, maxWidth: "100%" }}>
               <SelectValue placeholder="All agents" />
             </SelectTrigger>
             <SelectContent>
@@ -166,7 +166,7 @@ export function Activity({
             </SelectContent>
           </Select>
           <Select value={toolF} onValueChange={setToolF}>
-            <SelectTrigger style={{ width: 170 }}>
+            <SelectTrigger className="mobile-fluid-select" style={{ width: 170, maxWidth: "100%" }}>
               <SelectValue placeholder="All tools" />
             </SelectTrigger>
             <SelectContent>
@@ -179,7 +179,7 @@ export function Activity({
             </SelectContent>
           </Select>
           <Select value={destF} onValueChange={setDestF}>
-            <SelectTrigger style={{ width: 210 }}>
+            <SelectTrigger className="mobile-fluid-select" style={{ width: 210, maxWidth: "100%" }}>
               <SelectValue placeholder="All destinations" />
             </SelectTrigger>
             <SelectContent>
