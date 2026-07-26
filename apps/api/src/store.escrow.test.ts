@@ -23,7 +23,7 @@ after(() => {
 
 describe("claimEscrow CAS (A11)", () => {
   it("allows only one claim from locked, and unclaim restores locked", () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const escrowId = `esc_test_${Date.now()}`;
     const now = new Date().toISOString();
     const timeoutAt = new Date(Date.now() + 60_000).toISOString();

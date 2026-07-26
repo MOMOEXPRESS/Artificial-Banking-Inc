@@ -28,7 +28,7 @@ after(() => {
 
 describe("runAutoFundSweep", () => {
   it("tops up a low agent from the linked budget when enabled", () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const budget = store.createDepartment(demo.orgId, "Finance");
     // Fund budget from org vault.
     store.applyEntries(demo.orgId, [

@@ -50,6 +50,7 @@ exist.
 | **Authentication** | ❌ **Not built** | No users, passwords, SSO, MFA, or account recovery. Access is a bearer key |
 | **Managed custody** | ❌ **Not built** | Self-custody: vault keys are held unencrypted by this application |
 | **Compliance screening** | ❌ **Not built** | Extension point exists; no OFAC/KYT data source behind it |
+| Destructive endpoints | ✅ **Removed** | Demo seeding no longer wipes tenants; the global reset is a local script |
 | **Python SDK** | ❌ **Not built** | TypeScript only |
 | ERC-4337 / account abstraction | ❌ **Not scoped** | — |
 
@@ -293,10 +294,13 @@ Copy `.env.example` and adjust. Every variable, with what happens if it is unset
 |---|---|---|---|
 | `PORT` | `8787` | no | API port |
 | `POLICYVAULT_DB` | `./apps/api/data/policyvault.db` | no | SQLite path |
-| `ABI_KEY_PEPPER` | *built-in dev value* | **yes** | Salt for API-key hashing. Leaving the default is a security defect |
+| `ABI_KEY_PEPPER` | *dev fallback only* | **yes** | Salt for API-key hashing. Production **refuses to boot** without it |
 | `NEXT_PUBLIC_API_URL` | `/abi-api` | no | Console → API origin |
-| `POLICYVAULT_ALLOW_BOOTSTRAP` | on outside production | **set to `0`** | Enables a **destructive** demo endpoint that wipes every org |
-| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE` | on outside production | **set to `0`** | Unauthenticated org creation |
+| `POLICYVAULT_ALLOW_BOOTSTRAP` | on outside production | **set to `0`** | Enables demo-org seeding. No longer destructive, but it mints a root key |
+| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE` | on outside production | **set to `0`** | Self-serve org creation |
+| `ABI_SIGNUP_TOKEN` | — | **yes** (if the above is on) | Required header `x-abi-signup-token` for org creation / demo seeding |
+| `ABI_SIGNUP_LIMIT_PER_HOUR` | `10` | no | Per-IP cap on credential-minting routes |
+| `ABI_ALLOW_LOCAL_TARGETS` | on outside production | **set to `0`** | Permits outbound fetches to loopback/private addresses (local x402 seller) |
 | `CHAIN` | `base-sepolia` | no | `base` or `base-sepolia` |
 | `CHAIN_RPC_URL` | public RPC | recommended | Use a paid RPC; public endpoints rate-limit |
 | `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET` | — | no | Selects production-mode custody. **Does not enable Coinbase custody** — see [SECURITY.md](docs/SECURITY.md) |

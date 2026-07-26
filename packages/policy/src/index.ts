@@ -453,7 +453,11 @@ export function templateApiSeller(): PolicyTemplate {
     newCounterpartyCooldownHours: 0,
     hitlAboveMicro: 25_000_000n,
     addressAllowlist: [],
-    domainAllowlist: ["localhost"],
+    // Deliberately empty. This shipped with ["localhost"], which let any agent
+    // on an org using this template drive server-side fetches into the host's
+    // own network via pay_api. Local sellers are allowlisted per-org by the
+    // demo seeder instead, and only where local targets are permitted.
+    domainAllowlist: [],
     vendorAllowlist: [],
     blocklist: [],
     hitlCategories: ["withdraw"],

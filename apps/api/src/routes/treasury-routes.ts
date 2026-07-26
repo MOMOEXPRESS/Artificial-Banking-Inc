@@ -36,6 +36,7 @@ import {
   runOnchainDepositSweep,
 } from "../chain/sync-deposits.js";
 import { activeChain } from "../chain/network.js";
+import { readVaultOnchain } from "../chain/deposits.js";
 
 type GuardianRoute = (
   handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
@@ -978,9 +979,59 @@ export function registerTreasuryRoutes(
 
   app.post(
     "/v1/guardian/treasury/recovery/rotate-vault",
-    guardianRoute((org, req, res) => {
-      const body = z.object({ note: z.string().max(200).optional() }).parse(req.body ?? {});
-      const rotated = store.rotateVaultKey(org.id);
+    guardianRoute(async (org, req, res) => {
+      const body = z
+        .object({
+          note: z.string().max(200).optional(),
+          /**
+           * Acknowledge that funds remaining at the old address will need a
+           * manual sweep using the archived key. Required when the vault is
+           * not empty; ignored when it is.
+           */
+          acknowledgeFundsAtRisk: z.boolean().optional(),
+        })
+        .parse(req.body ?? {});
+
+      // Rotation used to overwrite the key in place with no balance check, so a
+      // single click could strand every USDC and ETH at the old address. Refuse
+      // while the vault holds anything, unless the caller explicitly accepts
+      // that they must sweep it themselves from the archived key.
+      const snap = await readVaultOnchain(store.getVaultAddress(org.id));
+      if (snap.ok) {
+        const usdc = BigInt(snap.onchainBalanceMicro);
+        const native = BigInt(snap.nativeBalanceWei);
+        if ((usdc > 0n || native > 0n) && !body.acknowledgeFundsAtRisk) {
+          return res.status(409).json({
+            error: {
+              code: "VAULT_NOT_EMPTY",
+              message:
+                `Vault still holds ${snap.onchainBalanceUsdc} USDC and ${snap.nativeBalanceEth} ETH. ` +
+                "Move those funds out first, or retry with acknowledgeFundsAtRisk=true — the old " +
+                "key is archived, so a manual sweep stays possible either way.",
+            },
+            onchain: {
+              address: snap.vaultAddress,
+              usdc: snap.onchainBalanceUsdc,
+              native: snap.nativeBalanceEth,
+              explorerUrl: snap.explorerAddress,
+            },
+          });
+        }
+      } else {
+        // A read failure must not be read as "empty".
+        if (!body.acknowledgeFundsAtRisk) {
+          return res.status(409).json({
+            error: {
+              code: "VAULT_BALANCE_UNKNOWN",
+              message:
+                `Could not read the vault on-chain (${snap.error ?? "RPC unavailable"}), so it is ` +
+                "not safe to assume it is empty. Retry, or pass acknowledgeFundsAtRisk=true.",
+            },
+          });
+        }
+      }
+
+      const rotated = store.rotateVaultKey(org.id, body.note ? `guardian:${body.note}` : "guardian_rotation");
       if (body.note) {
         store.addRecoveryEvent({
           orgId: org.id,
@@ -1003,9 +1054,20 @@ export function registerTreasuryRoutes(
         ok: true,
         address: rotated.address,
         previousAddress: rotated.previousAddress,
-        note: "Update any on-chain funding destinations to the new address. Old key is discarded from the store.",
+        archivedKeyId: rotated.archivedKeyId,
+        note:
+          "Update any on-chain funding destinations to the new address. The previous key is " +
+          "archived server-side, so funds left at the old address can still be swept.",
       });
     }, { ownerOnly: true }),
+  );
+
+  /** Retired vault addresses — proof that a rotation did not strand funds. */
+  app.get(
+    "/v1/guardian/treasury/recovery/archived-vaults",
+    guardianRoute((org, _req, res) => {
+      res.json({ archived: store.listArchivedVaultKeys(org.id) });
+    }),
   );
 
   /** Agent API-key recovery (same as rotate — recorded in recovery log). */

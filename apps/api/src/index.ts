@@ -7,6 +7,7 @@ import {
 import { DevLocalProvider, SelfCustodyVaultProvider, cdpEnvConfigured, getCustodyProvider, setCustodyProvider } from "@policyvault/custody";
 import { recogniseRevenue, transferAvailable } from "@policyvault/ledger";
 import { evaluatePolicy, matchedAutomationRules } from "@policyvault/policy";
+import { timingSafeEqual } from "node:crypto";
 import cors from "cors";
 import express from "express";
 import { privateKeyToAccount } from "viem/accounts";
@@ -47,7 +48,8 @@ import { createOpenAiFactRephraser } from "./platform/openai-rephraser.js";
 import { recordObs, setObservabilitySink, PrometheusSink, getObservabilitySink } from "./platform/observability.js";
 import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
-import { webhookUrlProblem } from "./webhook-url.js";
+import { webhookUrlProblem } from "./outbound-url.js";
+import { hashSecret } from "./secrets.js";
 import { registerAgentRoutes } from "./routes/agent-routes.js";
 import { runAutoFundSweep } from "./auto-fund.js";
 import { runOnchainDepositSweep } from "./chain/sync-deposits.js";
@@ -235,15 +237,60 @@ registerNotifier("webhook", (payload) => {
 // Generous dev default — this is abuse protection, not throttling.
 // ---------------------------------------------------------------------------
 const RATE_LIMIT_PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN ?? 5000);
+/** Credential-minting routes get their own, far tighter budget per IP. */
+const SIGNUP_LIMIT_PER_HOUR = Number(process.env.ABI_SIGNUP_LIMIT_PER_HOUR ?? 10);
+/** Cap the window map so a key-rotating caller cannot exhaust memory. */
+const RATE_MAX_KEYS = 50_000;
+
 const rateWindows = new Map<string, number[]>();
+
+/**
+ * Bucket key.
+ *
+ * This used to be the raw `Authorization` header, which is attacker-controlled:
+ * rotating the header on each request produced a fresh full budget, so the
+ * limiter only ever slowed down honest clients. Bucket on the *hash* of the
+ * credential when one is presented — identifying the caller without holding the
+ * secret in memory — and fall back to the source IP otherwise.
+ */
+function rateKey(req: express.Request): string {
+  const cred = bearer(req);
+  if (cred) return `k:${hashSecret(cred)}`;
+  return `i:${req.ip ?? "anon"}`;
+}
+
+function overLimit(key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const hits = (rateWindows.get(key) ?? []).filter((t) => t > now - windowMs);
+  hits.push(now);
+  // Evict oldest-inserted keys rather than growing without bound.
+  if (!rateWindows.has(key) && rateWindows.size >= RATE_MAX_KEYS) {
+    const oldest = rateWindows.keys().next().value;
+    if (oldest !== undefined) rateWindows.delete(oldest);
+  }
+  rateWindows.set(key, hits);
+  return hits.length > limit;
+}
+
+const SIGNUP_PATHS = new Set(["/v1/guardian/orgs", "/v1/demo/bootstrap"]);
+
 app.use((req, res, next) => {
   if (req.path === "/health" || req.path === "/metrics") return next();
-  const key = req.header("authorization") ?? req.ip ?? "anon";
-  const now = Date.now();
-  const hits = (rateWindows.get(key) ?? []).filter((t) => t > now - 60_000);
-  hits.push(now);
-  rateWindows.set(key, hits);
-  if (hits.length > RATE_LIMIT_PER_MIN) {
+
+  // Routes that mint a root credential are limited per IP per hour, so a token
+  // leak or an open dev instance cannot be farmed for organizations.
+  if (SIGNUP_PATHS.has(req.path) && req.method === "POST") {
+    if (overLimit(`signup:${req.ip ?? "anon"}`, SIGNUP_LIMIT_PER_HOUR, 3_600_000)) {
+      return res.status(429).json({
+        error: {
+          code: "RATE_LIMITED",
+          message: `Over ${SIGNUP_LIMIT_PER_HOUR} organizations/hour from this address`,
+        },
+      });
+    }
+  }
+
+  if (overLimit(rateKey(req), RATE_LIMIT_PER_MIN, 60_000)) {
     return res.status(429).json({
       error: { code: "RATE_LIMITED", message: `Over ${RATE_LIMIT_PER_MIN} requests/minute` },
     });
@@ -263,6 +310,40 @@ function bearer(req: express.Request): string | null {
   const header = req.header("authorization");
   if (!header?.startsWith("Bearer ")) return null;
   return header.slice("Bearer ".length).trim();
+}
+
+/**
+ * Invite gate for the two routes that mint a root guardian key without an
+ * existing credential (org creation, demo seeding).
+ *
+ * When `ABI_SIGNUP_TOKEN` is set, callers must present it via
+ * `x-abi-signup-token`. Unset means open, which is correct for local
+ * development and wrong for anything reachable by others — so production
+ * refuses to serve these routes at all unless a token is configured.
+ *
+ * Returns a problem string, or null when the caller may proceed.
+ */
+function signupTokenProblem(req: express.Request): string | null {
+  const expected = process.env.ABI_SIGNUP_TOKEN?.trim();
+  if (!expected) {
+    if (process.env.NODE_ENV === "production") {
+      return "Self-serve organization creation requires ABI_SIGNUP_TOKEN to be configured.";
+    }
+    return null;
+  }
+  const presented = req.header("x-abi-signup-token")?.trim();
+  if (!presented || !timingSafeEqualStr(presented, expected)) {
+    return "Missing or invalid x-abi-signup-token.";
+  }
+  return null;
+}
+
+/** Constant-time string compare so the token cannot be probed byte by byte. */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
 }
 
 type AgentAuth = { orgId: string; agentId: string; scopes: string[] };
@@ -669,32 +750,43 @@ app.get("/v1/openapi.json", (_req, res) => {
 });
 
 /**
- * Bootstrap demo org — DESTRUCTIVE: wipes every org in the database.
- * Disabled unless explicitly enabled, so a deployed instance cannot have its
- * ledger erased by an unauthenticated POST.
+ * Seed a demo organization.
+ *
+ * This route used to be DESTRUCTIVE: it wiped every org in the database, and
+ * it required no authentication, so any anonymous request could erase every
+ * tenant's ledger, audit trail and vault private keys. It now creates a *new*
+ * org and touches nothing that already exists. The global wipe survives only
+ * as a local script (`npm run db:reset`) and is not reachable over HTTP.
+ *
+ * Still gated, because it mints a root guardian key: an open endpoint that
+ * hands out credentials is an abuse vector even when it is non-destructive.
  */
-const ALLOW_BOOTSTRAP =
+const ALLOW_DEMO_SEED =
   process.env.POLICYVAULT_ALLOW_BOOTSTRAP === "1" ||
   (process.env.NODE_ENV !== "production" && process.env.POLICYVAULT_ALLOW_BOOTSTRAP !== "0");
 
-app.post("/v1/demo/bootstrap", (_req, res) => {
-  if (!ALLOW_BOOTSTRAP) {
+app.post("/v1/demo/bootstrap", (req, res) => {
+  if (!ALLOW_DEMO_SEED) {
     return res.status(403).json({
       error: {
         code: "UNAUTHORIZED",
-        message: "Demo bootstrap is disabled. Set POLICYVAULT_ALLOW_BOOTSTRAP=1 to enable.",
+        message: "Demo seeding is disabled. Set POLICYVAULT_ALLOW_BOOTSTRAP=1 to enable.",
       },
     });
   }
+  const gate = signupTokenProblem(req);
+  if (gate) {
+    return res.status(403).json({ error: { code: "UNAUTHORIZED", message: gate } });
+  }
   try {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     res.json({
       ...demo,
       legal: LEGAL_FOOTER,
-      note: "Dev bootstrap. agentApiKey = agent Bearer token; guardianKey = guardian Bearer token.",
+      note: "Demo org seeded. agentApiKey = agent Bearer token; guardianKey = guardian Bearer token. Existing organizations were not modified.",
     });
   } catch (e) {
-    console.error("demo bootstrap failed:", e);
+    console.error("demo seed failed:", e);
     return res.status(500).json({
       error: {
         code: "BOOTSTRAP_FAILED",
@@ -708,8 +800,16 @@ app.post("/v1/demo/bootstrap", (_req, res) => {
 // Guardian routes (Bearer pv_guardian_... — org derived from the key)
 // ---------------------------------------------------------------------------
 
-/** Create a real org (empty agent roster). Ledger depositUsdc is optional mock float;
- * live USDC comes from on-chain vault funding + auto-credit. */
+/**
+ * Create a real org (empty agent roster).
+ *
+ * This route returns a root guardian key to an otherwise unauthenticated
+ * caller, so it is gated twice: by the feature flag, and by the signup token
+ * (mandatory in production). Roadmap P3-T1 replaces both with real accounts.
+ *
+ * Ledger `depositUsdc` is optional mock float; live USDC comes from on-chain
+ * vault funding + auto-credit.
+ */
 const ALLOW_PUBLIC_ORG_CREATE =
   process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE === "1" ||
   (process.env.NODE_ENV !== "production" && process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE !== "0");
@@ -722,6 +822,10 @@ app.post("/v1/guardian/orgs", (req, res) => {
         message: "Public org creation disabled — set POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE=1",
       },
     });
+  }
+  const gate = signupTokenProblem(req);
+  if (gate) {
+    return res.status(403).json({ error: { code: "UNAUTHORIZED", message: gate } });
   }
   const body = z
     .object({

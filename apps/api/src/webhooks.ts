@@ -10,7 +10,7 @@
  */
 import { createHmac } from "node:crypto";
 import { store } from "./store.js";
-import { webhookUrlProblem } from "./webhook-url.js";
+import { webhookUrlProblem } from "./outbound-url.js";
 
 export type WebhookEvent =
   | "payment.succeeded"

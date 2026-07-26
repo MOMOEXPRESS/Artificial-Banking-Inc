@@ -16,6 +16,7 @@
 import { randomBytes } from "node:crypto";
 import { getCustodyProvider } from "@policyvault/custody";
 import type { MicroUsdc } from "@policyvault/common";
+import { outboundUrlProblem } from "../outbound-url.js";
 import type { PaymentRail, PaymentRailContext, PaymentRailResult } from "./types.js";
 
 export interface PaymentRequirements {
@@ -109,6 +110,16 @@ export async function payViaX402(args: {
   fetchImpl?: typeof fetch;
 }): Promise<{ receipt: X402Receipt; resource: unknown; contentType: string | null }> {
   const doFetch = args.fetchImpl ?? fetch;
+
+  // The seller URL comes from the agent. The policy allowlist already gates
+  // *which* destinations are permitted, but an allowlisted host can still
+  // resolve somewhere this process should not be reaching — so re-check the
+  // target itself before any request leaves.
+  const urlProblem = outboundUrlProblem(args.url, "Payment destination");
+  if (urlProblem) {
+    throw new X402Error("INVALID_DESTINATION", urlProblem);
+  }
+
   const custody = getCustodyProvider();
   const addr = await custody.getAddress(args.orgId);
   if (!addr) {

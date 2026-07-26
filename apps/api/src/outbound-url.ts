@@ -1,9 +1,16 @@
 /**
- * Webhook URL validation — blocks schemes and private/metadata targets
- * that would turn delivery into an SSRF primitive.
+ * Outbound URL validation — blocks schemes and private/metadata targets that
+ * would turn a server-side fetch into an SSRF primitive.
  *
- * Checked at registration and again immediately before each delivery attempt
- * (addresses DNS rebinding / URL edit races once store is mutable).
+ * Used by **every** path where a caller influences a URL this process will
+ * request:
+ *   - webhook registration, and again immediately before each delivery attempt
+ *     (closes DNS-rebinding / URL-edit races)
+ *   - the x402 rail, where an agent supplies the seller URL
+ *
+ * Previously only webhooks were guarded, while `pay_api` fetched agent-supplied
+ * URLs unchecked — and the shipped `api_seller` policy template allowlisted
+ * `localhost`, so an agent could drive requests into the server's own network.
  */
 
 const METADATA_HOSTS = new Set([
@@ -52,38 +59,60 @@ function isBlockedIpv6(host: string): boolean {
 }
 
 /**
- * Returns a human-readable problem string, or null if the URL is acceptable.
- * In non-production, private targets are allowed so local demos keep working.
+ * Whether this process may talk to loopback / private addresses.
+ *
+ * True in development so the bundled x402 seller and local webhook receivers
+ * keep working. In production it requires an explicit opt-in, because it is the
+ * switch that turns an agent-supplied URL into an internal network probe.
  */
-export function webhookUrlProblem(raw: string): string | null {
+export function localSellersAllowed(): boolean {
+  if (process.env.ABI_ALLOW_LOCAL_TARGETS === "1") return true;
+  if (process.env.ABI_ALLOW_LOCAL_TARGETS === "0") return false;
+  return process.env.NODE_ENV !== "production";
+}
+
+/**
+ * Returns a human-readable problem string, or null if the URL is acceptable.
+ *
+ * `label` names the caller so the message is actionable ("Webhook URL…" vs
+ * "Payment destination…").
+ */
+export function outboundUrlProblem(raw: string, label = "Outbound URL"): string | null {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    return "Webhook URL is not a valid absolute URL";
+    return `${label} is not a valid absolute URL`;
   }
   if (url.protocol === "abi:" && url.hostname === "demo-inbox") {
     return null;
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
-    return "Webhook URL must use http or https";
+    return `${label} must use http or https`;
   }
   if (url.username || url.password) {
-    return "Webhook URL must not include credentials";
-  }
-  if (process.env.NODE_ENV !== "production") {
-    return null;
+    return `${label} must not include credentials`;
   }
 
   const host = stripBrackets(url.hostname);
-  if (
+  const isPrivate =
     host === "localhost" ||
     host.endsWith(".localhost") ||
     METADATA_HOSTS.has(host) ||
     isBlockedIpv4(host) ||
-    isBlockedIpv6(host)
-  ) {
-    return "Production webhooks cannot target localhost, private, or cloud-metadata addresses";
+    isBlockedIpv6(host);
+
+  if (!isPrivate) return null;
+  // Cloud metadata is never acceptable, even in development: a leaked instance
+  // credential is not a local-convenience trade worth making.
+  if (METADATA_HOSTS.has(host) || (host === "169.254.169.254")) {
+    return `${label} cannot target a cloud metadata endpoint`;
   }
-  return null;
+  if (localSellersAllowed()) return null;
+  return `${label} cannot target localhost, private, or cloud-metadata addresses`;
+}
+
+/** Webhook-specific wrapper — same rules, caller-appropriate wording. */
+export function webhookUrlProblem(raw: string): string | null {
+  return outboundUrlProblem(raw, "Webhook URL");
 }

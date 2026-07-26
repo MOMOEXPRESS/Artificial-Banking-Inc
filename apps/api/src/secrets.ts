@@ -6,8 +6,27 @@ import { createHash } from "node:crypto";
 
 const HASH_PREFIX = "h1:";
 
+/** Publicly-known fallback. Usable in development, refused in production. */
+const DEV_PEPPER = "abi-dev-pepper-change-me";
+
+/**
+ * Salt for API-key hashing.
+ *
+ * The fallback is a literal committed to a public repository, so it provides no
+ * secrecy at all. Production must supply its own — and must fail loudly rather
+ * than silently accept the default, which is how a "temporary" dev value ends
+ * up protecting real credentials.
+ */
 export function keyPepper(): string {
-  return process.env.ABI_KEY_PEPPER ?? process.env.POLICYVAULT_KEY_PEPPER ?? "abi-dev-pepper-change-me";
+  const configured = process.env.ABI_KEY_PEPPER?.trim() || process.env.POLICYVAULT_KEY_PEPPER?.trim();
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "ABI_KEY_PEPPER is required in production. Set it to 32+ random bytes and restart; " +
+        "the built-in development value is public and provides no protection.",
+    );
+  }
+  return DEV_PEPPER;
 }
 
 export function hashSecret(raw: string): string {
@@ -22,12 +41,17 @@ export function isHashedSecret(stored: string): boolean {
 
 /**
  * Resolve a presented bearer secret against a stored column value.
- * Supports one-shot migration: plaintext rows still match until rehashed.
+ *
+ * The plaintext branch exists only for one-shot migration of rows written
+ * before hashing landed; `migrateSecretsAtRest()` rehashes them at boot, so it
+ * should never fire in practice. It is refused outright in production rather
+ * than left as a permanent downgrade path.
  */
 export function secretMatches(presented: string, stored: string): boolean {
   if (!presented || !stored) return false;
   if (stored.startsWith("revoked_")) return false;
   if (stored.startsWith(HASH_PREFIX)) return hashSecret(presented) === stored;
+  if (process.env.NODE_ENV === "production") return false;
   return presented === stored;
 }
 

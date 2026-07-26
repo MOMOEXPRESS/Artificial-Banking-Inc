@@ -35,7 +35,7 @@ afterEach(() => {
 
 describe("runAbiAgent", () => {
   it("surveys agents and approvals with tools", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const res = await runAbiAgent(demo.orgId, "how are the agents and any pending approvals?");
     assert.ok(res.toolsUsed.includes("list_agents"));
     assert.ok(res.toolsUsed.includes("pending_approvals"));
@@ -44,7 +44,7 @@ describe("runAbiAgent", () => {
   });
 
   it("reuses prior tools on a short follow-up", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const first = await runAbiAgent(demo.orgId, "list our agents");
     assert.ok(first.toolsUsed.includes("list_agents"));
     const second = await runAbiAgent(demo.orgId, "what about them?", [
@@ -59,7 +59,7 @@ describe("runAbiAgent", () => {
   });
 
   it("drafts a marketing blurb without moving money", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const res = await runAbiAgent(demo.orgId, "draft a marketing blurb");
     assert.ok(res.toolsUsed.includes("draft_marketing_blurb"));
     assert.match(res.answer, /Draft \(not published/);
@@ -67,14 +67,14 @@ describe("runAbiAgent", () => {
   });
 
   it("reports denials and books health", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const res = await runAbiAgent(demo.orgId, "any denials? are the books clean?");
     assert.ok(res.toolsUsed.includes("list_denials"));
     assert.ok(res.toolsUsed.includes("books_health"));
   });
 
   it("explains policy bands and quiet hours", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const policy = await runAbiAgent(demo.orgId, "show me the policy bands and ask me above");
     assert.ok(policy.toolsUsed.includes("get_policy"));
     assert.match(policy.answer, /Ask me above|HITL|Per payment/i);
@@ -86,7 +86,7 @@ describe("runAbiAgent", () => {
   });
 
   it("remembers facts and recalls them", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const saved = await runAbiAgent(demo.orgId, "Remember that Researcher only pays pricing APIs");
     assert.ok(saved.toolsUsed.includes("remember_fact"));
     assert.match(saved.answer, /Saved|Remembered|pricing/i);
@@ -97,7 +97,7 @@ describe("runAbiAgent", () => {
   });
 
   it("recommends next actions from live org state", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const res = await runAbiAgent(demo.orgId, "What should I do next?");
     assert.ok(res.toolsUsed.includes("recommend_next"));
     assert.match(res.answer, /•/);
@@ -105,14 +105,14 @@ describe("runAbiAgent", () => {
   });
 
   it("compares agents by stipend and spend", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const res = await runAbiAgent(demo.orgId, "compare our agents");
     assert.ok(res.toolsUsed.includes("compare_agents") || res.toolsUsed.includes("list_agents"));
     assert.match(res.answer, /Researcher|Writer|stipend|spend/i);
   });
 
   it("binds a named agent into agent_detail", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const bound = bindAgents(demo.orgId, "How is Researcher doing?");
     assert.ok(bound.some((a) => /researcher/i.test(a.name)));
     assert.equal(classifyIntent("How is Researcher?"), "agent_detail");
@@ -125,7 +125,7 @@ describe("runAbiAgent", () => {
   });
 
   it("explains a denial against policy bands", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const agents = store.listAgents(demo.orgId);
     const agent = agents[0]!;
     store.addDecision({
@@ -146,7 +146,7 @@ describe("runAbiAgent", () => {
   });
 
   it("surveys governance seats", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const res = await runAbiAgent(demo.orgId, "who can approve payments?");
     assert.ok(res.toolsUsed.includes("governance_status"));
     assert.match(res.answer, /guardian|quorum|approve|founding owner/i);
@@ -154,14 +154,14 @@ describe("runAbiAgent", () => {
   });
 
   it("does not treat Researcher as research budget keyword", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const res = await runAbiAgent(demo.orgId, "How is Researcher?");
     assert.ok(res.toolsUsed.includes("agent_detail"));
     assert.ok(!res.toolsUsed.includes("list_budgets"));
   });
 
   it("bindEntities pulls amount and destination fragments", () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const e = bindEntities(demo.orgId, "Why was $25 to api.pricey.example blocked?");
     assert.equal(e.amountUsdc, "25");
     assert.ok(
@@ -170,7 +170,7 @@ describe("runAbiAgent", () => {
   });
 
   it("queues a MaltBook proposal for HITL without posting", async () => {
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const res = await runAbiAgent(demo.orgId, "Propose a MaltBook post about our agents");
     assert.ok(res.toolsUsed.includes("propose_external_action"));
     assert.ok(res.externalAction);
@@ -189,7 +189,7 @@ describe("runLlmToolLoop", () => {
   it("returns null when LLM disabled", async () => {
     process.env.ABI_CHAT_LLM = "0";
     process.env.OPENAI_API_KEY = "sk-test";
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const res = await runLlmToolLoop(demo.orgId, "how are the agents?");
     assert.equal(res, null);
   });
@@ -197,7 +197,7 @@ describe("runLlmToolLoop", () => {
   it("executes tool_calls from a mocked OpenAI response", async () => {
     process.env.ABI_CHAT_LLM = "1";
     process.env.OPENAI_API_KEY = "sk-test";
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
 
     const originalFetch = globalThis.fetch;
     let calls = 0;
@@ -260,7 +260,7 @@ describe("runLlmToolLoop", () => {
   it("runAbiAgent prefers LLM when enabled", async () => {
     process.env.ABI_CHAT_LLM = "1";
     process.env.OPENAI_API_KEY = "sk-test";
-    const demo = store.bootstrapDemo();
+    const demo = store.seedDemoOrg();
     const originalFetch = globalThis.fetch;
     let n = 0;
     globalThis.fetch = (async () => {

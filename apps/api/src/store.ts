@@ -28,6 +28,7 @@ import type {
 } from "@policyvault/common";
 import { agentApiKeyIsLive, formatMicroToUsdc } from "@policyvault/common";
 import { hashSecret, isHashedSecret, lookupHash } from "./secrets.js";
+import { localSellersAllowed } from "./outbound-url.js";
 
 export type OrgStatus = "active" | "frozen" | "archived";
 export type AgentStatus = "active" | "frozen" | "archived";
@@ -882,6 +883,19 @@ CREATE TABLE IF NOT EXISTS vault_asset_events (
   at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_vault_asset_events_org ON vault_asset_events(org_id, at);
+
+-- Superseded vault keys. Rotation used to overwrite vaults.private_key in
+-- place, discarding the only key that could move funds still sitting at the old
+-- address. Retiring a key now archives it so an operator can always sweep.
+CREATE TABLE IF NOT EXISTS vault_key_archive (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  address TEXT NOT NULL,
+  private_key TEXT NOT NULL,
+  retired_at TEXT NOT NULL,
+  reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vault_key_archive_org ON vault_key_archive(org_id, retired_at);
 `);
 
 // Seed platform USDC asset once (legacy path kept for older DBs).
@@ -1294,12 +1308,19 @@ export const store = {
       }
     }
     if (!r) return undefined;
-    let scopes: string[] = ["read", "pay", "escrow"];
+    // Fail CLOSED. This previously defaulted an empty or unparseable scope list
+    // back to ["read","pay","escrow"] — so a session key created with no scopes
+    // silently received full money authority. A key that grants nothing is a
+    // configuration mistake; a key that grants everything by accident is a
+    // breach. Callers surface the empty list as INSUFFICIENT_SCOPE.
+    let scopes: string[] = [];
     try {
-      scopes = JSON.parse(String(r.scopes_json ?? "[]")) as string[];
-      if (!scopes.length) scopes = ["read", "pay", "escrow"];
+      const parsed = JSON.parse(String(r.scopes_json ?? "[]"));
+      if (Array.isArray(parsed)) {
+        scopes = parsed.filter((s): s is string => typeof s === "string");
+      }
     } catch {
-      /* defaults */
+      scopes = [];
     }
     return { agent: rowToAgent(r), scopes };
   },
@@ -2082,23 +2103,76 @@ export const store = {
   },
 
   /** Rotate org custody keypair — old address recorded in recovery_events.meta. */
-  rotateVaultKey(orgId: string): { address: `0x${string}`; previousAddress?: string } {
-    const previous = this.getVaultAddress(orgId);
+  /**
+   * Retire the current vault key and issue a new one.
+   *
+   * The previous key is **archived, not discarded**. It used to be overwritten
+   * in place with the note "Old key is discarded from the store" — so a single
+   * click in the Recovery tab permanently destroyed access to every USDC and
+   * ETH still held at the old address. Callers must check the on-chain balance
+   * before invoking this; the archive is the second line of defence.
+   */
+  rotateVaultKey(
+    orgId: string,
+    reason = "guardian_rotation",
+  ): { address: `0x${string}`; previousAddress?: string; archivedKeyId?: string } {
+    const previousAddress = this.getVaultAddress(orgId);
+    const previousKey = this.getVaultPrivateKey(orgId);
     const privateKey = generatePrivateKey();
     const address = privateKeyToAccount(privateKey).address;
-    db.prepare("UPDATE vaults SET address = ?, private_key = ? WHERE org_id = ?").run(
-      address,
-      privateKey,
-      orgId,
-    );
+    const archiveId = previousKey ? id("vkey") : undefined;
+
+    const tx = db.transaction(() => {
+      if (previousKey && previousAddress && archiveId) {
+        db.prepare(
+          "INSERT INTO vault_key_archive (id, org_id, address, private_key, retired_at, reason) VALUES (?, ?, ?, ?, ?, ?)",
+        ).run(archiveId, orgId, previousAddress, previousKey, nowIso(), reason);
+      }
+      db.prepare("UPDATE vaults SET address = ?, private_key = ? WHERE org_id = ?").run(
+        address,
+        privateKey,
+        orgId,
+      );
+    });
+    tx();
+
     this.addRecoveryEvent({
       orgId,
       kind: "vault_key_rotated",
-      note: "Org custody key rotated by guardian",
-      meta: { previousAddress: previous, newAddress: address },
+      note: "Org custody key rotated by guardian; previous key archived",
+      meta: { previousAddress, newAddress: address, archivedKeyId: archiveId },
     });
     bumpRevision();
-    return { address, previousAddress: previous };
+    return { address, previousAddress, archivedKeyId: archiveId };
+  },
+
+  /**
+   * Test-only: write a raw scopes_json value so fail-closed resolution can be
+   * exercised against rows a normal create path would never produce.
+   */
+  setSessionScopesForTests(sessionId: string, scopesJson: string): void {
+    db.prepare("UPDATE session_keys SET scopes_json = ? WHERE id = ?").run(scopesJson, sessionId);
+  },
+
+  /** Retired vault keys for an org — addresses only; secrets never leave the store. */
+  listArchivedVaultKeys(orgId: string): {
+    id: string;
+    address: string;
+    retiredAt: string;
+    reason?: string;
+  }[] {
+    return (
+      db
+        .prepare(
+          "SELECT id, address, retired_at, reason FROM vault_key_archive WHERE org_id = ? ORDER BY retired_at DESC",
+        )
+        .all(orgId) as Row[]
+    ).map((r) => ({
+      id: String(r.id),
+      address: String(r.address),
+      retiredAt: String(r.retired_at),
+      reason: r.reason ? String(r.reason) : undefined,
+    }));
   },
 
   appendChatMessage(input: {
@@ -3397,7 +3471,18 @@ export const store = {
 
   // -------------------------------------------------------------- demo
   /** Dev-only: wipe everything and seed the Maya demo org. */
-  bootstrapDemo() {
+  /**
+   * DESTRUCTIVE — deletes every organization in the database.
+   *
+   * Deliberately **not** reachable over HTTP. Until July 2026 this backed an
+   * unauthenticated `POST /v1/demo/bootstrap`, which meant any anonymous
+   * request could permanently erase every tenant's ledger, audit trail, agent
+   * keys and vault private keys — making any on-chain funds unrecoverable.
+   *
+   * It survives only as a local-development affordance: `npm run db:reset`.
+   * Do not export it through a route, a CLI flag, or an environment switch.
+   */
+  resetAllData() {
     const wipe = db.transaction(() => {
       for (const table of [
         // Child rows first — several of these carry FKs onto orgs/agents.
@@ -3446,16 +3531,26 @@ export const store = {
       }
     });
     wipe();
+  },
+
+  /**
+   * Create a fresh, self-contained demo organization with two agents and a
+   * seeded stipend. **Non-destructive** — existing organizations are untouched,
+   * so two people can try the demo without erasing each other.
+   */
+  seedDemoOrg() {
     const org = this.createOrg("Maya Research Desk", 100_000_000n); // $100 demo float
-    // Allowlist localhost so the built-in x402 demo seller is reachable — the
-    // "Buy pricing report" playground step previously refused with
-    // allowlist_miss because the seller runs on http://localhost:9402.
-    const t = this.getPolicyTemplate(org.id);
-    this.setPolicyTemplate(org.id, {
-      ...t,
-      domainAllowlist: [...t.domainAllowlist, "localhost"],
-    });
-    this.addKnownCounterparty(org.id, "localhost");
+    // The bundled x402 seller runs on http://localhost:9402, so the "Buy
+    // pricing report" mission needs localhost allowlisted. Only do that where
+    // local sellers are permitted — in production it would be an SSRF primitive.
+    if (localSellersAllowed()) {
+      const t = this.getPolicyTemplate(org.id);
+      this.setPolicyTemplate(org.id, {
+        ...t,
+        domainAllowlist: [...t.domainAllowlist, "localhost"],
+      });
+      this.addKnownCounterparty(org.id, "localhost");
+    }
     const researcher = this.createAgent(org.id, "Researcher");
     const writer = this.createAgent(org.id, "Writer");
     // Pre-fund the Researcher with a stipend so the built-in "Research brief"

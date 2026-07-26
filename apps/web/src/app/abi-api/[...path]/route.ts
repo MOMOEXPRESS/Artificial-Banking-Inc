@@ -74,15 +74,21 @@ async function proxyToOrigin(req: NextRequest, pathSegments: string[], origin: s
 }
 
 function ensureEmbedEnv() {
-  // Evaluated before the API module loads — enables demo bootstrap on Vercel production.
-  if (process.env.POLICYVAULT_ALLOW_BOOTSTRAP === undefined) {
-    process.env.POLICYVAULT_ALLOW_BOOTSTRAP = "1";
-  }
+  // NOTE: this used to force POLICYVAULT_ALLOW_BOOTSTRAP="1" here, before the
+  // API module read it — silently defeating the gate the API had put in front
+  // of a destructive, unauthenticated endpoint. Demo seeding is now opt-in via
+  // real configuration like every other flag, and it no longer wipes anything.
   if (!process.env.POLICYVAULT_DB) {
     process.env.POLICYVAULT_DB = "/tmp/policyvault.db";
   }
-  if (!process.env.ABI_KEY_PEPPER && !process.env.POLICYVAULT_KEY_PEPPER) {
-    process.env.ABI_KEY_PEPPER = "abi-vercel-demo-pepper";
+  // Likewise, a hardcoded pepper is a published secret. Fall back only outside
+  // production; production now refuses to boot without ABI_KEY_PEPPER set.
+  if (
+    process.env.NODE_ENV !== "production" &&
+    !process.env.ABI_KEY_PEPPER &&
+    !process.env.POLICYVAULT_KEY_PEPPER
+  ) {
+    process.env.ABI_KEY_PEPPER = "abi-local-embed-pepper";
   }
   process.env.ABI_EMBEDDED = "1";
 }
