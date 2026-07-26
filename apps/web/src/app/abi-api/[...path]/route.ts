@@ -98,6 +98,15 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
       const v = upstream.headers.get(pass);
       if (v) outHeaders.set(pass, v);
     }
+    // Session cookies are issued by the API but must reach the browser, and
+    // there may be several (session + CSRF) — `get` would collapse them into
+    // one comma-joined value that browsers mis-parse.
+    const setCookies =
+      typeof upstream.headers.getSetCookie === "function"
+        ? upstream.headers.getSetCookie()
+        : ([] as string[]);
+    for (const cookie of setCookies) outHeaders.append("set-cookie", cookie);
+
     outHeaders.set("Cache-Control", "no-store");
     return new NextResponse(upstream.body, { status: upstream.status, headers: outHeaders });
   } catch (e) {

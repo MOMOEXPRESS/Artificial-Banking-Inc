@@ -30,6 +30,37 @@ import { agentApiKeyIsLive, formatMicroToUsdc } from "@policyvault/common";
 import { hashSecret, isHashedSecret, lookupHash } from "./secrets.js";
 import { localSellersAllowed } from "./outbound-url.js";
 
+/** Role a user holds within one organization. */
+export type GuardianRoleName = "owner" | "approver" | "viewer";
+
+export interface UserRow {
+  id: string;
+  email: string;
+  name: string;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+export interface MembershipRow {
+  id: string;
+  userId: string;
+  orgId: string;
+  role: GuardianRoleName;
+  createdAt: string;
+  revokedAt?: string;
+}
+
+export interface InvitationRow {
+  id: string;
+  orgId: string;
+  email: string;
+  role: GuardianRoleName;
+  invitedBy?: string;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt?: string;
+}
+
 export type OrgStatus = "active" | "frozen" | "archived";
 export type AgentStatus = "active" | "frozen" | "archived";
 export type EscrowState = "locked" | "settling" | "released" | "refunded" | "timeout_refunded";
@@ -906,6 +937,69 @@ CREATE TABLE IF NOT EXISTS job_locks (
   acquired_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
+
+-- ---------------------------------------------------------------------------
+-- Identity (Phase 3).
+--
+-- Until now there were no users. "Signing in" meant pasting a bearer key that
+-- never expired, lived in browser localStorage, and could not be rotated — so
+-- any XSS was total, permanent org compromise, and a lost key meant a lost
+-- organization with no recovery. Approvals recorded whatever display name the
+-- client sent, so the audit trail named a string rather than a person.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  -- Stored lowercased; UNIQUE gives us case-insensitive identity for free.
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_login_at TEXT,
+  disabled_at TEXT
+);
+
+-- A user's role within one organization. The same person may hold different
+-- roles in different orgs, which the single-key model could not express.
+CREATE TABLE IF NOT EXISTS memberships (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  role TEXT NOT NULL DEFAULT 'approver',
+  created_at TEXT NOT NULL,
+  revoked_at TEXT,
+  UNIQUE (user_id, org_id)
+);
+CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
+CREATE INDEX IF NOT EXISTS idx_memberships_org ON memberships(org_id);
+
+-- Server-side sessions. Only the hash is stored, so a database read does not
+-- yield usable session tokens.
+CREATE TABLE IF NOT EXISTS user_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT,
+  user_agent TEXT,
+  ip TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+
+-- Invitations replace "send someone a root credential over chat".
+CREATE TABLE IF NOT EXISTS invitations (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  email TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'approver',
+  token_hash TEXT NOT NULL UNIQUE,
+  invited_by TEXT,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  accepted_at TEXT,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_invitations_org ON invitations(org_id);
 `);
 
 // Seed platform USDC asset once (legacy path kept for older DBs).
@@ -1130,6 +1224,40 @@ function parseMicroColumn(value: unknown): bigint {
     if (!Number.isFinite(n)) return 0n;
     return BigInt(Math.trunc(n));
   }
+}
+
+function rowToUser(r: Row): UserRow {
+  return {
+    id: String(r.id),
+    email: String(r.email),
+    name: String(r.name),
+    createdAt: String(r.created_at),
+    lastLoginAt: r.last_login_at ? String(r.last_login_at) : undefined,
+  };
+}
+
+function rowToMembership(r: Row): MembershipRow {
+  return {
+    id: String(r.id),
+    userId: String(r.user_id),
+    orgId: String(r.org_id),
+    role: String(r.role) as GuardianRoleName,
+    createdAt: String(r.created_at),
+    revokedAt: r.revoked_at ? String(r.revoked_at) : undefined,
+  };
+}
+
+function rowToInvitation(r: Row): InvitationRow {
+  return {
+    id: String(r.id),
+    orgId: String(r.org_id),
+    email: String(r.email),
+    role: String(r.role) as GuardianRoleName,
+    invitedBy: r.invited_by ? String(r.invited_by) : undefined,
+    createdAt: String(r.created_at),
+    expiresAt: String(r.expires_at),
+    acceptedAt: r.accepted_at ? String(r.accepted_at) : undefined,
+  };
 }
 
 function rowToSub(r: Row): SubscriptionRow {
@@ -2176,6 +2304,245 @@ export const store = {
     });
     bumpRevision();
     return { address, previousAddress, archivedKeyId: archiveId };
+  },
+
+  // ----------------------------------------------------------------- identity
+
+  createUser(input: {
+    email: string;
+    name: string;
+    passwordHash: string;
+  }): UserRow | { conflict: true } {
+    const email = input.email.trim().toLowerCase();
+    const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
+    if (existing) return { conflict: true };
+    const row: UserRow = {
+      id: id("usr"),
+      email,
+      name: input.name.trim(),
+      createdAt: nowIso(),
+    };
+    db.prepare(
+      "INSERT INTO users (id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(row.id, row.email, row.name, input.passwordHash, row.createdAt);
+    return row;
+  },
+
+  getUser(userId: string): UserRow | undefined {
+    const r = db.prepare("SELECT * FROM users WHERE id = ?").get(userId) as Row | undefined;
+    return r ? rowToUser(r) : undefined;
+  },
+
+  /** Returns the row *with* its hash — only the login path should call this. */
+  findUserCredentialsByEmail(
+    email: string,
+  ): { user: UserRow; passwordHash: string; disabled: boolean } | undefined {
+    const r = db.prepare("SELECT * FROM users WHERE email = ?").get(email.trim().toLowerCase()) as
+      | Row
+      | undefined;
+    if (!r) return undefined;
+    return {
+      user: rowToUser(r),
+      passwordHash: String(r.password_hash),
+      disabled: Boolean(r.disabled_at),
+    };
+  },
+
+  setUserPassword(userId: string, passwordHash: string): void {
+    db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(passwordHash, userId);
+    // Changing a password invalidates every existing session — otherwise a
+    // stolen session survives the very action taken to contain it.
+    db.prepare(
+      "UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+    ).run(nowIso(), userId);
+    bumpRevision();
+  },
+
+  markUserLogin(userId: string): void {
+    db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").run(nowIso(), userId);
+  },
+
+  // -------------------------------------------------------------- memberships
+
+  addMembership(userId: string, orgId: string, role: GuardianRoleName): MembershipRow {
+    const row: MembershipRow = {
+      id: id("mem"),
+      userId,
+      orgId,
+      role,
+      createdAt: nowIso(),
+    };
+    db.prepare(
+      `INSERT INTO memberships (id, user_id, org_id, role, created_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(user_id, org_id) DO UPDATE SET role = excluded.role, revoked_at = NULL`,
+    ).run(row.id, userId, orgId, role, row.createdAt);
+    bumpRevision();
+    return row;
+  },
+
+  getMembership(userId: string, orgId: string): MembershipRow | undefined {
+    const r = db
+      .prepare("SELECT * FROM memberships WHERE user_id = ? AND org_id = ? AND revoked_at IS NULL")
+      .get(userId, orgId) as Row | undefined;
+    return r ? rowToMembership(r) : undefined;
+  },
+
+  listMembershipsForUser(userId: string): (MembershipRow & { orgName: string })[] {
+    return (
+      db
+        .prepare(
+          `SELECT m.*, o.name AS org_name FROM memberships m
+           JOIN orgs o ON o.id = m.org_id
+           WHERE m.user_id = ? AND m.revoked_at IS NULL
+           ORDER BY m.created_at`,
+        )
+        .all(userId) as Row[]
+    ).map((r) => ({ ...rowToMembership(r), orgName: String(r.org_name) }));
+  },
+
+  listMembersOfOrg(orgId: string): (MembershipRow & { email: string; name: string })[] {
+    return (
+      db
+        .prepare(
+          `SELECT m.*, u.email, u.name FROM memberships m
+           JOIN users u ON u.id = m.user_id
+           WHERE m.org_id = ? AND m.revoked_at IS NULL
+           ORDER BY m.created_at`,
+        )
+        .all(orgId) as Row[]
+    ).map((r) => ({ ...rowToMembership(r), email: String(r.email), name: String(r.name) }));
+  },
+
+  revokeMembership(userId: string, orgId: string): boolean {
+    const info = db
+      .prepare(
+        "UPDATE memberships SET revoked_at = ? WHERE user_id = ? AND org_id = ? AND revoked_at IS NULL",
+      )
+      .run(nowIso(), userId, orgId);
+    return info.changes > 0;
+  },
+
+  /** Owners of an org, used to refuse removing the last one. */
+  countOwners(orgId: string): number {
+    const r = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM memberships WHERE org_id = ? AND role = 'owner' AND revoked_at IS NULL",
+      )
+      .get(orgId) as Row;
+    return Number(r.c);
+  },
+
+  // ------------------------------------------------------------------ sessions
+
+  createUserSession(input: {
+    userId: string;
+    token: string;
+    ttlMs: number;
+    userAgent?: string;
+    ip?: string;
+  }): { id: string; expiresAt: string } {
+    const sessionId = id("sess");
+    const expiresAt = new Date(Date.now() + input.ttlMs).toISOString();
+    db.prepare(
+      `INSERT INTO user_sessions (id, user_id, token_hash, created_at, expires_at, user_agent, ip)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      sessionId,
+      input.userId,
+      hashSecret(input.token),
+      nowIso(),
+      expiresAt,
+      input.userAgent?.slice(0, 200) ?? null,
+      input.ip ?? null,
+    );
+    return { id: sessionId, expiresAt };
+  },
+
+  /** Resolve a session cookie to its user. Expired and revoked rows never match. */
+  getUserBySessionToken(token: string): { user: UserRow; sessionId: string } | undefined {
+    const r = db
+      .prepare(
+        `SELECT u.*, s.id AS session_id FROM user_sessions s
+         JOIN users u ON u.id = s.user_id
+         WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ?
+           AND u.disabled_at IS NULL`,
+      )
+      .get(hashSecret(token), nowIso()) as Row | undefined;
+    if (!r) return undefined;
+    return { user: rowToUser(r), sessionId: String(r.session_id) };
+  },
+
+  revokeUserSessionByToken(token: string): void {
+    db.prepare("UPDATE user_sessions SET revoked_at = ? WHERE token_hash = ?").run(
+      nowIso(),
+      hashSecret(token),
+    );
+  },
+
+  // --------------------------------------------------------------- invitations
+
+  createInvitation(input: {
+    orgId: string;
+    email: string;
+    role: GuardianRoleName;
+    token: string;
+    invitedBy?: string;
+    ttlMs: number;
+  }): InvitationRow {
+    const row: InvitationRow = {
+      id: id("inv"),
+      orgId: input.orgId,
+      email: input.email.trim().toLowerCase(),
+      role: input.role,
+      invitedBy: input.invitedBy,
+      createdAt: nowIso(),
+      expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+    };
+    db.prepare(
+      `INSERT INTO invitations (id, org_id, email, role, token_hash, invited_by, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      row.id,
+      row.orgId,
+      row.email,
+      row.role,
+      hashSecret(input.token),
+      input.invitedBy ?? null,
+      row.createdAt,
+      row.expiresAt,
+    );
+    return row;
+  },
+
+  findLiveInvitationByToken(token: string): InvitationRow | undefined {
+    const r = db
+      .prepare(
+        `SELECT * FROM invitations
+         WHERE token_hash = ? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?`,
+      )
+      .get(hashSecret(token), nowIso()) as Row | undefined;
+    return r ? rowToInvitation(r) : undefined;
+  },
+
+  markInvitationAccepted(invitationId: string): void {
+    db.prepare("UPDATE invitations SET accepted_at = ? WHERE id = ?").run(nowIso(), invitationId);
+  },
+
+  listInvitations(orgId: string): InvitationRow[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM invitations WHERE org_id = ? AND accepted_at IS NULL AND revoked_at IS NULL ORDER BY created_at DESC",
+        )
+        .all(orgId) as Row[]
+    ).map(rowToInvitation);
+  },
+
+  revokeInvitation(orgId: string, invitationId: string): boolean {
+    const info = db
+      .prepare("UPDATE invitations SET revoked_at = ? WHERE id = ? AND org_id = ?")
+      .run(nowIso(), invitationId, orgId);
+    return info.changes > 0;
   },
 
   /**

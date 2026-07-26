@@ -2,8 +2,23 @@
 export type AgentKey = { agentId: string; name: string; key: string };
 
 export type Session = {
+  /**
+   * How this console is authenticated.
+   *
+   * `"session"` — a signed-in user. The credential is an httpOnly cookie the
+   * browser holds; nothing sensitive is kept in localStorage. This is the path
+   * humans should use.
+   *
+   * `"key"` — a bearer guardian key, kept for machine access and for orgs
+   * created before accounts existed. It is stored in localStorage, so any XSS
+   * exposes it permanently — which is exactly why it is no longer the default.
+   */
+  mode?: "session" | "key";
+  /** Only set when mode === "key". */
   guardianKey: string;
   orgId?: string;
+  /** Signed-in user, when mode === "session". */
+  user?: { id: string; email: string; name: string };
   agentKeys: AgentKey[];
 };
 

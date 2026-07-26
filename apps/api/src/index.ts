@@ -50,6 +50,8 @@ import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./outbound-url.js";
 import { hashSecret } from "./secrets.js";
+import { csrfProblem } from "./auth/session.js";
+import { currentUser, registerAuthRoutes } from "./routes/auth-routes.js";
 import { registerAgentRoutes } from "./routes/agent-routes.js";
 import { startScheduler } from "./jobs/scheduler.js";
 import { registerPaymentRoutes } from "./routes/payment-routes.js";
@@ -58,7 +60,28 @@ import { registerPolicyRoutes } from "./routes/policy-routes.js";
 import { registerTreasuryRoutes } from "./routes/treasury-routes.js";
 
 const app = express();
-app.use(cors());
+/**
+ * CORS.
+ *
+ * `cors()` with no options replies `Access-Control-Allow-Origin: *`, which
+ * browsers refuse to combine with credentials — so cookie auth would silently
+ * fail cross-origin. The console calls same-origin `/abi-api` and needs no
+ * CORS at all; anything else must be named explicitly in ABI_CORS_ORIGINS.
+ */
+const corsOrigins = (process.env.ABI_CORS_ORIGINS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: corsOrigins.length ? corsOrigins : false,
+    credentials: corsOrigins.length > 0,
+  }),
+);
+// Behind the Next proxy / a load balancer, so req.ip must come from
+// X-Forwarded-For or every caller shares one rate-limit bucket.
+app.set("trust proxy", true);
 app.use(express.json());
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -384,20 +407,68 @@ function requireAgentScope(auth: AgentAuth, scope: string, res: express.Response
   return false;
 }
 
-/** Guardian auth: org is derived from the pv_guardian_ key, never from the body. */
+/**
+ * Guardian auth. The org is always derived from the credential, never from the
+ * request body.
+ *
+ * Two credential types, deliberately:
+ *   - **Session cookie** — a signed-in human. Carries a real user identity, so
+ *     approval votes and the audit trail can name a person rather than whatever
+ *     display string the client chose to send.
+ *   - **Bearer `pv_guardian_` key** — machine access and the pre-identity
+ *     migration path. Retained so existing integrations keep working; roadmap
+ *     P3-T5 narrows it to service accounts only.
+ *
+ * A session picks its org from `x-abi-org` (or the caller's only membership),
+ * and the membership row decides the role — so one person can hold different
+ * roles in different organizations, which a single key could never express.
+ */
 type GuardianRole = "owner" | "approver" | "viewer";
-type GuardianCtx = { org: OrgRow; role: GuardianRole; guardianId: string };
+type GuardianCtx = {
+  org: OrgRow;
+  role: GuardianRole;
+  /** Stable identity for quorum counting and vote attribution. */
+  guardianId: string;
+  /** Present when the caller is a signed-in human. */
+  user?: { id: string; email: string; name: string };
+  via: "session" | "key";
+};
 
 function authGuardianCtx(req: express.Request): GuardianCtx | null {
+  // Prefer the session: it is the stronger identity when both are present.
+  const me = currentUser(req);
+  if (me) {
+    const memberships = store.listMembershipsForUser(me.user.id);
+    if (memberships.length === 0) return null;
+    const requested = req.header("x-abi-org")?.trim();
+    const membership = requested
+      ? memberships.find((m) => m.orgId === requested)
+      : memberships.length === 1
+        ? memberships[0]
+        : undefined;
+    if (!membership) return null;
+    const org = store.getOrg(membership.orgId);
+    if (!org) return null;
+    return {
+      org,
+      role: membership.role,
+      // Prefixed so a user id can never collide with a guardian-seat id when
+      // quorum counts distinct approvers.
+      guardianId: `user:${me.user.id}`,
+      user: { id: me.user.id, email: me.user.email, name: me.user.name },
+      via: "session",
+    };
+  }
+
   const key = bearer(req);
   if (!key || !key.startsWith("pv_guardian_")) return null;
   const founder = store.findOrgByGuardianKey(key);
-  if (founder) return { org: founder, role: "owner", guardianId: "owner" };
+  if (founder) return { org: founder, role: "owner", guardianId: "owner", via: "key" };
   const invited = store.findGuardianByKey(key);
   if (!invited || invited.revokedAt) return null;
   const org = store.getOrg(invited.orgId);
   if (!org) return null;
-  return { org, role: invited.role, guardianId: invited.id };
+  return { org, role: invited.role, guardianId: invited.id, via: "key" };
 }
 
 /** Identity of the acting guardian, for vote attribution under quorum. */
@@ -412,6 +483,15 @@ function guardianRoute(
   return (req, res) => {
     const ctx = authGuardianCtx(req);
     if (!ctx) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+    // Cookies are sent by the browser automatically, so a cookie-authenticated
+    // mutation needs a token the attacker's origin cannot read. Bearer callers
+    // are exempt: nothing attaches those headers on their behalf.
+    if (ctx.via === "session") {
+      const problem = csrfProblem(req);
+      if (problem) {
+        return res.status(403).json({ error: { code: "CSRF_FAILED", message: problem } });
+      }
+    }
     // Stash for handlers that need role (e.g. GET /org actor).
     (req as express.Request & { guardianCtx?: GuardianCtx }).guardianCtx = ctx;
     // Viewers may read (GET/HEAD) only — mutates require approver or owner.
@@ -448,6 +528,7 @@ function guardianRoute(
   };
 }
 
+registerAuthRoutes(app);
 registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
 registerAgentRoutes(app, { guardianRoute });
 registerPolicyRoutes(app, { guardianRoute });

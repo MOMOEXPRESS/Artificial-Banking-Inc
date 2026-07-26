@@ -334,17 +334,38 @@ export default function Console() {
     localStorage.setItem("pv_prefs", JSON.stringify(p));
   }, []);
 
-  const gFetch = useCallback(async (path: string, init?: RequestInit) => {
-    const s = sessionRef.current;
-    return fetch(`${API}${path}`, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${s?.guardianKey ?? ""}`,
-        ...(init?.headers ?? {}),
-      },
-    });
+  /** Read the CSRF cookie the API set alongside the session cookie. */
+  const readCsrf = useCallback(() => {
+    if (typeof document === "undefined") return "";
+    const hit = document.cookie.split(";").find((c) => c.trim().startsWith("abi_csrf="));
+    return hit ? decodeURIComponent(hit.trim().slice("abi_csrf=".length)) : "";
   }, []);
+
+  const gFetch = useCallback(
+    async (path: string, init?: RequestInit) => {
+      const s = sessionRef.current;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...((init?.headers as Record<string, string>) ?? {}),
+      };
+      if (s?.mode === "session") {
+        // The credential is an httpOnly cookie the browser attaches itself.
+        // Because it rides along automatically, mutations need a token a
+        // cross-site page cannot read — hence the double-submit header.
+        const csrf = readCsrf();
+        if (csrf) headers["x-abi-csrf"] = csrf;
+        if (s.orgId) headers["x-abi-org"] = s.orgId;
+      } else if (s?.guardianKey) {
+        headers.Authorization = `Bearer ${s.guardianKey}`;
+      }
+      return fetch(`${API}${path}`, {
+        ...init,
+        credentials: "include",
+        headers,
+      });
+    },
+    [readCsrf],
+  );
 
   /**
    * Two-tier polling. Fast = approvals/activity; slow = journals/config.
@@ -783,7 +804,22 @@ export default function Console() {
                 Theme: {theme.resolved === "dark" ? "Dark" : "Light"} (toggle)
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => saveSession(null)}>Sign out</DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => {
+                  // Clearing local state is not signing out: the server session
+                  // would stay valid until it expired. Revoke it first.
+                  if (sessionRef.current?.mode === "session") {
+                    void fetch(`${API}/v1/auth/logout`, {
+                      method: "POST",
+                      credentials: "include",
+                      headers: { "x-abi-csrf": readCsrf() },
+                    }).catch(() => {});
+                  }
+                  saveSession(null);
+                }}
+              >
+                Sign out
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           <Popover open={notifOpen} onOpenChange={setNotifOpen}>

@@ -97,7 +97,7 @@ function downloadKeysFile(session: Session, kind: "real" | "demo") {
 }
 
 type Phase = "intro" | "ready" | "keys";
-type LoginMode = "create" | "key" | "demo";
+type LoginMode = "signin" | "signup" | "key" | "demo";
 
 export function Login({
   onLogin,
@@ -108,7 +108,11 @@ export function Login({
 }) {
   const [key, setKey] = useState("");
   const [orgName, setOrgName] = useState("");
-  const [mode, setMode] = useState<LoginMode>("create");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [inviteToken, setInviteToken] = useState("");
+  const [mode, setMode] = useState<LoginMode>("signin");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>("intro");
   const [pending, setPending] = useState<Session | null>(null);
@@ -140,7 +144,7 @@ export function Login({
       });
       if (!res.ok) throw new Error(await readApiError(res));
       const data = await res.json();
-      onLogin({ guardianKey: key.trim(), orgId: data.org.id, agentKeys: [] });
+      onLogin({ mode: "key", guardianKey: key.trim(), orgId: data.org.id, agentKeys: [] });
     } catch (e) {
       setToast(`Connect failed: ${String(e)}`, "err");
     } finally {
@@ -148,36 +152,73 @@ export function Login({
     }
   }
 
-  async function createRealOrg() {
-    const name = orgName.trim() || "My organization";
+  /**
+   * Sign in with an account. The credential is an httpOnly cookie the server
+   * sets — nothing sensitive reaches localStorage, unlike the bearer-key path.
+   */
+  async function signIn() {
     setBusy(true);
     try {
-      const res = await fetch(`${API}/v1/guardian/orgs`, {
+      const res = await fetch(`${API}/v1/auth/login`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, depositUsdc: "0" }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
-      const d = await res.json();
-      if (!res.ok) {
-        throw new Error(
-          d.error?.message ??
-            d.error?.code ??
-            `HTTP ${res.status}. If create is disabled, set POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE=1 on the API and redeploy.`,
-        );
-      }
-      const session: Session = {
-        guardianKey: d.guardianKey,
-        orgId: d.orgId,
-        agentKeys: [],
+      if (!res.ok) throw new Error(await readApiError(res));
+      const d = (await res.json()) as {
+        user: { id: string; email: string; name: string };
+        orgs: { id: string; name: string; role: string }[];
       };
-      setPending(session);
-      setPendingKind("real");
-      setSavedAck(false);
-      setCopied(null);
-      setPhase("keys");
-      setToast("Organization created — save your guardian key before entering.", "ok");
+      if (!d.orgs.length) {
+        throw new Error("This account is not a member of any organization yet.");
+      }
+      onLogin({
+        mode: "session",
+        guardianKey: "",
+        orgId: d.orgs[0].id,
+        user: d.user,
+        agentKeys: [],
+      });
     } catch (e) {
-      setToast(`Create org failed: ${String(e)}`, "err");
+      setToast(`Sign in failed: ${String(e)}`, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Create an account. With an invite token, joins that org instead of a new one. */
+  async function signUp() {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API}/v1/auth/signup`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          name: fullName.trim() || email.trim().split("@")[0],
+          password,
+          ...(inviteToken.trim()
+            ? { invitationToken: inviteToken.trim() }
+            : { orgName: orgName.trim() || undefined }),
+        }),
+      });
+      if (!res.ok) throw new Error(await readApiError(res));
+      const d = (await res.json()) as {
+        user: { id: string; email: string; name: string };
+        org: { id: string; role: string };
+      };
+      onLogin({
+        mode: "session",
+        guardianKey: "",
+        orgId: d.org.id,
+        user: d.user,
+        agentKeys: [],
+      });
+      setToast(`Welcome. You are ${d.org.role} of this organization.`, "ok");
+    } catch (e) {
+      setToast(`Sign up failed: ${String(e)}`, "err");
     } finally {
       setBusy(false);
     }
@@ -192,6 +233,7 @@ export function Login({
         throw new Error(d.error?.message ?? d.error?.code ?? `HTTP ${res.status}`);
       }
       const session: Session = {
+        mode: "key",
         guardianKey: d.guardianKey,
         orgId: d.orgId,
         agentKeys: [
@@ -258,15 +300,16 @@ export function Login({
         {showLogin && (
           <div className="login-card">
             <p className="login-sub">
-              Policy-controlled USDC wallets for AI agents. Create a real org (empty — you add
-              agents), open an existing one with a guardian key, or try the demo desk.
+              Policy-controlled USDC wallets for AI agents. Sign in with your account, or create
+              one — agent API keys are issued separately, inside the console.
             </p>
 
             <div className="login-mode-row" role="tablist" aria-label="How to enter">
               {(
                 [
-                  ["create", "Create org"],
-                  ["key", "I have a key"],
+                  ["signin", "Sign in"],
+                  ["signup", "Create account"],
+                  ["key", "Use a key"],
                   ["demo", "Demo"],
                 ] as const
               ).map(([id, label]) => (
@@ -284,24 +327,105 @@ export function Login({
               ))}
             </div>
 
-            {mode === "create" && (
+            {mode === "signin" && (
               <>
                 <div className="field">
-                  <label>Organization name</label>
+                  <label>Email</label>
                   <input
-                    placeholder="Acme Ops"
-                    value={orgName}
-                    onChange={(e) => setOrgName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && void createRealOrg()}
+                    type="email"
+                    autoComplete="username"
+                    placeholder="you@company.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     autoFocus
                   />
                 </div>
-                <button style={{ width: "100%" }} disabled={busy} onClick={() => void createRealOrg()}>
-                  Create organization
+                <div className="field">
+                  <label>Password</label>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    placeholder="••••••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && email.trim() && password && void signIn()}
+                  />
+                </div>
+                <button
+                  style={{ width: "100%" }}
+                  disabled={busy || !email.trim() || !password}
+                  onClick={() => void signIn()}
+                >
+                  Sign in
                 </button>
                 <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.55 }}>
-                  Starts empty: no demo agents, no sample stipend. You get a guardian key once, then
-                  create agents and fund the vault yourself.
+                  Your session is a secure cookie, not a key pasted into the browser. Sign out
+                  anywhere and it stops working.
+                </p>
+              </>
+            )}
+
+            {mode === "signup" && (
+              <>
+                <div className="field">
+                  <label>Email</label>
+                  <input
+                    type="email"
+                    autoComplete="username"
+                    placeholder="you@company.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <div className="field">
+                  <label>Your name</label>
+                  <input
+                    autoComplete="name"
+                    placeholder="Alex Doe"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Password</label>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="at least 12 characters"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+                {inviteToken.trim() ? null : (
+                  <div className="field">
+                    <label>Organization name</label>
+                    <input
+                      placeholder="Acme Ops"
+                      value={orgName}
+                      onChange={(e) => setOrgName(e.target.value)}
+                    />
+                  </div>
+                )}
+                <div className="field">
+                  <label>Invitation token (optional)</label>
+                  <input
+                    placeholder="paste to join an existing org instead"
+                    value={inviteToken}
+                    onChange={(e) => setInviteToken(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && email.trim() && password && void signUp()}
+                  />
+                </div>
+                <button
+                  style={{ width: "100%" }}
+                  disabled={busy || !email.trim() || !password}
+                  onClick={() => void signUp()}
+                >
+                  {inviteToken.trim() ? "Join organization" : "Create account & organization"}
+                </button>
+                <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.55 }}>
+                  Starts empty: no demo agents, no sample stipend. You add agents and fund the vault
+                  yourself.
                 </p>
               </>
             )}
