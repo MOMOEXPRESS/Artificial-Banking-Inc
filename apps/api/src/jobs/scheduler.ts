@@ -20,6 +20,7 @@ import { runAutoFundSweep } from "../auto-fund.js";
 import { runOnchainDepositSweep } from "../chain/sync-deposits.js";
 import { recordObs } from "../platform/observability.js";
 import { store } from "../store.js";
+import { checkVaultGas } from "./gas-monitor.js";
 import { runDueSubscriptions } from "./subscriptions.js";
 
 export interface JobDefinition {
@@ -87,6 +88,16 @@ export const JOBS: JobDefinition[] = [
     run: async () => {
       const { credited } = await runOnchainDepositSweep({ force: true });
       if (credited) recordObs({ name: "jobs.onchainDeposits", attrs: { credited } });
+    },
+  },
+  {
+    name: "gas-monitor",
+    // Gas drains slowly; hourly is enough lead time and keeps RPC use modest.
+    intervalMs: 60 * 60_000,
+    leaseMs: 300_000,
+    run: async () => {
+      const { checked, low } = await checkVaultGas();
+      if (low > 0) recordObs({ name: "jobs.gasMonitor", attrs: { checked, low } });
     },
   },
   {

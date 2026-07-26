@@ -13,6 +13,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { base, baseSepolia } from "viem/chains";
 import { activeChain, rpcUrl, type ChainConfig } from "./network.js";
 import { store } from "../store.js";
+import { withVaultLock } from "./vault-queue.js";
 
 const erc20Abi = [
   {
@@ -68,7 +69,26 @@ function clients(cfg: ChainConfig, privateKey: Hex) {
   return { account, publicClient, walletClient };
 }
 
+/**
+ * Broadcast a USDC transfer from an org's vault.
+ *
+ * Serialised per vault: concurrent callers previously read the same nonce and
+ * one transaction silently replaced the other, while the ledger recorded both.
+ * See chain/vault-queue.ts.
+ */
 export async function transferUsdcFromVault(input: {
+  orgId: string;
+  to: string;
+  amountMicro: bigint;
+}): Promise<VaultTransferResult> {
+  const vault = store.getVaultAddress(input.orgId);
+  if (!vault) {
+    throw new VaultTransferError("CUSTODY_UNAVAILABLE", "No vault for this org");
+  }
+  return withVaultLock(vault, () => broadcastUsdcTransfer(input));
+}
+
+async function broadcastUsdcTransfer(input: {
   orgId: string;
   to: string;
   amountMicro: bigint;

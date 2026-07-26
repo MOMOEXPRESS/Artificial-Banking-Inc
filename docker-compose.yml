@@ -19,6 +19,9 @@ x-money-env: &money-env
   POLICYVAULT_DB: /data/policyvault.db
   # No default. The API refuses to boot in production without it, deliberately.
   ABI_KEY_PEPPER: ${ABI_KEY_PEPPER:?set ABI_KEY_PEPPER to 32+ random bytes}
+  # Encrypts vault private keys at rest. Lose it and the keys are unrecoverable.
+  ABI_KEK: ${ABI_KEK:?set ABI_KEK to 32+ random bytes and back it up}
+  ABI_GAS_WARN_ETH: ${ABI_GAS_WARN_ETH:-0.002}
   CHAIN: ${CHAIN:-base-sepolia}
   CHAIN_RPC_URL: ${CHAIN_RPC_URL:-}
   CDP_API_KEY_ID: ${CDP_API_KEY_ID:-}

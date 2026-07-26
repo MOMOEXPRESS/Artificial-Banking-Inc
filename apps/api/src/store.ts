@@ -29,6 +29,7 @@ import type {
 import { agentApiKeyIsLive, formatMicroToUsdc } from "@policyvault/common";
 import { hashSecret, isHashedSecret, lookupHash } from "./secrets.js";
 import { localSellersAllowed } from "./outbound-url.js";
+import { decryptSecret, encryptSecret, isEncrypted } from "./auth/key-encryption.js";
 
 /** Role a user holds within one organization. */
 export type GuardianRoleName = "owner" | "approver" | "viewer";
@@ -401,6 +402,43 @@ function migrateSecretsAtRest(): void {
   }
 }
 
+/**
+ * C4 — encrypt any vault key still stored in plaintext.
+ *
+ * Idempotent, and runs at every boot so a database written by an earlier build
+ * is upgraded in place. Unlike the API-key migration this cannot be lazy: a
+ * plaintext key sitting in a backup is the exact exposure being closed.
+ */
+function migrateVaultKeysAtRest(): void {
+  // Each table is guarded independently: a missing one (an older schema, a
+  // partially-created database) must not stop the other from being secured.
+  const encryptColumn = (table: string, idColumn: string) => {
+    try {
+      const rows = db
+        .prepare(`SELECT ${idColumn} AS ref, org_id, private_key FROM ${table}`)
+        .all() as { ref: string; org_id: string; private_key: string | null }[];
+      const update = db.prepare(`UPDATE ${table} SET private_key = ? WHERE ${idColumn} = ?`);
+      let migrated = 0;
+      for (const row of rows) {
+        if (!row.private_key || isEncrypted(row.private_key)) continue;
+        update.run(encryptSecret(row.private_key, row.org_id), row.ref);
+        migrated += 1;
+      }
+      return migrated;
+    } catch (e) {
+      // Loud, because the alternative is silently continuing to store money
+      // keys in plaintext while believing they are encrypted.
+      console.error(`C4 vault key encryption FAILED for ${table} — keys remain plaintext:`, e);
+      return 0;
+    }
+  };
+
+  const n = encryptColumn("vaults", "org_id") + encryptColumn("vault_key_archive", "id");
+  if (n > 0) {
+    console.log(JSON.stringify({ type: "abi.migration", name: "vault-keys-encrypted", rows: n }));
+  }
+}
+
 export function getDbPath(): string {
   return DB_PATH;
 }
@@ -424,6 +462,7 @@ export function reloadDbFromDisk(): void {
   applyEssentialPragmas(db);
   installPrepareRevisionHook(db);
   migrateSecretsAtRest();
+  migrateVaultKeysAtRest();
   bumpRevision();
 }
 
@@ -1046,6 +1085,10 @@ CREATE TABLE IF NOT EXISTS step_up_grants (
 CREATE INDEX IF NOT EXISTS idx_stepup_session ON step_up_grants(session_id);
 `);
 
+// C4 — runs after every table exists, so both vaults and the key archive
+// are covered. Idempotent, so it is safe on every boot.
+migrateVaultKeysAtRest();
+
 // Seed platform USDC asset once (legacy path kept for older DBs).
 {
   const exists = db.prepare("SELECT id FROM assets WHERE id = ?").get("asset_usdc");
@@ -1388,15 +1431,16 @@ export const store = {
       db.prepare(
         "INSERT INTO orgs (id, name, status, guardian_key, deposit_micro) VALUES (?, ?, 'active', ?, ?)",
       ).run(orgId, name, guardianKeyHash, depositMicro.toString());
-      // Dev custody: a real EVM keypair generated locally so x402 payments can
-      // be signed. Production swaps this for CDP/TEE custody — the key must
-      // never leave a signer boundary there.
+      // Self-custody: a real EVM keypair generated locally so payments can be
+      // signed. Encrypted at rest under ABI_KEK, bound to this org id so a
+      // ciphertext cannot be replayed into another org's row. Managed custody
+      // (roadmap P4-T1) removes the key from this process entirely.
       const privateKey = generatePrivateKey();
       const address = privateKeyToAccount(privateKey).address;
       db.prepare("INSERT INTO vaults (org_id, address, private_key) VALUES (?, ?, ?)").run(
         orgId,
         address,
-        privateKey,
+        encryptSecret(privateKey, orgId),
       );
       db.prepare(
         "INSERT INTO accounts (id, org_id, kind, agent_id, balance_micro) VALUES (?, ?, 'org_available', NULL, ?)",
@@ -1584,11 +1628,19 @@ export const store = {
   },
 
   /** Dev-custody signing key. Never expose via any HTTP surface. */
+  /**
+   * Decrypt and return an org's signing key.
+   *
+   * Callers must treat the result as live secret material: never log it, never
+   * put it in an error message, never return it over HTTP. The only legitimate
+   * consumers are the custody provider and the chain transfer rail.
+   */
   getVaultPrivateKey(orgId: string): `0x${string}` | undefined {
     const r = db.prepare("SELECT private_key FROM vaults WHERE org_id = ?").get(orgId) as
       | Row
       | undefined;
-    return (r?.private_key as `0x${string}` | null) ?? undefined;
+    if (!r?.private_key) return undefined;
+    return decryptSecret(String(r.private_key), orgId) as `0x${string}`;
   },
 
   // -------------------------------------------------------------- accounts
@@ -2328,13 +2380,15 @@ export const store = {
 
     const tx = db.transaction(() => {
       if (previousKey && previousAddress && archiveId) {
+        // Archived keys are still live secrets — a retired address may hold
+        // funds — so they are encrypted exactly like the active one.
         db.prepare(
           "INSERT INTO vault_key_archive (id, org_id, address, private_key, retired_at, reason) VALUES (?, ?, ?, ?, ?, ?)",
-        ).run(archiveId, orgId, previousAddress, previousKey, nowIso(), reason);
+        ).run(archiveId, orgId, previousAddress, encryptSecret(previousKey, orgId), nowIso(), reason);
       }
       db.prepare("UPDATE vaults SET address = ?, private_key = ? WHERE org_id = ?").run(
         address,
-        privateKey,
+        encryptSecret(privateKey, orgId),
         orgId,
       );
     });
@@ -2748,6 +2802,11 @@ export const store = {
   /** Release a lease early so a peer can pick the job up without waiting it out. */
   releaseJobLock(name: string, holder: string): void {
     db.prepare("DELETE FROM job_locks WHERE name = ? AND holder = ?").run(name, holder);
+  },
+
+  /** Test-only: re-open the database so boot migrations run again. */
+  reloadForTests(): void {
+    reloadDbFromDisk();
   },
 
   /**

@@ -1725,8 +1725,10 @@ app.get(
         custodyModel: "self-custody",
         managedCustodyProvider: null,
         custodyDisclosure:
-          "Vault keys are generated and held by this application. They are NOT in Coinbase CDP, " +
-          "an HSM, or MPC custody. Treat this deployment as self-custodied.",
+          "Vault keys are generated and held by this application, encrypted at rest under " +
+          "ABI_KEK. They are NOT in Coinbase CDP, an HSM, or MPC custody: a compromise of both " +
+          "the database and this process's environment still exposes them. Treat this deployment " +
+          "as self-custodied.",
         network,
         settlement:
           custodyName === "self-custody"
@@ -1738,8 +1740,11 @@ app.get(
         cdpApiKeyConfigured: productionMode,
         cdpWired: false,
         keysHashedAtRest: true,
-        // API keys are hashed at rest; vault private keys are not.
-        vaultKeysEncryptedAtRest: false,
+        // AES-256-GCM under ABI_KEK, with the org id as authenticated data.
+        vaultKeysEncryptedAtRest: true,
+        // Serialised per vault so concurrent agent payments cannot collide on
+        // the nonce and silently replace one another.
+        outboundTransactionsSerialized: true,
         note:
           custodyName === "dev-local"
             ? "Dev custody. Set CDP_API_KEY_ID + CDP_API_KEY_SECRET to switch to production mode — still self-custodied."
