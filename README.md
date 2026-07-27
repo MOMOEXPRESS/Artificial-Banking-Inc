@@ -394,6 +394,7 @@ Full plan with dependencies, complexity and priority:
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Actual posture, enforced guarantees, disclosure |
 | [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | Setup, conventions, money-path review rules |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | Deployment and go-live |
+| [`docs/OWNER-ACTIONS.md`](docs/OWNER-ACTIONS.md) | Work blocked on the repo owner: secrets, funding, legal, verification |
 | [`docs/adr/`](docs/adr/) | Decision records |
 | [`docs/strategy/`](docs/strategy/) | Positioning, GTM, fundraising |
 | [`docs/archive/`](docs/archive/) | Dated, point-in-time documents — not maintained |
