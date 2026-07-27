@@ -461,6 +461,12 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
   }
   try {
     store.applyEntries(input.orgId, settleEntries);
+    if (rail === transferMockRail.name) {
+      // The mock rail moves nothing on-chain, so the books just shed money the
+      // vault still holds. Record it as unbacked or reconciliation will read
+      // the leftover USDC as unexplained drift.
+      store.addUnbackedMicro(input.orgId, -chargedMicro);
+    }
   } catch (e) {
     // The rail may already have taken the money, but our books could not record
     // it. Release the hold so the agent's balance is not frozen forever, and

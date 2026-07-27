@@ -939,6 +939,7 @@ export default function Console() {
                   busy={busy}
                   act={act}
                   readOnly={readOnly}
+                  ledgerMode={org?.ledgerMode ?? "sandbox"}
                   initialTab={tabHint && TREASURY_TAB_SET.has(tabHint) ? tabHint : null}
                   onTabChange={(t) => setTabHint(t)}
                 />

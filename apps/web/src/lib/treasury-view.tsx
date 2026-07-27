@@ -120,6 +120,7 @@ export function TreasuryView({
   readOnly = false,
   initialTab,
   onTabChange,
+  ledgerMode = "sandbox",
 }: {
   gFetch: (path: string, init?: RequestInit) => Promise<Response>;
   busy: boolean;
@@ -127,6 +128,8 @@ export function TreasuryView({
   readOnly?: boolean;
   initialTab?: string | null;
   onTabChange?: (tab: TreasuryTab) => void;
+  /** `live` orgs hold real money and cannot book simulated deposits. */
+  ledgerMode?: "sandbox" | "live";
 }) {
   const locked = busy || readOnly;
   const [wallets, setWallets] = useState<WalletsPayload | null>(null);
@@ -162,6 +165,12 @@ export function TreasuryView({
     { id: string; symbol: string; decimals: number; chain: string; balance: string }[]
   >([]);
   const [assetId, setAssetId] = useState("asset_usdc");
+  /**
+   * USDC in a live org: real funds, no minting, sends broadcast. Other assets
+   * are still manually recorded vault holdings (chain adapters are P7-T3), so
+   * they keep the manual receive path even in a live org.
+   */
+  const usdcLive = ledgerMode === "live" && assetId === "asset_usdc";
   const [onchain, setOnchain] = useState<{
     ok: boolean;
     error?: string;
@@ -780,15 +789,32 @@ export function TreasuryView({
           <div className="card">
             <div className="card-head">
               <div>
-                <h2 style={{ margin: 0 }}>Manual ledger receive / send</h2>
+                <h2 style={{ margin: 0 }}>
+                  {usdcLive ? "Send USDC from the vault" : "Manual ledger receive / send"}
+                </h2>
                 <div className="sub">
                   {assetId === "asset_usdc"
-                    ? "Demo books only — does NOT broadcast on-chain. The real proof is Playground → Agent pays your wallet (agent /v1/agent/pay)."
+                    ? usdcLive
+                      ? "This organization holds real money. Send broadcasts a USDC transfer from the vault on-chain — the ledger only records it once the transfer succeeds. To add funds, send USDC to the vault address above."
+                      : "Simulated money — books only, nothing moves on-chain. This organization is in sandbox mode, so these balances are not backed by vault funds."
                     : `Record ${holdings.find((h) => h.id === assetId)?.symbol ?? "asset"} into vault holdings (manual until chain adapters ship).`}
                 </div>
               </div>
+              {assetId === "asset_usdc" && (
+                <span className={`wallet-hero-pill ${usdcLive ? "" : "warn"}`}>
+                  {usdcLive ? "Live · real funds" : "Sandbox · simulated"}
+                </span>
+              )}
             </div>
             <div className="grid g-2 fill">
+              {usdcLive ? (
+                <div className="faint" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+                  <b style={{ display: "block", marginBottom: 4 }}>Adding funds</b>
+                  Send USDC on {wallets?.asset.chain ?? "base-sepolia"} to the vault address. The
+                  deposit sweep credits it automatically once the transfer confirms — there is no
+                  way to add balance that did not arrive.
+                </div>
+              ) : (
               <Form {...depositForm}>
                 <form
                   style={{ display: "flex", flexDirection: "column", gap: 12 }}
@@ -806,7 +832,9 @@ export function TreasuryView({
                       await refresh();
                       await refreshOnchain();
                       depositForm.reset({ amountUsdc: "100" });
-                      return `Received ${j.amountUsdc} ${j.symbol ?? "USDC"} into the vault.`;
+                      return j.simulated
+                        ? `Recorded a simulated ${j.amountUsdc} ${j.symbol ?? "USDC"} deposit — not backed by vault funds.`
+                        : `Received ${j.amountUsdc} ${j.symbol ?? "USDC"} into the vault.`;
                     }),
                   )}
                 >
@@ -830,6 +858,7 @@ export function TreasuryView({
                   </Button>
                 </form>
               </Form>
+              )}
 
               <Form {...withdrawForm}>
                 <form
@@ -849,7 +878,9 @@ export function TreasuryView({
                       withdrawForm.reset({ amountUsdc: "", destination: "" });
                       await refresh();
                       await refreshOnchain();
-                      return `Sent ${j.amountUsdc} ${j.symbol ?? "USDC"} from the vault.`;
+                      return j.simulated
+                        ? `Recorded a simulated ${j.amountUsdc} ${j.symbol ?? "USDC"} outflow — nothing moved on-chain.`
+                        : `Sent ${j.amountUsdc} ${j.symbol ?? "USDC"} from the vault${j.txHash ? ` · ${String(j.txHash).slice(0, 10)}…` : ""}.`;
                     }),
                   )}
                 >

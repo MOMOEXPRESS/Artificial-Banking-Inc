@@ -29,7 +29,8 @@ export type WebhookEvent =
   | "treasury.move.pending"
   | "treasury.move.executed"
   | "treasury.recovery"
-  | "treasury.onchain_deposit";
+  | "treasury.onchain_deposit"
+  | "treasury.drift.detected";
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [2_000, 10_000];

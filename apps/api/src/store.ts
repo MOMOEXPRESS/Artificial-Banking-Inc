@@ -751,6 +751,15 @@ for (const migration of [
   "ALTER TABLE pay_events ADD COLUMN org_id TEXT",
   "ALTER TABLE orgs ADD COLUMN settings_json TEXT",
   "ALTER TABLE guardians ADD COLUMN conditions_json TEXT",
+  // Phase 7: an org either holds real money or simulates it. Existing rows
+  // default to 'sandbox' deliberately — every org created before this column
+  // could mint unbacked balance, so calling any of them 'live' would repeat
+  // the untruth this phase removes.
+  "ALTER TABLE orgs ADD COLUMN ledger_mode TEXT NOT NULL DEFAULT 'sandbox'",
+  // Running total of ledger money that is NOT backed by vault funds:
+  // simulated credits add, simulated debits subtract. Expected on-chain
+  // balance = -(external) - unbacked_micro.
+  "ALTER TABLE orgs ADD COLUMN unbacked_micro TEXT NOT NULL DEFAULT '0'",
 ]) {
   try {
     db.exec(migration);
@@ -1513,9 +1522,25 @@ export const store = {
     const guardianKey = `pv_guardian_${randomBytes(12).toString("hex")}`;
     const guardianKeyHash = hashSecret(guardianKey);
     const tx = db.transaction(() => {
+      // An opening balance nobody sent on-chain is simulated money, so an org
+      // seeded with one is a sandbox org. Orgs that start empty are live: the
+      // only way to add money is to send USDC to the vault address.
+      //
+      // `unbacked_micro` stays 0 even for a seeded org: the opening balance is
+      // written straight onto org:available and never debits `external`, so
+      // -(external) already excludes it. Counting it here would subtract it
+      // twice and make every seeded org look short by its own float.
+      const ledgerMode = depositMicro > 0n ? "sandbox" : "live";
       db.prepare(
-        "INSERT INTO orgs (id, name, status, guardian_key, deposit_micro) VALUES (?, ?, 'active', ?, ?)",
-      ).run(orgId, name, guardianKeyHash, depositMicro.toString());
+        "INSERT INTO orgs (id, name, status, guardian_key, deposit_micro, ledger_mode, unbacked_micro) VALUES (?, ?, 'active', ?, ?, ?, ?)",
+      ).run(
+        orgId,
+        name,
+        guardianKeyHash,
+        depositMicro.toString(),
+        ledgerMode,
+        "0",
+      );
       // Self-custody: a real EVM keypair generated locally so payments can be
       // signed. Encrypted at rest under ABI_KEK, bound to this org id so a
       // ciphertext cannot be replayed into another org's row. Managed custody
@@ -4372,6 +4397,54 @@ export const store = {
       journalsReplayed: journals.length,
       drift,
     };
+  },
+
+  // ------------------------------------------------------- ledger backing
+
+  /**
+   * `live` orgs may only hold money that arrived on-chain. `sandbox` orgs may
+   * mint ledger balance for demos, and everything they hold is marked as
+   * simulated wherever it surfaces.
+   */
+  getOrgLedgerMode(orgId: string): "sandbox" | "live" {
+    const r = db.prepare("SELECT ledger_mode FROM orgs WHERE id = ?").get(orgId) as Row | undefined;
+    return r?.ledger_mode === "live" ? "live" : "sandbox";
+  },
+
+  setOrgLedgerMode(orgId: string, mode: "sandbox" | "live"): void {
+    db.prepare("UPDATE orgs SET ledger_mode = ? WHERE id = ?").run(mode, orgId);
+  },
+
+  /** Ledger money not backed by vault funds. See `unbacked_micro` migration. */
+  getUnbackedMicro(orgId: string): bigint {
+    const r = db.prepare("SELECT unbacked_micro FROM orgs WHERE id = ?").get(orgId) as
+      | Row
+      | undefined;
+    return BigInt((r?.unbacked_micro as string | undefined) ?? "0");
+  },
+
+  /**
+   * Record that ledger balance moved without a matching on-chain movement.
+   * Positive for simulated credits (sandbox deposit), negative for simulated
+   * debits (mock-rail settlement, book-only withdrawal).
+   */
+  addUnbackedMicro(orgId: string, deltaMicro: bigint): bigint {
+    const next = this.getUnbackedMicro(orgId) + deltaMicro;
+    db.prepare("UPDATE orgs SET unbacked_micro = ? WHERE id = ?").run(next.toString(), orgId);
+    return next;
+  },
+
+  /**
+   * What the vault's on-chain USDC balance should be if the books are true.
+   *
+   * Every internal credit is matched by a debit to the `external` contra
+   * account, so `-(external)` is the net money the ledger believes it holds.
+   * Subtracting the unbacked total leaves only money that really moved.
+   */
+  expectedOnchainMicro(orgId: string): bigint {
+    const external =
+      this.getAccountMap(orgId).get(`org:${orgId}:external`)?.balanceMicro ?? 0n;
+    return -external - this.getUnbackedMicro(orgId);
   },
 
   listOrgIds(): string[] {

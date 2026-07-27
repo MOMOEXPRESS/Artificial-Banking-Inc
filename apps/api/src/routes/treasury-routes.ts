@@ -37,6 +37,7 @@ import {
 } from "../chain/sync-deposits.js";
 import { activeChain } from "../chain/network.js";
 import { readVaultOnchain } from "../chain/deposits.js";
+import { transferUsdcFromVault, VaultTransferError } from "../chain/transfer.js";
 
 type GuardianRoute = (
   handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
@@ -548,7 +549,14 @@ export function registerTreasuryRoutes(
     }),
   );
 
-  /** Recorded deposit into org treasury / vault holdings. */
+  /**
+   * Recorded deposit into org treasury / vault holdings.
+   *
+   * Live orgs cannot mint here: ledger balance must originate from USDC that
+   * actually arrived at the vault address (credited by the on-chain deposit
+   * sweep). Sandbox orgs may still book simulated money, tracked in
+   * `unbacked_micro` so on-chain reconciliation stays truthful.
+   */
   app.post(
     "/v1/guardian/treasury/deposit",
     guardianRoute((org, req, res) => {
@@ -581,13 +589,24 @@ export function registerTreasuryRoutes(
 
       // USDC remains on the double-entry spend rail; other assets use vault holdings.
       if (assetId === "asset_usdc") {
+        if (store.getOrgLedgerMode(org.id) === "live") {
+          return res.status(400).json({
+            error: {
+              code: "UNBACKED_DEPOSIT_REFUSED",
+              message:
+                "This organization holds real money. Send USDC to the vault address instead — it is credited automatically once the transfer confirms.",
+              vaultAddress: store.getVaultAddress(org.id),
+              network: activeChain().id,
+            },
+          });
+        }
         const externalId = `org:${org.id}:external`;
         const orgAvail = accountId("org", org.id);
         store.applyEntries(org.id, [
           {
             id: id("j"),
             orgId: org.id,
-            memo: body.memo ?? "treasury_deposit",
+            memo: body.memo ?? "sandbox_deposit",
             createdAt: new Date().toISOString(),
             lines: [
               { accountId: externalId, deltaMicro: -amount },
@@ -595,9 +614,16 @@ export function registerTreasuryRoutes(
             ],
           },
         ]);
-        recordObs({ name: "treasury.deposit", orgId: org.id, attrs: { amountUsdc: body.amountUsdc, assetId } });
+        // Simulated money in, so the vault will not gain this amount.
+        store.addUnbackedMicro(org.id, amount);
+        recordObs({
+          name: "treasury.deposit",
+          orgId: org.id,
+          attrs: { amountUsdc: body.amountUsdc, assetId, simulated: true },
+        });
         return res.json({
           ok: true,
+          simulated: true,
           amountUsdc: body.amountUsdc,
           assetId,
           symbol: asset.symbol,
@@ -626,10 +652,16 @@ export function registerTreasuryRoutes(
     }, { ownerOnly: true }),
   );
 
-  /** Withdraw from org treasury / holdings to external (recorded outflow). */
+  /**
+   * Withdraw from org treasury / holdings.
+   *
+   * Live orgs broadcast a real USDC transfer from the vault and only book the
+   * outflow once the transfer succeeds — the ledger never claims money left
+   * unless it did. Sandbox orgs book a simulated outflow and say so.
+   */
   app.post(
     "/v1/guardian/treasury/withdraw",
-    guardianRoute((org, req, res) => {
+    guardianRoute(async (org, req, res) => {
       const body = z
         .object({
           amountUsdc: z.string(),
@@ -656,11 +688,47 @@ export function registerTreasuryRoutes(
             },
           });
         }
+
+        const live = store.getOrgLedgerMode(org.id) === "live";
+        let transfer: Awaited<ReturnType<typeof transferUsdcFromVault>> | undefined;
+        if (live) {
+          const destination = body.destination?.trim();
+          if (!destination || !/^0x[a-fA-F0-9]{40}$/.test(destination)) {
+            return res.status(400).json({
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "A 0x destination address is required to withdraw real USDC.",
+              },
+            });
+          }
+          try {
+            // Broadcast first. Booking the outflow before the chain accepts it
+            // is how a ledger ends up claiming a payment that never happened.
+            transfer = await transferUsdcFromVault({
+              orgId: org.id,
+              to: destination,
+              amountMicro: amount,
+            });
+          } catch (e) {
+            const code = e instanceof VaultTransferError ? e.code : "TRANSFER_FAILED";
+            recordObs({
+              name: "treasury.withdraw.failed",
+              orgId: org.id,
+              attrs: { code, amountUsdc: body.amountUsdc },
+            });
+            return res.status(400).json({
+              error: { code, message: e instanceof Error ? e.message : String(e) },
+            });
+          }
+        }
+
         store.applyEntries(org.id, [
           {
             id: id("j"),
             orgId: org.id,
-            memo: body.memo ?? `treasury_withdraw:${body.destination ?? "external"}`,
+            memo:
+              body.memo ??
+              `${live ? "treasury_withdraw" : "sandbox_withdraw"}:${body.destination ?? "external"}`,
             createdAt: new Date().toISOString(),
             lines: [
               { accountId: orgAvail, deltaMicro: -amount },
@@ -668,7 +736,23 @@ export function registerTreasuryRoutes(
             ],
           },
         ]);
-        return res.json({ ok: true, amountUsdc: body.amountUsdc, assetId, symbol: asset.symbol });
+        // A simulated outflow reduces the unbacked total: the books shed money
+        // the vault never held.
+        if (!live) store.addUnbackedMicro(org.id, -amount);
+        recordObs({
+          name: "treasury.withdraw",
+          orgId: org.id,
+          attrs: { amountUsdc: body.amountUsdc, simulated: !live },
+        });
+        return res.json({
+          ok: true,
+          simulated: !live,
+          amountUsdc: body.amountUsdc,
+          assetId,
+          symbol: asset.symbol,
+          txHash: transfer?.txHash,
+          explorerUrl: transfer?.explorerUrl,
+        });
       }
 
       let amount: bigint;

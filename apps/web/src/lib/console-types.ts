@@ -31,6 +31,10 @@ export type OrgView = {
   dailyMaxUsdc: string;
   balances: { id: string; kind: string; agentId?: string; usdc: string }[];
   vaultAddress: string;
+  /** `live` orgs hold real money; `sandbox` orgs may book simulated balance. */
+  ledgerMode?: "sandbox" | "live";
+  /** Ledger money not backed by vault funds — always "0.00" for a live org. */
+  unbackedUsdc?: string;
 };
 
 export type Decision = {

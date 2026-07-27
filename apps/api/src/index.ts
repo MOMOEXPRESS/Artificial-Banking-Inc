@@ -41,6 +41,7 @@ import {
   type OrgRow,
   type RunRow,
 } from "./store.js";
+import { reconcileOrgOnchain } from "./treasury-backing.js";
 import { startTelegramPolling, telegramEnabled, registerTelegramNotifier } from "./telegram.js";
 import { notify, registerInAppNotifier, registerNotifier } from "./platform/notifier.js";
 import { presentAnswer, setFactRephraser } from "./platform/ai.js";
@@ -951,6 +952,10 @@ app.get(
         usdc: formatMicroToUsdc(a.balanceMicro),
       })),
       vaultAddress: store.getVaultAddress(org.id),
+      // Live orgs hold real money and cannot mint; sandbox orgs can, and every
+      // surface that shows their balance says so.
+      ledgerMode: store.getOrgLedgerMode(org.id),
+      unbackedUsdc: formatMicroToUsdc(store.getUnbackedMicro(org.id)),
       legal: LEGAL_FOOTER,
     });
   }),
@@ -1695,6 +1700,17 @@ app.get(
   "/v1/guardian/reconcile",
   guardianRoute((org, _req, res) => {
     res.json({ reconciliation: store.reconcileOrg(org.id) });
+  }),
+);
+
+/**
+ * Books against the chain, rather than books against themselves.
+ * See treasury-backing.ts for what "expected" means.
+ */
+app.get(
+  "/v1/guardian/reconcile/onchain",
+  guardianRoute(async (org, _req, res) => {
+    res.json({ backing: await reconcileOrgOnchain(org.id) });
   }),
 );
 

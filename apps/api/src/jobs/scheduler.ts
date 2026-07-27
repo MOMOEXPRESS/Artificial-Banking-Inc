@@ -20,6 +20,7 @@ import { runAutoFundSweep } from "../auto-fund.js";
 import { runOnchainDepositSweep } from "../chain/sync-deposits.js";
 import { recordObs } from "../platform/observability.js";
 import { store } from "../store.js";
+import { runOnchainBackingSweep } from "../treasury-backing.js";
 import { checkVaultGas } from "./gas-monitor.js";
 import { recoverStuckSettlements } from "./settlement-recovery.js";
 import { runDueSubscriptions } from "./subscriptions.js";
@@ -111,6 +112,19 @@ export const JOBS: JobDefinition[] = [
       const { checked, failed, needsReview } = await recoverStuckSettlements();
       if (checked > 0) {
         recordObs({ name: "jobs.settlementRecovery", attrs: { checked, failed, needsReview } });
+      }
+    },
+  },
+  {
+    name: "onchain-backing",
+    // Reads one RPC balance per org. Five minutes is frequent enough to catch
+    // a drift within a support window without hammering the provider.
+    intervalMs: 5 * 60_000,
+    leaseMs: 300_000,
+    run: async () => {
+      const { checked, drifted, unreadable } = await runOnchainBackingSweep();
+      if (checked > 0 || unreadable > 0) {
+        recordObs({ name: "jobs.onchainBacking", attrs: { checked, drifted, unreadable } });
       }
     },
   },
