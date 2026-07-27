@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
 import { SmoothBarChart } from "./smooth-bar-chart";
 import { applyJudgmentBandDrag, formatBandUsd, judgmentScaleMax, MAX_BAND } from "./judgment-bands";
+import { BudgetsPanel } from "./policy-budgets-panel";
 
 export type Policy = {
   perTxMaxUsdc: string;
@@ -19,6 +20,25 @@ export type Policy = {
   hitlCategories: string[];
   quietHours?: { startHour: number; endHour: number; action: "review" | "deny" } | null;
   approvalQuorum?: number;
+  /** Per-category ceilings (P6-T3), keyed by lowercase category. */
+  categoryCaps?: Record<
+    string,
+    {
+      perTxMaxUsdc: string | null;
+      dailyMaxUsdc: string | null;
+      hitlAboveUsdc: string | null;
+      blocked: boolean;
+    }
+  >;
+  /** Time-boxed budget (P6-T4). */
+  budgetWindow?: {
+    startsAt: string | null;
+    endsAt: string | null;
+    totalMaxUsdc: string | null;
+    label: string | null;
+  } | null;
+  /** Review above this counterparty risk score (0-100); null disables. */
+  counterpartyRiskReviewAbove?: number | null;
   automation?: {
     id: string;
     name: string;
@@ -209,7 +229,9 @@ export function PolicyView({
       conditions?: { restricted?: boolean; maxApproveUsdc?: string; note?: string };
     }[]
   >([]);
-  const [tab, setTab] = useState<"limits" | "allowlists" | "rules" | "governance" | "simulate">(
+  const [tab, setTab] = useState<
+    "limits" | "allowlists" | "rules" | "governance" | "budgets" | "simulate"
+  >(
     "limits",
   );
 
@@ -366,6 +388,7 @@ export function PolicyView({
               { value: "allowlists", label: "Allowlists" },
               { value: "rules", label: "Schedule & rules" },
               { value: "governance", label: "Governance" },
+              { value: "budgets", label: "Budgets" },
               { value: "simulate", label: "Simulate" },
             ] as const
           }
@@ -1112,6 +1135,10 @@ export function PolicyView({
             </div>
           </div>
         </div>
+      )}
+
+      {tab === "budgets" && (
+        <BudgetsPanel policy={policy} gFetch={gFetch} act={act} locked={locked} />
       )}
 
       {tab === "simulate" && (
