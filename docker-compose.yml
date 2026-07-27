@@ -95,6 +95,11 @@ services:
       # Server-side proxy target. The console calls same-origin /abi-api.
       ABI_API_ORIGIN: ${ABI_API_ORIGIN:-http://api:8787}
       NEXT_PUBLIC_API_URL: /abi-api
+      # The API gates org creation and demo seeding behind this token. The
+      # console attaches it server-side in the /abi-api proxy, so it must be
+      # the SAME value the api service has — otherwise "Create organization"
+      # and the demo button both fail with a 403 the user cannot act on.
+      ABI_SIGNUP_TOKEN: ${ABI_SIGNUP_TOKEN:-}
     restart: unless-stopped
     depends_on:
       api:

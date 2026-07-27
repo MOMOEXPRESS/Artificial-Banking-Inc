@@ -64,7 +64,7 @@ so Render prompts you):
 |---|---|
 | `ABI_KEK` | `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` — **back this up; lose it and every vault key is unrecoverable** |
 | `ABI_KEY_PEPPER` | Same generator, different value |
-| `ABI_SIGNUP_TOKEN` | Same generator. Org creation refuses to serve without it in production |
+| `ABI_SIGNUP_TOKEN` | Same generator. Org creation and demo seeding refuse to serve without it in production. **Set the same value on the Vercel project too** — the console attaches it server-side in the `/abi-api` proxy, and without it "Create organization" fails with `Missing or invalid x-abi-signup-token` |
 | `ABI_CONSOLE_URL` | Your Vercel URL, e.g. `https://abi.vercel.app` |
 | `ABI_CORS_ORIGINS` | Same Vercel URL |
 | `CHAIN_RPC_URL` | A paid Base RPC (Alchemy/Infura/QuickNode) |
@@ -78,6 +78,7 @@ In the Vercel project → **Settings → Environment Variables**:
 | Variable | Value |
 |---|---|
 | `ABI_API_ORIGIN` | `https://your-api.onrender.com` — no trailing slash, no `/v1` |
+| `ABI_SIGNUP_TOKEN` | The same value you set on the API. Server-side only — never `NEXT_PUBLIC_` |
 | `NEXT_PUBLIC_API_URL` | `/abi-api` (the default; the console calls same-origin and the proxy forwards) |
 
 Redeploy. `ABI_API_ORIGIN` is read at request time by a server-side route, but

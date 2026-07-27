@@ -39,6 +39,14 @@ function resolveOrigin(): string | null {
   return null;
 }
 
+/**
+ * Routes that mint a root guardian key without an existing credential. The API
+ * gates them behind ABI_SIGNUP_TOKEN (roadmap P1-T4), and the browser must
+ * never hold that token — so the console attaches it here, server-side, where
+ * the secret already lives alongside ABI_API_ORIGIN.
+ */
+const SIGNUP_PATHS = new Set(["v1/demo/bootstrap", "v1/guardian/orgs"]);
+
 const HOP_BY_HOP = new Set([
   "connection",
   "keep-alive",
@@ -89,6 +97,18 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
   // Preserve the caller's address for the API's per-IP limits.
   const forwarded = req.headers.get("x-forwarded-for");
   if (forwarded) headers.set("x-forwarded-for", forwarded);
+
+  // Attach the signup token for the routes that need it, and only those: a
+  // token on every proxied request would end up in more logs than it needs to
+  // be in. A client-supplied header is dropped — the browser is not a place
+  // this secret can be trusted from.
+  const signupToken = process.env.ABI_SIGNUP_TOKEN?.trim();
+  const joinedPath = pathSegments.join("/");
+  if (signupToken && SIGNUP_PATHS.has(joinedPath)) {
+    headers.set("x-abi-signup-token", signupToken);
+  } else {
+    headers.delete("x-abi-signup-token");
+  }
 
   let body: ArrayBuffer | undefined;
   if (req.method !== "GET" && req.method !== "HEAD") {
