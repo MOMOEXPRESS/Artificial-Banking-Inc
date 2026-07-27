@@ -30,6 +30,35 @@ export interface PolicyRules {
    * org-level ceiling, which is the pre-existing behaviour.
    */
   orgDailyMaxMicro?: MicroUsdc;
+  /**
+   * Per-category ceilings (P6-T3), keyed by lowercase category.
+   *
+   * Amount + destination + time says nothing about WHAT the money is for,
+   * which is how finance teams actually reason about budgets: "cap inference
+   * spend at $200/day, but never cap security tooling". A category with no
+   * entry here is governed by the agent/org caps alone.
+   */
+  categoryCaps?: Record<string, CategoryCap>;
+  /** Category of this intent's destination, resolved by the runtime. */
+  destinationCategory?: string;
+  /** Spent by this agent in this category, rolling 24h (micro). */
+  categorySpentLast24hMicro?: MicroUsdc;
+  /**
+   * Time-boxed budget (P6-T4). A budget with an end date and a total ceiling:
+   * "this campaign gets $5,000 through March 31, then stops." Also the natural
+   * safety expiry for an agent nobody remembers deploying.
+   */
+  budgetWindow?: BudgetWindow;
+  /** Spent inside the current budget window (micro), injected by the runtime. */
+  windowSpentMicro?: MicroUsdc;
+  /**
+   * Send payments to review when the counterparty's risk score exceeds this
+   * (0–100, higher is riskier). Omitted disables scoring, which is the
+   * pre-existing behaviour: an allowlist hit was the only signal.
+   */
+  counterpartyRiskReviewAbove?: number;
+  /** Facts about this destination, injected by the runtime for scoring. */
+  counterpartyStats?: CounterpartyStats;
   /** Injectable clock so quiet-hours behaviour is testable and replayable. */
   nowMs?: number;
   /** Distinct guardians required to release a parked payment. Default 1. */
@@ -62,6 +91,83 @@ export interface PolicyRules {
   paysLastMinute: number;
   agentFrozen: boolean;
   orgFrozen: boolean;
+}
+
+/** A ceiling that applies only to spend in one category. */
+export interface CategoryCap {
+  perTxMaxMicro?: MicroUsdc;
+  dailyMaxMicro?: MicroUsdc;
+  hitlAboveMicro?: MicroUsdc;
+  /** Refuse this category outright — a blocklist expressed by purpose. */
+  blocked?: boolean;
+}
+
+/** A budget with a start, an end, and a total it may never exceed. */
+export interface BudgetWindow {
+  /** Epoch ms. Spending before this is refused. Omitted means "already open". */
+  startsAtMs?: number;
+  /** Epoch ms. Spending after this is refused. Omitted means "never expires". */
+  endsAtMs?: number;
+  /** Total spendable inside the window (micro). Omitted means no total cap. */
+  totalMaxMicro?: MicroUsdc;
+  /** Human label for the audit trail, e.g. "Q1 paid-acquisition test". */
+  label?: string;
+}
+
+/** What the runtime knows about a destination, for risk scoring. */
+export interface CounterpartyStats {
+  /** Epoch ms first seen. Undefined means never paid before. */
+  firstSeenMs?: number;
+  /** Successful payments to this destination, all time. */
+  payCount?: number;
+  /** Total ever paid to this destination (micro). */
+  totalPaidMicro?: MicroUsdc;
+  /** Compliance screening result, when a screener has run. */
+  screened?: "clear" | "flagged" | "unknown";
+}
+
+/**
+ * Risk score for a counterparty, 0 (established) to 100 (unknown).
+ *
+ * Deliberately a small, explainable function rather than a learned model: an
+ * operator has to be able to read a denial reason and agree with it. Learned
+ * baselines are S-6, and they need production data this system does not have.
+ */
+export function counterpartyRiskScore(
+  stats: CounterpartyStats | undefined,
+  nowMs: number = Date.now(),
+): { score: number; factors: string[] } {
+  const factors: string[] = [];
+  if (!stats || (stats.firstSeenMs === undefined && !stats.payCount)) {
+    return { score: 100, factors: ["never paid before"] };
+  }
+  if (stats.screened === "flagged") {
+    return { score: 100, factors: ["flagged by compliance screening"] };
+  }
+
+  let score = 0;
+  // Age. A counterparty known for a month is meaningfully safer than one
+  // known for an hour; past 30 days the age signal stops carrying weight.
+  const ageDays =
+    stats.firstSeenMs === undefined ? 0 : Math.max(0, (nowMs - stats.firstSeenMs) / 86_400_000);
+  const ageScore = Math.round(50 * (1 - Math.min(ageDays, 30) / 30));
+  if (ageScore > 0) factors.push(`known for ${ageDays < 1 ? "less than a day" : `${Math.floor(ageDays)}d`}`);
+  score += ageScore;
+
+  // History. Repeat payments are the strongest cheap signal of a real vendor.
+  const pays = stats.payCount ?? 0;
+  const payScore = Math.round(30 * (1 - Math.min(pays, 10) / 10));
+  if (payScore > 0) factors.push(`${pays} prior payment${pays === 1 ? "" : "s"}`);
+  score += payScore;
+
+  // Screening. Unknown is a mild penalty, not a block: most orgs run no
+  // screener, and treating that as risk would flag every payment they make.
+  if (stats.screened !== "clear") {
+    score += 20;
+    factors.push("not screened");
+  }
+
+  return { score: Math.max(0, Math.min(100, score)), factors };
 }
 
 /**
@@ -248,6 +354,75 @@ export function evaluatePolicy(
     };
   }
 
+  // Time-boxed budget (P6-T4). Checked with the hard caps because an expired
+  // budget is a spending ceiling of zero, not a soft signal.
+  if (rules.budgetWindow) {
+    const now = rules.nowMs ?? Date.now();
+    const { startsAtMs, endsAtMs, totalMaxMicro, label } = rules.budgetWindow;
+    const name = label ? `Budget "${label}"` : "This budget";
+    if (startsAtMs !== undefined && now < startsAtMs) {
+      return {
+        outcome: "deny",
+        ruleIds: ["budget_window_not_started"],
+        reasons: [`${name} has not started yet`],
+        policyVersion,
+      };
+    }
+    if (endsAtMs !== undefined && now > endsAtMs) {
+      return {
+        outcome: "deny",
+        ruleIds: ["budget_window_expired"],
+        reasons: [`${name} expired`],
+        policyVersion,
+      };
+    }
+    if (
+      totalMaxMicro !== undefined &&
+      (rules.windowSpentMicro ?? 0n) + intent.amountMicro > totalMaxMicro
+    ) {
+      return {
+        outcome: "deny",
+        ruleIds: ["budget_window_exhausted"],
+        reasons: [`${name} has no remaining balance for this payment`],
+        policyVersion,
+      };
+    }
+  }
+
+  // Category ceilings (P6-T3). Only the destination's own category applies;
+  // an uncategorised destination is governed by the agent/org caps alone.
+  const category = rules.destinationCategory ? norm(rules.destinationCategory) : undefined;
+  const categoryCap = category ? rules.categoryCaps?.[category] : undefined;
+  if (categoryCap) {
+    if (categoryCap.blocked) {
+      return {
+        outcome: "deny",
+        ruleIds: ["category_blocked"],
+        reasons: [`Spending on ${category} is not permitted`],
+        policyVersion,
+      };
+    }
+    if (categoryCap.perTxMaxMicro !== undefined && intent.amountMicro > categoryCap.perTxMaxMicro) {
+      return {
+        outcome: "deny",
+        ruleIds: ["category_per_tx_max"],
+        reasons: [`Exceeds the per-payment max for ${category}`],
+        policyVersion,
+      };
+    }
+    if (
+      categoryCap.dailyMaxMicro !== undefined &&
+      (rules.categorySpentLast24hMicro ?? 0n) + intent.amountMicro > categoryCap.dailyMaxMicro
+    ) {
+      return {
+        outcome: "deny",
+        ruleIds: ["category_daily_max"],
+        reasons: [`Exceeds the daily cap for ${category}`],
+        policyVersion,
+      };
+    }
+  }
+
   if (rules.paysLastMinute >= rules.maxPaysPerMinute) {
     return {
       outcome: "deny",
@@ -381,6 +556,33 @@ export function evaluatePolicy(
     return { outcome: action, ruleIds, reasons, policyVersion };
   }
 
+  if (
+    categoryCap?.hitlAboveMicro !== undefined &&
+    intent.amountMicro > categoryCap.hitlAboveMicro
+  ) {
+    ruleIds.push("category_hitl_above");
+    reasons.push(`Amount requires human approval for ${category} spend`);
+    return { outcome: "review", ruleIds, reasons, policyVersion };
+  }
+
+  // Counterparty risk (P6-T3) — graduated, where the allowlist is binary.
+  // Runs after the allowlist so an allowlisted-but-brand-new vendor can still
+  // be parked for a look, and before the amount threshold so the reason a
+  // payment parked is the more specific one.
+  if (rules.counterpartyRiskReviewAbove !== undefined) {
+    const { score, factors } = counterpartyRiskScore(
+      rules.counterpartyStats,
+      rules.nowMs ?? Date.now(),
+    );
+    if (score > rules.counterpartyRiskReviewAbove) {
+      ruleIds.push("counterparty_risk");
+      reasons.push(
+        `Counterparty risk ${score}/100 exceeds the ${rules.counterpartyRiskReviewAbove} threshold (${factors.join(", ")})`,
+      );
+      return { outcome: "review", ruleIds, reasons, policyVersion };
+    }
+  }
+
   if (intent.amountMicro > rules.hitlAboveMicro) {
     ruleIds.push("hitl_above");
     reasons.push("Amount requires human approval");
@@ -491,6 +693,13 @@ export type PolicyTemplate = Omit<
   | "spentLast24hMicro"
   | "orgSpentLast24hMicro"
   | "counterpartyFirstSeenMs"
+  // Runtime-injected facts about THIS intent, not configuration an operator
+  // sets. Leaving them settable would let a stored policy pin its own
+  // "spent so far" and disable the caps that read it.
+  | "destinationCategory"
+  | "categorySpentLast24hMicro"
+  | "windowSpentMicro"
+  | "counterpartyStats"
   | "paysLastMinute"
   | "agentFrozen"
   | "orgFrozen"

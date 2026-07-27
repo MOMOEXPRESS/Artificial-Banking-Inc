@@ -78,6 +78,29 @@ export function rulesFor(agentId: string, orgId: string, destination?: string): 
     counterpartyFirstSeenMs: destination
       ? store.counterpartyFirstSeenMs(orgId, destination)
       : undefined,
+    // P6-T3: what the money is FOR. Uncategorised destinations fall through
+    // to the agent/org caps, which is the pre-existing behaviour.
+    destinationCategory: destination
+      ? store.categoryForDestination(orgId, destination)
+      : undefined,
+    // Only computed when a cap for that category exists — otherwise it is a
+    // scan whose result nothing reads.
+    categorySpentLast24hMicro: (() => {
+      if (!destination) return undefined;
+      const category = store.categoryForDestination(orgId, destination);
+      if (!category || !effective.categoryCaps?.[category]) return undefined;
+      return store.spentSince(agentId, Date.now() - 24 * 60 * 60 * 1000, { category });
+    })(),
+    // P6-T4: spend inside the current budget window.
+    windowSpentMicro:
+      effective.budgetWindow?.totalMaxMicro === undefined
+        ? undefined
+        : store.spentSince(agentId, effective.budgetWindow.startsAtMs ?? 0),
+    // P6-T3: graduated counterparty risk, where the allowlist is binary.
+    counterpartyStats:
+      effective.counterpartyRiskReviewAbove === undefined || !destination
+        ? undefined
+        : store.counterpartyStats(orgId, destination),
     paysLastMinute: store.paysLastMinute(agentId),
     // Archived agents are non-spendable — same deny path as freeze.
     agentFrozen: agent.status === "frozen" || agent.status === "archived",
@@ -206,7 +229,10 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
         timeoutAt: new Date(Date.now() + timeoutMinutes * 60_000).toISOString(),
       };
       store.createEscrow(row);
-      store.recordPay(input.agentId, input.amountMicro, input.orgId);
+      store.recordPay(input.agentId, input.amountMicro, input.orgId, {
+        destination,
+        category: store.categoryForDestination(input.orgId, destination),
+      });
       emitEvent(input.orgId, "escrow.locked", {
         escrowId,
         payerAgentId: input.agentId,
@@ -511,7 +537,10 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     chargedMicro,
     txHash,
   });
-  store.recordPay(input.agentId, chargedMicro, input.orgId);
+  store.recordPay(input.agentId, chargedMicro, input.orgId, {
+    destination: input.destination,
+    category: store.categoryForDestination(input.orgId, input.destination),
+  });
   store.addKnownCounterparty(input.orgId, input.destination);
   const payload: Record<string, unknown> = {
     intentId: input.intentId,

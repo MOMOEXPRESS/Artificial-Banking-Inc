@@ -48,6 +48,38 @@ export function policyView(template: ReturnType<typeof store.getPolicyTemplate>)
         ? null
         : formatMicroToUsdc(template.orgDailyMaxMicro),
     approvalQuorum: template.approvalQuorum ?? 1,
+    categoryCaps: Object.fromEntries(
+      Object.entries(template.categoryCaps ?? {}).map(([key, cap]) => [
+        key,
+        {
+          perTxMaxUsdc:
+            cap.perTxMaxMicro === undefined ? null : formatMicroToUsdc(cap.perTxMaxMicro),
+          dailyMaxUsdc:
+            cap.dailyMaxMicro === undefined ? null : formatMicroToUsdc(cap.dailyMaxMicro),
+          hitlAboveUsdc:
+            cap.hitlAboveMicro === undefined ? null : formatMicroToUsdc(cap.hitlAboveMicro),
+          blocked: cap.blocked ?? false,
+        },
+      ]),
+    ),
+    budgetWindow: template.budgetWindow
+      ? {
+          startsAt:
+            template.budgetWindow.startsAtMs === undefined
+              ? null
+              : new Date(template.budgetWindow.startsAtMs).toISOString(),
+          endsAt:
+            template.budgetWindow.endsAtMs === undefined
+              ? null
+              : new Date(template.budgetWindow.endsAtMs).toISOString(),
+          totalMaxUsdc:
+            template.budgetWindow.totalMaxMicro === undefined
+              ? null
+              : formatMicroToUsdc(template.budgetWindow.totalMaxMicro),
+          label: template.budgetWindow.label ?? null,
+        }
+      : null,
+    counterpartyRiskReviewAbove: template.counterpartyRiskReviewAbove ?? null,
     automation: (template.automation ?? []).map((rule) => ({
       ...rule,
       when:
@@ -67,6 +99,62 @@ function versionSummary(template: ReturnType<typeof store.getPolicyTemplate>) {
     quietHours: Boolean(template.quietHours),
     automationCount: template.automation?.length ?? 0,
     approvalQuorum: template.approvalQuorum ?? 1,
+  };
+}
+
+/** Per-category ceilings, keyed by lowercase category (P6-T3). */
+const categoryCapsSchema = z
+  .record(
+    z.string().min(1).max(48),
+    z.object({
+      perTxMaxUsdc: z.string().optional(),
+      dailyMaxUsdc: z.string().optional(),
+      hitlAboveUsdc: z.string().optional(),
+      blocked: z.boolean().optional(),
+    }),
+  )
+  .nullable()
+  .optional();
+
+/** Time-boxed budget (P6-T4). null clears it. */
+const budgetWindowSchema = z
+  .object({
+    startsAt: z.string().datetime().nullable().optional(),
+    endsAt: z.string().datetime().nullable().optional(),
+    totalMaxUsdc: z.string().nullable().optional(),
+    label: z.string().max(80).optional(),
+  })
+  .nullable()
+  .optional();
+
+type CategoryCapsInput = z.infer<typeof categoryCapsSchema>;
+type BudgetWindowInput = z.infer<typeof budgetWindowSchema>;
+
+function toCategoryCaps(input: CategoryCapsInput) {
+  if (input === null || input === undefined) return undefined;
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [rawKey, cap] of Object.entries(input)) {
+    const key = rawKey.trim().toLowerCase();
+    if (!key) continue;
+    out[key] = {
+      ...(cap.perTxMaxUsdc !== undefined && { perTxMaxMicro: parseUsdcToMicro(cap.perTxMaxUsdc) }),
+      ...(cap.dailyMaxUsdc !== undefined && { dailyMaxMicro: parseUsdcToMicro(cap.dailyMaxUsdc) }),
+      ...(cap.hitlAboveUsdc !== undefined && {
+        hitlAboveMicro: parseUsdcToMicro(cap.hitlAboveUsdc),
+      }),
+      ...(cap.blocked !== undefined && { blocked: cap.blocked }),
+    };
+  }
+  return out;
+}
+
+function toBudgetWindow(input: BudgetWindowInput) {
+  if (input === null || input === undefined) return undefined;
+  return {
+    ...(input.startsAt ? { startsAtMs: Date.parse(input.startsAt) } : {}),
+    ...(input.endsAt ? { endsAtMs: Date.parse(input.endsAt) } : {}),
+    ...(input.totalMaxUsdc ? { totalMaxMicro: parseUsdcToMicro(input.totalMaxUsdc) } : {}),
+    ...(input.label ? { label: input.label } : {}),
   };
 }
 
@@ -94,6 +182,9 @@ const agentOverrideSchema = z.object({
     .nullable()
     .optional(),
   quietHoursTimezone: z.string().max(64).optional(),
+  categoryCaps: categoryCapsSchema,
+  budgetWindow: budgetWindowSchema,
+  counterpartyRiskReviewAbove: z.number().int().min(0).max(100).nullable().optional(),
 });
 
 /** Best-effort label for who changed a policy, for the audit trail. */
@@ -290,6 +381,13 @@ export function registerPolicyRoutes(
       if (body.hitlCategories) override.hitlCategories = body.hitlCategories;
       if (body.quietHours !== undefined) override.quietHours = body.quietHours ?? undefined;
       if (body.quietHoursTimezone !== undefined) override.quietHoursTimezone = body.quietHoursTimezone;
+      // null clears the override so the agent inherits the org default again;
+      // undefined leaves whatever it already had.
+      if (body.categoryCaps !== undefined) override.categoryCaps = toCategoryCaps(body.categoryCaps);
+      if (body.budgetWindow !== undefined) override.budgetWindow = toBudgetWindow(body.budgetWindow);
+      if (body.counterpartyRiskReviewAbove !== undefined) {
+        override.counterpartyRiskReviewAbove = body.counterpartyRiskReviewAbove ?? undefined;
+      }
 
       // Bands must still nest after merging, or an override could invert them
       // and quietly disable the approval step for this agent.
@@ -380,6 +478,12 @@ export function registerPolicyRoutes(
             .optional(),
           /** IANA zone the quiet-hours window is expressed in. */
           quietHoursTimezone: z.string().max(64).optional(),
+          /** Per-category ceilings. null clears every category cap. */
+          categoryCaps: categoryCapsSchema,
+          /** Time-boxed budget. null clears it. */
+          budgetWindow: budgetWindowSchema,
+          /** Review above this counterparty risk score (0-100). null disables. */
+          counterpartyRiskReviewAbove: z.number().int().min(0).max(100).nullable().optional(),
           automation: z
             .array(
               z.object({
@@ -443,6 +547,11 @@ export function registerPolicyRoutes(
         ...(body.orgDailyMaxUsdc !== undefined && {
           orgDailyMaxMicro:
             body.orgDailyMaxUsdc === null ? undefined : parseUsdcToMicro(body.orgDailyMaxUsdc),
+        }),
+        ...(body.categoryCaps !== undefined && { categoryCaps: toCategoryCaps(body.categoryCaps) }),
+        ...(body.budgetWindow !== undefined && { budgetWindow: toBudgetWindow(body.budgetWindow) }),
+        ...(body.counterpartyRiskReviewAbove !== undefined && {
+          counterpartyRiskReviewAbove: body.counterpartyRiskReviewAbove ?? undefined,
         }),
         ...(body.automation !== undefined && {
           automation: body.automation.map((rule) => {

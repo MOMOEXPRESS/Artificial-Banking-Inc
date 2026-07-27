@@ -760,6 +760,10 @@ for (const migration of [
   // simulated credits add, simulated debits subtract. Expected on-chain
   // balance = -(external) - unbacked_micro.
   "ALTER TABLE orgs ADD COLUMN unbacked_micro TEXT NOT NULL DEFAULT '0'",
+  // P6-T3: category caps need spend attributable to a category.
+  "ALTER TABLE pay_events ADD COLUMN category TEXT",
+  // P6-T3: risk scoring reads payment history per destination.
+  "ALTER TABLE pay_events ADD COLUMN destination TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -1371,6 +1375,16 @@ function rowToApproval(r: Row): ApprovalRow {
  * than throwing — a single malformed row used to 500 the entire list endpoint,
  * turning a cosmetic write bug into a total outage of the Subscriptions screen.
  */
+/**
+ * How long pay events are kept.
+ *
+ * Was 24h, because velocity and the daily cap were the only readers. Category
+ * caps and time-boxed budgets (P6-T3/T4) span weeks, and counterparty risk
+ * reads payment history, so the horizon has to cover a quarter. One row per
+ * payment makes this cheap.
+ */
+const PAY_EVENT_RETENTION_MS = 92 * 24 * 60 * 60 * 1000;
+
 function parseMicroColumn(value: unknown): bigint {
   if (typeof value === "bigint") return value;
   const raw = String(value ?? "0").trim();
@@ -2837,6 +2851,67 @@ export const store = {
     return Number.isFinite(ms) ? ms : undefined;
   },
 
+  /**
+   * Spend by one agent inside a window, optionally narrowed to a category.
+   *
+   * Time-boxed budgets and category caps both need history older than the
+   * velocity window, which is why pay_events are now retained for
+   * PAY_EVENT_RETENTION_MS rather than 24 hours.
+   */
+  spentSince(
+    agentId: string,
+    sinceMs: number,
+    opts?: { category?: string },
+  ): MicroUsdc {
+    const category = opts?.category?.trim().toLowerCase();
+    const rows = category
+      ? (db
+          .prepare(
+            "SELECT amount_micro FROM pay_events WHERE agent_id = ? AND at_ms >= ? AND category = ?",
+          )
+          .all(agentId, sinceMs, category) as Row[])
+      : (db
+          .prepare("SELECT amount_micro FROM pay_events WHERE agent_id = ? AND at_ms >= ?")
+          .all(agentId, sinceMs) as Row[]);
+    return rows.reduce((acc, r) => acc + parseMicroColumn(r.amount_micro), 0n);
+  },
+
+  /**
+   * Payment history for one destination, for risk scoring.
+   *
+   * Bounded by pay-event retention, so `payCount` means "recently", not "ever".
+   * That understates trust for a long-established vendor rather than
+   * overstating it for a new one — the safe direction to be wrong in.
+   */
+  counterpartyStats(
+    orgId: string,
+    destination: string,
+  ): { firstSeenMs?: number; payCount: number; totalPaidMicro: MicroUsdc } {
+    const key = destination.trim().toLowerCase();
+    const rows = db
+      .prepare(
+        `SELECT p.amount_micro FROM pay_events p
+         LEFT JOIN agents a ON a.id = p.agent_id
+         WHERE COALESCE(p.org_id, a.org_id) = ? AND p.destination = ?`,
+      )
+      .all(orgId, key) as Row[];
+    return {
+      firstSeenMs: this.counterpartyFirstSeenMs(orgId, key),
+      payCount: rows.length,
+      totalPaidMicro: rows.reduce((acc, r) => acc + parseMicroColumn(r.amount_micro), 0n),
+    };
+  },
+
+  /** Category an org has assigned to a destination, if any. */
+  categoryForDestination(orgId: string, destination: string): string | undefined {
+    const key = destination.trim().toLowerCase();
+    const row = db
+      .prepare("SELECT category FROM merchants WHERE org_id = ? AND key = ?")
+      .get(orgId, key) as Row | undefined;
+    const category = row?.category as string | undefined;
+    return category?.trim() ? category.trim().toLowerCase() : undefined;
+  },
+
   // -------------------------------------------------------- settlements
 
   /** Record an intent as in-flight BEFORE the rail runs. */
@@ -3348,16 +3423,28 @@ export const store = {
   },
 
   // ------------------------------------------------------------ pay events
-  recordPay(agentId: string, amountMicro: MicroUsdc, orgId?: string): void {
+  recordPay(
+    agentId: string,
+    amountMicro: MicroUsdc,
+    orgId?: string,
+    meta?: { category?: string; destination?: string },
+  ): void {
     // org_id is denormalised so the org-wide cap does not need a join per
     // evaluation, and still resolves for agents deleted since.
     const org = orgId ?? this.getAgent(agentId)?.orgId ?? null;
     db.prepare(
-      "INSERT INTO pay_events (agent_id, org_id, at_ms, amount_micro) VALUES (?, ?, ?, ?)",
-    ).run(agentId, org, Date.now(), amountMicro.toString());
+      "INSERT INTO pay_events (agent_id, org_id, at_ms, amount_micro, category, destination) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(
+      agentId,
+      org,
+      Date.now(),
+      amountMicro.toString(),
+      meta?.category?.trim().toLowerCase() ?? null,
+      meta?.destination?.trim().toLowerCase() ?? null,
+    );
     db.prepare("DELETE FROM pay_events WHERE agent_id = ? AND at_ms < ?").run(
       agentId,
-      Date.now() - 24 * 60 * 60 * 1000,
+      Date.now() - PAY_EVENT_RETENTION_MS,
     );
   },
 
