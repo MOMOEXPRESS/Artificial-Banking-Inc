@@ -45,6 +45,13 @@ import { reconcileOrgOnchain } from "./treasury-backing.js";
 import { startTelegramPolling, telegramEnabled, registerTelegramNotifier } from "./telegram.js";
 import { notify, registerInAppNotifier, registerNotifier } from "./platform/notifier.js";
 import { presentAnswer, setFactRephraser } from "./platform/ai.js";
+import {
+  AI_EGRESS_DISCLOSURE,
+  AiSettingsError,
+  aiSettingsView,
+  resolveAiEgress,
+  updateAiSettings,
+} from "./abi-agent/ai-settings.js";
 import { createOpenAiFactRephraser } from "./platform/openai-rephraser.js";
 import { recordObs, setObservabilitySink, PrometheusSink, getObservabilitySink } from "./platform/observability.js";
 import { emitEvent } from "./webhooks.js";
@@ -153,18 +160,27 @@ registerNotifier("slack", (payload) => {
 
 /** Optional phrasing layer — facts stay deterministic; LLM may polish wording. */
 if (process.env.ABI_FACT_REPHRASER === "echo") {
-  setFactRephraser({
+  setFactRephraser(() => ({
     name: "echo",
     async rewrite({ facts }) {
       return facts;
     },
+  }));
+} else if (process.env.ABI_FACT_REPHRASER !== "off") {
+  // Per organization, resolved at call time. An org that has not opted into
+  // model egress gets no rephraser and reads the deterministic facts — which
+  // is the same answer, in plainer language. See abi-agent/ai-settings.ts.
+  setFactRephraser((orgId) => {
+    const egress = resolveAiEgress(orgId);
+    return egress ? createOpenAiFactRephraser(egress) : null;
   });
-} else if (
-  process.env.OPENAI_API_KEY &&
-  (process.env.ABI_FACT_REPHRASER === "openai" || !process.env.ABI_FACT_REPHRASER)
-) {
-  setFactRephraser(createOpenAiFactRephraser(process.env.OPENAI_API_KEY));
-  console.log("ABI fact rephraser: openai");
+  console.log(
+    JSON.stringify({
+      type: "abi.ai",
+      rephraser: "per-org",
+      note: "Model egress is off by default; each org opts in under Settings.",
+    }),
+  );
 }
 
 /** Webhook channel — fans notify payloads into the existing signed delivery path. */
@@ -1183,7 +1199,7 @@ app.post(
   guardianRoute(async (org, req, res) => {
     const body = z.object({ question: z.string().max(400) }).parse(req.body);
     const raw = answerQuestion(org.id, body.question);
-    const answer = await presentAnswer(body.question, raw.answer);
+    const answer = await presentAnswer(org.id, body.question, raw.answer);
     res.json({ answer, goto: raw.goto });
   }),
 );
@@ -1217,7 +1233,7 @@ app.post(
     const raw = useAgent
       ? await runAbiAgent(org.id, body.message, prior)
       : { ...answerQuestion(org.id, body.message), toolsUsed: [] as string[] };
-    const text = await presentAnswer(body.message, raw.answer);
+    const text = await presentAnswer(org.id, body.message, raw.answer);
     const reply = store.appendChatMessage({
       orgId: org.id,
       role: "assistant",
@@ -1707,6 +1723,54 @@ app.get(
  * Books against the chain, rather than books against themselves.
  * See treasury-backing.ts for what "expected" means.
  */
+/**
+ * Where this org's financial data may go (P8-T2).
+ *
+ * The disclosure list is served alongside the setting so the console cannot
+ * show a consent toggle without showing what is being consented to.
+ */
+app.get(
+  "/v1/guardian/settings/ai",
+  guardianRoute((org, _req, res) => {
+    res.json({ ai: aiSettingsView(org.id), discloses: AI_EGRESS_DISCLOSURE });
+  }),
+);
+
+app.put(
+  "/v1/guardian/settings/ai",
+  guardianRoute(
+    (org, req, res) => {
+      const body = z
+        .object({
+          mode: z.enum(["off", "platform", "byo"]).optional(),
+          apiKey: z.string().max(200).nullable().optional(),
+          baseUrl: z.string().max(300).nullable().optional(),
+          model: z.string().max(80).nullable().optional(),
+        })
+        .parse(req.body);
+      try {
+        const ai = updateAiSettings(org.id, body);
+        // Turning egress on or off is a data-protection decision. It belongs in
+        // the audit trail next to policy changes, not only in a settings blob.
+        recordObs({
+          name: "ai.egress.changed",
+          orgId: org.id,
+          attrs: { mode: ai.mode, host: ai.egressHost ?? "none" },
+        });
+        res.json({ ai, discloses: AI_EGRESS_DISCLOSURE });
+      } catch (e) {
+        if (e instanceof AiSettingsError) {
+          return res
+            .status(400)
+            .json({ error: { code: "VALIDATION_ERROR", message: e.message } });
+        }
+        throw e;
+      }
+    },
+    { ownerOnly: true },
+  ),
+);
+
 app.get(
   "/v1/guardian/reconcile/onchain",
   guardianRoute(async (org, _req, res) => {

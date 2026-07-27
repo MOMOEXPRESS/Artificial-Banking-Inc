@@ -18,6 +18,7 @@ const { clearExternalProposalsForTests, resolveExternalProposal } = await import
 const { runLlmToolLoop } = await import("./llm-loop.js");
 const { bindAgents, bindEntities } = await import("./entities.js");
 const { classifyIntent } = await import("./intent.js");
+const { updateAiSettings } = await import("./ai-settings.js");
 
 after(() => {
   try {
@@ -194,10 +195,23 @@ describe("runLlmToolLoop", () => {
     assert.equal(res, null);
   });
 
+  it("returns null when the org has not opted into model egress", async () => {
+    // The P8-T2 default. A platform key in the environment must not be enough
+    // to start sending an organization's balances to a third party.
+    process.env.ABI_CHAT_LLM = "1";
+    process.env.OPENAI_API_KEY = "sk-test";
+    const demo = store.seedDemoOrg();
+    const res = await runLlmToolLoop(demo.orgId, "how are the agents?");
+    assert.equal(res, null);
+  });
+
   it("executes tool_calls from a mocked OpenAI response", async () => {
     process.env.ABI_CHAT_LLM = "1";
     process.env.OPENAI_API_KEY = "sk-test";
     const demo = store.seedDemoOrg();
+    // A platform key is no longer enough on its own: since P8-T2 the org must
+    // have opted into sending its data to a model provider.
+    updateAiSettings(demo.orgId, { mode: "platform" });
 
     const originalFetch = globalThis.fetch;
     let calls = 0;
@@ -261,6 +275,7 @@ describe("runLlmToolLoop", () => {
     process.env.ABI_CHAT_LLM = "1";
     process.env.OPENAI_API_KEY = "sk-test";
     const demo = store.seedDemoOrg();
+    updateAiSettings(demo.orgId, { mode: "platform" });
     const originalFetch = globalThis.fetch;
     let n = 0;
     globalThis.fetch = (async () => {

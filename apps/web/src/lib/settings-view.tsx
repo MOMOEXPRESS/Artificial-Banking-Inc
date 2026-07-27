@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Icon } from "./ui";
+import { AiEgressPanel } from "./ai-egress-panel";
 import { Button } from "@/components/ui/button";
 
 export type Setup = {
@@ -38,6 +39,7 @@ const SECTIONS = [
   { key: "recurring", label: "Recurring spend", icon: "clock" },
   { key: "webhooks", label: "Webhooks", icon: "zap" },
   { key: "console", label: "Console", icon: "sliders" },
+  { key: "ai", label: "AI & data", icon: "spark" },
   { key: "connect", label: "Connect an agent", icon: "robot" },
   { key: "danger", label: "Danger zone", icon: "alert" },
 ] as const;
@@ -698,6 +700,10 @@ export function SettingsView({
               Open Webhooks
             </Button>
           </div>
+        )}
+
+        {section === "ai" && (
+          <AiEgressPanel gFetch={gFetch} act={act} locked={busy || actorRole === "viewer"} />
         )}
 
         {section === "console" && (

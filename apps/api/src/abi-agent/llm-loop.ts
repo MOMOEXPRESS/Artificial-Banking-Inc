@@ -18,6 +18,7 @@ import {
 } from "./tools.js";
 import type { ExternalActionProposal } from "./external-actions.js";
 import { store } from "../store.js";
+import { resolveAiEgress } from "./ai-settings.js";
 
 const MAX_ROUNDS = 4;
 
@@ -198,10 +199,12 @@ export async function runLlmToolLoop(
   message: string,
   recent: ChatTurn[] = [],
 ): Promise<LlmLoopResult | null> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey || process.env.ABI_CHAT_LLM === "0") return null;
-
-  const model = process.env.ABI_OPENAI_MODEL?.trim() || "gpt-4o-mini";
+  // Egress is a per-org decision now, not a platform default. `null` means
+  // this organization has not agreed to send its financial data anywhere, so
+  // the caller falls back to the keyword assistant.
+  const egress = resolveAiEgress(orgId);
+  if (!egress) return null;
+  const { apiKey, baseUrl, model } = egress;
   const followed = resolveFollowUp(message, recent);
   const effectiveMessage = followed.query !== message ? followed.query : message;
   const history = transcriptSnippet(recent, 6);
@@ -269,7 +272,7 @@ export async function runLlmToolLoop(
   let externalAction: ExternalActionProposal | undefined;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${apiKey}`,

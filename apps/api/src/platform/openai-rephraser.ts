@@ -1,15 +1,23 @@
 /**
  * Optional OpenAI fact rephraser — only polishes language; never invents money facts.
- * Enabled when OPENAI_API_KEY is set and ABI_FACT_REPHRASER=openai (or unset with key).
+ *
+ * Credentials and endpoint are resolved PER ORGANIZATION at call time, not
+ * captured at boot from the platform key: this call sends the org's own
+ * balances and spend figures, so it obeys the same egress consent as the chat
+ * loop. See abi-agent/ai-settings.ts (P8-T2).
  */
 import type { FactRephraser } from "./ai.js";
 
-export function createOpenAiFactRephraser(apiKey: string): FactRephraser {
-  const model = process.env.ABI_OPENAI_MODEL?.trim() || "gpt-4o-mini";
+export function createOpenAiFactRephraser(config: {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+}): FactRephraser {
+  const { apiKey, baseUrl, model } = config;
   return {
     name: "openai",
     async rewrite({ question, facts }) {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${apiKey}`,
