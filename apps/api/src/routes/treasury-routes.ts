@@ -38,6 +38,7 @@ import {
 import { activeChain } from "../chain/network.js";
 import { readVaultOnchain } from "../chain/deposits.js";
 import { reconcileOrgOnchain } from "../treasury-backing.js";
+import { assetBacking, readAssetsOnchain } from "../chain/asset-adapters.js";
 import { transferUsdcFromVault, VaultTransferError } from "../chain/transfer.js";
 
 type GuardianRoute = (
@@ -211,17 +212,64 @@ export function registerTreasuryRoutes(
     }),
   );
 
+  /**
+   * Org holdings, each labelled with how it is backed.
+   *
+   * `recorded` is what the books say. `onchain` is what the chain says, for
+   * assets with an adapter — null when unknown, never 0, because a failed read
+   * must not read as an empty wallet.
+   */
   app.get(
     "/v1/guardian/assets",
-    guardianRoute((org, _req, res) => {
-      const holdings = store.listOrgAssetHoldings(org.id).map(({ asset, balanceMicro }) => ({
-        ...asset,
-        balance: formatAssetAmount(balanceMicro, asset.decimals),
-        balanceMicro: balanceMicro.toString(),
-        spendRail: asset.id === "asset_usdc",
-        onchainSync: asset.id === "asset_usdc",
-      }));
-      res.json({ assets: holdings });
+    guardianRoute(async (org, req, res) => {
+      const holdings = store.listOrgAssetHoldings(org.id);
+      const vault = store.getVaultAddress(org.id);
+      // Opt out with ?onchain=0 — the roster renders fine without a chain
+      // round trip, and some callers poll it.
+      const wantChain = req.query.onchain !== "0";
+      const reads = wantChain
+        ? await readAssetsOnchain(
+            holdings.map((h) => h.asset),
+            vault,
+          )
+        : holdings.map((h) => ({
+            assetId: h.asset.id,
+            symbol: h.asset.symbol,
+            backing: assetBacking(h.asset),
+            onchainMicro: null as string | null,
+            error: undefined as string | undefined,
+          }));
+      const byId = new Map(reads.map((r) => [r.assetId, r]));
+
+      res.json({
+        assets: holdings.map(({ asset, balanceMicro }) => {
+          const read = byId.get(asset.id);
+          const onchainMicro = read?.onchainMicro ?? null;
+          // USDC lives on the double-entry spend rail, so its authoritative
+          // comparison is the backing report, not this per-asset balance.
+          const recordedMicro = asset.id === USDC_ASSET_ID ? null : balanceMicro;
+          const drift =
+            onchainMicro != null && recordedMicro != null
+              ? BigInt(onchainMicro) - recordedMicro
+              : null;
+          return {
+            ...asset,
+            balance: formatAssetAmount(balanceMicro, asset.decimals),
+            balanceMicro: balanceMicro.toString(),
+            spendRail: asset.id === USDC_ASSET_ID,
+            onchainSync: read?.backing.kind === "chain",
+            backing: read?.backing ?? assetBacking(asset),
+            onchainMicro,
+            onchainBalance:
+              onchainMicro != null
+                ? formatAssetAmount(BigInt(onchainMicro), asset.decimals)
+                : null,
+            onchainError: read?.error,
+            driftMicro: drift?.toString() ?? null,
+            drift: drift != null ? formatAssetAmount(drift, asset.decimals) : null,
+          };
+        }),
+      });
     }),
   );
 
@@ -631,6 +679,20 @@ export function registerTreasuryRoutes(
           orgAvailableUsdc: formatMicroToUsdc(
             store.getAccountMap(org.id).get(orgAvail)?.balanceMicro ?? 0n,
           ),
+        });
+      }
+
+      // Same rule as USDC: if a balance can be read from the chain, it may not
+      // be typed in. Assets without an adapter stay manual — that is a gap in
+      // coverage, not permission to invent numbers where coverage exists.
+      if (store.getOrgLedgerMode(org.id) === "live" && assetBacking(asset).kind === "chain") {
+        return res.status(400).json({
+          error: {
+            code: "UNBACKED_DEPOSIT_REFUSED",
+            message: `${asset.symbol} balances are read from the chain. Send ${asset.symbol} to the vault address instead of recording it by hand.`,
+            vaultAddress: store.getVaultAddress(org.id),
+            chain: asset.chain,
+          },
         });
       }
 

@@ -162,15 +162,31 @@ export function TreasuryView({
   >("allocate");
   const [copied, setCopied] = useState(false);
   const [holdings, setHoldings] = useState<
-    { id: string; symbol: string; decimals: number; chain: string; balance: string }[]
+    {
+      id: string;
+      symbol: string;
+      decimals: number;
+      chain: string;
+      balance: string;
+      spendRail?: boolean;
+      onchainSync?: boolean;
+      backing?: { kind: "chain" | "chain-unconfigured" | "manual"; reason?: string };
+      onchainBalance?: string | null;
+      onchainError?: string;
+      drift?: string | null;
+    }[]
   >([]);
   const [assetId, setAssetId] = useState("asset_usdc");
+  const selectedAsset = holdings.find((h) => h.id === assetId);
+  /** True when this asset's balance is read from the chain, not typed in. */
+  const assetIsChainBacked =
+    assetId === "asset_usdc" || selectedAsset?.backing?.kind === "chain";
   /**
-   * USDC in a live org: real funds, no minting, sends broadcast. Other assets
-   * are still manually recorded vault holdings (chain adapters are P7-T3), so
-   * they keep the manual receive path even in a live org.
+   * A live org may not record balances by hand for anything the chain can
+   * answer for. Assets with no adapter keep the manual path — a coverage gap
+   * is not permission to invent numbers where coverage exists.
    */
-  const usdcLive = ledgerMode === "live" && assetId === "asset_usdc";
+  const usdcLive = ledgerMode === "live" && assetIsChainBacked;
   const [onchain, setOnchain] = useState<{
     ok: boolean;
     error?: string;
@@ -605,12 +621,24 @@ export function TreasuryView({
                       <span className="faint">
                         {h.chain}
                         {h.id === "asset_usdc" ? " · spend" : ""}
+                        {h.id !== "asset_usdc" && h.backing
+                          ? h.backing.kind === "chain"
+                            ? " · on-chain"
+                            : " · recorded"
+                          : ""}
                       </span>
                     </span>
                     <span className="wallet-asset-bal mono">
                       {Number.isNaN(n)
                         ? h.balance
                         : n.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+                      {/* A recorded balance the chain disagrees with is the
+                          multi-asset form of drift — flag it on the row. */}
+                      {h.drift && Number(h.drift) !== 0 ? (
+                        <span className="pill warn" style={{ marginLeft: 6 }}>
+                          <i /> drift {h.drift}
+                        </span>
+                      ) : null}
                     </span>
                   </button>
                 );
@@ -847,14 +875,17 @@ export function TreasuryView({
                     ? usdcLive
                       ? "This organization holds real money. Send broadcasts a USDC transfer from the vault on-chain — the ledger only records it once the transfer succeeds. To add funds, send USDC to the vault address above."
                       : "Simulated money — books only, nothing moves on-chain. This organization is in sandbox mode, so these balances are not backed by vault funds."
-                    : `Record ${holdings.find((h) => h.id === assetId)?.symbol ?? "asset"} into vault holdings (manual until chain adapters ship).`}
+                    : (selectedAsset?.backing?.reason ??
+                      `Record ${selectedAsset?.symbol ?? "asset"} into vault holdings.`)}
                 </div>
               </div>
-              {assetId === "asset_usdc" && (
-                <span className={`wallet-hero-pill ${usdcLive ? "" : "warn"}`}>
-                  {usdcLive ? "Live · real funds" : "Sandbox · simulated"}
-                </span>
-              )}
+              <span className={`wallet-hero-pill ${usdcLive ? "" : "warn"}`}>
+                {usdcLive
+                  ? "Live · real funds"
+                  : assetIsChainBacked
+                    ? "Sandbox · simulated"
+                    : "Recorded by hand"}
+              </span>
             </div>
             <div className="grid g-2 fill">
               {usdcLive ? (
