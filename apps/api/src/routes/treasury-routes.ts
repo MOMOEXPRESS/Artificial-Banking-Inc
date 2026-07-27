@@ -37,6 +37,7 @@ import {
 } from "../chain/sync-deposits.js";
 import { activeChain } from "../chain/network.js";
 import { readVaultOnchain } from "../chain/deposits.js";
+import { reconcileOrgOnchain } from "../treasury-backing.js";
 import { transferUsdcFromVault, VaultTransferError } from "../chain/transfer.js";
 
 type GuardianRoute = (
@@ -896,8 +897,12 @@ export function registerTreasuryRoutes(
         });
       }
       const { credited, transfers } = decorateOnchainTransfers(result.snap, org.id);
+      // Reuse the snapshot the sync already read — and compute backing after
+      // crediting, so the expectation includes deposits found on this pass.
+      const backing = await reconcileOrgOnchain(org.id, result.snap);
       res.json({
         onchain: { ...result.snap, transfers },
+        backing,
         newlyCredited: result.newly,
         creditedCount: result.newly.length,
         credited,

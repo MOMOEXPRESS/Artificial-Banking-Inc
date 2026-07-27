@@ -3,9 +3,8 @@
  *
  * These tests pin the backing arithmetic — expected on-chain balance is
  * `-(external) - unbacked` — and the mode rule that decides who may mint.
- * They deliberately do not touch the network: `reconcileOrgOnchain` is
- * exercised against the store, and the RPC read is covered by the sweep's
- * "unreadable is not ok" contract.
+ * They do not touch the network: the one `reconcileOrgOnchain` case exercised
+ * here is the vault-unreadable path, which returns before any RPC call.
  */
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -167,6 +166,19 @@ describe("expected on-chain balance", () => {
       amountMicro: 7_000_000n,
     });
     assert.equal(store.expectedOnchainMicro(org.id), 7_000_000n);
+  });
+});
+
+describe("reconcileOrgOnchain", () => {
+  it("reports a vault it cannot read as unchecked, never as ok", async () => {
+    const { reconcileOrgOnchain } = await import("./treasury-backing.js");
+    // No vault row, so readVaultOnchain returns before touching the network.
+    const report = await reconcileOrgOnchain("org_does_not_exist");
+    assert.equal(report.checked, false, "an unreadable vault is not reconciled");
+    assert.equal(report.ok, false, "unknown must never present as clean");
+    assert.ok(report.error, "the reason must survive to the caller");
+    // Drift is not asserted when nothing was compared.
+    assert.equal(report.driftMicro, "0");
   });
 });
 

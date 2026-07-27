@@ -197,6 +197,18 @@ export function TreasuryView({
     }[];
   } | null>(null);
   const [onchainBusy, setOnchainBusy] = useState(false);
+  /** Books vs chain. `checked: false` means unknown, not reconciled. */
+  const [backing, setBacking] = useState<{
+    ok: boolean;
+    checked: boolean;
+    error?: string;
+    onchainUsdc: string;
+    expectedUsdc: string;
+    driftUsdc: string;
+    unbackedUsdc: string;
+    ledgerMode: "sandbox" | "live";
+    at: string;
+  } | null>(null);
   const [vaultActivity, setVaultActivity] = useState<
     {
       id: string;
@@ -261,6 +273,7 @@ export function TreasuryView({
         gFetch("/v1/guardian/treasury/vault-activity").then((x) => x.json()),
       ]);
       setOnchain(d.onchain ?? null);
+      setBacking(d.backing ?? null);
       setVaultActivity(act.items ?? []);
       if ((d.creditedCount ?? 0) > 0) {
         await refresh();
@@ -686,6 +699,43 @@ export function TreasuryView({
                   </b>
                 </div>
               </div>
+
+              {backing && (
+                <div
+                  className={`banner ${backing.checked && !backing.ok ? "warn" : ""}`}
+                  style={{ marginTop: 12 }}
+                >
+                  <span className="txt">
+                    <b>
+                      {!backing.checked
+                        ? "Backing unknown"
+                        : backing.ok
+                          ? "Books match the chain"
+                          : `Drift ${backing.driftUsdc} USDC`}
+                    </b>
+                    <span>
+                      {!backing.checked ? (
+                        backing.error ??
+                        "The vault could not be read, so this is unverified rather than clean."
+                      ) : backing.ok ? (
+                        <>
+                          Vault holds {backing.onchainUsdc}, books expect {backing.expectedUsdc}.
+                          {backing.ledgerMode === "sandbox" &&
+                            ` ${backing.unbackedUsdc} of the ledger is simulated and excluded.`}
+                        </>
+                      ) : (
+                        <>
+                          Vault holds {backing.onchainUsdc} but the books expect{" "}
+                          {backing.expectedUsdc}.{" "}
+                          {Number(backing.driftUsdc) < 0
+                            ? "Money left without the ledger recording it."
+                            : "Funds arrived that the ledger has not credited."}
+                        </>
+                      )}
+                    </span>
+                  </span>
+                </div>
+              )}
 
               <p className="faint" style={{ fontSize: 12, marginTop: 10, lineHeight: 1.5 }}>
                 Agent pays to an allowlisted wallet broadcast real USDC from this vault — fund{" "}

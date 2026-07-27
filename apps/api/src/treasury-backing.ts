@@ -21,7 +21,8 @@
  * without money. Either way it needs a human.
  */
 import { formatMicroToUsdc } from "@policyvault/common";
-import { readVaultOnchain } from "./chain/deposits.js";
+import { readVaultOnchain, type OnchainVaultSnapshot } from "./chain/deposits.js";
+import { notify } from "./platform/notifier.js";
 import { recordObs } from "./platform/observability.js";
 import { store } from "./store.js";
 import { emitEvent } from "./webhooks.js";
@@ -54,13 +55,21 @@ export type OnchainBackingReport = {
  */
 const DRIFT_TOLERANCE_MICRO = 0n;
 
-export async function reconcileOrgOnchain(orgId: string): Promise<OnchainBackingReport> {
+/**
+ * @param snapshot A vault read the caller already performed. Pass it to avoid a
+ *   second RPC round trip — but only after any deposit crediting that read
+ *   triggered, or the expectation will lag the balance it is compared against.
+ */
+export async function reconcileOrgOnchain(
+  orgId: string,
+  snapshot?: OnchainVaultSnapshot,
+): Promise<OnchainBackingReport> {
   const at = new Date().toISOString();
   const ledgerMode = store.getOrgLedgerMode(orgId);
   const expected = store.expectedOnchainMicro(orgId);
   const unbacked = store.getUnbackedMicro(orgId);
   const vaultAddress = store.getVaultAddress(orgId);
-  const snap = await readVaultOnchain(vaultAddress);
+  const snap = snapshot ?? (await readVaultOnchain(vaultAddress));
 
   if (!snap.ok) {
     // An unreadable vault is not a clean reconciliation. Say "unknown" rather
@@ -145,6 +154,17 @@ export async function runOnchainBackingSweep(): Promise<{
         driftUsdc: report.driftUsdc,
         onchainUsdc: report.onchainUsdc,
         expectedUsdc: report.expectedUsdc,
+        ledgerMode: report.ledgerMode,
+      },
+    });
+    void notify({
+      kind: "info",
+      orgId,
+      title: "Treasury drift detected",
+      body: `The vault holds ${report.onchainUsdc} USDC but the books expect ${report.expectedUsdc}. Difference: ${report.driftUsdc}.`,
+      meta: {
+        vaultAddress: report.vaultAddress,
+        driftUsdc: report.driftUsdc,
         ledgerMode: report.ledgerMode,
       },
     });
