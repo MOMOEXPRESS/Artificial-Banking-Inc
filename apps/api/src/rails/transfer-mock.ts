@@ -9,10 +9,14 @@ export class TransferMockRail implements PaymentRail {
   readonly name = "transfer-mock";
 
   async settle(ctx: PaymentRailContext): Promise<PaymentRailResult> {
+    const txHash = `0xmock_${randomBytes(8).toString("hex")}`;
+    // Nothing irreversible happens here, but reporting it keeps the settlement
+    // state machine identical across rails.
+    ctx.onBroadcast?.(this.name, txHash);
     return {
       chargedMicro: ctx.authorizedMicro,
       rail: this.name,
-      txHash: `0xmock_${randomBytes(8).toString("hex")}`,
+      txHash,
       settled: true,
     };
   }

@@ -62,6 +62,24 @@ export interface InvitationRow {
   acceptedAt?: string;
 }
 
+export type SettlementState = "pending" | "broadcast" | "settled" | "failed" | "needs_review";
+
+export interface SettlementRow {
+  intentId: string;
+  orgId: string;
+  agentId: string;
+  tool: string;
+  destination: string;
+  amountMicro: bigint;
+  rail?: string;
+  state: SettlementState;
+  txHash?: string;
+  chargedMicro?: bigint;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type OrgStatus = "active" | "frozen" | "archived";
 export type AgentStatus = "active" | "frozen" | "archived";
 export type EscrowState = "locked" | "settling" | "released" | "refunded" | "timeout_refunded";
@@ -1083,6 +1101,32 @@ CREATE TABLE IF NOT EXISTS step_up_grants (
   expires_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_stepup_session ON step_up_grants(session_id);
+
+-- Durable record of an in-flight settlement.
+--
+-- The rail broadcasts an irreversible on-chain transfer and only then does the
+-- ledger record it. A crash, a restart or a timeout in that window left money
+-- moved with no trace of it — every balance and report silently wrong from
+-- then on. A row is written BEFORE the rail runs and the tx hash is recorded
+-- the moment it is known, so recovery can always ask the chain what happened.
+CREATE TABLE IF NOT EXISTS settlement_attempts (
+  intent_id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  destination TEXT NOT NULL,
+  amount_micro TEXT NOT NULL,
+  rail TEXT,
+  -- pending -> broadcast -> settled | failed | needs_review
+  state TEXT NOT NULL,
+  tx_hash TEXT,
+  charged_micro TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_settlement_state ON settlement_attempts(state, updated_at);
+CREATE INDEX IF NOT EXISTS idx_settlement_org ON settlement_attempts(org_id, created_at);
 `);
 
 // C4 — runs after every table exists, so both vaults and the key archive
@@ -1311,6 +1355,27 @@ function parseMicroColumn(value: unknown): bigint {
     if (!Number.isFinite(n)) return 0n;
     return BigInt(Math.trunc(n));
   }
+}
+
+function rowToSettlement(r: Row): SettlementRow {
+  return {
+    intentId: String(r.intent_id),
+    orgId: String(r.org_id),
+    agentId: String(r.agent_id),
+    tool: String(r.tool),
+    destination: String(r.destination),
+    amountMicro: parseMicroColumn(r.amount_micro),
+    rail: r.rail ? String(r.rail) : undefined,
+    state: String(r.state) as SettlementState,
+    txHash: r.tx_hash ? String(r.tx_hash) : undefined,
+    chargedMicro:
+      r.charged_micro === null || r.charged_micro === undefined
+        ? undefined
+        : parseMicroColumn(r.charged_micro),
+    error: r.error ? String(r.error) : undefined,
+    createdAt: String(r.created_at),
+    updatedAt: String(r.updated_at),
+  };
 }
 
 function rowToUser(r: Row): UserRow {
@@ -2641,6 +2706,107 @@ export const store = {
       .prepare("UPDATE invitations SET revoked_at = ? WHERE id = ? AND org_id = ?")
       .run(nowIso(), invitationId, orgId);
     return info.changes > 0;
+  },
+
+  // -------------------------------------------------------- settlements
+
+  /** Record an intent as in-flight BEFORE the rail runs. */
+  beginSettlement(input: {
+    intentId: string;
+    orgId: string;
+    agentId: string;
+    tool: string;
+    destination: string;
+    amountMicro: bigint;
+  }): void {
+    const now = nowIso();
+    db.prepare(
+      `INSERT INTO settlement_attempts
+         (intent_id, org_id, agent_id, tool, destination, amount_micro, state, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+       ON CONFLICT(intent_id) DO UPDATE SET state = 'pending', updated_at = excluded.updated_at`,
+    ).run(
+      input.intentId,
+      input.orgId,
+      input.agentId,
+      input.tool,
+      input.destination,
+      input.amountMicro.toString(),
+      now,
+      now,
+    );
+  },
+
+  /**
+   * Record the transaction hash the instant it exists.
+   *
+   * This is the whole point of the table: between broadcast and confirmation
+   * the money is already gone, so the hash must be durable before we start
+   * waiting for a receipt.
+   */
+  markSettlementBroadcast(intentId: string, rail: string, txHash?: string): void {
+    db.prepare(
+      "UPDATE settlement_attempts SET state = 'broadcast', rail = ?, tx_hash = ?, updated_at = ? WHERE intent_id = ?",
+    ).run(rail, txHash ?? null, nowIso(), intentId);
+  },
+
+  finishSettlement(
+    intentId: string,
+    outcome:
+      | { state: "settled"; rail: string; chargedMicro: bigint; txHash?: string }
+      | { state: "failed" | "needs_review"; error: string; rail?: string; txHash?: string },
+  ): void {
+    if (outcome.state === "settled") {
+      db.prepare(
+        "UPDATE settlement_attempts SET state = 'settled', rail = ?, charged_micro = ?, tx_hash = COALESCE(?, tx_hash), updated_at = ? WHERE intent_id = ?",
+      ).run(outcome.rail, outcome.chargedMicro.toString(), outcome.txHash ?? null, nowIso(), intentId);
+      return;
+    }
+    db.prepare(
+      "UPDATE settlement_attempts SET state = ?, error = ?, rail = COALESCE(?, rail), tx_hash = COALESCE(?, tx_hash), updated_at = ? WHERE intent_id = ?",
+    ).run(
+      outcome.state,
+      outcome.error.slice(0, 500),
+      outcome.rail ?? null,
+      outcome.txHash ?? null,
+      nowIso(),
+      intentId,
+    );
+  },
+
+  getSettlement(intentId: string): SettlementRow | undefined {
+    const r = db.prepare("SELECT * FROM settlement_attempts WHERE intent_id = ?").get(intentId) as
+      | Row
+      | undefined;
+    return r ? rowToSettlement(r) : undefined;
+  },
+
+  /**
+   * Attempts stuck mid-flight for longer than `olderThanMs`.
+   *
+   * A `broadcast` row here means the chain may already have moved money the
+   * ledger does not know about — the loudest thing this system can report
+   * short of reconciliation drift.
+   */
+  listStuckSettlements(olderThanMs: number): SettlementRow[] {
+    const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+    return (
+      db
+        .prepare(
+          "SELECT * FROM settlement_attempts WHERE state IN ('pending','broadcast') AND updated_at < ? ORDER BY updated_at",
+        )
+        .all(cutoff) as Row[]
+    ).map(rowToSettlement);
+  },
+
+  listSettlements(orgId: string, limit = 100): SettlementRow[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM settlement_attempts WHERE org_id = ? ORDER BY created_at DESC LIMIT ?",
+        )
+        .all(orgId, limit) as Row[]
+    ).map(rowToSettlement);
   },
 
   // ---------------------------------------------------------------- MFA

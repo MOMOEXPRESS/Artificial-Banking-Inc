@@ -98,7 +98,12 @@ app.post("/facilitator/verify", async (req, res) => {
     const signatureValid = await verifyTypedData({
       address: auth.from,
       domain: {
-        name: "USD Coin",
+        // Base Sepolia USDC is named "USDC" — verified against the deployed
+        // contract on 2026-07-26. This previously read "USD Coin", matching the
+        // client's identical mistake, so the demo verified against itself and
+        // passed while real settlement never could. Keep in step with
+        // apps/api/src/chain/token-domain.ts, which is the source of truth.
+        name: "USDC",
         version: "2",
         chainId: 84532,
         verifyingContract: USDC_ASSET,

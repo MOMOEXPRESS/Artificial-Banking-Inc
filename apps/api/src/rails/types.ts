@@ -11,6 +11,16 @@ export interface PaymentRailContext {
   destination: string;
   authorizedMicro: MicroUsdc;
   blocklist?: string[];
+  /**
+   * Called the moment an irreversible action has been dispatched — for an
+   * on-chain rail, as soon as a transaction hash exists and before waiting for
+   * a receipt.
+   *
+   * That gap is where money can move without the ledger knowing: a crash, a
+   * restart or a timeout after broadcast used to leave no trace at all.
+   * Implementations must call this before any long await.
+   */
+  onBroadcast?: (rail: string, txHash?: string) => void;
 }
 
 export interface PaymentRailResult {

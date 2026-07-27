@@ -108,6 +108,25 @@ Roles come from a per-organization membership row, so the same person can hold
 different roles in different orgs.
 → `apps/api/src/auth/`, `apps/api/src/routes/auth-routes.ts`
 
+**Signatures are computed over the token's real domain.** The EIP-712 domain
+is resolved per network from a table verified against the deployed contracts —
+Base mainnet USDC is named "USD Coin", Base Sepolia's is named "USDC". The
+client previously hardcoded the mainnet name for both, so every testnet
+signature recovered to the wrong address; the bundled facilitator shared the
+same constant and agreed with it, which is why the demo passed and real
+settlement never could. An unknown token is refused rather than guessed.
+→ `apps/api/src/chain/token-domain.ts`
+
+**No settlement is invisible.** Every payment writes a durable attempt row
+*before* the rail is invoked, and the transaction hash is persisted the moment
+it exists — before waiting for confirmation, because that is the window in
+which money has already moved. A crash or timeout there used to leave no trace
+at all. A recovery job resolves anything left mid-flight from chain evidence,
+or escalates it to a human; it never re-applies ledger entries on its own,
+because booking a payment from a background job on after-the-fact evidence is
+how a recovery path becomes a double-spend.
+→ `apps/api/src/jobs/settlement-recovery.ts`
+
 **Vault keys are encrypted at rest.** AES-256-GCM under `ABI_KEK`, fresh IV per
 encryption, with the organization id as authenticated data — so a ciphertext
 cannot be moved from one org's row to another's. A tampered or wrongly-keyed

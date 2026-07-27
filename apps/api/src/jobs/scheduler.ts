@@ -21,6 +21,7 @@ import { runOnchainDepositSweep } from "../chain/sync-deposits.js";
 import { recordObs } from "../platform/observability.js";
 import { store } from "../store.js";
 import { checkVaultGas } from "./gas-monitor.js";
+import { recoverStuckSettlements } from "./settlement-recovery.js";
 import { runDueSubscriptions } from "./subscriptions.js";
 
 export interface JobDefinition {
@@ -98,6 +99,19 @@ export const JOBS: JobDefinition[] = [
     run: async () => {
       const { checked, low } = await checkVaultGas();
       if (low > 0) recordObs({ name: "jobs.gasMonitor", attrs: { checked, low } });
+    },
+  },
+  {
+    name: "settlement-recovery",
+    // Frequent, because the gap it closes is money already moved that the
+    // ledger has not recorded.
+    intervalMs: 2 * 60_000,
+    leaseMs: 300_000,
+    run: async () => {
+      const { checked, failed, needsReview } = await recoverStuckSettlements();
+      if (checked > 0) {
+        recordObs({ name: "jobs.settlementRecovery", attrs: { checked, failed, needsReview } });
+      }
     },
   },
   {

@@ -80,6 +80,8 @@ export async function transferUsdcFromVault(input: {
   orgId: string;
   to: string;
   amountMicro: bigint;
+  /** Invoked as soon as the transaction hash exists, before confirmation. */
+  onBroadcast?: (txHash: string) => void;
 }): Promise<VaultTransferResult> {
   const vault = store.getVaultAddress(input.orgId);
   if (!vault) {
@@ -92,6 +94,7 @@ async function broadcastUsdcTransfer(input: {
   orgId: string;
   to: string;
   amountMicro: bigint;
+  onBroadcast?: (txHash: string) => void;
 }): Promise<VaultTransferResult> {
   if (!/^0x[a-fA-F0-9]{40}$/.test(input.to)) {
     throw new VaultTransferError("INVALID_DESTINATION", "Destination must be a 0x address");
@@ -150,6 +153,10 @@ async function broadcastUsdcTransfer(input: {
       account,
       chain: cfg.id === "base" ? base : baseSepolia,
     });
+    // The money is gone from here on. Persist the hash before the long await:
+    // a crash or timeout during confirmation must still be recoverable.
+    input.onBroadcast?.(hash);
+
     const receipt = await publicClient.waitForTransactionReceipt({
       hash,
       timeout: 120_000,

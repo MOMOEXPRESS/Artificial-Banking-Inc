@@ -329,6 +329,18 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     return transferMockRail;
   })();
 
+  // Durable before the irreversible part. A crash, restart or timeout between
+  // broadcast and the ledger write used to leave money moved with no record of
+  // it; this row is what makes that recoverable.
+  store.beginSettlement({
+    intentId: input.intentId,
+    orgId: input.orgId,
+    agentId: input.agentId,
+    tool: input.tool,
+    destination: input.destination,
+    amountMicro: input.amountMicro,
+  });
+
   try {
     const settled = await selectedRail.settle({
       orgId: input.orgId,
@@ -337,6 +349,9 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       destination: input.destination,
       authorizedMicro: input.amountMicro,
       blocklist: store.getPolicyTemplate(input.orgId).blocklist,
+      // Called the instant a hash exists, before waiting for confirmation.
+      onBroadcast: (rail, txHash) =>
+        store.markSettlementBroadcast(input.intentId, rail, txHash),
     });
     if (!settled.settled) {
       throw new X402Error(
@@ -350,6 +365,13 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     resource = settled.resource;
   } catch (e) {
     releaseFullHold();
+    // Distinguish "never left" from "may already be on-chain": if a hash was
+    // recorded, a human must reconcile rather than assume nothing happened.
+    const attempt = store.getSettlement(input.intentId);
+    store.finishSettlement(input.intentId, {
+      state: attempt?.txHash ? "needs_review" : "failed",
+      error: e instanceof Error ? e.message : String(e),
+    });
     const railCode =
       e && typeof e === "object" && "code" in e && typeof (e as { code: unknown }).code === "string"
         ? (e as { code: string }).code
@@ -426,6 +448,14 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       `SETTLEMENT FAILED intent=${input.intentId} org=${input.orgId} charged=${chargedMicro}:`,
       e,
     );
+    // The rail may already have moved the money. Flag it for a human rather
+    // than letting it disappear into a log line.
+    store.finishSettlement(input.intentId, {
+      state: "needs_review",
+      error: `rail settled but ledger write failed: ${String(e)}`,
+      rail,
+      txHash,
+    });
     try {
       releaseFullHold();
     } catch (releaseErr) {
@@ -448,6 +478,12 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       },
     };
   }
+  store.finishSettlement(input.intentId, {
+    state: "settled",
+    rail,
+    chargedMicro,
+    txHash,
+  });
   store.recordPay(input.agentId, chargedMicro);
   store.addKnownCounterparty(input.orgId, input.destination);
   const payload: Record<string, unknown> = {

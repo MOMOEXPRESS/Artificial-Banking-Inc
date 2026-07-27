@@ -17,6 +17,7 @@ import { randomBytes } from "node:crypto";
 import { getCustodyProvider } from "@policyvault/custody";
 import type { MicroUsdc } from "@policyvault/common";
 import { outboundUrlProblem } from "../outbound-url.js";
+import { tokenDomain } from "../chain/token-domain.js";
 import type { PaymentRail, PaymentRailContext, PaymentRailResult } from "./types.js";
 
 export interface PaymentRequirements {
@@ -78,12 +79,24 @@ export const AUTHORIZATION_TYPES = {
   ],
 } as const;
 
+/**
+ * EIP-712 domain for the token being paid in.
+ *
+ * This used to hardcode `name: "USD Coin"` for every network. Base Sepolia's
+ * USDC is actually named "USDC", so on the default chain every signature was
+ * computed over the wrong domain separator — recovering to the wrong address
+ * against any real verifier. The dev facilitator shared the same wrong constant
+ * and so agreed with it, which is why the demo passed and real settlement never
+ * did. See chain/token-domain.ts for the verified values.
+ */
 export function eip712Domain(network: string, asset: `0x${string}`) {
+  const chain = network === "base" ? "base" : "base-sepolia";
+  const domain = tokenDomain(chain, asset);
   return {
-    name: "USD Coin",
-    version: "2",
-    chainId: network === "base" ? 8453 : 84532, // base-sepolia default
-    verifyingContract: asset,
+    name: domain.name,
+    version: domain.version,
+    chainId: domain.chainId,
+    verifyingContract: domain.verifyingContract,
   } as const;
 }
 

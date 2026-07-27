@@ -44,7 +44,7 @@ exist.
 | Guardian console | ✅ **Built** | Treasury, agents, payments, policy, insights, playground, audit |
 | MCP server + TypeScript SDK | ✅ **Built** | Not yet published to npm |
 | **Per-agent programmable budgets** | 🚧 **Partial** | Money envelopes are per-agent; **policy rules are org-wide only** |
-| **x402 payments** | 🚧 **Partial** | Real client implementation, but only proven against the bundled dev facilitator |
+| **x402 payments** | 🚧 **Partial** | Signing domain now correct per network (was wrong on testnet). Still only proven against the bundled dev facilitator — a real facilitator settlement is the remaining step |
 | **Treasury** | 🚧 **Partial** | On-chain deposit detection is real; manual "receive/send" is ledger-only |
 | Durable persistence | ✅ **Fixed** | Persistent API process, real transactions. Postgres is next for horizontal scale ([ADR](docs/adr/2026-07-26-persistent-api-over-serverless.md)) |
 | Background jobs | ✅ **Fixed** | Subscriptions, escrow timeouts, approval expiry and reconcile now actually run, with leases so scaling cannot double-charge |

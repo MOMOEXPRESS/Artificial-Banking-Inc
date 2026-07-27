@@ -15,6 +15,7 @@ export class EvmUsdcTransferRail implements PaymentRail {
         orgId: ctx.orgId,
         to: ctx.destination,
         amountMicro: ctx.authorizedMicro,
+        onBroadcast: (txHash) => ctx.onBroadcast?.(this.name, txHash),
       });
       return {
         chargedMicro: ctx.authorizedMicro,
