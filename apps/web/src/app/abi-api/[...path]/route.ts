@@ -56,9 +56,18 @@ function notConfigured() {
       error: {
         code: "API_NOT_CONFIGURED",
         message:
-          "No ABI API origin is configured. Set ABI_API_ORIGIN to the URL of the running API " +
-          "(see docs/DEPLOY.md). The API is a persistent service; it is deliberately no longer " +
-          "embedded in this deployment.",
+          "This console has no API to talk to. The ABI API is a separate, long-lived " +
+          "process — Vercel hosts the console, but cannot host the API. " +
+          "Deploy the API (Render/Railway/Fly/VPS — render.yaml is a ready blueprint), " +
+          "then set ABI_API_ORIGIN on this Vercel project to its URL and redeploy. " +
+          "Step-by-step: docs/DEPLOY.md.",
+        /** Machine-readable so the console can render a setup card, not a toast. */
+        setup: {
+          missing: "ABI_API_ORIGIN",
+          where: "Vercel → Settings → Environment Variables",
+          example: "https://your-api.onrender.com",
+          docs: "docs/DEPLOY.md",
+        },
       },
     },
     { status: 503, headers: { "Cache-Control": "no-store" } },

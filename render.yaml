@@ -1,0 +1,75 @@
+# Render blueprint for the ABI API.
+#
+# Vercel hosts the console. It cannot host the API: the API is a long-lived
+# process that owns a database connection and runs background sweeps
+# (subscriptions, escrow timeouts, deposit detection, on-chain reconciliation).
+# See docs/adr/2026-07-26-persistent-api-over-serverless.md for what happened
+# the last time it was folded into a serverless function.
+#
+# Deploy: Render dashboard -> New -> Blueprint -> point at this repo.
+# Then set ABI_API_ORIGIN on Vercel to the URL this service gets.
+#
+# Render is one option; Railway, Fly.io and any VPS work the same way. The only
+# requirements are a persistent process and a persistent disk.
+services:
+  - type: web
+    name: abi-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # The Dockerfile builds console and API from one context; this target is
+    # the API process only.
+    dockerCommand: node apps/api/dist/index.js
+    healthCheckPath: /health
+    # SQLite needs a real disk. Without one the database lives in the container
+    # filesystem and every deploy silently resets your orgs, keys and ledger.
+    # Disks require a paid instance type on Render — that is not optional here,
+    # it is the difference between a database and a cache.
+    plan: starter
+    disk:
+      name: abi-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8787
+      - key: POLICYVAULT_DB
+        value: /data/policyvault.db
+      # Vault keys are encrypted at rest under this. The API refuses to boot in
+      # production without it. Generate once, back it up somewhere you cannot
+      # lose it, then paste it here: lose it and every vault key is gone.
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+      - key: ABI_KEK
+        sync: false
+      - key: ABI_KEY_PEPPER
+        sync: false
+      # Required by org creation / demo seeding. Those routes refuse to serve
+      # without it in production.
+      - key: ABI_SIGNUP_TOKEN
+        sync: false
+      # Your console's public URL — password-reset links point here, and it is
+      # the origin allowed to send credentialed cross-origin requests.
+      - key: ABI_CONSOLE_URL
+        sync: false
+      - key: ABI_CORS_ORIGINS
+        sync: false
+      # This process owns the background sweeps. Keep at 1 unless you also run
+      # apps/worker, in which case set it to 0 here.
+      - key: ABI_RUN_JOBS
+        value: 1
+      # Destructive / credential-minting routes stay closed.
+      - key: POLICYVAULT_ALLOW_BOOTSTRAP
+        value: 0
+      - key: POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE
+        value: 0
+      # An agent-supplied pay_api destination must not be able to probe the
+      # host's internal network.
+      - key: ABI_ALLOW_LOCAL_TARGETS
+        value: 0
+      - key: CHAIN
+        value: base-sepolia
+      # Public RPCs rate-limit and drop log ranges. Set a paid endpoint.
+      - key: CHAIN_RPC_URL
+        sync: false
