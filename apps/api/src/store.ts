@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 import Database from "better-sqlite3";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { applyJournal, type JournalEntry, type LedgerAccount } from "@policyvault/ledger";
-import { templateSoloSwarm, type PolicyTemplate } from "@policyvault/policy";
+import { templateSoloSwarm, type PolicyOverride, type PolicyTemplate } from "@policyvault/policy";
 import type {
   AgentGroupRecord,
   AssetRecord,
@@ -745,6 +745,10 @@ for (const migration of [
   "ALTER TABLE vaults ADD COLUMN private_key TEXT",
   "ALTER TABLE orgs ADD COLUMN deposit_micro TEXT",
   "ALTER TABLE agents ADD COLUMN profile_json TEXT",
+  // Phase 6: a real cooldown needs to know when a counterparty was first seen.
+  "ALTER TABLE known_counterparties ADD COLUMN first_seen_at TEXT",
+  // Phase 6: org-wide daily caps need spend attributable to the organization.
+  "ALTER TABLE pay_events ADD COLUMN org_id TEXT",
   "ALTER TABLE orgs ADD COLUMN settings_json TEXT",
   "ALTER TABLE guardians ADD COLUMN conditions_json TEXT",
 ]) {
@@ -1127,6 +1131,22 @@ CREATE TABLE IF NOT EXISTS settlement_attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_settlement_state ON settlement_attempts(state, updated_at);
 CREATE INDEX IF NOT EXISTS idx_settlement_org ON settlement_attempts(org_id, created_at);
+
+-- Per-agent policy overrides (Phase 6).
+--
+-- Policy was a single row per organization, so every agent shared one set of
+-- caps, allowlists and thresholds. "Assign programmable budgets" - the
+-- headline capability - was only a ledger stipend and a freeze flag; nothing
+-- an operator set could differ between a research bot and a payments bot.
+-- Stored as a partial: anything absent inherits the org default.
+CREATE TABLE IF NOT EXISTS agent_policies (
+  agent_id TEXT PRIMARY KEY REFERENCES agents(id),
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  rules_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  updated_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agent_policies_org ON agent_policies(org_id);
 `);
 
 // C4 — runs after every table exists, so both vaults and the key archive
@@ -2708,6 +2728,90 @@ export const store = {
     return info.changes > 0;
   },
 
+  // ------------------------------------------------- per-agent policy
+
+  /**
+   * The agent's own policy override, if it has one. A partial: any field it
+   * omits inherits the organization default.
+   */
+  getAgentPolicyOverride(agentId: string): PolicyOverride | null {
+    const r = db.prepare("SELECT rules_json FROM agent_policies WHERE agent_id = ?").get(agentId) as
+      | Row
+      | undefined;
+    if (!r?.rules_json) return null;
+    try {
+      return JSON.parse(String(r.rules_json), (_k, v) =>
+        typeof v === "string" && v.startsWith("bigint:") ? BigInt(v.slice(7)) : v,
+      ) as PolicyOverride;
+    } catch {
+      // A corrupt override must fall back to the org default rather than
+      // failing every payment for that agent.
+      console.error(`agent policy override for ${agentId} is unparseable; ignoring`);
+      return null;
+    }
+  },
+
+  setAgentPolicyOverride(
+    orgId: string,
+    agentId: string,
+    override: PolicyOverride,
+    updatedBy?: string,
+  ): void {
+    const json = JSON.stringify(override, (_k, v) =>
+      typeof v === "bigint" ? `bigint:${v}` : v,
+    );
+    db.prepare(
+      `INSERT INTO agent_policies (agent_id, org_id, rules_json, updated_at, updated_by)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(agent_id) DO UPDATE SET rules_json = excluded.rules_json,
+                                           updated_at = excluded.updated_at,
+                                           updated_by = excluded.updated_by`,
+    ).run(agentId, orgId, json, nowIso(), updatedBy ?? null);
+    bumpRevision();
+  },
+
+  clearAgentPolicyOverride(agentId: string): boolean {
+    const info = db.prepare("DELETE FROM agent_policies WHERE agent_id = ?").run(agentId);
+    if (info.changes > 0) bumpRevision();
+    return info.changes > 0;
+  },
+
+  /** Agents in this org that carry an override, for the policy screen. */
+  listAgentPolicyOverrides(orgId: string): { agentId: string; updatedAt: string }[] {
+    return (
+      db
+        .prepare("SELECT agent_id, updated_at FROM agent_policies WHERE org_id = ?")
+        .all(orgId) as Row[]
+    ).map((r) => ({ agentId: String(r.agent_id), updatedAt: String(r.updated_at) }));
+  },
+
+  /**
+   * Spend by the WHOLE organization in a rolling 24h window.
+   *
+   * Backs the org-level cap. Rows written before Phase 6 have no org_id, so
+   * they are attributed through the agent that made them.
+   */
+  orgSpentLast24h(orgId: string): MicroUsdc {
+    const rows = db
+      .prepare(
+        `SELECT p.amount_micro FROM pay_events p
+         LEFT JOIN agents a ON a.id = p.agent_id
+         WHERE COALESCE(p.org_id, a.org_id) = ? AND p.at_ms >= ?`,
+      )
+      .all(orgId, Date.now() - 24 * 60 * 60 * 1000) as Row[];
+    return rows.reduce((acc, r) => acc + parseMicroColumn(r.amount_micro), 0n);
+  },
+
+  /** Epoch ms this counterparty was first recorded, if known. */
+  counterpartyFirstSeenMs(orgId: string, value: string): number | undefined {
+    const r = db
+      .prepare("SELECT first_seen_at FROM known_counterparties WHERE org_id = ? AND value = ?")
+      .get(orgId, value.trim().toLowerCase()) as Row | undefined;
+    if (!r?.first_seen_at) return undefined;
+    const ms = Date.parse(String(r.first_seen_at));
+    return Number.isFinite(ms) ? ms : undefined;
+  },
+
   // -------------------------------------------------------- settlements
 
   /** Record an intent as in-flight BEFORE the rail runs. */
@@ -2970,6 +3074,11 @@ export const store = {
     db.prepare("DELETE FROM job_locks WHERE name = ? AND holder = ?").run(name, holder);
   },
 
+  /** Test-only: write a raw override so the corrupt-row path can be exercised. */
+  setAgentPolicyRawForTests(agentId: string, rulesJson: string): void {
+    db.prepare('UPDATE agent_policies SET rules_json = ? WHERE agent_id = ?').run(rulesJson, agentId);
+  },
+
   /** Test-only: re-open the database so boot migrations run again. */
   reloadForTests(): void {
     reloadDbFromDisk();
@@ -3194,9 +3303,11 @@ export const store = {
   addKnownCounterparty(orgId: string, value: string): void {
     const key = value.trim().toLowerCase();
     if (!key) return;
+    // first_seen_at is what makes the cooldown a real time window rather than
+    // a boolean. INSERT OR IGNORE keeps the original timestamp on re-adds.
     db.prepare(
-      "INSERT OR IGNORE INTO known_counterparties (org_id, value) VALUES (?, ?)",
-    ).run(orgId, key);
+      "INSERT OR IGNORE INTO known_counterparties (org_id, value, first_seen_at) VALUES (?, ?, ?)",
+    ).run(orgId, key, nowIso());
     // Seed merchant directory metadata when first seen — label defaults to key.
     try {
       this.upsertMerchant({ orgId, key, label: value.trim() });
@@ -3212,12 +3323,13 @@ export const store = {
   },
 
   // ------------------------------------------------------------ pay events
-  recordPay(agentId: string, amountMicro: MicroUsdc): void {
-    db.prepare("INSERT INTO pay_events (agent_id, at_ms, amount_micro) VALUES (?, ?, ?)").run(
-      agentId,
-      Date.now(),
-      amountMicro.toString(),
-    );
+  recordPay(agentId: string, amountMicro: MicroUsdc, orgId?: string): void {
+    // org_id is denormalised so the org-wide cap does not need a join per
+    // evaluation, and still resolves for agents deleted since.
+    const org = orgId ?? this.getAgent(agentId)?.orgId ?? null;
+    db.prepare(
+      "INSERT INTO pay_events (agent_id, org_id, at_ms, amount_micro) VALUES (?, ?, ?, ?)",
+    ).run(agentId, org, Date.now(), amountMicro.toString());
     db.prepare("DELETE FROM pay_events WHERE agent_id = ? AND at_ms < ?").run(
       agentId,
       Date.now() - 24 * 60 * 60 * 1000,

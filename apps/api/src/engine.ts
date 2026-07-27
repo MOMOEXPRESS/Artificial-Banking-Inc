@@ -14,7 +14,7 @@ import {
   releaseHold,
   type JournalEntry,
 } from "@policyvault/ledger";
-import { evaluatePolicy, type PolicyRules } from "@policyvault/policy";
+import { evaluatePolicy, resolvePolicy, type PolicyRules } from "@policyvault/policy";
 import { X402Error, X402Rail } from "./rails/x402.js";
 import { TransferMockRail } from "./rails/transfer-mock.js";
 import { EvmUsdcTransferRail, isEvmPayDestination } from "./rails/evm-usdc-transfer.js";
@@ -43,20 +43,41 @@ export function scopedIdempotencyKey(agentId: string, key: string): string {
   return `${agentId}:${key}`;
 }
 
-export function rulesFor(agentId: string, orgId: string): PolicyRules {
+/**
+ * Resolve the policy an agent is actually under, and say which layer each
+ * value came from.
+ *
+ * There used to be exactly one policy row per organization, so every agent
+ * shared one set of caps, allowlists and thresholds — "programmable budgets
+ * per agent" was a ledger stipend and a freeze flag, nothing more. Policy now
+ * layers: organization defaults, then an optional per-agent override.
+ */
+export function resolvedPolicyFor(agentId: string, orgId: string) {
+  return resolvePolicy(store.getPolicyTemplate(orgId), store.getAgentPolicyOverride(agentId));
+}
+
+export function rulesFor(agentId: string, orgId: string, destination?: string): PolicyRules {
   const agent = store.getAgent(agentId)!;
   const org = store.getOrg(orgId)!;
-  const base = store.getPolicyTemplate(orgId);
+  const { effective } = resolvedPolicyFor(agentId, orgId);
   const orgAgentIds = store.listAgents(orgId).map((a) => a.id);
   const availableId = accountId("agent", agentId, "available");
   return {
-    ...base,
+    ...effective,
     knownCounterparties: [
       ...store.knownCounterparties(orgId),
       // same-org agents are never "new counterparties" for internal moves
       ...orgAgentIds,
     ],
     spentLast24hMicro: store.spentLast24h(agentId),
+    // Only fetched when an org-wide ceiling is configured — otherwise it is a
+    // pointless scan on every single evaluation.
+    orgSpentLast24hMicro:
+      effective.orgDailyMaxMicro === undefined ? undefined : store.orgSpentLast24h(orgId),
+    // Drives the cooldown. Undefined for a destination never seen before.
+    counterpartyFirstSeenMs: destination
+      ? store.counterpartyFirstSeenMs(orgId, destination)
+      : undefined,
     paysLastMinute: store.paysLastMinute(agentId),
     // Archived agents are non-spendable — same deny path as freeze.
     agentFrozen: agent.status === "frozen" || agent.status === "archived",
@@ -185,7 +206,7 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
         timeoutAt: new Date(Date.now() + timeoutMinutes * 60_000).toISOString(),
       };
       store.createEscrow(row);
-      store.recordPay(input.agentId, input.amountMicro);
+      store.recordPay(input.agentId, input.amountMicro, input.orgId);
       emitEvent(input.orgId, "escrow.locked", {
         escrowId,
         payerAgentId: input.agentId,
@@ -484,7 +505,7 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     chargedMicro,
     txHash,
   });
-  store.recordPay(input.agentId, chargedMicro);
+  store.recordPay(input.agentId, chargedMicro, input.orgId);
   store.addKnownCounterparty(input.orgId, input.destination);
   const payload: Record<string, unknown> = {
     intentId: input.intentId,
@@ -679,7 +700,7 @@ export async function resolveApproval(
   // other approvals may have settled and consumed the daily cap. Executing the
   // stale decision would let a queue of individually-legal approvals blow
   // every limit collectively.
-  const rules = rulesFor(approval.agentId, approval.orgId);
+  const rules = rulesFor(approval.agentId, approval.orgId, approval.destination);
   if (rules.agentFrozen || rules.orgFrozen) {
     const result = {
       outcome: "deny",

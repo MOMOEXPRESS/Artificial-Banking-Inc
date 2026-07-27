@@ -46,6 +46,20 @@ structured intent; `evaluatePolicy` decides. Default deny; every decision
 carries rule IDs and human-readable reasons.
 → `packages/policy/src/index.ts`
 
+**Limits are per agent, and there is a ceiling on the whole organization.**
+Policy resolves in layers — organization defaults, then an optional per-agent
+override — and every decision can say which layer supplied each value. There
+was previously one policy row per org, so a research bot and a payments bot
+were necessarily under identical limits, and twenty agents each under a "$50
+daily max" could spend $1,000/day with nothing to stop them.
+→ `packages/policy/src/index.ts` (`resolvePolicy`), `apps/api/src/engine.ts` (`rulesFor`)
+
+**Controls behave as their labels claim.** The new-counterparty cooldown now
+uses its own hours setting instead of treating any nonzero value as a boolean,
+and quiet hours are evaluated in the organization's timezone rather than always
+UTC — an APAC team setting 22:00–06:00 previously got a block in the middle of
+their working day.
+
 **Allowlists that fail closed.** An empty allowlist never votes "allow" — with
 OR-combined lists that would silently disable every other list. Domain suffix
 matching is dot-anchored, so `api.openai.com.attacker.net` cannot masquerade as

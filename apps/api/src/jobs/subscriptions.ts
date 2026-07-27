@@ -46,7 +46,7 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
         destination: sub.vendor,
         idempotencyKey: `sub_${sub.id}_${sub.runs}`,
       },
-      rulesFor(sub.agentId, sub.orgId),
+      rulesFor(sub.agentId, sub.orgId, sub.vendor),
       "subscription",
     );
     recordDecision({

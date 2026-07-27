@@ -16,6 +16,20 @@ export interface PolicyRules {
    * when startHour > endHour (e.g. 22 → 6 is the overnight window).
    */
   quietHours?: { startHour: number; endHour: number; action: "review" | "deny" };
+  /**
+   * IANA zone the quiet-hours window is expressed in (e.g. "Europe/London").
+   * Defaults to UTC. Without this the window was always UTC, so an APAC team
+   * setting 22:00–06:00 got a block in the middle of their working day.
+   */
+  quietHoursTimezone?: string;
+  /**
+   * Ceiling on what the WHOLE organization may spend in a rolling 24h window.
+   *
+   * `dailyMaxMicro` is per agent, so twenty agents under a "$50 daily max"
+   * could spend $1,000/day with nothing to stop them. Omitted means no
+   * org-level ceiling, which is the pre-existing behaviour.
+   */
+  orgDailyMaxMicro?: MicroUsdc;
   /** Injectable clock so quiet-hours behaviour is testable and replayable. */
   nowMs?: number;
   /** Distinct guardians required to release a parked payment. Default 1. */
@@ -34,8 +48,16 @@ export interface PolicyRules {
   walletBalanceMicro?: MicroUsdc;
   /** Lowercase destinations seen before (addresses/domains/vendors) */
   knownCounterparties: string[];
-  /** Spent in rolling 24h window (micro) */
+  /** Spent by THIS AGENT in a rolling 24h window (micro). */
   spentLast24hMicro: MicroUsdc;
+  /** Spent by the whole org in a rolling 24h window (micro). */
+  orgSpentLast24hMicro?: MicroUsdc;
+  /**
+   * When this destination was first seen, epoch ms. Undefined means never.
+   * Drives the new-counterparty cooldown, which previously ignored its own
+   * hours setting entirely.
+   */
+  counterpartyFirstSeenMs?: number;
   /** Pays in last 60 seconds */
   paysLastMinute: number;
   agentFrozen: boolean;
@@ -87,12 +109,40 @@ function isAddressLike(dest: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(dest.trim());
 }
 
-/** True when the UTC hour of `nowMs` falls inside the window, handling midnight wrap. */
+/**
+ * Hour of day in a given IANA zone, honouring DST.
+ *
+ * Falls back to UTC for an unrecognised zone rather than throwing: a typo in a
+ * settings field must not make every payment fail.
+ */
+function hourInZone(nowMs: number, timezone?: string): number {
+  const d = new Date(nowMs);
+  if (!timezone || timezone.toUpperCase() === "UTC") return d.getUTCHours();
+  try {
+    const hour = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hour: "numeric",
+      hour12: false,
+    }).format(d);
+    const n = Number(hour);
+    return Number.isFinite(n) ? n % 24 : d.getUTCHours();
+  } catch {
+    return d.getUTCHours();
+  }
+}
+
+/**
+ * True when the local hour falls inside the window, handling midnight wrap.
+ *
+ * The window used to be evaluated in UTC only, so a team in Asia setting
+ * 22:00-06:00 got a spending block in the middle of their working day.
+ */
 function inQuietHours(
   q: { startHour: number; endHour: number; action: "review" | "deny" },
   nowMs: number,
+  timezone?: string,
 ): boolean {
-  const hour = new Date(nowMs).getUTCHours();
+  const hour = hourInZone(nowMs, timezone);
   if (q.startHour === q.endHour) return false; // zero-width window = disabled
   return q.startHour < q.endHour
     ? hour >= q.startHour && hour < q.endHour
@@ -183,6 +233,21 @@ export function evaluatePolicy(
     };
   }
 
+  // Organization-wide ceiling. `dailyMaxMicro` is per agent, so without this a
+  // fleet of individually-compliant agents could spend an unbounded multiple
+  // of the limit the operator thought they had set.
+  if (
+    rules.orgDailyMaxMicro !== undefined &&
+    (rules.orgSpentLast24hMicro ?? 0n) + intent.amountMicro > rules.orgDailyMaxMicro
+  ) {
+    return {
+      outcome: "deny",
+      ruleIds: ["org_daily_max"],
+      reasons: ["Exceeds the organization's daily spending cap"],
+      policyVersion,
+    };
+  }
+
   if (rules.paysLastMinute >= rules.maxPaysPerMinute) {
     return {
       outcome: "deny",
@@ -264,19 +329,49 @@ export function evaluatePolicy(
     }
   }
 
+  // New-counterparty cooldown.
+  //
+  // This used to treat any nonzero `newCounterpartyCooldownHours` as a boolean:
+  // an unknown destination always went to review and the hours were never read,
+  // so a control the UI presents as "hours" did nothing of the sort. It now
+  // means what it says - a destination stays in cooldown until it has been
+  // known for that long.
   const known = new Set(rules.knownCounterparties.map(norm));
-  const isNew = !known.has(dest) && !known.has(norm(intent.destination));
-  if (isNew && rules.newCounterpartyCooldownHours > 0) {
-    // MVP: treat unknown as deny unless HITL path — surface as review if over 0 cooldown
-    // Spec: cooldown means wait before first send — for MVP we force review
-    ruleIds.push("new_counterparty");
-    reasons.push("New counterparty requires approval during cooldown");
-    return { outcome: "review", ruleIds, reasons, policyVersion };
+  const isKnown = known.has(dest) || known.has(norm(intent.destination));
+  if (rules.newCounterpartyCooldownHours > 0) {
+    if (!isKnown) {
+      ruleIds.push("new_counterparty");
+      reasons.push("First payment to this counterparty requires approval");
+      return { outcome: "review", ruleIds, reasons, policyVersion };
+    }
+    // Known, but possibly not for long enough yet.
+    //
+    // An absent first-seen timestamp means the counterparty predates the
+    // column. Treat it as long-established rather than in-cooldown: failing
+    // closed here would drop every previously-trusted vendor back into
+    // approval the moment this shipped, which is a worse failure than the one
+    // it would guard against.
+    const firstSeen = rules.counterpartyFirstSeenMs;
+    if (firstSeen !== undefined) {
+      const cooldownMs = rules.newCounterpartyCooldownHours * 3_600_000;
+      const now = rules.nowMs ?? Date.now();
+      if (now - firstSeen < cooldownMs) {
+        ruleIds.push("new_counterparty");
+        reasons.push(
+          `Counterparty is still within its ${rules.newCounterpartyCooldownHours}h cooldown`,
+        );
+        return { outcome: "review", ruleIds, reasons, policyVersion };
+      }
+    }
   }
 
-  if (rules.quietHours && inQuietHours(rules.quietHours, rules.nowMs ?? Date.now())) {
+  if (
+    rules.quietHours &&
+    inQuietHours(rules.quietHours, rules.nowMs ?? Date.now(), rules.quietHoursTimezone)
+  ) {
     const { startHour, endHour, action } = rules.quietHours;
-    const window = `${String(startHour).padStart(2, "0")}:00–${String(endHour).padStart(2, "0")}:00 UTC`;
+    const zone = rules.quietHoursTimezone ?? "UTC";
+    const window = `${String(startHour).padStart(2, "0")}:00–${String(endHour).padStart(2, "0")}:00 ${zone}`;
     ruleIds.push("quiet_hours");
     reasons.push(
       action === "deny"
@@ -394,12 +489,52 @@ export type PolicyTemplate = Omit<
   PolicyRules,
   | "knownCounterparties"
   | "spentLast24hMicro"
+  | "orgSpentLast24hMicro"
+  | "counterpartyFirstSeenMs"
   | "paysLastMinute"
   | "agentFrozen"
   | "orgFrozen"
   | "walletBalanceMicro"
   | "nowMs"
 >;
+
+/**
+ * A per-agent override. Every field is optional; anything omitted inherits the
+ * organization default.
+ *
+ * Allowlists REPLACE rather than merge. A narrower list is usually the whole
+ * point of an override, and silently unioning would widen it - the opposite of
+ * what an operator setting a stricter policy expects.
+ */
+export type PolicyOverride = Partial<PolicyTemplate>;
+
+/** Which layer supplied each effective value, for explainability. */
+export type PolicyProvenance = Record<string, "org" | "agent">;
+
+/**
+ * Merge an org template with an optional per-agent override.
+ *
+ * Returns the effective template plus provenance, so a decision can say *why*
+ * a limit applied rather than leaving an operator to guess which layer won.
+ */
+export function resolvePolicy(
+  orgTemplate: PolicyTemplate,
+  override?: PolicyOverride | null,
+): { effective: PolicyTemplate; provenance: PolicyProvenance } {
+  const effective = { ...orgTemplate };
+  const provenance: PolicyProvenance = {};
+  for (const key of Object.keys(orgTemplate)) {
+    provenance[key] = "org";
+  }
+  if (!override) return { effective, provenance };
+
+  for (const [key, value] of Object.entries(override)) {
+    if (value === undefined) continue;
+    (effective as Record<string, unknown>)[key] = value;
+    provenance[key] = "agent";
+  }
+  return { effective, provenance };
+}
 
 export function templateSoloSwarm(): PolicyTemplate {
   return {

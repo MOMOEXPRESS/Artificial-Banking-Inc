@@ -12,6 +12,7 @@ import type express from "express";
 import { z } from "zod";
 import { simulatePolicy } from "../analytics.js";
 import { store, type OrgRow } from "../store.js";
+import { resolvedPolicyFor } from "../engine.js";
 
 type GuardianRoute = (
   handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
@@ -41,6 +42,11 @@ export function policyView(template: ReturnType<typeof store.getPolicyTemplate>)
     blocklist: template.blocklist,
     hitlCategories: template.hitlCategories,
     quietHours: template.quietHours ?? null,
+    quietHoursTimezone: template.quietHoursTimezone ?? "UTC",
+    orgDailyMaxUsdc:
+      template.orgDailyMaxMicro === undefined
+        ? null
+        : formatMicroToUsdc(template.orgDailyMaxMicro),
     approvalQuorum: template.approvalQuorum ?? 1,
     automation: (template.automation ?? []).map((rule) => ({
       ...rule,
@@ -62,6 +68,38 @@ function versionSummary(template: ReturnType<typeof store.getPolicyTemplate>) {
     automationCount: template.automation?.length ?? 0,
     approvalQuorum: template.approvalQuorum ?? 1,
   };
+}
+
+/**
+ * A per-agent override. Every field optional: anything omitted inherits the
+ * organization default rather than being reset.
+ */
+const agentOverrideSchema = z.object({
+  perTxMaxUsdc: z.string().optional(),
+  dailyMaxUsdc: z.string().optional(),
+  hitlAboveUsdc: z.string().optional(),
+  maxPaysPerMinute: z.number().int().positive().optional(),
+  newCounterpartyCooldownHours: z.number().int().min(0).optional(),
+  addressAllowlist: z.array(z.string()).optional(),
+  domainAllowlist: z.array(z.string()).optional(),
+  vendorAllowlist: z.array(z.string()).optional(),
+  blocklist: z.array(z.string()).optional(),
+  hitlCategories: z.array(toolEnum).optional(),
+  quietHours: z
+    .object({
+      startHour: z.number().int().min(0).max(23),
+      endHour: z.number().int().min(0).max(23),
+      action: z.enum(["review", "deny"]),
+    })
+    .nullable()
+    .optional(),
+  quietHoursTimezone: z.string().max(64).optional(),
+});
+
+/** Best-effort label for who changed a policy, for the audit trail. */
+function guardianLabel(req: express.Request): string {
+  const ctx = (req as express.Request & { guardianCtx?: { user?: { email: string } } }).guardianCtx;
+  return ctx?.user?.email ?? "guardian-key";
 }
 
 export function registerPolicyRoutes(
@@ -196,6 +234,115 @@ export function registerPolicyRoutes(
     }, { ownerOnly: true }),
   );
 
+  // ---------------------------------------------------------- per-agent
+
+  /**
+   * The policy an agent is actually under, and which layer supplied each value.
+   *
+   * Policy used to be one row per organization, so an operator could not tell
+   * (and could not change) what a single agent was permitted to do.
+   */
+  app.get(
+    "/v1/guardian/agents/:id/policy",
+    guardianRoute((org, req, res) => {
+      const agent = store.getAgent(req.params.id);
+      if (!agent || agent.orgId !== org.id) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+      }
+      const { effective, provenance } = resolvedPolicyFor(agent.id, org.id);
+      res.json({
+        agentId: agent.id,
+        effective: policyView(effective),
+        // Which fields this agent overrides, so the UI can show inheritance
+        // rather than a flat list an operator has to diff by eye.
+        provenance,
+        hasOverride: store.getAgentPolicyOverride(agent.id) !== null,
+        orgDefault: policyView(store.getPolicyTemplate(org.id)),
+      });
+    }),
+  );
+
+  /**
+   * Set or update an agent's override. Only the fields sent are overridden;
+   * everything else keeps inheriting the organization default.
+   */
+  app.put(
+    "/v1/guardian/agents/:id/policy",
+    guardianRoute((org, req, res) => {
+      const agent = store.getAgent(req.params.id);
+      if (!agent || agent.orgId !== org.id) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+      }
+      const body = agentOverrideSchema.parse(req.body);
+
+      const override: Record<string, unknown> = {};
+      if (body.perTxMaxUsdc !== undefined) override.perTxMaxMicro = parseUsdcToMicro(body.perTxMaxUsdc);
+      if (body.dailyMaxUsdc !== undefined) override.dailyMaxMicro = parseUsdcToMicro(body.dailyMaxUsdc);
+      if (body.hitlAboveUsdc !== undefined) override.hitlAboveMicro = parseUsdcToMicro(body.hitlAboveUsdc);
+      if (body.maxPaysPerMinute !== undefined) override.maxPaysPerMinute = body.maxPaysPerMinute;
+      if (body.newCounterpartyCooldownHours !== undefined) {
+        override.newCounterpartyCooldownHours = body.newCounterpartyCooldownHours;
+      }
+      if (body.addressAllowlist) override.addressAllowlist = body.addressAllowlist;
+      if (body.domainAllowlist) override.domainAllowlist = body.domainAllowlist;
+      if (body.vendorAllowlist) override.vendorAllowlist = body.vendorAllowlist;
+      if (body.blocklist) override.blocklist = body.blocklist;
+      if (body.hitlCategories) override.hitlCategories = body.hitlCategories;
+      if (body.quietHours !== undefined) override.quietHours = body.quietHours ?? undefined;
+      if (body.quietHoursTimezone !== undefined) override.quietHoursTimezone = body.quietHoursTimezone;
+
+      // Bands must still nest after merging, or an override could invert them
+      // and quietly disable the approval step for this agent.
+      const merged = { ...store.getPolicyTemplate(org.id), ...override } as ReturnType<
+        typeof store.getPolicyTemplate
+      >;
+      if (merged.hitlAboveMicro >= merged.perTxMaxMicro) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message:
+              "hitlAboveUsdc must stay below perTxMaxUsdc once merged with the org default " +
+              "(allow < review < deny).",
+          },
+        });
+      }
+      if (merged.dailyMaxMicro < merged.perTxMaxMicro) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "dailyMaxUsdc must be at least perTxMaxUsdc once merged with the org default.",
+          },
+        });
+      }
+
+      store.setAgentPolicyOverride(org.id, agent.id, override, guardianLabel(req));
+      const { effective, provenance } = resolvedPolicyFor(agent.id, org.id);
+      res.json({ ok: true, agentId: agent.id, effective: policyView(effective), provenance });
+    }, { ownerOnly: true }),
+  );
+
+  /** Drop the override so the agent inherits the organization default again. */
+  app.delete(
+    "/v1/guardian/agents/:id/policy",
+    guardianRoute((org, req, res) => {
+      const agent = store.getAgent(req.params.id);
+      if (!agent || agent.orgId !== org.id) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+      }
+      const removed = store.clearAgentPolicyOverride(agent.id);
+      const { effective } = resolvedPolicyFor(agent.id, org.id);
+      res.json({ ok: true, removed, effective: policyView(effective) });
+    }, { ownerOnly: true }),
+  );
+
+  /** Which agents deviate from the org default — the policy screen's index. */
+  app.get(
+    "/v1/guardian/policy/overrides",
+    guardianRoute((org, _req, res) => {
+      res.json({ overrides: store.listAgentPolicyOverrides(org.id) });
+    }),
+  );
+
   app.get(
     "/v1/guardian/policy",
     guardianRoute((org, _req, res) => {
@@ -213,6 +360,8 @@ export function registerPolicyRoutes(
         .object({
           perTxMaxUsdc: z.string().optional(),
           dailyMaxUsdc: z.string().optional(),
+          /** Ceiling for the whole org in 24h. null removes it. */
+          orgDailyMaxUsdc: z.string().nullable().optional(),
           hitlAboveUsdc: z.string().optional(),
           maxPaysPerMinute: z.number().int().positive().optional(),
           newCounterpartyCooldownHours: z.number().int().min(0).optional(),
@@ -229,6 +378,8 @@ export function registerPolicyRoutes(
             })
             .nullable()
             .optional(),
+          /** IANA zone the quiet-hours window is expressed in. */
+          quietHoursTimezone: z.string().max(64).optional(),
           automation: z
             .array(
               z.object({
@@ -286,6 +437,13 @@ export function registerPolicyRoutes(
         ...(body.blocklist && { blocklist: body.blocklist }),
         ...(body.hitlCategories && { hitlCategories: body.hitlCategories }),
         ...(body.quietHours !== undefined && { quietHours: body.quietHours ?? undefined }),
+        ...(body.quietHoursTimezone !== undefined && {
+          quietHoursTimezone: body.quietHoursTimezone,
+        }),
+        ...(body.orgDailyMaxUsdc !== undefined && {
+          orgDailyMaxMicro:
+            body.orgDailyMaxUsdc === null ? undefined : parseUsdcToMicro(body.orgDailyMaxUsdc),
+        }),
         ...(body.automation !== undefined && {
           automation: body.automation.map((rule) => {
             const prev = prevById.get(rule.id);
@@ -306,6 +464,16 @@ export function registerPolicyRoutes(
           error: {
             code: "VALIDATION_ERROR",
             message: "hitlAboveUsdc must be below perTxMaxUsdc (allow < review < deny bands)",
+          },
+        });
+      }
+      if (next.orgDailyMaxMicro !== undefined && next.orgDailyMaxMicro < next.perTxMaxMicro) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message:
+              "orgDailyMaxUsdc must be at least perTxMaxUsdc — otherwise no single payment " +
+              "could ever clear the organization ceiling.",
           },
         });
       }

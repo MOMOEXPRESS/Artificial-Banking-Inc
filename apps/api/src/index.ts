@@ -569,7 +569,7 @@ function applyAutomationSideEffects(
     decisionRuleIds: string[];
   },
 ): void {
-  const rules = rulesFor(input.agentId, input.orgId);
+  const rules = rulesFor(input.agentId, input.orgId, input.destination);
   const matched = matchedAutomationRules(
     {
       agentId: input.agentId,
@@ -676,7 +676,7 @@ async function handleIntent(
       idempotencyKey: input.idempotencyKey,
       memo: input.memo,
     },
-    rulesFor(input.agentId, input.orgId),
+    rulesFor(input.agentId, input.orgId, input.destination),
     store.getPolicyVersion(input.orgId),
   );
   const intentId = id("int");
@@ -2061,7 +2061,7 @@ app.post("/v1/agent/simulate", (req, res) => {
       jobId: body.jobId,
       idempotencyKey: "simulate",
     },
-    rulesFor(auth.agentId, auth.orgId),
+    rulesFor(auth.agentId, auth.orgId, body.destination),
   );
   res.json(decision);
 });
