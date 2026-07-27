@@ -229,9 +229,12 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
         timeoutAt: new Date(Date.now() + timeoutMinutes * 60_000).toISOString(),
       };
       store.createEscrow(row);
+      // Tagged with the escrow so a refund can give the headroom back. See
+      // store.reversePayByRef.
       store.recordPay(input.agentId, input.amountMicro, input.orgId, {
         destination,
         category: store.categoryForDestination(input.orgId, destination),
+        ref: `escrow:${escrowId}`,
       });
       emitEvent(input.orgId, "escrow.locked", {
         escrowId,
@@ -914,6 +917,9 @@ export function settleEscrow(
         }),
       ]);
       newState = action === "timeout_refund" ? "timeout_refunded" : "refunded";
+      // The commitment is undone, so the daily cap it consumed comes back. A
+      // release does NOT do this: there the money really did leave the payer.
+      store.reversePayByRef(`escrow:${escrow.id}`);
     }
     store.updateEscrowState(escrow.id, newState, new Date().toISOString());
     recordDecision({

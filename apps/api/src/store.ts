@@ -754,6 +754,10 @@ for (const migration of [
   "ALTER TABLE pay_events ADD COLUMN category TEXT",
   // P6-T3: risk scoring reads payment history per destination.
   "ALTER TABLE pay_events ADD COLUMN destination TEXT",
+  // L4: an escrow that is refunded must give back the daily-cap headroom it
+  // took at lock time. Reversal keys on this ref rather than matching by
+  // amount, which would pick the wrong row when two escrows are the same size.
+  "ALTER TABLE pay_events ADD COLUMN ref TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -3351,13 +3355,13 @@ export const store = {
     agentId: string,
     amountMicro: MicroUsdc,
     orgId?: string,
-    meta?: { category?: string; destination?: string },
+    meta?: { category?: string; destination?: string; ref?: string },
   ): void {
     // org_id is denormalised so the org-wide cap does not need a join per
     // evaluation, and still resolves for agents deleted since.
     const org = orgId ?? this.getAgent(agentId)?.orgId ?? null;
     db.prepare(
-      "INSERT INTO pay_events (agent_id, org_id, at_ms, amount_micro, category, destination) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO pay_events (agent_id, org_id, at_ms, amount_micro, category, destination, ref) VALUES (?, ?, ?, ?, ?, ?, ?)",
     ).run(
       agentId,
       org,
@@ -3365,11 +3369,37 @@ export const store = {
       amountMicro.toString(),
       meta?.category?.trim().toLowerCase() ?? null,
       meta?.destination?.trim().toLowerCase() ?? null,
+      meta?.ref ?? null,
     );
     db.prepare("DELETE FROM pay_events WHERE agent_id = ? AND at_ms < ?").run(
       agentId,
       Date.now() - PAY_EVENT_RETENTION_MS,
     );
+  },
+
+  /**
+   * Undo the spend recorded for a commitment that did not complete (L4).
+   *
+   * `escrow_lock` records a payment when funds are committed, which is right:
+   * the money is unavailable and the cap should reflect that. But a refund
+   * previously left that record in place, so a locked-then-refunded escrow
+   * permanently consumed daily-cap headroom for money the agent got back.
+   *
+   * Deletes rather than writing a compensating negative row: `pay_events` is
+   * the cap and velocity ledger, not the audit trail — decisions and journals
+   * record what happened, and a negative row here would need special handling
+   * in every reader.
+   */
+  reversePayByRef(ref: string): { removed: number; amountMicro: MicroUsdc } {
+    const rows = db
+      .prepare("SELECT amount_micro FROM pay_events WHERE ref = ?")
+      .all(ref) as Row[];
+    if (!rows.length) return { removed: 0, amountMicro: 0n };
+    db.prepare("DELETE FROM pay_events WHERE ref = ?").run(ref);
+    return {
+      removed: rows.length,
+      amountMicro: rows.reduce((acc, r) => acc + parseMicroColumn(r.amount_micro), 0n),
+    };
   },
 
   spentLast24h(agentId: string): MicroUsdc {
@@ -3879,7 +3909,11 @@ export const store = {
     const token = `pv_sess_${randomBytes(16).toString("hex")}`;
     const createdAt = nowIso();
     const expiresAt = new Date(Date.now() + ttl * 3600_000).toISOString();
-    const scopes = input.scopes?.length ? input.scopes : ["read", "pay", "escrow"];
+    // Least privilege on omission (audit NEW-4). This defaulted to
+    // ["read","pay","escrow"], so a caller that forgot the field minted a key
+    // with full spend authority — the same fail-open shape that M5 fixed on
+    // the read side. A caller who wants to spend has to say so.
+    const scopes = input.scopes?.length ? input.scopes : ["read"];
     const row: SessionKeyRecord = {
       id: id("sess"),
       orgId: input.orgId,

@@ -2,8 +2,42 @@
 
 **Derived from:** `ABI-AUDIT-2026-07-26.md`
 **Baseline commit:** `5f7138c` (`main`)
-**Status:** Planning only. No code written. Awaiting approval before Phase 0.
 **Execution model:** one phase at a time, each ending in a single clean commit and a stop for approval.
+
+> ## Status — 2026-07-27
+>
+> **This document is the plan, not the record.** Task descriptions below still
+> read as they were written, in the present tense, before any of it was built.
+> Where a task has since landed, the description is history rather than
+> instruction. The table here is the current state; the re-audit in
+> `ABI-PROGRESS-REVIEW` is the detailed one.
+>
+> | Phase | Complete | What is left |
+> |---|---|---|
+> | 0 Hygiene & truth | 90% | Brand split: `@policyvault/*` packages, `pv_*` key prefixes, `x-policyvault-signature` |
+> | 1 Containment | 100% | — |
+> | 2 Runtime & persistence | 70% | **P2-T2 Postgres**, P2-T4 structural tenant scoping |
+> | 3 Identity | 85% | RBAC beyond owner/approver/viewer |
+> | 4 Custody | 45% | **P4-T1 managed custody**, gas automation, P4-T4 wallet connect |
+> | 5 Settlement | 60% | **P5-T2 real x402 facilitator**, testnet proof |
+> | 6 Policy | 95% | Console surface for per-agent overrides |
+> | 7 Treasury | 85% | Promote-to-live control, multi-asset depth |
+> | 8 Agent system | 50% | P8-T1 lifecycle, P8-T4 adapters (blocked on P10-T1) |
+> | 9 Console & UX | 20% | Onboarding, styling consolidation, WCAG, rendering strategy |
+> | 10 Developer experience | 10% | SDK publication, Python SDK, portal, credential UI |
+> | 11 Compliance | 5% | Screening, KYB, SSO, audit integrity, pen test |
+> | 12 Launch prep | 10% | Observability wiring, incidents, billing, load testing |
+>
+> **Landed since this was written:** Phases 0–1 complete; persistent API and job
+> runner; accounts, sessions, MFA, step-up and its console; encrypted vault
+> keys; durable settlement with nonce sequencing; per-chain EIP-712 domains;
+> layered per-agent policy with an org ceiling; spend categories, counterparty
+> risk and time-boxed budgets; backed balances with on-chain reconciliation;
+> per-asset chain adapters; per-org AI data-egress control. Tests 49 → 273.
+>
+> **The largest caveat:** none of the settlement, reconciliation or treasury
+> work has executed against a real chain. It is correct as written and unproven
+> in practice — see `docs/OWNER-ACTIONS.md` §2.
 
 ---
 
