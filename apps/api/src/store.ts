@@ -1617,7 +1617,7 @@ export const store = {
     return { agentId, apiKey };
   },
 
-  getAgent(agentId: string): AgentRow | undefined {
+  getAgentAnyOrg(agentId: string): AgentRow | undefined {
     const r = db.prepare("SELECT * FROM agents WHERE id = ?").get(agentId) as Row | undefined;
     return r ? rowToAgent(r) : undefined;
   },
@@ -2136,7 +2136,7 @@ export const store = {
     }));
   },
 
-  getDepartment(deptId: string): DepartmentRow | undefined {
+  getDepartmentAnyOrg(deptId: string): DepartmentRow | undefined {
     const r = db.prepare("SELECT * FROM departments WHERE id = ?").get(deptId) as Row | undefined;
     if (!r) return undefined;
     return {
@@ -2207,7 +2207,7 @@ export const store = {
     });
   },
 
-  getSharedWallet(walletId: string): SharedWalletRow | undefined {
+  getSharedWalletAnyOrg(walletId: string): SharedWalletRow | undefined {
     const r = db.prepare("SELECT * FROM shared_wallets WHERE id = ?").get(walletId) as Row | undefined;
     if (!r) return undefined;
     const members = (
@@ -2263,7 +2263,7 @@ export const store = {
     return full;
   },
 
-  getTreasuryMove(moveId: string): TreasuryMoveRow | undefined {
+  getTreasuryMoveAnyOrg(moveId: string): TreasuryMoveRow | undefined {
     const r = db.prepare("SELECT * FROM treasury_moves WHERE id = ?").get(moveId) as Row | undefined;
     return r ? rowToTreasuryMove(r) : undefined;
   },
@@ -2285,7 +2285,7 @@ export const store = {
     moveId: string,
     patch: Partial<Pick<TreasuryMoveRow, "status" | "votes" | "resolvedAt" | "resolvedBy">>,
   ): void {
-    const cur = this.getTreasuryMove(moveId);
+    const cur = this.getTreasuryMoveAnyOrg(moveId);
     if (!cur) return;
     const next = { ...cur, ...patch };
     db.prepare(
@@ -2755,7 +2755,7 @@ export const store = {
    * The agent's own policy override, if it has one. A partial: any field it
    * omits inherits the organization default.
    */
-  getAgentPolicyOverride(agentId: string): PolicyOverride | null {
+  getAgentPolicyOverrideAnyOrg(agentId: string): PolicyOverride | null {
     const r = db.prepare("SELECT rules_json FROM agent_policies WHERE agent_id = ?").get(agentId) as
       | Row
       | undefined;
@@ -3359,7 +3359,7 @@ export const store = {
   ): void {
     // org_id is denormalised so the org-wide cap does not need a join per
     // evaluation, and still resolves for agents deleted since.
-    const org = orgId ?? this.getAgent(agentId)?.orgId ?? null;
+    const org = orgId ?? this.getAgentAnyOrg(agentId)?.orgId ?? null;
     db.prepare(
       "INSERT INTO pay_events (agent_id, org_id, at_ms, amount_micro, category, destination, ref) VALUES (?, ?, ?, ?, ?, ?, ?)",
     ).run(
@@ -3758,7 +3758,7 @@ export const store = {
     );
   },
 
-  getAgentGroup(groupId: string): AgentGroupRecord | undefined {
+  getAgentGroupAnyOrg(groupId: string): AgentGroupRecord | undefined {
     const r = db.prepare("SELECT * FROM agent_groups WHERE id = ?").get(groupId) as Row | undefined;
     return r ? rowToAgentGroup(r) : undefined;
   },
@@ -3788,7 +3788,7 @@ export const store = {
   },
 
   /** Agents that belong to this ops label (multi-membership). */
-  listGroupMemberIds(groupId: string): string[] {
+  listGroupMemberIdsAnyOrg(groupId: string): string[] {
     return (
       db.prepare("SELECT agent_id FROM agent_group_members WHERE group_id = ?").all(groupId) as {
         agent_id: string;
@@ -3796,7 +3796,7 @@ export const store = {
     ).map((r) => r.agent_id);
   },
 
-  listAgentGroupIds(agentId: string): string[] {
+  listAgentGroupIdsAnyOrg(agentId: string): string[] {
     return (
       db.prepare("SELECT group_id FROM agent_group_members WHERE agent_id = ?").all(agentId) as {
         group_id: string;
@@ -3810,7 +3810,7 @@ export const store = {
        VALUES (?, ?, ?, ?)`,
     ).run(orgId, agentId, groupId, nowIso());
     // Keep legacy profile.groupId as soft primary when empty.
-    const agent = this.getAgent(agentId);
+    const agent = this.getAgentAnyOrg(agentId);
     if (agent && !agent.profile.groupId) {
       this.setAgentProfile(agentId, { ...agent.profile, groupId });
     }
@@ -3821,21 +3821,21 @@ export const store = {
       agentId,
       groupId,
     );
-    const agent = this.getAgent(agentId);
+    const agent = this.getAgentAnyOrg(agentId);
     if (agent && agent.profile.groupId === groupId) {
-      const rest = this.listAgentGroupIds(agentId);
+      const rest = this.listAgentGroupIdsAnyOrg(agentId);
       const { groupId: _, ...profile } = agent.profile;
       this.setAgentProfile(agentId, rest[0] ? { ...profile, groupId: rest[0] } : profile);
     }
   },
 
   clearGroupMembers(groupId: string): void {
-    const memberIds = this.listGroupMemberIds(groupId);
+    const memberIds = this.listGroupMemberIdsAnyOrg(groupId);
     db.prepare("DELETE FROM agent_group_members WHERE group_id = ?").run(groupId);
     for (const agentId of memberIds) {
-      const agent = this.getAgent(agentId);
+      const agent = this.getAgentAnyOrg(agentId);
       if (!agent || agent.profile.groupId !== groupId) continue;
-      const rest = this.listAgentGroupIds(agentId);
+      const rest = this.listAgentGroupIdsAnyOrg(agentId);
       const { groupId: _, ...profile } = agent.profile;
       this.setAgentProfile(agentId, rest[0] ? { ...profile, groupId: rest[0] } : profile);
     }
@@ -4013,7 +4013,7 @@ export const store = {
 
   /** Issue a new signing secret (shown once). Old secret stops verifying immediately. */
   rotateWebhookSecret(webhookId: string, orgId: string): string | null {
-    const existing = this.getWebhook(webhookId);
+    const existing = this.getWebhookAnyOrg(webhookId);
     if (!existing || existing.orgId !== orgId) return null;
     const secret = `pv_whsec_${randomBytes(16).toString("hex")}`;
     const info = db
@@ -4055,7 +4055,7 @@ export const store = {
     ).map(rowToDelivery);
   },
 
-  getWebhook(webhookId: string): WebhookRow | undefined {
+  getWebhookAnyOrg(webhookId: string): WebhookRow | undefined {
     const r = db.prepare("SELECT * FROM webhooks WHERE id = ?").get(webhookId) as Row | undefined;
     return r ? rowToWebhook(r) : undefined;
   },
@@ -4657,3 +4657,70 @@ export const store = {
     };
   },
 };
+
+/**
+ * Tenant-scoped view of the store (roadmap P2-T4).
+ *
+ * Isolation used to be ~39 hand-written `row.orgId !== org.id` checks at call
+ * sites. Every one I audited was correct, but the pattern is one forgotten
+ * line away from a cross-tenant read, and nothing — not the compiler, not the
+ * tests — would say so.
+ *
+ * This binds the organization once, at the point a request already knows it,
+ * and returns readers that cannot be handed a different one. Deliberately NOT
+ * `getAgent(orgId, agentId)`: those are two strings in a row, so a swapped
+ * argument would type-check perfectly and fail at runtime, in production, on
+ * the money path.
+ *
+ * Everything here returns `undefined`/`null`/`[]` for another org's row —
+ * indistinguishable from "does not exist", which is also what a caller should
+ * tell the client. Existence is itself information.
+ *
+ * Background jobs legitimately work across tenants. They keep the unscoped
+ * readers, which are named `*AnyOrg` so the exceptions are greppable rather
+ * than invisible.
+ */
+export function scopedStore(orgId: string) {
+  const mine = <T extends { orgId: string }>(row: T | undefined | null): T | undefined =>
+    row && row.orgId === orgId ? row : undefined;
+
+  return {
+    orgId,
+
+    getAgent(agentId: string): AgentRow | undefined {
+      return mine(store.getAgentAnyOrg(agentId));
+    },
+    getDepartment(deptId: string): DepartmentRow | undefined {
+      return mine(store.getDepartmentAnyOrg(deptId));
+    },
+    getSharedWallet(walletId: string): SharedWalletRow | undefined {
+      return mine(store.getSharedWalletAnyOrg(walletId));
+    },
+    getTreasuryMove(moveId: string): TreasuryMoveRow | undefined {
+      return mine(store.getTreasuryMoveAnyOrg(moveId));
+    },
+    getAgentGroup(groupId: string): AgentGroupRecord | undefined {
+      return mine(store.getAgentGroupAnyOrg(groupId));
+    },
+    getWebhook(webhookId: string): WebhookRow | undefined {
+      return mine(store.getWebhookAnyOrg(webhookId));
+    },
+
+    /** Members of a group this org owns. Another org's group reads as empty. */
+    listGroupMemberIds(groupId: string): string[] {
+      return this.getAgentGroup(groupId) ? store.listGroupMemberIdsAnyOrg(groupId) : [];
+    },
+
+    /** Groups an agent of this org belongs to. */
+    listAgentGroupIds(agentId: string): string[] {
+      return this.getAgent(agentId) ? store.listAgentGroupIdsAnyOrg(agentId) : [];
+    },
+
+    /** Policy override for an agent of this org. */
+    getAgentPolicyOverride(agentId: string): PolicyOverride | null {
+      return this.getAgent(agentId) ? store.getAgentPolicyOverrideAnyOrg(agentId) : null;
+    },
+  };
+}
+
+export type ScopedStore = ReturnType<typeof scopedStore>;

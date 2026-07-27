@@ -1,6 +1,6 @@
 import { resolveApproval } from "./engine.js";
 import { registerNotifier } from "./platform/notifier.js";
-import { store, type ApprovalRow } from "./store.js";
+import { scopedStore, store, type ApprovalRow } from "./store.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID ?? "";
@@ -28,7 +28,7 @@ async function tg(method: string, payload: Record<string, unknown>): Promise<unk
 
 export function notifyApprovalPending(approval: ApprovalRow): void {
   if (!telegramEnabled) return;
-  const agent = store.getAgent(approval.agentId);
+  const agent = scopedStore(approval.orgId).getAgent(approval.agentId);
   const text = [
     `🔐 *Approval needed*`,
     `Agent: ${agent?.name ?? approval.agentId}`,

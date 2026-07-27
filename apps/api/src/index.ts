@@ -34,6 +34,7 @@ import {
 import { answerQuestion, buildSummary } from "./insights.js";
 import { runAbiAgent } from "./abi-agent/index.js";
 import {
+  scopedStore,
   store,
   type ApprovalRow,
   type EscrowRow,
@@ -1011,8 +1012,8 @@ app.post(
         startNow: z.boolean().default(false),
       })
       .parse(req.body);
-    const agent = store.getAgent(body.agentId);
-    if (!agent || agent.orgId !== org.id) {
+    const agent = scopedStore(org.id).getAgent(body.agentId);
+    if (!agent) {
       return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
     }
     const sub = {
@@ -1455,8 +1456,8 @@ app.post(
         amountUsdc: z.string(),
       })
       .parse(req.body);
-    const agent = store.getAgent(body.agentId);
-    if (!agent || agent.orgId !== org.id) {
+    const agent = scopedStore(org.id).getAgent(body.agentId);
+    if (!agent) {
       return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
     }
     const amount = parseUsdcToMicro(body.amountUsdc);
@@ -1493,8 +1494,8 @@ app.post(
         amountUsdc: z.string().optional(),
       })
       .parse(req.body);
-    const agent = store.getAgent(body.agentId);
-    if (!agent || agent.orgId !== org.id) {
+    const agent = scopedStore(org.id).getAgent(body.agentId);
+    if (!agent) {
       return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
     }
     const accounts = store.getAccountMap(org.id);
@@ -1556,9 +1557,9 @@ app.post(
         .status(400)
         .json({ error: { code: "VALIDATION_ERROR", message: "Source and destination are the same agent" } });
     }
-    const from = store.getAgent(body.fromAgentId);
-    const to = store.getAgent(body.toAgentId);
-    if (!from || from.orgId !== org.id || !to || to.orgId !== org.id) {
+    const from = scopedStore(org.id).getAgent(body.fromAgentId);
+    const to = scopedStore(org.id).getAgent(body.toAgentId);
+    if (!from || !to) {
       return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
     }
     const accounts = store.getAccountMap(org.id);
@@ -1611,8 +1612,8 @@ app.post(
       })
       .parse(req.body);
     if (body.agentId) {
-      const agent = store.getAgent(body.agentId);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(body.agentId);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND" } });
       }
       store.setAgentStatus(body.agentId, "frozen");
@@ -1644,8 +1645,8 @@ app.post(
   guardianRoute((org, req, res) => {
     const body = z.object({ agentId: z.string().optional() }).parse(req.body);
     if (body.agentId) {
-      const agent = store.getAgent(body.agentId);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(body.agentId);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND" } });
       }
       store.setAgentStatus(body.agentId, "active");
@@ -1994,8 +1995,8 @@ app.get(
 app.post(
   "/v1/guardian/webhooks/:id/test",
   guardianRoute((org, req, res) => {
-    const webhook = store.getWebhook(req.params.id);
-    if (!webhook || webhook.orgId !== org.id) {
+    const webhook = scopedStore(org.id).getWebhook(req.params.id);
+    if (!webhook) {
       return res.status(404).json({ error: { code: "NOT_FOUND" } });
     }
     emitEvent(org.id, "payment.succeeded", {
@@ -2026,7 +2027,7 @@ app.get("/v1/agent/budget", (req, res) => {
   const remaining = rules.dailyMaxMicro - spent;
   res.json({
     agentId: auth.agentId,
-    agentName: store.getAgent(auth.agentId)?.name ?? auth.agentId,
+    agentName: scopedStore(auth.orgId).getAgent(auth.agentId)?.name ?? auth.agentId,
     availableUsdc: formatMicroToUsdc(av?.balanceMicro ?? 0n),
     heldUsdc: formatMicroToUsdc(held?.balanceMicro ?? 0n),
     dailyRemainingUsdc: formatMicroToUsdc(remaining < 0n ? 0n : remaining),
@@ -2147,8 +2148,8 @@ app.post(
         timeoutMinutes: z.number().int().positive().max(7 * 24 * 60).optional(),
       })
       .parse(req.body);
-    const payee = store.getAgent(body.payeeAgentId);
-    if (!payee || payee.orgId !== auth.orgId) {
+    const payee = scopedStore(auth.orgId).getAgent(body.payeeAgentId);
+    if (!payee) {
       res.status(404).json({ error: { code: "NOT_FOUND", message: "payeeAgentId not in org" } });
       return;
     }

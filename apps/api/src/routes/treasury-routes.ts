@@ -19,6 +19,7 @@ import { id } from "../engine.js";
 import { notify } from "../platform/notifier.js";
 import { recordObs } from "../platform/observability.js";
 import {
+  scopedStore,
   store,
   type OrgRow,
   type TreasuryMoveRow,
@@ -56,22 +57,23 @@ function resolveWalletOwner(org: OrgRow, ref: WalletRef): string | null {
     return ref.id === org.id || ref.id === "org" ? org.id : null;
   }
   if (ref.scope === "agent") {
-    const a = store.getAgent(ref.id);
+    const a = scopedStore(org.id).getAgent(ref.id);
     return a && a.orgId === org.id ? a.id : null;
   }
   if (ref.scope === "department") {
-    const d = store.getDepartment(ref.id);
+    const d = scopedStore(org.id).getDepartment(ref.id);
     return d && d.orgId === org.id && d.status === "active" ? d.id : null;
   }
-  const w = store.getSharedWallet(ref.id);
+  const w = scopedStore(org.id).getSharedWallet(ref.id);
   return w && w.orgId === org.id && w.status === "active" ? w.id : null;
 }
 
-function walletLabel(_org: OrgRow, ref: WalletRef): string {
+function walletLabel(org: OrgRow, ref: WalletRef): string {
+  const scoped = scopedStore(org.id);
   if (ref.scope === "org") return `Org treasury`;
-  if (ref.scope === "agent") return store.getAgent(ref.id)?.name ?? ref.id;
-  if (ref.scope === "department") return store.getDepartment(ref.id)?.name ?? ref.id;
-  return store.getSharedWallet(ref.id)?.name ?? ref.id;
+  if (ref.scope === "agent") return scoped.getAgent(ref.id)?.name ?? ref.id;
+  if (ref.scope === "department") return scoped.getDepartment(ref.id)?.name ?? ref.id;
+  return scoped.getSharedWallet(ref.id)?.name ?? ref.id;
 }
 
 function ensureAvailableAccount(orgId: string, scope: WalletScope, ownerId: string): void {
@@ -308,7 +310,7 @@ export function registerTreasuryRoutes(
           .find((g) => g.status === "active" && g.name.toLowerCase() === dept.name.toLowerCase());
         if (sameName) {
           store.setAgentGroupBudget(sameName.id, dept.id);
-          opsLabel = store.getAgentGroup(sameName.id);
+          opsLabel = scopedStore(org.id).getAgentGroup(sameName.id);
         } else {
           opsLabel = store.createAgentGroup(org.id, dept.name, dept.id);
         }
@@ -411,19 +413,19 @@ export function registerTreasuryRoutes(
   app.post(
     "/v1/guardian/shared-wallets/:id/members",
     guardianRoute((org, req, res) => {
-      const wallet = store.getSharedWallet(req.params.id);
-      if (!wallet || wallet.orgId !== org.id) {
+      const wallet = scopedStore(org.id).getSharedWallet(req.params.id);
+      if (!wallet) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "shared wallet" } });
       }
       const body = z.object({ memberAgentIds: z.array(z.string()) }).parse(req.body);
       for (const agentId of body.memberAgentIds) {
-        const a = store.getAgent(agentId);
-        if (!a || a.orgId !== org.id) {
+        const a = scopedStore(org.id).getAgent(agentId);
+        if (!a) {
           return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
         }
       }
       store.setSharedWalletMembers(wallet.id, body.memberAgentIds);
-      res.json({ wallet: store.getSharedWallet(wallet.id) });
+      res.json({ wallet: scopedStore(org.id).getSharedWallet(wallet.id) });
     }, { ownerOnly: true }),
   );
 
@@ -530,7 +532,7 @@ export function registerTreasuryRoutes(
         orgId: org.id,
         attrs: { amountUsdc: body.amountUsdc, from: body.from, to: body.to },
       });
-      res.json({ outcome: "allow", move: moveView(store.getTreasuryMove(moveId)!) });
+      res.json({ outcome: "allow", move: moveView(scopedStore(org.id).getTreasuryMove(moveId)!) });
     }, { ownerOnly: true }),
   );
 
@@ -549,8 +551,8 @@ export function registerTreasuryRoutes(
       const body = z
         .object({ approve: z.boolean(), resolvedBy: z.string().optional() })
         .parse(req.body);
-      const move = store.getTreasuryMove(req.params.id);
-      if (!move || move.orgId !== org.id) {
+      const move = scopedStore(org.id).getTreasuryMove(req.params.id);
+      if (!move) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "treasury move" } });
       }
       if (move.status !== "pending") {
@@ -565,7 +567,7 @@ export function registerTreasuryRoutes(
           resolvedAt: new Date().toISOString(),
           resolvedBy: voter,
         });
-        return res.json({ ok: true, move: moveView(store.getTreasuryMove(move.id)!) });
+        return res.json({ ok: true, move: moveView(scopedStore(org.id).getTreasuryMove(move.id)!) });
       }
 
       const votes = [...new Set([...move.votes, voter])];
@@ -574,7 +576,7 @@ export function registerTreasuryRoutes(
         store.updateTreasuryMove(move.id, { votes });
         return res.json({
           ok: true,
-          move: moveView(store.getTreasuryMove(move.id)!),
+          move: moveView(scopedStore(org.id).getTreasuryMove(move.id)!),
           awaitingVotes: quorum - votes.length,
         });
       }
@@ -592,7 +594,7 @@ export function registerTreasuryRoutes(
         resolvedAt: new Date().toISOString(),
         resolvedBy: voter,
       });
-      const done = store.getTreasuryMove(move.id)!;
+      const done = scopedStore(org.id).getTreasuryMove(move.id)!;
       emitEvent(org.id, "treasury.move.executed", moveView(done));
       res.json({ ok: true, move: moveView(done) });
     }),
@@ -1226,8 +1228,8 @@ export function registerTreasuryRoutes(
     "/v1/guardian/treasury/recovery/rotate-agent-key",
     guardianRoute((org, req, res) => {
       const body = z.object({ agentId: z.string() }).parse(req.body);
-      const agent = store.getAgent(body.agentId);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(body.agentId);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       const apiKey = store.rotateAgentKey(agent.id);

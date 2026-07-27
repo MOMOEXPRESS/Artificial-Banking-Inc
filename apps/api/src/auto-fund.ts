@@ -10,7 +10,7 @@ import {
 } from "@policyvault/common";
 import { transferAvailable } from "@policyvault/ledger";
 import { id } from "./engine.js";
-import { store } from "./store.js";
+import { scopedStore, store } from "./store.js";
 import { emitEvent } from "./webhooks.js";
 
 /** Coalesce request-path sweeps so every /abi-api hit isn't a full ledger walk. */
@@ -37,15 +37,16 @@ export function runAutoFundSweep(opts?: { force?: boolean }): { toppedUp: number
       continue;
     }
     if (topUp <= 0n) continue;
-    const dept = store.getDepartment(group.budgetId);
-    if (!dept || dept.orgId !== group.orgId) continue;
+    const scoped = scopedStore(group.orgId);
+    const dept = scoped.getDepartment(group.budgetId);
+    if (!dept) continue;
     const fromAvailableId = accountId("department", dept.id);
-    const memberIds = store.listGroupMemberIds(group.id);
+    const memberIds = scoped.listGroupMemberIds(group.id);
     const minMs = Math.max(1, cfg.minIntervalMinutes) * 60_000;
     const now = Date.now();
     for (const agentId of memberIds) {
-      const agent = store.getAgent(agentId);
-      if (!agent || agent.orgId !== group.orgId || agent.status !== "active") continue;
+      const agent = scoped.getAgent(agentId);
+      if (!agent || agent.status !== "active") continue;
       const last = store.lastAutoFundAt(group.id, agentId);
       if (last && now - new Date(last).getTime() < minMs) continue;
       const bal =

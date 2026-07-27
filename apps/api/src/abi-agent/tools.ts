@@ -6,7 +6,7 @@
 import { accountId, formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/common";
 import { anomalies, burnForecast, vendorLedger } from "../analytics.js";
 import { buildSummary } from "../insights.js";
-import { store } from "../store.js";
+import { scopedStore, store } from "../store.js";
 import { quietHoursStatus } from "./quiet.js";
 
 export const TOOL_NAMES = [
@@ -410,7 +410,7 @@ export function runTool(
         };
       }
       const t = store.getPolicyTemplate(orgId);
-      const agent = store.getAgent(d.agentId);
+      const agent = scopedStore(orgId).getAgent(d.agentId);
       let amountMicro = 0n;
       try {
         amountMicro = parseUsdcToMicro(d.amountUsdc);

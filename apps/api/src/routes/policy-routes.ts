@@ -11,7 +11,8 @@ import {
 import type express from "express";
 import { z } from "zod";
 import { simulatePolicy } from "../analytics.js";
-import { store, type OrgRow } from "../store.js";
+import {
+  scopedStore, store, type OrgRow } from "../store.js";
 import { resolvedPolicyFor } from "../engine.js";
 
 type GuardianRoute = (
@@ -336,8 +337,8 @@ export function registerPolicyRoutes(
   app.get(
     "/v1/guardian/agents/:id/policy",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       const { effective, provenance } = resolvedPolicyFor(agent.id, org.id);
@@ -347,7 +348,7 @@ export function registerPolicyRoutes(
         // Which fields this agent overrides, so the UI can show inheritance
         // rather than a flat list an operator has to diff by eye.
         provenance,
-        hasOverride: store.getAgentPolicyOverride(agent.id) !== null,
+        hasOverride: scopedStore(org.id).getAgentPolicyOverride(agent.id) !== null,
         orgDefault: policyView(store.getPolicyTemplate(org.id)),
       });
     }),
@@ -360,8 +361,8 @@ export function registerPolicyRoutes(
   app.put(
     "/v1/guardian/agents/:id/policy",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       const body = agentOverrideSchema.parse(req.body);
@@ -423,8 +424,8 @@ export function registerPolicyRoutes(
   app.delete(
     "/v1/guardian/agents/:id/policy",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       const removed = store.clearAgentPolicyOverride(agent.id);

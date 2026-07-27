@@ -7,7 +7,8 @@ import { formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/common";
 import type express from "express";
 import { z } from "zod";
 import { id } from "../engine.js";
-import { store, type OrgRow } from "../store.js";
+import {
+  scopedStore, store, type OrgRow } from "../store.js";
 
 type GuardianRoute = (
   handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
@@ -108,8 +109,8 @@ export function registerPaymentRoutes(
           memo: z.string().max(200).optional(),
         })
         .parse(req.body);
-      const agent = store.getAgent(body.agentId);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(body.agentId);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       const amountMicro = parseUsdcToMicro(body.amountUsdc);
@@ -165,8 +166,8 @@ export function registerPaymentRoutes(
       const created: unknown[] = [];
       const errors: { index: number; error: string }[] = [];
       body.items.forEach((item, index) => {
-        const agent = store.getAgent(item.agentId);
-        if (!agent || agent.orgId !== org.id) {
+        const agent = scopedStore(org.id).getAgent(item.agentId);
+        if (!agent) {
           errors.push({ index, error: "agent not found" });
           return;
         }

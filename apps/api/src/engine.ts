@@ -22,7 +22,7 @@ import type { PaymentRail } from "./rails/types.js";
 import { screenDestination } from "./platform/compliance.js";
 import { notify } from "./platform/notifier.js";
 import { recordObs } from "./platform/observability.js";
-import { store, type ApprovalRow, type EscrowRow } from "./store.js";
+import { scopedStore, store, type ApprovalRow, type EscrowRow } from "./store.js";
 import { emitEvent } from "./webhooks.js";
 
 export const APPROVAL_TTL_MINUTES = Number(process.env.APPROVAL_TTL_MINUTES ?? 10);
@@ -53,11 +53,11 @@ export function scopedIdempotencyKey(agentId: string, key: string): string {
  * layers: organization defaults, then an optional per-agent override.
  */
 export function resolvedPolicyFor(agentId: string, orgId: string) {
-  return resolvePolicy(store.getPolicyTemplate(orgId), store.getAgentPolicyOverride(agentId));
+  return resolvePolicy(store.getPolicyTemplate(orgId), scopedStore(orgId).getAgentPolicyOverride(agentId));
 }
 
 export function rulesFor(agentId: string, orgId: string, destination?: string): PolicyRules {
-  const agent = store.getAgent(agentId)!;
+  const agent = scopedStore(orgId).getAgent(agentId)!;
   const org = store.getOrg(orgId)!;
   const { effective } = resolvedPolicyFor(agentId, orgId);
   const orgAgentIds = store.listAgents(orgId).map((a) => a.id);

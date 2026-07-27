@@ -77,7 +77,7 @@ const intentFor = (agentId: string, orgId: string, amountMicro: bigint) => ({
 describe("agent policy overrides", () => {
   it("leaves an agent on the org default until one is set", () => {
     const { org, tight } = orgWithTwoAgents();
-    assert.equal(store.getAgentPolicyOverride(tight.agentId), null);
+    assert.equal(store.getAgentPolicyOverrideAnyOrg(tight.agentId), null);
     const { provenance } = resolvedPolicyFor(tight.agentId, org.id);
     assert.equal(provenance.perTxMaxMicro, "org");
   });
@@ -98,7 +98,7 @@ describe("agent policy overrides", () => {
       perTxMaxMicro: 12_345_678n,
       vendorAllowlist: ["only-this.example"],
     });
-    const back = store.getAgentPolicyOverride(tight.agentId)!;
+    const back = store.getAgentPolicyOverrideAnyOrg(tight.agentId)!;
     assert.equal(back.perTxMaxMicro, 12_345_678n, "bigint must not become a string");
     assert.deepEqual(back.vendorAllowlist, ["only-this.example"]);
   });
@@ -141,7 +141,7 @@ describe("agent policy overrides", () => {
     store.setAgentPolicyOverride(org.id, tight.agentId, { perTxMaxMicro: 2_000_000n });
     store.setAgentPolicyRawForTests(tight.agentId, "{not json");
 
-    assert.equal(store.getAgentPolicyOverride(tight.agentId), null);
+    assert.equal(store.getAgentPolicyOverrideAnyOrg(tight.agentId), null);
     assert.equal(resolvedPolicyFor(tight.agentId, org.id).effective.perTxMaxMicro, 25_000_000n);
   });
 

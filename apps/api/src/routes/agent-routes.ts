@@ -17,7 +17,8 @@ import { runAutoFundSweep } from "../auto-fund.js";
 import { id } from "../engine.js";
 import { notify } from "../platform/notifier.js";
 import { recordObs } from "../platform/observability.js";
-import { store, type OrgRow } from "../store.js";
+import {
+  scopedStore, store, type OrgRow } from "../store.js";
 import { emitEvent } from "../webhooks.js";
 
 type GuardianRoute = (
@@ -60,8 +61,8 @@ function validateProfileHints(
   if (profile.groupId !== undefined) {
     if (typeof profile.groupId !== "string") return "groupId must be a string";
     if (profile.groupId) {
-      const g = store.getAgentGroup(profile.groupId);
-      if (!g || g.orgId !== org.id || g.status !== "active") {
+      const g = scopedStore(org.id).getAgentGroup(profile.groupId);
+      if (!g || g.status !== "active") {
         return "groupId does not match an active org group";
       }
     }
@@ -92,7 +93,7 @@ export function registerAgentRoutes(
       const groups = new Map(store.listAgentGroups(org.id).map((g) => [g.id, g.name]));
       res.json({
         agents: store.listAgents(org.id).map((a) => {
-          const groupIds = store.listAgentGroupIds(a.id);
+          const groupIds = scopedStore(org.id).listAgentGroupIds(a.id);
           const groupNames = groupIds
             .map((gid) => groups.get(gid))
             .filter((n): n is string => Boolean(n));
@@ -126,7 +127,7 @@ export function registerAgentRoutes(
       }
       const { agentId, apiKey } = store.createAgent(org.id, body.name);
       if (body.profile) store.setAgentProfile(agentId, body.profile);
-      const agent = store.getAgent(agentId)!;
+      const agent = scopedStore(org.id).getAgent(agentId)!;
       recordObs({ name: "agent.created", orgId: org.id, agentId });
       res.status(201).json({
         agentId,
@@ -141,8 +142,8 @@ export function registerAgentRoutes(
   app.get(
     "/v1/guardian/agents/:id",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       const burn = burnForecast(org.id).perAgent.find((p) => p.agentId === agent.id);
@@ -170,8 +171,8 @@ export function registerAgentRoutes(
   app.patch(
     "/v1/guardian/agents/:id",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       const body = z
@@ -190,7 +191,7 @@ export function registerAgentRoutes(
         profile = { ...agent.profile, ...body.profile };
         store.setAgentProfile(agent.id, profile);
       }
-      const next = store.getAgent(agent.id)!;
+      const next = scopedStore(org.id).getAgent(agent.id)!;
       res.json({ identity: identityOf(next) });
     }, { ownerOnly: true }),
   );
@@ -199,8 +200,8 @@ export function registerAgentRoutes(
   app.patch(
     "/v1/guardian/agents/:id/profile",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       const body = z.object({ profile: z.record(z.unknown()) }).parse(req.body);
@@ -222,23 +223,23 @@ export function registerAgentRoutes(
   app.post(
     "/v1/guardian/agents/:id/archive",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       store.setAgentStatus(agent.id, "archived");
       store.addFreeze(org.id, agent.id, "archived");
       store.revokeAgentKey(agent.id);
       emitEvent(org.id, "agent.frozen", { agentId: agent.id, reason: "archived" });
-      res.json({ ok: true, identity: identityOf(store.getAgent(agent.id)!) });
+      res.json({ ok: true, identity: identityOf(scopedStore(org.id).getAgent(agent.id)!) });
     }, { ownerOnly: true }),
   );
 
   app.post(
     "/v1/guardian/agents/:id/unarchive",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       if (agent.status !== "archived") {
@@ -251,7 +252,7 @@ export function registerAgentRoutes(
       res.json({
         ok: true,
         apiKey,
-        identity: identityOf(store.getAgent(agent.id)!),
+        identity: identityOf(scopedStore(org.id).getAgent(agent.id)!),
         note: "Agent restored active with a fresh API key — store it now.",
       });
     }, { ownerOnly: true }),
@@ -261,8 +262,8 @@ export function registerAgentRoutes(
   app.post(
     "/v1/guardian/agents/:id/rotate-key",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       if (agent.status === "archived") {
@@ -284,8 +285,8 @@ export function registerAgentRoutes(
   app.post(
     "/v1/guardian/agents/:id/revoke-key",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       store.revokeAgentKey(agent.id);
@@ -305,8 +306,8 @@ export function registerAgentRoutes(
   app.get(
     "/v1/guardian/agents/:id/analytics",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       const decisions = store.listDecisionsForAgent(org.id, agent.id, 500);
@@ -352,7 +353,7 @@ export function registerAgentRoutes(
       const agentsById = new Map(store.listAgents(org.id).map((a) => [a.id, a]));
       res.json({
         groups: store.listAgentGroups(org.id).map((g) => {
-          const memberIds = store.listGroupMemberIds(g.id);
+          const memberIds = scopedStore(org.id).listGroupMemberIds(g.id);
           const members = memberIds
             .map((mid) => agentsById.get(mid))
             .filter((a): a is NonNullable<typeof a> => Boolean(a))
@@ -379,8 +380,8 @@ export function registerAgentRoutes(
   app.post(
     "/v1/guardian/agent-groups/:id/archive",
     guardianRoute((org, req, res) => {
-      const group = store.getAgentGroup(req.params.id);
-      if (!group || group.orgId !== org.id) {
+      const group = scopedStore(org.id).getAgentGroup(req.params.id);
+      if (!group) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
       }
       store.setAgentGroupStatus(group.id, "archived");
@@ -392,15 +393,15 @@ export function registerAgentRoutes(
   app.post(
     "/v1/guardian/agent-groups/:id/assign",
     guardianRoute((org, req, res) => {
-      const group = store.getAgentGroup(req.params.id);
-      if (!group || group.orgId !== org.id || group.status !== "active") {
+      const group = scopedStore(org.id).getAgentGroup(req.params.id);
+      if (!group || group.status !== "active") {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
       }
       const body = z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
       const assigned: string[] = [];
       for (const agentId of body.agentIds) {
-        const agent = store.getAgent(agentId);
-        if (!agent || agent.orgId !== org.id) continue;
+        const agent = scopedStore(org.id).getAgent(agentId);
+        if (!agent) continue;
         store.addAgentToGroup(org.id, agent.id, group.id);
         assigned.push(agent.id);
       }
@@ -411,15 +412,15 @@ export function registerAgentRoutes(
   app.post(
     "/v1/guardian/agent-groups/:id/unassign",
     guardianRoute((org, req, res) => {
-      const group = store.getAgentGroup(req.params.id);
-      if (!group || group.orgId !== org.id) {
+      const group = scopedStore(org.id).getAgentGroup(req.params.id);
+      if (!group) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
       }
       const body = z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
       const removed: string[] = [];
       for (const agentId of body.agentIds) {
-        const agent = store.getAgent(agentId);
-        if (!agent || agent.orgId !== org.id) continue;
+        const agent = scopedStore(org.id).getAgent(agentId);
+        if (!agent) continue;
         store.removeAgentFromGroup(agent.id, group.id);
         removed.push(agent.id);
       }
@@ -431,12 +432,12 @@ export function registerAgentRoutes(
   app.post(
     "/v1/guardian/agent-groups/:id/freeze",
     guardianRoute((org, req, res) => {
-      const group = store.getAgentGroup(req.params.id);
-      if (!group || group.orgId !== org.id || group.status !== "active") {
+      const group = scopedStore(org.id).getAgentGroup(req.params.id);
+      if (!group || group.status !== "active") {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
       }
       const body = z.object({ reason: z.string().default("group_freeze") }).parse(req.body ?? {});
-      const memberIds = new Set(store.listGroupMemberIds(group.id));
+      const memberIds = new Set(scopedStore(org.id).listGroupMemberIds(group.id));
       const members = store
         .listAgents(org.id)
         .filter((a) => memberIds.has(a.id) && a.status === "active");
@@ -453,11 +454,11 @@ export function registerAgentRoutes(
   app.post(
     "/v1/guardian/agent-groups/:id/unfreeze",
     guardianRoute((org, req, res) => {
-      const group = store.getAgentGroup(req.params.id);
-      if (!group || group.orgId !== org.id) {
+      const group = scopedStore(org.id).getAgentGroup(req.params.id);
+      if (!group) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
       }
-      const memberIds = new Set(store.listGroupMemberIds(group.id));
+      const memberIds = new Set(scopedStore(org.id).listGroupMemberIds(group.id));
       const members = store
         .listAgents(org.id)
         .filter((a) => memberIds.has(a.id) && a.status === "frozen");
@@ -473,8 +474,8 @@ export function registerAgentRoutes(
   app.post(
     "/v1/guardian/agent-groups/:id/fund",
     guardianRoute((org, req, res) => {
-      const group = store.getAgentGroup(req.params.id);
-      if (!group || group.orgId !== org.id || group.status !== "active") {
+      const group = scopedStore(org.id).getAgentGroup(req.params.id);
+      if (!group || group.status !== "active") {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
       }
       const body = z
@@ -488,7 +489,7 @@ export function registerAgentRoutes(
       if (each <= 0n) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "amount must be positive" } });
       }
-      const memberIds = new Set(store.listGroupMemberIds(group.id));
+      const memberIds = new Set(scopedStore(org.id).listGroupMemberIds(group.id));
       const members = store
         .listAgents(org.id)
         .filter((a) => memberIds.has(a.id) && a.status !== "archived");
@@ -505,8 +506,8 @@ export function registerAgentRoutes(
             error: { code: "VALIDATION_ERROR", message: "fromId (budget id) is required when fromScope is department" },
           });
         }
-        const dept = store.getDepartment(body.fromId);
-        if (!dept || dept.orgId !== org.id) {
+        const dept = scopedStore(org.id).getDepartment(body.fromId);
+        if (!dept) {
           return res.status(404).json({ error: { code: "NOT_FOUND", message: "budget" } });
         }
         fromAvailableId = accountId("department", dept.id);
@@ -556,8 +557,8 @@ export function registerAgentRoutes(
   app.patch(
     "/v1/guardian/agent-groups/:id/auto-fund",
     guardianRoute((org, req, res) => {
-      const group = store.getAgentGroup(req.params.id);
-      if (!group || group.orgId !== org.id || group.status !== "active") {
+      const group = scopedStore(org.id).getAgentGroup(req.params.id);
+      if (!group || group.status !== "active") {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
       }
       const body = z
@@ -622,8 +623,8 @@ export function registerAgentRoutes(
   app.post(
     "/v1/guardian/agents/:id/session-keys",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
       }
       if (agent.status !== "active") {
@@ -682,8 +683,8 @@ export function registerAgentRoutes(
   app.post(
     "/v1/guardian/agents/:id/freeze",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND" } });
       }
       const body = z.object({ reason: z.string().default("manual") }).parse(req.body ?? {});
@@ -698,15 +699,15 @@ export function registerAgentRoutes(
         meta: { agentId: agent.id },
       });
       recordObs({ name: "freeze", orgId: org.id, agentId: agent.id, attrs: { reason: body.reason } });
-      res.json({ ok: true, identity: identityOf(store.getAgent(agent.id)!) });
+      res.json({ ok: true, identity: identityOf(scopedStore(org.id).getAgent(agent.id)!) });
     }, { ownerOnly: true }),
   );
 
   app.post(
     "/v1/guardian/agents/:id/unfreeze",
     guardianRoute((org, req, res) => {
-      const agent = store.getAgent(req.params.id);
-      if (!agent || agent.orgId !== org.id) {
+      const agent = scopedStore(org.id).getAgent(req.params.id);
+      if (!agent) {
         return res.status(404).json({ error: { code: "NOT_FOUND" } });
       }
       if (agent.status === "archived") {
@@ -716,7 +717,7 @@ export function registerAgentRoutes(
       }
       store.setAgentStatus(agent.id, "active");
       emitEvent(org.id, "agent.unfrozen", { agentId: agent.id });
-      res.json({ ok: true, identity: identityOf(store.getAgent(agent.id)!) });
+      res.json({ ok: true, identity: identityOf(scopedStore(org.id).getAgent(agent.id)!) });
     }, { ownerOnly: true }),
   );
 }
