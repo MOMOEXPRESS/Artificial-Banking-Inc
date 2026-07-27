@@ -97,7 +97,7 @@ function downloadKeysFile(session: Session, kind: "real" | "demo") {
 }
 
 type Phase = "intro" | "ready" | "keys";
-type LoginMode = "signin" | "signup" | "key" | "demo";
+type LoginMode = "signin" | "signup" | "key" | "demo" | "reset";
 
 export function Login({
   onLogin,
@@ -113,6 +113,25 @@ export function Login({
   const [fullName, setFullName] = useState("");
   const [inviteToken, setInviteToken] = useState("");
   const [mode, setMode] = useState<LoginMode>("signin");
+  /**
+   * Password reset. The API and the emailed link already existed; there was no
+   * way to ask for one, so a forgotten password meant a lost organization for
+   * anyone without database access.
+   */
+  const [resetSent, setResetSent] = useState<string | null>(null);
+  const [resetToken, setResetToken] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+
+  // The emailed link lands on /console?reset=<token>. Without this the link
+  // opened a normal sign-in screen and the token was silently ignored.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const token = new URLSearchParams(window.location.search).get("reset");
+    if (token) {
+      setResetToken(token);
+      setMode("reset");
+    }
+  }, []);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>("intro");
   const [pending, setPending] = useState<Session | null>(null);
@@ -182,6 +201,60 @@ export function Login({
       });
     } catch (e) {
       setToast(`Sign in failed: ${String(e)}`, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function requestReset() {
+    if (!email.trim()) {
+      setToast("Enter your email address first.", "err");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`${API}/v1/auth/password-reset/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const d = (await res.json()) as { devResetToken?: string; note?: string };
+      // The endpoint answers 200 whether or not the address exists, so it
+      // cannot be used to enumerate accounts. Say the same thing back.
+      setResetSent(
+        d.devResetToken
+          ? `Email is not configured, so here is the link: ${window.location.origin}/console?reset=${d.devResetToken}`
+          : (d.note ?? "If that address has an account, a reset link is on its way."),
+      );
+    } catch (e) {
+      setToast(`Could not request a reset: ${String(e)}`, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmReset() {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API}/v1/auth/password-reset/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: resetToken, newPassword }),
+      });
+      if (!res.ok) throw new Error(await readApiError(res));
+      setNewPassword("");
+      setResetToken("");
+      setMode("signin");
+      // Confirming also revokes every session for that user, so signing in
+      // again is the required next step rather than an inconvenience.
+      setToast("Password updated. Sign in with the new one.", "ok");
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("reset");
+        window.history.replaceState(null, "", url.toString());
+      }
+    } catch (e) {
+      setToast(`Reset failed: ${String(e)}`, "err");
     } finally {
       setBusy(false);
     }
@@ -358,10 +431,57 @@ export function Login({
                 >
                   Sign in
                 </button>
+                <button
+                  className="bare"
+                  style={{ fontSize: 11.5, marginTop: 12 }}
+                  disabled={busy}
+                  onClick={() => void requestReset()}
+                >
+                  Forgot your password?
+                </button>
+                {resetSent && (
+                  <p className="faint" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.55 }}>
+                    {resetSent}
+                  </p>
+                )}
                 <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.55 }}>
                   Your session is a secure cookie, not a key pasted into the browser. Sign out
                   anywhere and it stops working.
                 </p>
+              </>
+            )}
+
+            {mode === "reset" && (
+              <>
+                <p className="faint" style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 0 }}>
+                  Choose a new password. Every existing session for this account is signed out.
+                </p>
+                <div className="field">
+                  <label>New password</label>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="••••••••••••"
+                    value={newPassword}
+                    autoFocus
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && newPassword && void confirmReset()}
+                  />
+                </div>
+                <button
+                  style={{ width: "100%" }}
+                  disabled={busy || !newPassword || !resetToken}
+                  onClick={() => void confirmReset()}
+                >
+                  Set new password
+                </button>
+                <button
+                  className="bare"
+                  style={{ fontSize: 11.5, marginTop: 12 }}
+                  onClick={() => setMode("signin")}
+                >
+                  Back to sign in
+                </button>
               </>
             )}
 

@@ -22,6 +22,7 @@ import {
 } from "../../lib/keyboard-shortcuts";
 import { ConsoleCommandPalette } from "../../lib/command-palette";
 import { toast } from "../../lib/toast";
+import { useStepUp } from "../../lib/step-up";
 import { useTheme } from "../../lib/theme-provider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -341,7 +342,8 @@ export default function Console() {
     return hit ? decodeURIComponent(hit.trim().slice("abi_csrf=".length)) : "";
   }, []);
 
-  const gFetch = useCallback(
+  /** Authenticated fetch, before the step-up interceptor wraps it. */
+  const rawFetch = useCallback(
     async (path: string, init?: RequestInit) => {
       const s = sessionRef.current;
       const headers: Record<string, string> = {
@@ -365,6 +367,16 @@ export default function Console() {
       });
     },
     [readCsrf],
+  );
+
+  // A high-value approval is refused until identity is re-proven. Handling that
+  // here means every caller inherits it — including the four separate places
+  // that resolve approvals, and whichever is written next. See lib/step-up.tsx.
+  const { guard, stepUpModal } = useStepUp(rawFetch);
+
+  const gFetch = useCallback(
+    (path: string, init?: RequestInit) => guard(() => rawFetch(path, init)),
+    [guard, rawFetch],
   );
 
   /**
@@ -1104,6 +1116,7 @@ export default function Console() {
         }}
       />
       <KeyboardHelp open={help.open} onClose={() => help.setOpen(false)} />
+      {stepUpModal}
     </div>
     </TooltipProvider>
   );

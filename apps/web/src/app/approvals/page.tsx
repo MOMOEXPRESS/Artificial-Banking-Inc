@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { fmtUsd, relTime } from "../../lib/ui";
 import { Button } from "@/components/ui/button";
+import { useStepUp } from "../../lib/step-up";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 
-type Session = { guardianKey: string; orgId?: string };
+type Session = { mode?: "session" | "key"; guardianKey: string; orgId?: string };
 type Approval = {
   id: string;
   agentId: string;
@@ -39,17 +40,47 @@ export default function MobileApprovalsPage() {
     setHydrated(true);
   }, []);
 
-  const gFetch = useCallback(
-    async (path: string, init?: RequestInit) =>
-      fetch(`${API}${path}`, {
-        ...init,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session?.guardianKey ?? ""}`,
-          ...(init?.headers ?? {}),
-        },
-      }),
+  /**
+   * Same auth shape as the console.
+   *
+   * This page previously sent `Bearer ${session?.guardianKey ?? ""}` and no
+   * cookies. A signed-in user stores `guardianKey: ""`, so every request here
+   * went out as `Bearer ` and came back 401 — the mobile approvals inbox was
+   * unusable for exactly the people who had done the safer thing and made an
+   * account.
+   */
+  const rawFetch = useCallback(
+    async (path: string, init?: RequestInit) => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...((init?.headers as Record<string, string>) ?? {}),
+      };
+      if (session?.mode === "session") {
+        const csrf =
+          typeof document === "undefined"
+            ? ""
+            : (() => {
+                const hit = document.cookie
+                  .split(";")
+                  .find((c) => c.trim().startsWith("abi_csrf="));
+                return hit ? decodeURIComponent(hit.trim().slice("abi_csrf=".length)) : "";
+              })();
+        if (csrf) headers["x-abi-csrf"] = csrf;
+        if (session.orgId) headers["x-abi-org"] = session.orgId;
+      } else if (session?.guardianKey) {
+        headers.Authorization = `Bearer ${session.guardianKey}`;
+      }
+      return fetch(`${API}${path}`, { ...init, credentials: "include", headers });
+    },
     [session],
+  );
+
+  // Approving from a phone is still approving money, so the same step-up
+  // applies here as in the console.
+  const { guard, stepUpModal } = useStepUp(rawFetch);
+  const gFetch = useCallback(
+    (path: string, init?: RequestInit) => guard(() => rawFetch(path, init)),
+    [guard, rawFetch],
   );
 
   const refresh = useCallback(async () => {
@@ -155,6 +186,7 @@ export default function MobileApprovalsPage() {
           ))}
         </ul>
       )}
+      {stepUpModal}
     </div>
   );
 }

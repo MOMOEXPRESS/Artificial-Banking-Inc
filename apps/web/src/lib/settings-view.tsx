@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Icon } from "./ui";
 import { AiEgressPanel } from "./ai-egress-panel";
+import { MfaPanel } from "./mfa-panel";
 import { Button } from "@/components/ui/button";
 
 export type Setup = {
@@ -39,6 +40,7 @@ const SECTIONS = [
   { key: "recurring", label: "Recurring spend", icon: "clock" },
   { key: "webhooks", label: "Webhooks", icon: "zap" },
   { key: "console", label: "Console", icon: "sliders" },
+  { key: "security", label: "Security", icon: "shield" },
   { key: "ai", label: "AI & data", icon: "spark" },
   { key: "connect", label: "Connect an agent", icon: "robot" },
   { key: "danger", label: "Danger zone", icon: "alert" },
@@ -66,7 +68,11 @@ export function SettingsView({
   recon: Recon | null;
   prefs: { autoJump: boolean };
   savePrefs: (p: { autoJump: boolean }) => void;
-  session: { guardianKey: string; agentKeys: { agentId: string; name: string; key: string }[] };
+  session: {
+    mode?: "session" | "key";
+    guardianKey: string;
+    agentKeys: { agentId: string; name: string; key: string }[];
+  };
   org: { org: { name: string; status: string }; vaultAddress: string } | null;
   metrics: { agents: number } | null;
   agents: { id: string; name: string }[];
@@ -700,6 +706,15 @@ export function SettingsView({
               Open Webhooks
             </Button>
           </div>
+        )}
+
+        {section === "security" && (
+          <MfaPanel
+            gFetch={gFetch}
+            act={act}
+            locked={busy || actorRole === "viewer"}
+            isSessionUser={session.mode === "session"}
+          />
         )}
 
         {section === "ai" && (
