@@ -16,7 +16,6 @@ import {
   type ToolName,
   type ToolResult,
 } from "./tools.js";
-import type { ExternalActionProposal } from "./external-actions.js";
 import { store } from "../store.js";
 import { resolveAiEgress } from "./ai-settings.js";
 
@@ -48,8 +47,6 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   remember_fact: "Save a guardian-taught org fact to durable memory.",
   recall_facts: "Recall previously saved org facts / notes.",
   draft_marketing_blurb: "Draft marketing copy from org facts (not published).",
-  propose_external_action:
-    "Queue a HITL proposal to post/signup/comment on an external site (e.g. MaltBook). Does NOT execute — guardian must approve.",
 };
 
 type OpenAiToolCall = {
@@ -68,35 +65,6 @@ type OpenAiMessage = {
 
 function openaiTools() {
   return TOOL_NAMES.map((name) => {
-    if (name === "propose_external_action") {
-      return {
-        type: "function" as const,
-        function: {
-          name,
-          description: TOOL_DESCRIPTIONS[name],
-          parameters: {
-            type: "object",
-            properties: {
-              platform: {
-                type: "string",
-                enum: ["maltbook", "linkedin", "x", "web"],
-                description: "Target platform",
-              },
-              action: {
-                type: "string",
-                enum: ["post", "signup", "comment"],
-                description: "What to propose",
-              },
-              content: {
-                type: "string",
-                description: "Draft post text or signup notes",
-              },
-            },
-            required: ["platform", "action", "content"],
-          },
-        },
-      };
-    }
     if (name === "lookup_decision" || name === "explain_decision") {
       return {
         type: "function" as const,
@@ -187,7 +155,6 @@ export type LlmLoopResult = {
   answer: string;
   toolsUsed: ToolName[];
   results: ToolResult[];
-  externalAction?: ExternalActionProposal;
   via: "llm";
 };
 
@@ -241,7 +208,7 @@ export async function runLlmToolLoop(
         "For guardian seats / who can approve, call governance_status.",
         "For durable notes the guardian teaches you, call remember_fact; to list them call recall_facts.",
         "When asked what to do next, prefer recommend_next.",
-        "For MaltBook / LinkedIn / X / web posts or signups, call propose_external_action — do not claim you posted.",
+        "You cannot post anywhere or sign up for anything. For social or web copy, call draft_marketing_blurb and hand the guardian text to post themselves.",
         "After tools return, write a concise plain-text reply for the guardian.",
         "",
         "ORG SNAPSHOT:",
@@ -269,7 +236,6 @@ export async function runLlmToolLoop(
 
   const toolsUsed: ToolName[] = [];
   const results: ToolResult[] = [];
-  let externalAction: ExternalActionProposal | undefined;
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -310,7 +276,6 @@ export async function runLlmToolLoop(
         answer: text || results.map((r) => `${r.title}\n${r.text}`).join("\n\n"),
         toolsUsed,
         results,
-        externalAction,
         via: "llm",
       };
     }
@@ -340,7 +305,6 @@ export async function runLlmToolLoop(
       if (!toolsUsed.includes(name)) toolsUsed.push(name);
       const result = runTool(orgId, name, args);
       results.push(result);
-      if (result.externalAction) externalAction = result.externalAction;
       const dataBlob = result.data ? `\nDATA:${JSON.stringify(result.data)}` : "";
       messages.push({
         role: "tool",
@@ -355,7 +319,6 @@ export async function runLlmToolLoop(
     answer: results.map((r) => `${r.title}\n${r.text}`).join("\n\n"),
     toolsUsed,
     results,
-    externalAction,
     via: "llm",
   };
 }

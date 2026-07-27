@@ -32,7 +32,7 @@ import {
   vendorLedger,
 } from "./analytics.js";
 import { answerQuestion, buildSummary } from "./insights.js";
-import { runAbiAgent, resolveExternalProposal } from "./abi-agent/index.js";
+import { runAbiAgent } from "./abi-agent/index.js";
 import {
   store,
   type ApprovalRow,
@@ -1242,9 +1242,6 @@ app.post(
       meta: {
         ...(raw.goto ? { goto: raw.goto } : {}),
         ...(raw.toolsUsed?.length ? { toolsUsed: raw.toolsUsed } : {}),
-        ...("externalAction" in raw && raw.externalAction
-          ? { externalAction: raw.externalAction }
-          : {}),
         ...("via" in raw && raw.via ? { via: raw.via } : {}),
         ...("scratchpad" in raw && raw.scratchpad ? { scratchpad: raw.scratchpad } : {}),
         ...("intent" in raw && raw.intent ? { intent: raw.intent } : {}),
@@ -1254,36 +1251,9 @@ app.post(
       reply,
       goto: raw.goto,
       toolsUsed: raw.toolsUsed ?? [],
-      externalAction: "externalAction" in raw ? raw.externalAction : undefined,
       intent: "intent" in raw ? raw.intent : undefined,
       messages: store.listChatMessages(org.id),
     });
-  }),
-);
-
-/** Resolve a HITL-gated external web action (queue stub — no browser yet). */
-app.post(
-  "/v1/guardian/chat/external-actions/:id/resolve",
-  guardianRoute((org, req, res) => {
-    const body = z.object({ approve: z.boolean(), messageId: z.string().optional() }).parse(req.body);
-    const proposal = resolveExternalProposal(org.id, req.params.id, body.approve);
-    if (!proposal) {
-      res.status(404).json({ error: { code: "NOT_FOUND", message: "External action not found" } });
-      return;
-    }
-    if (body.messageId) {
-      store.patchChatMessageMeta(org.id, body.messageId, { externalAction: proposal });
-    }
-    const note = store.appendChatMessage({
-      orgId: org.id,
-      role: "assistant",
-      kind: "system",
-      body: body.approve
-        ? `Approved ${proposal.action} on ${proposal.platform} — queued for browser execution (stub; nothing posted yet).`
-        : `Rejected ${proposal.action} on ${proposal.platform} — no action taken.`,
-      meta: { externalAction: proposal },
-    });
-    res.json({ proposal, note, messages: store.listChatMessages(org.id) });
   }),
 );
 

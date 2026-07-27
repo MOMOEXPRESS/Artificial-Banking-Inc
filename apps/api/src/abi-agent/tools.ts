@@ -7,11 +7,6 @@ import { accountId, formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/com
 import { anomalies, burnForecast, vendorLedger } from "../analytics.js";
 import { buildSummary } from "../insights.js";
 import { store } from "../store.js";
-import {
-  createExternalProposal,
-  inferExternalArgs,
-  type ExternalActionProposal,
-} from "./external-actions.js";
 import { quietHoursStatus } from "./quiet.js";
 
 export const TOOL_NAMES = [
@@ -38,7 +33,6 @@ export const TOOL_NAMES = [
   "remember_fact",
   "recall_facts",
   "draft_marketing_blurb",
-  "propose_external_action",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -48,7 +42,6 @@ export type ToolResult = {
   title: string;
   text: string;
   goto?: string;
-  externalAction?: ExternalActionProposal;
   /** Structured facts for scratchpad / follow-ups (not always shown). */
   data?: Record<string, unknown>;
 };
@@ -699,30 +692,6 @@ export function runTool(
         goto: "chat",
       };
     }
-    case "propose_external_action": {
-      const inferred =
-        args.platform || args.action || args.content
-          ? {
-              platform: args.platform,
-              action: args.action,
-              content: args.content,
-            }
-          : inferExternalArgs(String(args.message ?? "external action"));
-      const proposal = createExternalProposal(orgId, inferred);
-      return {
-        tool: name,
-        title: "External action (needs your OK)",
-        text: [
-          `Queued ${proposal.action} on ${proposal.platform} — nothing has been posted or signed up.`,
-          `Approve below to queue for browser execution (stub — no live browse yet).`,
-          "",
-          `Draft:`,
-          proposal.content,
-        ].join("\n"),
-        goto: "chat",
-        externalAction: proposal,
-      };
-    }
     default: {
       const _exhaustive: never = name;
       return { tool: _exhaustive, title: "Unknown", text: "" };
@@ -816,12 +785,15 @@ export function pickTools(qRaw: string): ToolName[] {
   if (has("draft", "blurb", "marketing", "tweet", "pitch", "write copy")) {
     tools.add("draft_marketing_blurb");
   }
+  // Asking for a social post gets a draft, not a promise to publish: ABI has
+   // no way to post anywhere, and an approval flow that ends in nothing erodes
+   // the credibility of the approval flows that do move money (P8-T3).
   if (
     has("maltbook", "linkedin") ||
     (has("post") && has("web", "online", "twitter", " x ")) ||
     has("sign up on", "signup on", "register on")
   ) {
-    tools.add("propose_external_action");
+    tools.add("draft_marketing_blurb");
   }
   if (has("anomaly", "unusual", "weird")) {
     tools.add("burn_forecast");

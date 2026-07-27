@@ -12,9 +12,6 @@ process.env.ABI_CHAT_LLM = "0"; // keyword path by default
 
 const { store } = await import("../store.js");
 const { runAbiAgent } = await import("./index.js");
-const { clearExternalProposalsForTests, resolveExternalProposal } = await import(
-  "./external-actions.js"
-);
 const { runLlmToolLoop } = await import("./llm-loop.js");
 const { bindAgents, bindEntities } = await import("./entities.js");
 const { classifyIntent } = await import("./intent.js");
@@ -29,7 +26,6 @@ after(() => {
 });
 
 afterEach(() => {
-  clearExternalProposalsForTests();
   delete process.env.OPENAI_API_KEY;
   process.env.ABI_CHAT_LLM = "0";
 });
@@ -170,19 +166,16 @@ describe("runAbiAgent", () => {
     );
   });
 
-  it("queues a MaltBook proposal for HITL without posting", async () => {
+  it("drafts social copy instead of promising to post it (P8-T3)", async () => {
+    // The old behaviour queued a "proposal", asked the guardian to approve it,
+    // and then did nothing. Approval flows that terminate in a no-op erode the
+    // credibility of the ones that move money, so the surface is gone: ABI
+    // hands over text and says who has to post it.
     const demo = store.seedDemoOrg();
     const res = await runAbiAgent(demo.orgId, "Propose a MaltBook post about our agents");
-    assert.ok(res.toolsUsed.includes("propose_external_action"));
-    assert.ok(res.externalAction);
-    assert.equal(res.externalAction!.platform, "maltbook");
-    assert.equal(res.externalAction!.status, "pending");
-    assert.match(res.answer, /nothing has been posted/i);
-
-    const approved = resolveExternalProposal(demo.orgId, res.externalAction!.id, true);
-    assert.equal(approved?.status, "approved");
-    // Still a stub — content unchanged, no browse
-    assert.ok(approved?.content);
+    assert.ok(res.toolsUsed.includes("draft_marketing_blurb"));
+    assert.ok(!(res.toolsUsed as string[]).includes("propose_external_action"));
+    assert.ok(!("externalAction" in res), "no queue, no approval, no pretence");
   });
 });
 
@@ -271,7 +264,7 @@ describe("runLlmToolLoop", () => {
     }
   });
 
-  it("runAbiAgent prefers LLM when enabled", async () => {
+  it("prefers the LLM, and survives a call to a tool that was removed", async () => {
     process.env.ABI_CHAT_LLM = "1";
     process.env.OPENAI_API_KEY = "sk-test";
     const demo = store.seedDemoOrg();
@@ -291,6 +284,9 @@ describe("runLlmToolLoop", () => {
                       id: "c1",
                       type: "function",
                       function: {
+                        // A tool that no longer exists. Models remember the
+                        // old schema, and a removed capability must degrade to
+                        // a normal answer rather than throwing.
                         name: "propose_external_action",
                         arguments: JSON.stringify({
                           platform: "maltbook",
@@ -318,9 +314,8 @@ describe("runLlmToolLoop", () => {
     try {
       const res = await runAbiAgent(demo.orgId, "post to MaltBook please");
       assert.equal(res.via, "llm");
-      assert.ok(res.toolsUsed.includes("propose_external_action"));
-      assert.equal(res.externalAction?.platform, "maltbook");
-      assert.equal(res.externalAction?.status, "pending");
+      assert.ok(!("externalAction" in res));
+      assert.ok(res.answer, "a retired tool call still produces an answer");
     } finally {
       globalThis.fetch = originalFetch;
     }

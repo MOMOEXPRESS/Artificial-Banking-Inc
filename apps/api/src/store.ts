@@ -123,20 +123,7 @@ export interface ChatMessageRow {
   createdAt: string;
 }
 
-export type ExternalActionStatus = "pending" | "approved" | "rejected";
-export type ExternalActionPlatform = "maltbook" | "linkedin" | "x" | "web";
-export type ExternalActionKind = "post" | "signup" | "comment";
 
-export interface ExternalActionRow {
-  id: string;
-  orgId: string;
-  platform: ExternalActionPlatform;
-  action: ExternalActionKind;
-  content: string;
-  status: ExternalActionStatus;
-  createdAt: string;
-  resolvedAt?: string;
-}
 
 export interface DecisionRow {
   intentId: string;
@@ -719,6 +706,9 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_chat_org ON chat_messages(org_id, created_at);
+-- Retired in P8-T3: the approve/reject flow above this table terminated in a
+-- no-op, so the surface was removed. The table stays so existing rows remain
+-- readable; nothing writes to it.
 CREATE TABLE IF NOT EXISTS external_actions (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL REFERENCES orgs(id),
@@ -1227,18 +1217,6 @@ installPrepareRevisionHook(db);
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;
 
-function mapExternalAction(row: Row): ExternalActionRow {
-  return {
-    id: row.id as string,
-    orgId: row.org_id as string,
-    platform: row.platform as ExternalActionPlatform,
-    action: row.action as ExternalActionKind,
-    content: row.content as string,
-    status: row.status as ExternalActionStatus,
-    createdAt: row.created_at as string,
-    resolvedAt: (row.resolved_at as string | null) ?? undefined,
-  };
-}
 
 function rowToOrg(r: Row): OrgRow {
   let settings: OrgSettings = {};
@@ -3308,60 +3286,6 @@ export const store = {
     };
   },
 
-  createExternalAction(input: {
-    id: string;
-    orgId: string;
-    platform: ExternalActionPlatform;
-    action: ExternalActionKind;
-    content: string;
-  }): ExternalActionRow {
-    const row: ExternalActionRow = {
-      id: input.id,
-      orgId: input.orgId,
-      platform: input.platform,
-      action: input.action,
-      content: input.content,
-      status: "pending",
-      createdAt: nowIso(),
-    };
-    db.prepare(
-      `INSERT INTO external_actions
-       (id, org_id, platform, action, content, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(row.id, row.orgId, row.platform, row.action, row.content, row.status, row.createdAt);
-    return row;
-  },
-
-  getExternalAction(orgId: string, id: string): ExternalActionRow | null {
-    const row = (
-      db
-        .prepare("SELECT * FROM external_actions WHERE org_id = ? AND id = ?")
-        .get(orgId, id) as Row | undefined
-    );
-    return row ? mapExternalAction(row) : null;
-  },
-
-  getExternalActionById(id: string): ExternalActionRow | null {
-    const row = (
-      db.prepare("SELECT * FROM external_actions WHERE id = ?").get(id) as Row | undefined
-    );
-    return row ? mapExternalAction(row) : null;
-  },
-
-  resolveExternalAction(orgId: string, id: string, approve: boolean): ExternalActionRow | null {
-    const row = this.getExternalAction(orgId, id);
-    if (!row) return null;
-    if (row.status !== "pending") return row;
-    const status: ExternalActionStatus = approve ? "approved" : "rejected";
-    const resolvedAt = nowIso();
-    db.prepare("UPDATE external_actions SET status = ?, resolved_at = ? WHERE org_id = ? AND id = ?").run(
-      status,
-      resolvedAt,
-      orgId,
-      id,
-    );
-    return { ...row, status, resolvedAt };
-  },
 
   addAbiMemory(orgId: string, fact: string, source = "guardian"): { id: string; fact: string; createdAt: string } {
     const clean = fact.trim().slice(0, 500);

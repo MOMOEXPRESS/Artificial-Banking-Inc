@@ -10,10 +10,6 @@ import {
   bindEntities,
   wantsAgentDetail,
 } from "./entities.js";
-import {
-  inferExternalArgs,
-  type ExternalActionProposal,
-} from "./external-actions.js";
 import { classifyIntent } from "./intent.js";
 import { runLlmToolLoop } from "./llm-loop.js";
 import {
@@ -31,7 +27,6 @@ export type AbiAgentResult = {
   answer: string;
   goto?: string;
   toolsUsed: ToolName[];
-  externalAction?: ExternalActionProposal;
   via?: "llm" | "keywords" | "legacy";
   scratchpad?: Scratchpad;
   intent?: string;
@@ -130,22 +125,7 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
     return rank(a) - rank(b);
   });
   const results: ToolResult[] = [];
-  let externalAction: ExternalActionProposal | undefined;
-
   for (const t of toolsUsed) {
-    if (t === "propose_external_action") {
-      const inferred = inferExternalArgs(message);
-      const draft = results.find((r) => r.tool === "draft_marketing_blurb");
-      const result = runTool(orgId, t, {
-        ...inferred,
-        content:
-          draft?.text?.replace(/^Draft \(not published[^)]*\):\s*/i, "").trim() ||
-          inferred.content,
-      });
-      results.push(result);
-      if (result.externalAction) externalAction = result.externalAction;
-      continue;
-    }
     if (t === "lookup_decision" || t === "explain_decision") {
       const dest = entities.destinations[0] || scratch.destinations?.[0];
       const m = message.match(/(?:to|for|at)\s+(\S+)/i);
@@ -204,7 +184,6 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
     answer: composeAnswer(results, orgId),
     goto: preferGoto(results),
     toolsUsed,
-    externalAction,
     via: "keywords",
     scratchpad,
     intent,
@@ -233,7 +212,6 @@ export async function runAbiAgent(
         answer,
         goto: preferGoto(llm.results),
         toolsUsed: llm.toolsUsed,
-        externalAction: llm.externalAction,
         via: "llm",
         scratchpad,
         intent: classifyIntent(message),
@@ -246,5 +224,4 @@ export async function runAbiAgent(
   return runKeywordPath(orgId, message, recent);
 }
 
-export type { ChatTurn, ToolName, ExternalActionProposal, Scratchpad };
-export { createExternalProposal, inferExternalArgs, resolveExternalProposal } from "./external-actions.js";
+export type { ChatTurn, ToolName, Scratchpad };

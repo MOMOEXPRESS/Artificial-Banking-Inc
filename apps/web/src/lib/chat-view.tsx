@@ -5,14 +5,6 @@ import { Empty, Icon, fmtUsd, relTime } from "./ui";
 import { viewLabel } from "./console-types";
 import { Button } from "@/components/ui/button";
 
-type ExternalAction = {
-  id: string;
-  platform: string;
-  action: string;
-  content: string;
-  status: "pending" | "approved" | "rejected" | string;
-};
-
 type ChatMsg = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -121,23 +113,6 @@ export function ChatView({
       return approve ? "Approved — agent can continue." : "Denied — agent was told no.";
     });
 
-  const resolveExternal = (msg: ChatMsg, approve: boolean) => {
-    const ext = msg.meta?.externalAction as ExternalAction | undefined;
-    if (!ext?.id) return Promise.resolve();
-    return act(approve ? "Approve web action" : "Deny web action", async () => {
-      const res = await gFetch(`/v1/guardian/chat/external-actions/${ext.id}/resolve`, {
-        method: "POST",
-        body: JSON.stringify({ approve, messageId: msg.id }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error?.message ?? "resolve failed");
-      setMessages(d.messages ?? []);
-      return approve
-        ? `Queued ${ext.action} on ${ext.platform} (stub — not browsed yet).`
-        : `Denied ${ext.action} on ${ext.platform}.`;
-    });
-  };
-
   return (
     <div className="chat-shell card" style={{ display: "flex", flexDirection: "column", minHeight: "70vh" }}>
       <div className="card-head">
@@ -191,7 +166,6 @@ export function ChatView({
           </Empty>
         ) : (
           messages.map((m) => {
-            const ext = m.meta?.externalAction as ExternalAction | undefined;
             return (
               <div key={m.id} className={`chat-bubble ${m.role}`}>
                 <div className="chat-meta">
@@ -205,33 +179,6 @@ export function ChatView({
                         <i /> {t.replace(/_/g, " ")}
                       </span>
                     ))}
-                  </div>
-                )}
-                {ext && (
-                  <div className="chat-approval-card" style={{ marginTop: 10 }}>
-                    <div>
-                      <b>
-                        {ext.action} · {ext.platform}
-                      </b>
-                      <div className="faint" style={{ fontSize: 12, marginTop: 3 }}>
-                        Status: {ext.status}
-                      </div>
-                    </div>
-                    {ext.status === "pending" && (
-                      <div className="row" style={{ gap: 8 }}>
-                        <Button size="sm" disabled={locked} onClick={() => void resolveExternal(m, true)}>
-                          Approve
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          disabled={locked}
-                          onClick={() => void resolveExternal(m, false)}
-                        >
-                          Deny
-                        </Button>
-                      </div>
-                    )}
                   </div>
                 )}
                 {m.kind === "approval_request" && m.approvalId && (
