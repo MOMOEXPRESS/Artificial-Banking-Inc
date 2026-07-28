@@ -1,5 +1,13 @@
 // ---------------------------------------------------------------------------
-// ASPIRATIONAL SCHEMA (A14 deferred)
+// SKETCH, NOT A TARGET. See docs/adr/2026-07-27-postgres-migration-contract.md.
+//
+// This models 13 entities against 50 live tables and documents its own drift
+// below. The Postgres migration (P2-T2) regenerates from the live schema and
+// must pass apps/api/src/store.conformance.ts — in particular NUMERIC for micro
+// amounts, real transactions around applyEntries, and locking that makes the
+// CAS operations swap exactly once.
+//
+// ORIGINAL HEADER (A14 deferred)
 // Live persistence is SQLite via apps/api/src/store.ts (better-sqlite3).
 // This Prisma model targets a future Postgres cutover behind the same store
 // boundary — do not treat enums/fields here as the runtime contract.
