@@ -47,6 +47,45 @@ extension points that let each pillar grow without a rewrite.
 | Console | DONE | Nav **Agents** → roster / groups / sessions / freezes |
 | Guardian SDK | DONE | `AbiGuardianClient` create/list/freeze/rotate/revoke |
 
+### The agent model, in one place (P8-T1)
+
+Four concepts, each answering exactly one question. They accumulated across
+phases and used to overlap; this is the settled shape.
+
+| Concept | Answers | Stored in | Not |
+|---|---|---|---|
+| **Agent identity** | Who is spending? | `agents` | a wallet, a role |
+| **Stipend wallet** | What can it spend? | `agent:{id}:available` / `:held` | shared, pooled |
+| **Ops label** | Who is on this roster? | `agent_group_members` | a wallet |
+| **Budget** | Where does money sit? | `departments` ledger accounts | a permission |
+
+Two rules follow, and both are load-bearing:
+
+1. **Only an agent stipend is ever debited by a payment.** A budget holds
+   balance and funds stipends; it is never the source of a `pay`. This is what
+   keeps attribution unambiguous — see
+   [the budgets-vs-membership decision](adr/2026-07-21-budgets-vs-team-membership.md).
+2. **Membership is a relationship, not a property.** An agent belongs to any
+   number of ops labels via the join table. `profile.groupId` used to mirror
+   the first one as a "soft primary"; it was removed in P8-T1 because a second
+   copy of a relationship is a second thing to get out of sync — an agent in
+   three labels had one silently privileged, and removing that one promoted an
+   arbitrary other. `profile` now holds only descriptive metadata (tags,
+   runtime, owner).
+
+**Lifecycle.** `created → active ⇄ frozen → archived`.
+
+- `active` — may spend, subject to policy
+- `frozen` — refused at the policy gate (`agent_frozen`), reversible
+- `archived` — non-spendable and terminal for spending; `unarchive` returns it
+  to `active`, keeping the same identity and history
+
+API keys are orthogonal to that lifecycle: rotate issues a new key and
+invalidates the old one; revoke kills the API key *and* every session key
+derived from it. Neither changes the agent's status, because the agent and its
+credential are different things — an agent with a revoked key still owns its
+balance and its audit trail.
+
 ---
 
 ## Financial Policies pillar (complete)

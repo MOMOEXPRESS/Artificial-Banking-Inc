@@ -119,11 +119,13 @@ export interface AgentIdentity {
 
 /**
  * Documented optional keys for `AgentIdentity.profile` / `AgentRow.profile`.
- * `groupId` is legacy primary hint — membership lives in `agent_group_members`.
+ *
+ * Profile is descriptive metadata about an agent. It deliberately holds no
+ * relationships: ops-label membership lives in `agent_group_members`, and the
+ * former `groupId` "soft primary" hint was removed in P8-T1 because a second
+ * copy of a relationship is a second thing to get out of sync.
  */
 export interface AgentProfileHints {
-  /** @deprecated prefer multi membership via agent_group_members; kept as soft primary */
-  groupId?: string;
   ownerGuardianId?: string;
   tags?: string[];
   runtime?: string;

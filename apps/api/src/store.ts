@@ -903,7 +903,10 @@ for (const migration of [
 
 migrateSecretsAtRest();
 
-// Backfill multi-membership from legacy profile.groupId (once per agent/group pair).
+// One-way migration of the legacy `profile.groupId` hint into the membership
+// join table. Runs at boot and is idempotent (INSERT OR IGNORE). Nothing writes
+// `profile.groupId` any more (P8-T1); this only converts rows written before
+// multi-membership existed, and can be deleted once no such row remains.
 {
   const agents = db.prepare("SELECT id, org_id, profile_json FROM agents").all() as {
     id: string;
@@ -3804,16 +3807,20 @@ export const store = {
     ).map((r) => r.group_id);
   },
 
+  /**
+   * Ops-label membership. `agent_group_members` is the only source of truth.
+   *
+   * This used to also mirror the first label into `profile.groupId` as a "soft
+   * primary" (P8-T1). Two places to read meant two places to disagree: an agent
+   * in three labels had one of them silently privileged, and removing that one
+   * promoted an arbitrary other. The join table alone answers "which labels",
+   * and nothing needs to answer "which label first".
+   */
   addAgentToGroup(orgId: string, agentId: string, groupId: string): void {
     db.prepare(
       `INSERT OR IGNORE INTO agent_group_members (org_id, agent_id, group_id, created_at)
        VALUES (?, ?, ?, ?)`,
     ).run(orgId, agentId, groupId, nowIso());
-    // Keep legacy profile.groupId as soft primary when empty.
-    const agent = this.getAgentAnyOrg(agentId);
-    if (agent && !agent.profile.groupId) {
-      this.setAgentProfile(agentId, { ...agent.profile, groupId });
-    }
   },
 
   removeAgentFromGroup(agentId: string, groupId: string): void {
@@ -3821,12 +3828,6 @@ export const store = {
       agentId,
       groupId,
     );
-    const agent = this.getAgentAnyOrg(agentId);
-    if (agent && agent.profile.groupId === groupId) {
-      const rest = this.listAgentGroupIdsAnyOrg(agentId);
-      const { groupId: _, ...profile } = agent.profile;
-      this.setAgentProfile(agentId, rest[0] ? { ...profile, groupId: rest[0] } : profile);
-    }
   },
 
   clearGroupMembers(groupId: string): void {

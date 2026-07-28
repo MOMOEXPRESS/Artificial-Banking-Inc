@@ -597,8 +597,10 @@ export function AgentsView({
                             .map((t) => t.trim())
                             .filter(Boolean),
                           ownerGuardianId: ownerId.trim() || "owner",
-                          groupId: editGroupIds[0] ?? "",
                         };
+                        // Membership is not a profile field — it is synced
+                        // through assign/unassign below, which already handled
+                        // the multi-label case this line only shadowed.
                         const res = await gFetch(`/v1/guardian/agents/${selected}`, {
                           method: "PATCH",
                           body: JSON.stringify({

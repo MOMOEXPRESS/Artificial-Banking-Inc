@@ -59,13 +59,13 @@ function validateProfileHints(
   profile: Record<string, unknown>,
 ): string | null {
   if (profile.groupId !== undefined) {
-    if (typeof profile.groupId !== "string") return "groupId must be a string";
-    if (profile.groupId) {
-      const g = scopedStore(org.id).getAgentGroup(profile.groupId);
-      if (!g || g.status !== "active") {
-        return "groupId does not match an active org group";
-      }
-    }
+    // Membership is a relationship, not a profile field. Accepting it here
+    // would write a second copy that nothing reads and that drifts from the
+    // join table the moment an agent joins a second label.
+    return (
+      "groupId is not a profile field. Use POST /v1/guardian/agent-groups/:id/assign " +
+      "(or /unassign) to change ops-label membership."
+    );
   }
   if (profile.ownerGuardianId !== undefined) {
     if (typeof profile.ownerGuardianId !== "string") return "ownerGuardianId must be a string";
