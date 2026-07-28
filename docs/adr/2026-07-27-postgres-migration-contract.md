@@ -54,9 +54,22 @@ before any translation work.
 ## Staging
 
 1. **Contract** *(landed)* — conformance suite, green against SQLite.
-2. **Schema** — replace the aspirational Prisma schema. It currently models 13
-   entities against 50 live tables and documents its own drift; it is a sketch,
-   not a target. Generate from the live schema instead.
+2. **Schema** *(landed)* — the schema is now generated from the live one by
+   `apps/api/scripts/gen-prisma-schema.mjs`, which boots the store so every
+   migration and seed has run. 50 models, 362 fields, validated by `prisma
+   validate`. `store.schema-drift.test.ts` fails if a migration lands without a
+   regeneration, in either direction — a dropped table leaves a model behind
+   that reads as supported.
+
+   Correction to this document as first written: money columns are `BigInt`
+   (int8), not `NUMERIC(78,0)`. Prisma maps int8 to a JS BigInt, which is the
+   type the ledger already uses; `Decimal` would put a Decimal.js conversion
+   between the ledger and its own arithmetic. int8 spans ±9.2e18 micro-USDC,
+   or ±$9.2 trillion.
+
+   Drift the generation surfaced immediately: every `*_micro` column defaults
+   to the *string* `'0'` in SQLite, because the column is TEXT. As int8 that
+   default has to be numeric, and would have failed on the first insert.
 3. **Implementation** — a Postgres store behind the same boundary, with:
    - `SERIALIZABLE` or explicit row locks for the CAS operations
    - `NUMERIC(78,0)` for micro amounts, never `bigint`/`double precision`

@@ -1,20 +1,22 @@
-// ---------------------------------------------------------------------------
-// SKETCH, NOT A TARGET. See docs/adr/2026-07-27-postgres-migration-contract.md.
+// GENERATED — do not edit by hand.
 //
-// This models 13 entities against 50 live tables and documents its own drift
-// below. The Postgres migration (P2-T2) regenerates from the live schema and
-// must pass apps/api/src/store.conformance.ts — in particular NUMERIC for micro
-// amounts, real transactions around applyEntries, and locking that makes the
-// CAS operations swap exactly once.
+// Source: the live SQLite schema, after every migration in apps/api/src/store.ts
+// has run. Regenerate with:
+//   node --import tsx apps/api/scripts/gen-prisma-schema.mjs
 //
-// ORIGINAL HEADER (A14 deferred)
-// Live persistence is SQLite via apps/api/src/store.ts (better-sqlite3).
-// This Prisma model targets a future Postgres cutover behind the same store
-// boundary — do not treat enums/fields here as the runtime contract.
-// Notable drift vs live store: EscrowStatus lacks `settling` / timeout_refunded;
-// ApprovalStatus uses timed_out vs live `expired`; API keys are hashed here
-// but still plaintext in SQLite until A13.
-// ---------------------------------------------------------------------------
+// Any Postgres implementation must pass apps/api/src/store.conformance.ts.
+// See docs/adr/2026-07-27-postgres-migration-contract.md for why that suite
+// exists and what it protects.
+//
+// Two deliberate choices:
+//   * `*_micro` columns are BigInt (int8), not Decimal. They hold bigint
+//     micro-USDC, and Prisma maps int8 to a JS BigInt — the same type the
+//     ledger already uses, with no conversion in between.
+//   * No Prisma relations are emitted. The store addresses rows by explicit
+//     id and never traverses, so relations would be inferred decoration
+//     that has to be kept correct for no reader. Foreign keys are recorded
+//     as comments and indexes.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -24,211 +26,628 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum OrgStatus {
-  active
-  frozen
-  archived
+model AbiMemories {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  fact String
+  source String?
+  createdAt String @map("created_at")
+  @@index([orgId, createdAt])
+  @@map("abi_memories")
 }
 
-enum AgentStatus {
-  active
-  frozen
-  archived
-}
-
-enum DecisionOutcome {
-  allow
-  deny
-  review
-}
-
-enum ApprovalStatus {
-  pending
-  approved
-  denied
-  timed_out
-}
-
-enum EscrowStatus {
-  locked
-  released
-  refunded
-  disputed
-}
-
-model Org {
-  id        String    @id @default(cuid())
-  name      String
-  status    OrgStatus @default(active)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  guardians Guardian[]
-  agents    Agent[]
-  vaults    Vault[]
-  policies  Policy[]
-  intents   Intent[]
-  jobs      Job[]
-  freezes   FreezeEvent[]
-}
-
-model Guardian {
-  id         String   @id @default(cuid())
-  orgId      String
-  email      String
-  name       String?
-  telegramId String?
-  role       String   @default("owner")
-  createdAt  DateTime @default(now())
-
-  org Org @relation(fields: [orgId], references: [id])
-
-  @@unique([orgId, email])
+model Accounts {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  kind String
+  agentId String? @map("agent_id")
+  balanceMicro BigInt @map("balance_micro")
   @@index([orgId])
+  @@map("accounts")
 }
 
-model Agent {
-  id           String      @id @default(cuid())
-  orgId        String
-  name         String
-  status       AgentStatus @default(active)
-  apiKeyHash   String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-
-  org     Org      @relation(fields: [orgId], references: [id])
-  intents Intent[]
-
-  @@index([orgId])
-}
-
-model Vault {
-  id               String   @id @default(cuid())
-  orgId            String
-  chain            String   @default("base-sepolia")
-  address          String
-  custodyProvider  String   @default("mock")
-  createdAt        DateTime @default(now())
-
-  org Org @relation(fields: [orgId], references: [id])
-
-  @@index([orgId])
-  @@index([address])
-}
-
-model Policy {
-  id        String   @id @default(cuid())
-  orgId     String
-  name      String
-  createdAt DateTime @default(now())
-
-  org      Org             @relation(fields: [orgId], references: [id])
-  versions PolicyVersion[]
-
-  @@index([orgId])
-}
-
-model PolicyVersion {
-  id          String   @id @default(cuid())
-  policyId    String
-  version     String
-  rulesJson   Json
-  createdAt   DateTime @default(now())
-
-  policy Policy @relation(fields: [policyId], references: [id])
-
-  @@index([policyId])
-}
-
-model Intent {
-  id              String   @id @default(cuid())
-  orgId           String
-  agentId         String
-  tool            String
-  amountMicro     String
-  destination     String
-  jobId           String?
-  idempotencyKey  String
-  memo            String?
-  createdAt       DateTime @default(now())
-
-  org      Org       @relation(fields: [orgId], references: [id])
-  agent    Agent     @relation(fields: [agentId], references: [id])
-  decision Decision?
-
-  @@unique([orgId, idempotencyKey])
+model AgentGroupMembers {
+  orgId String @map("org_id") // -> orgs.id
+  agentId String @map("agent_id") // -> agents.id
+  groupId String @map("group_id") // -> agent_groups.id
+  createdAt String @map("created_at")
+  @@id([agentId, groupId])
   @@index([orgId, agentId])
+  @@index([orgId, groupId])
+  @@unique([agentId, groupId])
+  @@map("agent_group_members")
 }
 
-model Decision {
-  id            String          @id @default(cuid())
-  intentId      String          @unique
-  outcome       DecisionOutcome
-  ruleIds       String[]
-  reasons       String[]
-  policyVersion String
-  createdAt     DateTime        @default(now())
-
-  intent   Intent    @relation(fields: [intentId], references: [id])
-  approval Approval?
-}
-
-model Approval {
-  id         String         @id @default(cuid())
-  decisionId String         @unique
-  status     ApprovalStatus @default(pending)
-  expiresAt  DateTime
-  resolvedAt DateTime?
-  createdAt  DateTime       @default(now())
-
-  decision Decision @relation(fields: [decisionId], references: [id])
-}
-
-model Job {
-  id              String   @id @default(cuid())
-  orgId           String
-  title           String
-  deliverableHash String?
-  createdAt       DateTime @default(now())
-
-  org    Org     @relation(fields: [orgId], references: [id])
-  escrow Escrow?
-
+model AgentGroups {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  name String
+  status String @default("active")
+  createdAt String @map("created_at")
+  budgetId String? @map("budget_id")
+  autoFundJson String? @map("auto_fund_json")
   @@index([orgId])
+  @@map("agent_groups")
 }
 
-model Escrow {
-  id          String       @id @default(cuid())
-  jobId       String       @unique
-  amountMicro String
-  status      EscrowStatus @default(locked)
-  timeoutAt   DateTime
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  job Job @relation(fields: [jobId], references: [id])
-}
-
-model FreezeEvent {
-  id        String   @id @default(cuid())
-  orgId     String
-  scope     String
-  targetId  String?
-  reason    String
-  actor     String
-  createdAt DateTime @default(now())
-
-  org Org @relation(fields: [orgId], references: [id])
-
+model AgentPolicies {
+  agentId String @id @map("agent_id") // -> agents.id
+  orgId String @map("org_id") // -> orgs.id
+  rulesJson String @map("rules_json")
+  updatedAt String @map("updated_at")
+  updatedBy String? @map("updated_by")
   @@index([orgId])
+  @@map("agent_policies")
 }
 
-model IdempotencyRecord {
-  id        String   @id @default(cuid())
-  orgId     String
-  key       String
-  response  Json
-  createdAt DateTime @default(now())
+model Agents {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  name String
+  status String @default("active")
+  apiKey String @map("api_key")
+  profileJson String? @map("profile_json")
+  @@index([orgId])
+  @@unique([apiKey])
+  @@map("agents")
+}
 
+model ApprovalVotes {
+  approvalId String @map("approval_id")
+  guardianId String @map("guardian_id")
+  guardianName String @map("guardian_name")
+  approve Int
+  at String
+  @@id([approvalId, guardianId])
+  @@unique([approvalId, guardianId])
+  @@map("approval_votes")
+}
+
+model Approvals {
+  id String @id
+  orgId String @map("org_id")
+  agentId String @map("agent_id")
+  intentId String @map("intent_id")
+  tool String
+  amountMicro BigInt @map("amount_micro")
+  amountUsdc String @map("amount_usdc")
+  destination String
+  jobId String? @map("job_id")
+  memo String?
+  idempotencyKey String @map("idempotency_key")
+  payeeAgentId String? @map("payee_agent_id")
+  timeoutMinutes Int? @map("timeout_minutes")
+  ruleIdsJson String @map("rule_ids_json")
+  reasonsJson String @map("reasons_json")
+  status String
+  createdAt String @map("created_at")
+  expiresAt String @map("expires_at")
+  resolvedAt String? @map("resolved_at")
+  resolvedBy String? @map("resolved_by")
+  resultJson String? @map("result_json")
+  @@index([orgId])
+  @@map("approvals")
+}
+
+model Assets {
+  id String @id
+  orgId String? @map("org_id")
+  symbol String
+  decimals Int
+  chain String
+  contract String?
+  createdAt String @map("created_at")
+  @@map("assets")
+}
+
+model AutoFundRuns {
+  id String @id
+  orgId String @map("org_id")
+  groupId String @map("group_id")
+  agentId String @map("agent_id")
+  amountMicro BigInt @map("amount_micro")
+  at String
+  @@index([groupId, agentId, at])
+  @@map("auto_fund_runs")
+}
+
+model ChatMessages {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  role String
+  kind String
+  body String
+  approvalId String? @map("approval_id")
+  metaJson String? @map("meta_json")
+  createdAt String @map("created_at")
+  @@index([orgId, createdAt])
+  @@map("chat_messages")
+}
+
+model Decisions {
+  id Int @id
+  intentId String @map("intent_id")
+  orgId String @map("org_id")
+  agentId String @map("agent_id")
+  outcome String
+  ruleIdsJson String @map("rule_ids_json")
+  reasonsJson String @map("reasons_json")
+  tool String
+  amountUsdc String @map("amount_usdc")
+  destination String
+  at String
+  @@index([orgId, id])
+  @@map("decisions")
+}
+
+model Departments {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  name String
+  status String @default("active")
+  createdAt String @map("created_at")
+  @@index([orgId])
+  @@map("departments")
+}
+
+model Escrows {
+  id String @id
+  orgId String @map("org_id")
+  payerAgentId String @map("payer_agent_id")
+  payeeAgentId String @map("payee_agent_id")
+  amountMicro BigInt @map("amount_micro")
+  state String
+  jobId String? @map("job_id")
+  memo String?
+  createdAt String @map("created_at")
+  timeoutAt String @map("timeout_at")
+  resolvedAt String? @map("resolved_at")
+  @@index([orgId])
+  @@map("escrows")
+}
+
+model ExternalActions {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  platform String
+  action String
+  content String
+  status String
+  createdAt String @map("created_at")
+  resolvedAt String? @map("resolved_at")
+  @@index([orgId, createdAt])
+  @@map("external_actions")
+}
+
+model Freezes {
+  id Int @id
+  orgId String @map("org_id")
+  agentId String? @map("agent_id")
+  reason String
+  at String
+  @@map("freezes")
+}
+
+model Guardians {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  name String
+  role String @default("approver")
+  guardianKey String @map("guardian_key")
+  createdAt String @map("created_at")
+  revokedAt String? @map("revoked_at")
+  conditionsJson String? @map("conditions_json")
+  @@index([orgId])
+  @@unique([guardianKey])
+  @@map("guardians")
+}
+
+model Idempotency {
+  orgId String @map("org_id")
+  key String
+  responseJson String @map("response_json")
+  @@id([orgId, key])
   @@unique([orgId, key])
+  @@map("idempotency")
+}
+
+model Invitations {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  email String
+  role String @default("approver")
+  tokenHash String @map("token_hash")
+  invitedBy String? @map("invited_by")
+  createdAt String @map("created_at")
+  expiresAt String @map("expires_at")
+  acceptedAt String? @map("accepted_at")
+  revokedAt String? @map("revoked_at")
+  @@index([orgId])
+  @@unique([tokenHash])
+  @@map("invitations")
+}
+
+model Invoices {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  number String
+  counterparty String
+  amountMicro BigInt @map("amount_micro")
+  status String @default("sent")
+  issuedAt String @map("issued_at")
+  dueAt String @map("due_at")
+  paidAt String? @map("paid_at")
+  jobId String? @map("job_id")
+  runId String? @map("run_id")
+  memo String?
+  @@index([orgId])
+  @@map("invoices")
+}
+
+model JobLocks {
+  name String @id
+  holder String
+  acquiredAt String @map("acquired_at")
+  expiresAt String @map("expires_at")
+  @@map("job_locks")
+}
+
+model Journals {
+  id String @id
+  orgId String @map("org_id")
+  intentId String? @map("intent_id")
+  memo String
+  linesJson String @map("lines_json")
+  createdAt String @map("created_at")
+  @@index([orgId])
+  @@map("journals")
+}
+
+model KnownCounterparties {
+  orgId String @map("org_id")
+  value String
+  firstSeenAt String? @map("first_seen_at")
+  @@id([orgId, value])
+  @@unique([orgId, value])
+  @@map("known_counterparties")
+}
+
+model Memberships {
+  id String @id
+  userId String @map("user_id") // -> users.id
+  orgId String @map("org_id") // -> orgs.id
+  role String @default("approver")
+  createdAt String @map("created_at")
+  revokedAt String? @map("revoked_at")
+  @@index([orgId])
+  @@index([userId])
+  @@unique([userId, orgId])
+  @@map("memberships")
+}
+
+model Merchants {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  key String
+  label String?
+  category String?
+  metaJson String? @map("meta_json")
+  @@index([orgId])
+  @@unique([orgId, key])
+  @@map("merchants")
+}
+
+model OnchainDeposits {
+  id String @id
+  orgId String @map("org_id")
+  chain String
+  txHash String @map("tx_hash")
+  logIndex Int @map("log_index")
+  blockNumber String @map("block_number")
+  fromAddr String @map("from_addr")
+  toAddr String @map("to_addr")
+  amountMicro BigInt @map("amount_micro")
+  assetId String @default("asset_usdc") @map("asset_id")
+  creditedAt String @map("credited_at")
+  @@index([orgId, creditedAt])
+  @@unique([orgId, txHash, logIndex])
+  @@map("onchain_deposits")
+}
+
+model OrgAssetBalances {
+  orgId String @map("org_id")
+  assetId String @map("asset_id")
+  balanceMicro BigInt @default(0) @map("balance_micro")
+  @@id([orgId, assetId])
+  @@unique([orgId, assetId])
+  @@map("org_asset_balances")
+}
+
+model Orgs {
+  id String @id
+  name String
+  status String @default("active")
+  guardianKey String @map("guardian_key")
+  depositMicro BigInt? @map("deposit_micro")
+  settingsJson String? @map("settings_json")
+  ledgerMode String @default("sandbox") @map("ledger_mode")
+  unbackedMicro BigInt @default(0) @map("unbacked_micro")
+  @@unique([guardianKey])
+  @@map("orgs")
+}
+
+model PasswordResets {
+  id String @id
+  userId String @map("user_id") // -> users.id
+  tokenHash String @map("token_hash")
+  createdAt String @map("created_at")
+  expiresAt String @map("expires_at")
+  usedAt String? @map("used_at")
+  @@unique([tokenHash])
+  @@map("password_resets")
+}
+
+model PayEvents {
+  id Int @id
+  agentId String @map("agent_id")
+  atMs Int @map("at_ms")
+  amountMicro BigInt @map("amount_micro")
+  orgId String? @map("org_id")
+  category String?
+  destination String?
+  ref String?
+  @@index([agentId, atMs])
+  @@map("pay_events")
+}
+
+model Policies {
+  orgId String @id @map("org_id") // -> orgs.id
+  rulesJson String @map("rules_json")
+  @@map("policies")
+}
+
+model PolicyVersions {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  version String
+  rulesJson String @map("rules_json")
+  note String?
+  createdAt String @map("created_at")
+  @@index([orgId, createdAt])
+  @@map("policy_versions")
+}
+
+model RecoveryEvents {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  kind String
+  targetId String? @map("target_id")
+  note String?
+  metaJson String? @map("meta_json")
+  at String
+  @@index([orgId])
+  @@map("recovery_events")
+}
+
+model Runs {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  missionId String @map("mission_id")
+  title String
+  agentId String? @map("agent_id")
+  agentName String? @map("agent_name")
+  status String
+  startedAt String @map("started_at")
+  finishedAt String? @map("finished_at")
+  costMicro BigInt @default(0) @map("cost_micro")
+  stepsJson String @default("[]") @map("steps_json")
+  deliverableMd String? @map("deliverable_md")
+  @@index([orgId, startedAt])
+  @@map("runs")
+}
+
+model SessionKeys {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  agentId String @map("agent_id") // -> agents.id
+  token String
+  label String?
+  scopesJson String @map("scopes_json")
+  expiresAt String @map("expires_at")
+  revokedAt String? @map("revoked_at")
+  createdAt String @map("created_at")
+  @@index([token])
+  @@index([agentId])
+  @@index([orgId])
+  @@unique([token])
+  @@map("session_keys")
+}
+
+model SettlementAttempts {
+  intentId String @id @map("intent_id")
+  orgId String @map("org_id")
+  agentId String @map("agent_id")
+  tool String
+  destination String
+  amountMicro BigInt @map("amount_micro")
+  rail String?
+  state String
+  txHash String? @map("tx_hash")
+  chargedMicro BigInt? @map("charged_micro")
+  error String?
+  createdAt String @map("created_at")
+  updatedAt String @map("updated_at")
+  @@index([orgId, createdAt])
+  @@index([state, updatedAt])
+  @@map("settlement_attempts")
+}
+
+model SharedWalletMembers {
+  walletId String @map("wallet_id") // -> shared_wallets.id
+  agentId String @map("agent_id") // -> agents.id
+  canSpend Int @default(1) @map("can_spend")
+  @@id([walletId, agentId])
+  @@unique([walletId, agentId])
+  @@map("shared_wallet_members")
+}
+
+model SharedWallets {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  name String
+  status String @default("active")
+  createdAt String @map("created_at")
+  @@index([orgId])
+  @@map("shared_wallets")
+}
+
+model StepUpGrants {
+  id String @id
+  userId String @map("user_id") // -> users.id
+  sessionId String @map("session_id")
+  createdAt String @map("created_at")
+  expiresAt String @map("expires_at")
+  @@index([sessionId])
+  @@map("step_up_grants")
+}
+
+model Subscriptions {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  agentId String @map("agent_id")
+  vendor String
+  amountMicro BigInt @map("amount_micro")
+  intervalHours Int @map("interval_hours")
+  status String @default("active")
+  createdAt String @map("created_at")
+  nextRunAt String @map("next_run_at")
+  lastRunAt String? @map("last_run_at")
+  runs Int @default(0)
+  spentMicro BigInt @default(0) @map("spent_micro")
+  maxTotalMicro BigInt? @map("max_total_micro")
+  memo String?
+  lastError String? @map("last_error")
+  @@index([orgId])
+  @@map("subscriptions")
+}
+
+model TreasuryMoves {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  fromScope String @map("from_scope")
+  fromId String @map("from_id")
+  toScope String @map("to_scope")
+  toId String @map("to_id")
+  amountMicro BigInt @map("amount_micro")
+  assetId String @map("asset_id")
+  memo String?
+  status String
+  votesJson String @default("[]") @map("votes_json")
+  createdAt String @map("created_at")
+  resolvedAt String? @map("resolved_at")
+  resolvedBy String? @map("resolved_by")
+  @@index([orgId])
+  @@map("treasury_moves")
+}
+
+model UserMfa {
+  userId String @id @map("user_id") // -> users.id
+  secret String
+  confirmedAt String? @map("confirmed_at")
+  lastStep Int? @map("last_step")
+  createdAt String @map("created_at")
+  @@map("user_mfa")
+}
+
+model UserRecoveryCodes {
+  id String @id
+  userId String @map("user_id") // -> users.id
+  codeHash String @map("code_hash")
+  usedAt String? @map("used_at")
+  createdAt String @map("created_at")
+  @@index([userId])
+  @@map("user_recovery_codes")
+}
+
+model UserSessions {
+  id String @id
+  userId String @map("user_id") // -> users.id
+  tokenHash String @map("token_hash")
+  createdAt String @map("created_at")
+  expiresAt String @map("expires_at")
+  revokedAt String? @map("revoked_at")
+  userAgent String? @map("user_agent")
+  ip String?
+  @@index([userId])
+  @@unique([tokenHash])
+  @@map("user_sessions")
+}
+
+model Users {
+  id String @id
+  email String
+  name String
+  passwordHash String @map("password_hash")
+  createdAt String @map("created_at")
+  lastLoginAt String? @map("last_login_at")
+  disabledAt String? @map("disabled_at")
+  @@unique([email])
+  @@map("users")
+}
+
+model VaultAssetEvents {
+  id String @id
+  orgId String @map("org_id")
+  assetId String @map("asset_id")
+  kind String
+  amountMicro BigInt @map("amount_micro")
+  memo String?
+  counterparty String?
+  at String
+  @@index([orgId, at])
+  @@map("vault_asset_events")
+}
+
+model VaultKeyArchive {
+  id String @id
+  orgId String @map("org_id")
+  address String
+  privateKey String @map("private_key")
+  retiredAt String @map("retired_at")
+  reason String?
+  @@index([orgId, retiredAt])
+  @@map("vault_key_archive")
+}
+
+model Vaults {
+  orgId String @id @map("org_id") // -> orgs.id
+  address String
+  privateKey String? @map("private_key")
+  @@map("vaults")
+}
+
+model WebhookDeliveries {
+  id Int @id
+  orgId String @map("org_id")
+  webhookId String @map("webhook_id")
+  event String
+  payloadJson String @map("payload_json")
+  url String
+  status String @default("pending")
+  attempts Int @default(0)
+  lastError String? @map("last_error")
+  createdAt String @map("created_at")
+  deliveredAt String? @map("delivered_at")
+  @@index([orgId, id])
+  @@map("webhook_deliveries")
+}
+
+model Webhooks {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  url String
+  secret String
+  createdAt String @map("created_at")
+  @@index([orgId])
+  @@map("webhooks")
 }
