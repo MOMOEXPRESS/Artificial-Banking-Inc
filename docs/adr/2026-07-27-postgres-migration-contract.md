@@ -72,7 +72,8 @@ before any translation work.
    default has to be numeric, and would have failed on the first insert.
 3. **Implementation** — a Postgres store behind the same boundary, with:
    - `SERIALIZABLE` or explicit row locks for the CAS operations
-   - `NUMERIC(78,0)` for micro amounts, never `bigint`/`double precision`
+   - `int8` for micro amounts, per the correction in stage 2 — never
+     `double precision`, and never a driver that hands back a JS number
    - one real transaction around `applyEntries`
 4. **Dual-run** — both backends in CI, same suite, until the Postgres column is
    green for a full cycle.
