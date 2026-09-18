@@ -236,6 +236,63 @@ describe("malformed auth requests", () => {
   });
 });
 
+/**
+ * Self-serve sign-up mints an owner and an organization, exactly what
+ * `/v1/guardian/orgs` does — so it must sit behind the same invite gate, or
+ * closing public org creation in production closes nothing.
+ */
+describe("signup token gate", () => {
+  const TOKEN = "test-signup-token";
+
+  it("refuses a new-org signup without the token when one is configured", async () => {
+    process.env.ABI_SIGNUP_TOKEN = TOKEN;
+    try {
+      const denied = await call("/v1/auth/signup", {
+        method: "POST",
+        body: { email: uniqueEmail(), name: "Gated", password: PASSWORD, orgName: "Gated Co" },
+      });
+      assert.equal(denied.status, 403);
+      assert.match(((await denied.json()) as { error: { message: string } }).error.message, /signup-token/);
+
+      const allowed = await call("/v1/auth/signup", {
+        method: "POST",
+        headers: { "x-abi-signup-token": TOKEN },
+        body: { email: uniqueEmail(), name: "Gated", password: PASSWORD, orgName: "Gated Co" },
+      });
+      assert.equal(allowed.status, 201);
+    } finally {
+      delete process.env.ABI_SIGNUP_TOKEN;
+    }
+  });
+
+  it("lets an invited user join without the token — the invitation is the credential", async () => {
+    const owner = new Jar();
+    const created = await signup(owner, uniqueEmail(), "Inviting Co");
+    const orgId = ((await created.res.json()) as { org: { id: string } }).org.id;
+    const inviteeEmail = uniqueEmail();
+    const invite = await call(`/v1/auth/orgs/${orgId}/invitations`, {
+      method: "POST",
+      jar: owner,
+      body: { email: inviteeEmail, role: "viewer" },
+    });
+    assert.equal(invite.status, 201);
+    const { invitationToken } = (await invite.json()) as { invitationToken: string };
+
+    process.env.ABI_SIGNUP_TOKEN = TOKEN;
+    try {
+      const res = await call("/v1/auth/signup", {
+        method: "POST",
+        jar: new Jar(),
+        body: { email: inviteeEmail, name: "Invitee", password: PASSWORD, invitationToken },
+      });
+      assert.equal(res.status, 201);
+      assert.equal(((await res.json()) as { org: { role: string } }).org.role, "viewer");
+    } finally {
+      delete process.env.ABI_SIGNUP_TOKEN;
+    }
+  });
+});
+
 describe("sessions", () => {
   it("authorizes guardian routes with a cookie, no bearer key", async () => {
     const jar = new Jar();

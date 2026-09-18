@@ -22,6 +22,13 @@ import { asyncHandler } from "./async-handler.js";
 
 const INVITE_TTL_MS = 7 * 24 * 3600_000;
 
+export type AuthRouteDeps = {
+  /**
+   * The invite gate shared with `/v1/guardian/orgs` and `/v1/demo/bootstrap`:
+   * returns a problem string when the caller may not mint a new organization.
+   */
+  signupTokenProblem: (req: express.Request) => string | null;
+};
 
 const emailSchema = z.string().email().max(200);
 
@@ -44,12 +51,16 @@ const LOGIN_FAILED = {
   error: { code: "UNAUTHORIZED", message: "Email or password is incorrect." },
 };
 
-export function registerAuthRoutes(app: express.Express) {
+export function registerAuthRoutes(app: express.Express, deps: AuthRouteDeps) {
   /**
    * Create an account, and an organization to own.
    *
    * Gated the same way org creation is: this mints an owner. Roadmap P3-T5
    * adds email verification, at which point the token gate can relax.
+   *
+   * Accepting an invitation is exempt — the invitation token is already a
+   * credential issued by an existing owner, and it grants only the role and
+   * organization named on it.
    */
   app.post(
     "/v1/auth/signup",
@@ -68,6 +79,13 @@ export function registerAuthRoutes(app: express.Express) {
       const pwProblem = passwordProblem(body.password);
       if (pwProblem) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: pwProblem } });
+      }
+
+      if (!body.invitationToken) {
+        const gate = deps.signupTokenProblem(req);
+        if (gate) {
+          return res.status(403).json({ error: { code: "UNAUTHORIZED", message: gate } });
+        }
       }
 
       const invitation = body.invitationToken

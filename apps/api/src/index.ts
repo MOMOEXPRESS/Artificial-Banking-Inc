@@ -547,7 +547,7 @@ function guardianRoute(
   };
 }
 
-registerAuthRoutes(app);
+registerAuthRoutes(app, { signupTokenProblem });
 registerMfaRoutes(app);
 registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
 registerAgentRoutes(app, { guardianRoute });
