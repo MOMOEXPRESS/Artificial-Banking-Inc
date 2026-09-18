@@ -209,6 +209,35 @@ describe("MFA enrolment", () => {
     });
     assert.equal(right.status, 200);
   });
+
+  /**
+   * The same unhandled-rejection crash as the login route: these three handlers
+   * are async, so a body Zod refuses used to take the process down rather than
+   * answer 400.
+   */
+  it("answers 400 rather than dying on a malformed body", async () => {
+    const jar = new Jar();
+    await newAccount(jar);
+
+    const cases: [string, unknown][] = [
+      ["/v1/auth/mfa/disable", {}],
+      ["/v1/auth/step-up", { code: 123 }],
+      ["/v1/auth/password-reset/confirm", { newPassword: "a-long-enough-password" }],
+    ];
+
+    for (const [path, body] of cases) {
+      const res = await call(path, { method: "POST", jar, body });
+      assert.equal(res.status, 400, path);
+      assert.equal(
+        ((await res.json()) as { error: { code: string } }).error.code,
+        "VALIDATION_ERROR",
+        path,
+      );
+    }
+
+    // Still serving: the process survived all three.
+    assert.equal((await call("/v1/auth/mfa", { jar })).status, 200);
+  });
 });
 
 describe("step-up on high-value approvals", () => {

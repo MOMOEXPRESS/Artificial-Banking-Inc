@@ -54,6 +54,7 @@ import {
   updateAiSettings,
 } from "./abi-agent/ai-settings.js";
 import { createOpenAiFactRephraser } from "./platform/openai-rephraser.js";
+import { asyncRoute } from "./platform/async-route.js";
 import { recordObs, setObservabilitySink, PrometheusSink, getObservabilitySink } from "./platform/observability.js";
 import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
@@ -499,7 +500,7 @@ function guardianRoute(
   handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
   opts?: { ownerOnly?: boolean },
 ): express.RequestHandler {
-  return (req, res) => {
+  return (req, res, next) => {
     const ctx = authGuardianCtx(req);
     if (!ctx) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
     // Cookies are sent by the browser automatically, so a cookie-authenticated
@@ -532,18 +533,9 @@ function guardianRoute(
         },
       });
     }
-    Promise.resolve(handler(ctx.org, req, res)).catch((e) => {
-      if (e instanceof z.ZodError) {
-        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: e.message } });
-      }
-      if (isInvalidUsdcAmount(e)) {
-        return res.status(400).json({
-          error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
-        });
-      }
-      console.error("guardian route error:", e);
-      res.status(500).json({ error: { code: "RAIL_FAILED", message: String(e) } });
-    });
+    Promise.resolve()
+      .then(() => handler(ctx.org, req, res))
+      .catch(next);
   };
 }
 
@@ -554,26 +546,6 @@ registerAgentRoutes(app, { guardianRoute });
 registerPolicyRoutes(app, { guardianRoute });
 registerPaymentRoutes(app, { guardianRoute });
 registerPlatformRoutes(app, { guardianRoute });
-
-/** Wrap an async route handler so rejections become clean HTTP errors. */
-function asyncRoute(
-  fn: (req: express.Request, res: express.Response) => Promise<unknown>,
-): express.RequestHandler {
-  return (req, res) => {
-    fn(req, res).catch((e) => {
-      if (e instanceof z.ZodError) {
-        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: e.message } });
-      }
-      if (isInvalidUsdcAmount(e)) {
-        return res.status(400).json({
-          error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
-        });
-      }
-      console.error("route error:", e);
-      res.status(500).json({ error: { code: "RAIL_FAILED", message: String(e) } });
-    });
-  };
-}
 
 function isInvalidUsdcAmount(e: unknown): boolean {
   return e instanceof Error && e.message === "INVALID_USDC_AMOUNT";
@@ -2229,6 +2201,23 @@ app.post("/v1/agent/escrow/:id/refund", (req, res) => {
 // ---------------------------------------------------------------------------
 
 /**
+ * A body `express.json()` refused: unparseable, too large, or in an encoding it
+ * cannot read. Every one carries a `type` string and a 4xx status — the
+ * caller's fault, not ours, so they must not be reported as a server error. A
+ * truncated login POST was answering 500.
+ */
+function bodyParserProblem(err: unknown): { status: number; message: string } | null {
+  if (typeof err !== "object" || err === null) return null;
+  const e = err as { type?: string; status?: number; statusCode?: number };
+  if (typeof e.type !== "string") return null;
+  const status = e.status ?? e.statusCode ?? 0;
+  if (status < 400 || status >= 500) return null;
+  if (status === 413) return { status, message: "Request body is too large." };
+  if (e.type === "entity.parse.failed") return { status, message: "Request body is not valid JSON." };
+  return { status, message: "Request body could not be read." };
+}
+
+/**
  * Terminal error handler: guarantees every failure leaves as the documented
  * JSON envelope. Without it a Zod throw escapes as Express's HTML 500 page,
  * which SDK clients cannot parse.
@@ -2243,6 +2232,12 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   if (isInvalidUsdcAmount(err)) {
     return res.status(400).json({
       error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
+    });
+  }
+  const body = bodyParserProblem(err);
+  if (body) {
+    return res.status(body.status).json({
+      error: { code: "VALIDATION_ERROR", message: body.message },
     });
   }
   console.error("unhandled route error:", err);
@@ -2266,6 +2261,19 @@ const noListen = process.env.ABI_NO_LISTEN === "1";
 const runJobsInProcess = process.env.ABI_RUN_JOBS !== "0";
 
 if (!noListen) {
+  /**
+   * Last line of defence for the deployed process only — tests keep Node's
+   * default fail-fast so a missing `asyncRoute` shows up there instead.
+   *
+   * Every route wrapper routes rejections to the error handler above, so
+   * reaching here is a bug. It is still better to log it and keep serving than
+   * to let one request restart the API and drop every other connection: the
+   * store is synchronous, so no partial transaction is left behind.
+   */
+  process.on("unhandledRejection", (reason) => {
+    console.error("unhandled rejection (request dropped, process kept alive):", reason);
+  });
+
   if (runJobsInProcess) {
     startScheduler();
     startTelegramPolling();

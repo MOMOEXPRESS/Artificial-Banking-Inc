@@ -94,6 +94,67 @@ curl https://your-console.vercel.app/abi-api/health
 `ABI_API_ORIGIN` is still unset on Vercel; a 502 means it is set but the API
 is unreachable at that URL.
 
+---
+
+## Redeploying
+
+Two scripts bracket a deploy. Both are read-only and safe to run repeatedly.
+
+### Before — check the environment
+
+`check-env.mjs` reads the variables each process actually consumes, and exits
+non-zero when one of them breaks a user-visible path, so it can gate a deploy.
+
+```bash
+node scripts/check-env.mjs --generate                 # fresh ABI_KEK / pepper / signup token
+npm run check:env -- --role api --production          # in a shell holding the API's variables
+npm run check:env -- --role console                   # in a shell holding the console's variables
+node --env-file=.env scripts/check-env.mjs --role both
+```
+
+On Render: **Environment** → set the variables → **Manual Deploy → Deploy
+latest commit**. Environment changes alone already trigger a restart, but a
+redeploy is what picks up new code.
+
+On Vercel: **Settings → Environment Variables** → then **Deployments → ⋯ →
+Redeploy**. `ABI_API_ORIGIN` is read at request time by a server-side route,
+but a new value only reaches a *new* deployment.
+
+### After — verify the sign-in path
+
+`verify-deploy.mjs` drives the path a browser takes and names the
+misconfiguration behind each failure. Point it at either URL; it finds the API
+whether you give it the console or the API itself.
+
+```bash
+npm run verify:deploy -- https://your-console.vercel.app
+npm run verify:deploy -- https://abi-api.onrender.com \
+  --email you@example.com --password '…'      # adds a real session round trip
+```
+
+```
+[  ok  ] health: https://abi-api.onrender.com/health → ok, up 21s
+[  ok  ] malformed login body: 400 VALIDATION_ERROR
+[  ok  ] rejected credentials: 401
+[  ok  ] sign-in round trip: 200 with a session cookie
+[  ok  ] session survives: /v1/auth/me → 200 (you@example.com)
+```
+
+---
+
+## Sign-in is failing
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Console shows `API_NOT_CONFIGURED`, health is 503 | `ABI_API_ORIGIN` unset on Vercel | Set it, then **redeploy** — a new variable needs a new deployment |
+| `API_UNREACHABLE`, health is 502 | `ABI_API_ORIGIN` points somewhere the API is not, or has a `/v1` suffix or a typo | Origin only: `https://host` — no path, no trailing slash |
+| Sign-in returns 200, next request is 401, console bounces to login | The browser is calling the API cross-site, so the `SameSite=Lax` session cookie is never stored | `NEXT_PUBLIC_API_URL=/abi-api` — let the server-side proxy forward. Never point the browser straight at the API |
+| Every correct password answers 500 | `ABI_KEY_PEPPER` unset with `NODE_ENV=production` — session tokens are hashed with it | Set it. Note this invalidates previously issued guardian/agent keys if it *changes* |
+| The API restarts whenever anyone signs in, logs show no error | A build predating the async-route fix: an invalid login body escaped as an unhandled rejection and Node exited | Redeploy from current `main`; `verify-deploy.mjs` reports `no response … the process very likely died` |
+| Sign-in works, orgs are gone after a deploy | `POLICYVAULT_DB` is not on the mounted disk | Point it at `/data/policyvault.db` (the `render.yaml` disk) |
+| "Create organization" fails with `Missing or invalid x-abi-signup-token` | `ABI_SIGNUP_TOKEN` differs between the API and the console, or is unset on the console | Same value in both places, server-side only |
+| Cross-origin console cannot sign in at all | `ABI_CORS_ORIGINS` unset or wildcarded — browsers refuse `*` on credentialed requests | List exact origins, or use the same-origin `/abi-api` proxy and leave it empty |
+
 ### Why not just run the API on Vercel?
 
 Because it was, and it was wrong. Serverless functions are frozen between
