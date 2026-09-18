@@ -8,6 +8,7 @@
 import type express from "express";
 import { z } from "zod";
 import { hashPassword, passwordProblem, verifyPassword } from "../auth/password.js";
+import { asyncRoute } from "../platform/async-route.js";
 import {
   CSRF_COOKIE,
   SESSION_COOKIE,
@@ -46,10 +47,13 @@ export function registerAuthRoutes(app: express.Express) {
   /**
    * Create an account, and an organization to own.
    *
-   * Gated the same way org creation is: this mints an owner. Roadmap P3-T5
-   * adds email verification, at which point the token gate can relax.
+   * Note what this is *not*: unlike `/v1/guardian/orgs`, it carries no
+   * `ABI_SIGNUP_TOKEN` gate, so anyone who can reach the API can mint an owner
+   * of a new, empty organization. That is deliberate for self-serve, and it is
+   * why a deployment that should not be self-serve belongs behind network
+   * access control until roadmap P3-T5 lands email verification.
    */
-  app.post("/v1/auth/signup", async (req, res) => {
+  app.post("/v1/auth/signup", asyncRoute(async (req, res) => {
     const body = z
       .object({
         email: emailSchema,
@@ -113,9 +117,9 @@ export function registerAuthRoutes(app: express.Express) {
       org: { id: orgId, role },
       note: "Signed in. Agent API keys are issued separately from the console.",
     });
-  });
+  }));
 
-  app.post("/v1/auth/login", async (req, res) => {
+  app.post("/v1/auth/login", asyncRoute(async (req, res) => {
     const body = z.object({ email: emailSchema, password: z.string() }).parse(req.body);
     const found = store.findUserCredentialsByEmail(body.email);
 
@@ -140,7 +144,7 @@ export function registerAuthRoutes(app: express.Express) {
         role: m.role,
       })),
     });
-  });
+  }));
 
   app.post("/v1/auth/logout", (req, res) => {
     const token = parseCookies(req)[SESSION_COOKIE];
@@ -163,7 +167,7 @@ export function registerAuthRoutes(app: express.Express) {
     });
   });
 
-  app.post("/v1/auth/change-password", async (req, res) => {
+  app.post("/v1/auth/change-password", asyncRoute(async (req, res) => {
     const me = currentUser(req);
     if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
     const body = z
@@ -186,7 +190,7 @@ export function registerAuthRoutes(app: express.Express) {
     store.setUserPassword(me.user.id, await hashPassword(body.newPassword));
     clearSessionCookies(res);
     res.json({ ok: true, note: "Password changed. All sessions signed out — sign in again." });
-  });
+  }));
 
   // -------------------------------------------------------------- invitations
 

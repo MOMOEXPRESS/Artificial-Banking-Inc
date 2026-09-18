@@ -190,6 +190,58 @@ describe("signup and login", () => {
   });
 });
 
+describe("malformed identity requests", () => {
+  /**
+   * These used to hang and then kill the process: Express 4 does not await an
+   * `async` handler, so the Zod rejection escaped as an unhandled rejection and
+   * Node exited. Any unauthenticated caller could restart the API at will.
+   */
+  const badLogins: [string, RequestInit][] = [
+    ["missing password", { body: JSON.stringify({ email: "a@example.com" }) }],
+    ["empty object", { body: "{}" }],
+    ["email is not an email", { body: JSON.stringify({ email: "nope", password: "x" }) }],
+    ["password is not a string", { body: JSON.stringify({ email: "a@example.com", password: 7 }) }],
+    ["truncated JSON", { body: '{"email":' }],
+    ["no body at all", {}],
+  ];
+
+  for (const [label, init] of badLogins) {
+    it(`answers 400 for a login body with ${label}`, async () => {
+      const res = await fetch(`${base}/v1/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        ...init,
+      });
+      assert.equal(res.status, 400, label);
+      const body = (await res.json()) as { error: { code: string; message?: string } };
+      assert.equal(body.error.code, "VALIDATION_ERROR", label);
+    });
+  }
+
+  it("answers 400 for a form-encoded login rather than parsing it", async () => {
+    const res = await fetch(`${base}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "email=a@example.com&password=hunter2",
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it("answers 400 for a malformed signup body", async () => {
+    const res = await call("/v1/auth/signup", { method: "POST", body: { email: uniqueEmail() } });
+    assert.equal(res.status, 400);
+    assert.equal(((await res.json()) as { error: { code: string } }).error.code, "VALIDATION_ERROR");
+  });
+
+  it("still serves a real login afterwards", async () => {
+    // The point of the block: the process is still up and the store intact.
+    const setup = new Jar();
+    const { email } = await signup(setup, uniqueEmail(), "Survivor Co");
+    const res = await call("/v1/auth/login", { method: "POST", body: { email, password: PASSWORD } });
+    assert.equal(res.status, 200);
+  });
+});
+
 describe("sessions", () => {
   it("authorizes guardian routes with a cookie, no bearer key", async () => {
     const jar = new Jar();
