@@ -190,6 +190,52 @@ describe("signup and login", () => {
   });
 });
 
+/**
+ * Express 4 does not observe the promise an async handler returns. Before these
+ * routes were wrapped, a malformed body made `schema.parse` throw inside the
+ * async function, the rejection went unhandled, and Node exited the process —
+ * one mistyped email in the sign-in form took the API down for everyone.
+ */
+describe("malformed auth requests", () => {
+  const malformed: { name: string; path: string; body: unknown }[] = [
+    { name: "login with an invalid email", path: "/v1/auth/login", body: { email: "bob", password: "x" } },
+    { name: "login with no password", path: "/v1/auth/login", body: { email: "bob@example.com" } },
+    { name: "login with a non-object body", path: "/v1/auth/login", body: "just a string" },
+    { name: "signup with a missing name", path: "/v1/auth/signup", body: { email: "a@b.co", password: PASSWORD } },
+    { name: "password reset confirm with no token", path: "/v1/auth/password-reset/confirm", body: { newPassword: PASSWORD } },
+  ];
+
+  for (const c of malformed) {
+    it(`answers 400 VALIDATION_ERROR to ${c.name}, and stays up`, async () => {
+      const res = await call(c.path, { method: "POST", body: c.body });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      assert.equal(body.error.code, "VALIDATION_ERROR");
+      assert.ok(body.error.message.length > 0, "explains what was wrong");
+
+      const health = await call("/health");
+      assert.equal(health.status, 200, "the process must survive a bad request");
+    });
+  }
+
+  it("answers 400 to a body that is not JSON at all", async () => {
+    const res = await fetch(`${base}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not json",
+    });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { error: { code: string } };
+    assert.equal(body.error.code, "VALIDATION_ERROR");
+  });
+
+  it("still requires a cookie on the authenticated async routes", async () => {
+    // A wrong body must not be able to bypass the session check by throwing first.
+    const res = await call("/v1/auth/change-password", { method: "POST", body: { nope: 1 } });
+    assert.equal(res.status, 401);
+  });
+});
+
 describe("sessions", () => {
   it("authorizes guardian routes with a cookie, no bearer key", async () => {
     const jar = new Jar();
