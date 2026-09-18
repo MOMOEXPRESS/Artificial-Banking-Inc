@@ -218,6 +218,16 @@ describe("malformed identity requests", () => {
     });
   }
 
+  it("answers 413 for a body over the parser's limit", async () => {
+    const res = await fetch(`${base}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "a@example.com", password: "x".repeat(200_000) }),
+    });
+    assert.equal(res.status, 413);
+    assert.equal(((await res.json()) as { error: { code: string } }).error.code, "VALIDATION_ERROR");
+  });
+
   it("answers 400 for a form-encoded login rather than parsing it", async () => {
     const res = await fetch(`${base}/v1/auth/login`, {
       method: "POST",

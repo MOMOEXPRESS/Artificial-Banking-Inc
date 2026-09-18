@@ -2201,24 +2201,20 @@ app.post("/v1/agent/escrow/:id/refund", (req, res) => {
 // ---------------------------------------------------------------------------
 
 /**
- * A body `express.json()` could not parse, or one over its size limit. These
- * arrive as `SyntaxError`/`PayloadTooLargeError` carrying an `entity.*` type
- * and a 4xx status — the caller's fault, not ours, so they must not be reported
- * as a server error. A truncated login POST was answering 500.
+ * A body `express.json()` refused: unparseable, too large, or in an encoding it
+ * cannot read. Every one carries a `type` string and a 4xx status — the
+ * caller's fault, not ours, so they must not be reported as a server error. A
+ * truncated login POST was answering 500.
  */
 function bodyParserProblem(err: unknown): { status: number; message: string } | null {
   if (typeof err !== "object" || err === null) return null;
   const e = err as { type?: string; status?: number; statusCode?: number };
-  if (typeof e.type !== "string" || !e.type.startsWith("entity.")) return null;
-  const status = e.status ?? e.statusCode ?? 400;
+  if (typeof e.type !== "string") return null;
+  const status = e.status ?? e.statusCode ?? 0;
   if (status < 400 || status >= 500) return null;
-  return {
-    status,
-    message:
-      status === 413
-        ? "Request body is too large."
-        : "Request body is not valid JSON.",
-  };
+  if (status === 413) return { status, message: "Request body is too large." };
+  if (e.type === "entity.parse.failed") return { status, message: "Request body is not valid JSON." };
+  return { status, message: "Request body could not be read." };
 }
 
 /**
