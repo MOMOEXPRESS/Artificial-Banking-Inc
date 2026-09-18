@@ -41,6 +41,14 @@ export function stepUpThresholdMicro(): bigint {
   }
 }
 
+function asyncHandler(
+  fn: (req: express.Request, res: express.Response) => unknown | Promise<unknown>,
+): express.RequestHandler {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res)).catch(next);
+  };
+}
+
 export function registerMfaRoutes(app: express.Express) {
   // ------------------------------------------------------------- enrolment
 
@@ -92,7 +100,7 @@ export function registerMfaRoutes(app: express.Express) {
     });
   });
 
-  app.post("/v1/auth/mfa/disable", async (req, res) => {
+  app.post("/v1/auth/mfa/disable", asyncHandler(async (req, res) => {
     const me = currentUser(req);
     if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
     const body = z.object({ password: z.string() }).parse(req.body);
@@ -105,7 +113,7 @@ export function registerMfaRoutes(app: express.Express) {
     }
     store.disableMfa(me.user.id);
     res.json({ ok: true });
-  });
+  }));
 
   app.get("/v1/auth/mfa", (req, res) => {
     const me = currentUser(req);
@@ -129,7 +137,7 @@ export function registerMfaRoutes(app: express.Express) {
    * Re-prove identity, granting a short-lived window in which high-value
    * approvals may be resolved.
    */
-  app.post("/v1/auth/step-up", async (req, res) => {
+  app.post("/v1/auth/step-up", asyncHandler(async (req, res) => {
     const me = currentUser(req);
     if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
     const body = z
@@ -171,7 +179,7 @@ export function registerMfaRoutes(app: express.Express) {
       expiresInMinutes: STEP_UP_TTL_MS / 60_000,
       note: "High-value approvals are unlocked for this window.",
     });
-  });
+  }));
 
   // ------------------------------------------------------- password reset
 
@@ -216,7 +224,7 @@ export function registerMfaRoutes(app: express.Express) {
     });
   });
 
-  app.post("/v1/auth/password-reset/confirm", async (req, res) => {
+  app.post("/v1/auth/password-reset/confirm", asyncHandler(async (req, res) => {
     const body = z.object({ token: z.string(), newPassword: z.string() }).parse(req.body);
     const problem = passwordProblem(body.newPassword);
     if (problem) {
@@ -234,5 +242,5 @@ export function registerMfaRoutes(app: express.Express) {
     store.setUserPassword(consumed.userId, await hashPassword(body.newPassword));
     clearSessionCookies(res);
     res.json({ ok: true, note: "Password updated. Sign in with the new password." });
-  });
+  }));
 }

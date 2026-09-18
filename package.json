@@ -29,6 +29,8 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "probe:stress": "node apps/api/scripts/stress-probe.mjs",
+    "probe:login": "node scripts/check-login-api.mjs",
+    "deploy:env": "node scripts/print-deploy-env.mjs",
     "vercel:harden": "node scripts/vercel-harden.mjs"
   },
   "engines": {

@@ -188,6 +188,27 @@ describe("signup and login", () => {
     assert.equal(body.orgs.length, 1);
     assert.equal(body.orgs[0]!.role, "owner");
   });
+
+  it("returns JSON 400 for a malformed login body instead of an HTML 500", async () => {
+    const res = await call("/v1/auth/login", {
+      method: "POST",
+      body: { email: "not-an-email", password: "x" },
+    });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    assert.equal(body.error.code, "VALIDATION_ERROR");
+    assert.match(body.error.message, /email/i);
+  });
+
+  it("returns JSON 400 for a malformed signup body", async () => {
+    const res = await call("/v1/auth/signup", {
+      method: "POST",
+      body: { email: "also-not-an-email", name: "X", password: "short" },
+    });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { error: { code: string } };
+    assert.equal(body.error.code, "VALIDATION_ERROR");
+  });
 });
 
 describe("sessions", () => {
