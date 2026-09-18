@@ -11,7 +11,7 @@ domain**:
 
 | URL | Result |
 | --- | --- |
-| `https://artificial-banking-inc-gaia10.vercel.app` | Production alias — **use this** |
+| `https://artificial-banking-inc-gaia10.vercel.app` | Production alias — **use this**. If it returns `x-vercel-error: DEPLOYMENT_NOT_FOUND` (as it did on 2026-09-18), the project has **no live Production deployment** — nothing to do with env vars. Trigger one: **Deployments → Redeploy** on `main`, or push to `main` |
 | `https://artificial-banking-inc-git-main-gaia10.vercel.app` | `main` branch alias |
 | `https://artificial-banking-inc.vercel.app` | Platform `NOT_FOUND` (unassigned) |
 | `https://artificialbankinginc.vercel.app` | Platform `DEPLOYMENT_NOT_FOUND` (unassigned) |
@@ -107,23 +107,28 @@ Vercel **Production** only deploys the **Production Branch** (almost always `mai
 
 Check: **Deployments** → filter **Production** → open the newest Ready row → confirm the **commit SHA / message** is today’s tip, not last week’s.
 
-## API on Vercel (Bootstrap works)
+## The API is not on Vercel
 
-Vercel can run the **money API in-process** behind same-origin `/abi-api`
-(Next route embeds `@policyvault/api`, SQLite under `/tmp`). **Launch demo org /
-Bootstrap** works without a separate API host.
+An earlier build embedded the money API in the Next app on Vercel (SQLite under
+`/tmp`, synchronised through a blob cache). It lost writes under concurrency and
+never ran a background job, so it was removed — see
+[`adr/2026-07-26-persistent-api-over-serverless.md`](adr/2026-07-26-persistent-api-over-serverless.md).
 
-Optional: still set `ABI_API_ORIGIN` to point at a long-lived API (Docker / VPS)
-if you do not want the ephemeral `/tmp` demo database.
+Today `/abi-api` is a **proxy only**. With no `ABI_API_ORIGIN` it answers
+`503 API_NOT_CONFIGURED`, and every console action — including **Sign in** —
+fails with *This console has no API to talk to*. The console needs exactly two
+server-side variables, both under **Settings → Environment Variables**:
 
-| Name | When |
+| Name | Value |
 | --- | --- |
-| *(none)* | Default on Vercel — embedded API, bootstrap enabled |
-| `ABI_API_ORIGIN` | Proxy to an external API instead of embedding |
-| `POLICYVAULT_ALLOW_BOOTSTRAP=0` | Disable demo bootstrap on the embedded API |
-| `ABI_KEY_PEPPER` | Recommended for any shared/prod deploy |
+| `ABI_API_ORIGIN` | URL of the long-lived API (Render blueprint: `render.yaml`), no trailing slash |
+| `ABI_SIGNUP_TOKEN` | Same value as on the API. Attached server-side to sign-up / org creation / demo seeding |
 
-Local / Cursor still uses `npm run dev:api` + proxy to `:8787` when not on Vercel.
+The full variable list for both hosts, the redeploy steps, and a table decoding
+every sign-in error are in [`DEPLOY.md`](DEPLOY.md).
+
+Local / Cursor still uses `npm run dev` (API on `:8787` + console on `:3000`)
+and needs no configuration.
 
 ## Local / Cursor preview
 
