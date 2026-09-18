@@ -94,6 +94,73 @@ curl https://your-console.vercel.app/abi-api/health
 `ABI_API_ORIGIN` is still unset on Vercel; a 502 means it is set but the API
 is unreachable at that URL.
 
+### 4. Generate the env block (copy-paste)
+
+```bash
+node scripts/print-deploy-env.mjs \
+  --console-url https://your-console.vercel.app \
+  --api-url https://your-api.onrender.com
+```
+
+That prints two groups. Paste the first onto the API service, the second onto
+the Vercel project, then **redeploy both**. Environment variables only apply
+to a new deployment.
+
+Probe afterwards:
+
+```bash
+node scripts/check-login-api.mjs https://your-console.vercel.app
+```
+
+A healthy login path returns **401** for dummy credentials (`UNAUTHORIZED` /
+"Email or password is incorrect.") — that means the API is up, hashing works,
+and the proxy is forwarding. HTTP 200 on dummy creds would be the bug.
+
+---
+
+## Login API errors (what they actually mean)
+
+These are the failures the console surfaces as "Sign in failed". They are
+almost never a wrong password on a working stack — they are deploy/env.
+
+| What you see | What it is | What to set / do |
+|---|---|---|
+| `x-vercel-error: DEPLOYMENT_NOT_FOUND` or platform 404 | No live Vercel deployment, or the wrong `*.vercel.app` hostname | Redeploy Production from `main`. Root Directory = `apps/web`. Bookmark the URL under **Domains**, not `artificial-banking-inc.vercel.app` (unassigned on team projects) |
+| Vercel login wall / `vercel.com/login` | Deployment Protection SSO | Settings → Deployment Protection → off, or `VERCEL_TOKEN=… npm run vercel:harden` |
+| `API_NOT_CONFIGURED` / HTTP 503 | Console deployed, `ABI_API_ORIGIN` missing | Vercel env: `ABI_API_ORIGIN=https://your-api.onrender.com` (no trailing slash, no `/v1`). Redeploy |
+| `API_UNREACHABLE` / HTTP 502 | Origin set, API process down | Start/redeploy the Render (or Railway/Fly) API. `curl $ABI_API_ORIGIN/health` |
+| `Email or password is incorrect.` on a known-good account | SQLite was wiped (no persistent disk) **or** genuinely wrong password | Render disk at `/data` is required. Redeploying without it resets every user |
+| `Missing or invalid x-abi-signup-token` on Create org / Demo | `ABI_SIGNUP_TOKEN` missing or different between Vercel and the API | Same value on both. Console attaches it server-side for `/v1/demo/bootstrap` and `/v1/guardian/orgs` |
+| `Signed in, but the session cookie did not stick` | Proxy reached the API but `Set-Cookie` never made it to the browser | Confirm the console calls same-origin `/abi-api` (`NEXT_PUBLIC_API_URL=/abi-api`). If you call the API host directly from the browser, set `ABI_CORS_ORIGINS` to the console URL |
+| HTTP 400 `VALIDATION_ERROR` on login | Email failed Zod (`email: Invalid email`) | Real validation, not an outage |
+
+### Vercel (console) — required
+
+| Variable | Value |
+|---|---|
+| `ABI_API_ORIGIN` | API origin, e.g. `https://abi-api.onrender.com` |
+| `ABI_SIGNUP_TOKEN` | Same random string as the API. Server-side only — never `NEXT_PUBLIC_` |
+| `NEXT_PUBLIC_API_URL` | `/abi-api` |
+
+### API host (Render / Railway / Fly / VPS) — required
+
+| Variable | Value |
+|---|---|
+| `NODE_ENV` | `production` |
+| `ABI_KEK` | `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` — **back up; lose it and vault keys are gone** |
+| `ABI_KEY_PEPPER` | Same generator, different value |
+| `ABI_SIGNUP_TOKEN` | Same generator, **identical** to Vercel |
+| `ABI_CONSOLE_URL` | Public console URL (password-reset links) |
+| `ABI_CORS_ORIGINS` | Same console URL |
+| `POLICYVAULT_DB` | `/data/policyvault.db` on a persistent disk |
+| `POLICYVAULT_ALLOW_BOOTSTRAP` | `0` |
+| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE` | `0` |
+| `ABI_RUN_JOBS` | `1` unless a separate worker owns sweeps |
+| `CHAIN` | `base-sepolia` (or `base`) |
+| `CHAIN_RPC_URL` | Paid Base RPC |
+
+Redeploy order: **API first** (so `/health` is green), then **Vercel** (so it picks up `ABI_API_ORIGIN`). Then `node scripts/check-login-api.mjs <console-url>`.
+
 ### Why not just run the API on Vercel?
 
 Because it was, and it was wrong. Serverless functions are frozen between
