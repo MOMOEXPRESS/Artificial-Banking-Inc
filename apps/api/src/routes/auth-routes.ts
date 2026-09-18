@@ -18,8 +18,17 @@ import {
   setSessionCookies,
 } from "../auth/session.js";
 import { store, type GuardianRoleName, type UserRow } from "../store.js";
+import { asyncHandler } from "./async-handler.js";
 
 const INVITE_TTL_MS = 7 * 24 * 3600_000;
+
+export type AuthRouteDeps = {
+  /**
+   * The invite gate shared with `/v1/guardian/orgs` and `/v1/demo/bootstrap`:
+   * returns a problem string when the caller may not mint a new organization.
+   */
+  signupTokenProblem: (req: express.Request) => string | null;
+};
 
 const emailSchema = z.string().email().max(200);
 
@@ -42,105 +51,122 @@ const LOGIN_FAILED = {
   error: { code: "UNAUTHORIZED", message: "Email or password is incorrect." },
 };
 
-export function registerAuthRoutes(app: express.Express) {
+export function registerAuthRoutes(app: express.Express, deps: AuthRouteDeps) {
   /**
    * Create an account, and an organization to own.
    *
    * Gated the same way org creation is: this mints an owner. Roadmap P3-T5
    * adds email verification, at which point the token gate can relax.
+   *
+   * Accepting an invitation is exempt — the invitation token is already a
+   * credential issued by an existing owner, and it grants only the role and
+   * organization named on it.
    */
-  app.post("/v1/auth/signup", async (req, res) => {
-    const body = z
-      .object({
-        email: emailSchema,
-        name: z.string().min(1).max(80),
-        password: z.string(),
-        orgName: z.string().min(1).max(80).optional(),
-        /** Accept an invitation instead of creating a new org. */
-        invitationToken: z.string().optional(),
-      })
-      .parse(req.body);
+  app.post(
+    "/v1/auth/signup",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          email: emailSchema,
+          name: z.string().min(1).max(80),
+          password: z.string(),
+          orgName: z.string().min(1).max(80).optional(),
+          /** Accept an invitation instead of creating a new org. */
+          invitationToken: z.string().optional(),
+        })
+        .parse(req.body);
 
-    const pwProblem = passwordProblem(body.password);
-    if (pwProblem) {
-      return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: pwProblem } });
-    }
+      const pwProblem = passwordProblem(body.password);
+      if (pwProblem) {
+        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: pwProblem } });
+      }
 
-    const invitation = body.invitationToken
-      ? store.findLiveInvitationByToken(body.invitationToken)
-      : undefined;
-    if (body.invitationToken && !invitation) {
-      return res.status(400).json({
-        error: { code: "INVALID_INVITATION", message: "That invitation is invalid or expired." },
+      if (!body.invitationToken) {
+        const gate = deps.signupTokenProblem(req);
+        if (gate) {
+          return res.status(403).json({ error: { code: "UNAUTHORIZED", message: gate } });
+        }
+      }
+
+      const invitation = body.invitationToken
+        ? store.findLiveInvitationByToken(body.invitationToken)
+        : undefined;
+      if (body.invitationToken && !invitation) {
+        return res.status(400).json({
+          error: { code: "INVALID_INVITATION", message: "That invitation is invalid or expired." },
+        });
+      }
+      if (invitation && invitation.email !== body.email.trim().toLowerCase()) {
+        return res.status(400).json({
+          error: {
+            code: "INVALID_INVITATION",
+            message: "This invitation was issued to a different email address.",
+          },
+        });
+      }
+
+      const created = store.createUser({
+        email: body.email,
+        name: body.name,
+        passwordHash: await hashPassword(body.password),
       });
-    }
-    if (invitation && invitation.email !== body.email.trim().toLowerCase()) {
-      return res.status(400).json({
-        error: {
-          code: "INVALID_INVITATION",
-          message: "This invitation was issued to a different email address.",
-        },
+      if ("conflict" in created) {
+        return res.status(409).json({
+          error: { code: "EMAIL_IN_USE", message: "An account with that email already exists." },
+        });
+      }
+
+      let orgId: string;
+      let role: GuardianRoleName;
+      if (invitation) {
+        orgId = invitation.orgId;
+        role = invitation.role;
+        store.markInvitationAccepted(invitation.id);
+      } else {
+        const org = store.createOrg(body.orgName?.trim() || `${body.name}'s organization`, 0n);
+        orgId = org.id;
+        role = "owner";
+      }
+      store.addMembership(created.id, orgId, role);
+
+      issueSession(res, created, req);
+      res.status(201).json({
+        user: userView(created),
+        org: { id: orgId, role },
+        note: "Signed in. Agent API keys are issued separately from the console.",
       });
-    }
+    }),
+  );
 
-    const created = store.createUser({
-      email: body.email,
-      name: body.name,
-      passwordHash: await hashPassword(body.password),
-    });
-    if ("conflict" in created) {
-      return res.status(409).json({
-        error: { code: "EMAIL_IN_USE", message: "An account with that email already exists." },
+  app.post(
+    "/v1/auth/login",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ email: emailSchema, password: z.string() }).parse(req.body);
+      const found = store.findUserCredentialsByEmail(body.email);
+
+      if (!found) {
+        // Spend comparable time on the miss so response latency does not reveal
+        // whether the account exists.
+        await verifyPassword(body.password, "s2:16384:8:1:00:00");
+        return res.status(401).json(LOGIN_FAILED);
+      }
+      if (found.disabled) return res.status(401).json(LOGIN_FAILED);
+      if (!(await verifyPassword(body.password, found.passwordHash))) {
+        return res.status(401).json(LOGIN_FAILED);
+      }
+
+      store.markUserLogin(found.user.id);
+      issueSession(res, found.user, req);
+      res.json({
+        user: userView(found.user),
+        orgs: store.listMembershipsForUser(found.user.id).map((m) => ({
+          id: m.orgId,
+          name: m.orgName,
+          role: m.role,
+        })),
       });
-    }
-
-    let orgId: string;
-    let role: GuardianRoleName;
-    if (invitation) {
-      orgId = invitation.orgId;
-      role = invitation.role;
-      store.markInvitationAccepted(invitation.id);
-    } else {
-      const org = store.createOrg(body.orgName?.trim() || `${body.name}'s organization`, 0n);
-      orgId = org.id;
-      role = "owner";
-    }
-    store.addMembership(created.id, orgId, role);
-
-    issueSession(res, created, req);
-    res.status(201).json({
-      user: userView(created),
-      org: { id: orgId, role },
-      note: "Signed in. Agent API keys are issued separately from the console.",
-    });
-  });
-
-  app.post("/v1/auth/login", async (req, res) => {
-    const body = z.object({ email: emailSchema, password: z.string() }).parse(req.body);
-    const found = store.findUserCredentialsByEmail(body.email);
-
-    if (!found) {
-      // Spend comparable time on the miss so response latency does not reveal
-      // whether the account exists.
-      await verifyPassword(body.password, "s2:16384:8:1:00:00");
-      return res.status(401).json(LOGIN_FAILED);
-    }
-    if (found.disabled) return res.status(401).json(LOGIN_FAILED);
-    if (!(await verifyPassword(body.password, found.passwordHash))) {
-      return res.status(401).json(LOGIN_FAILED);
-    }
-
-    store.markUserLogin(found.user.id);
-    issueSession(res, found.user, req);
-    res.json({
-      user: userView(found.user),
-      orgs: store.listMembershipsForUser(found.user.id).map((m) => ({
-        id: m.orgId,
-        name: m.orgName,
-        role: m.role,
-      })),
-    });
-  });
+    }),
+  );
 
   app.post("/v1/auth/logout", (req, res) => {
     const token = parseCookies(req)[SESSION_COOKIE];
@@ -163,30 +189,33 @@ export function registerAuthRoutes(app: express.Express) {
     });
   });
 
-  app.post("/v1/auth/change-password", async (req, res) => {
-    const me = currentUser(req);
-    if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
-    const body = z
-      .object({ currentPassword: z.string(), newPassword: z.string() })
-      .parse(req.body);
+  app.post(
+    "/v1/auth/change-password",
+    asyncHandler(async (req, res) => {
+      const me = currentUser(req);
+      if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+      const body = z
+        .object({ currentPassword: z.string(), newPassword: z.string() })
+        .parse(req.body);
 
-    const found = store.findUserCredentialsByEmail(me.user.email);
-    if (!found || !(await verifyPassword(body.currentPassword, found.passwordHash))) {
-      return res.status(403).json({
-        error: { code: "UNAUTHORIZED", message: "Current password is incorrect." },
-      });
-    }
-    const problem = passwordProblem(body.newPassword);
-    if (problem) {
-      return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: problem } });
-    }
+      const found = store.findUserCredentialsByEmail(me.user.email);
+      if (!found || !(await verifyPassword(body.currentPassword, found.passwordHash))) {
+        return res.status(403).json({
+          error: { code: "UNAUTHORIZED", message: "Current password is incorrect." },
+        });
+      }
+      const problem = passwordProblem(body.newPassword);
+      if (problem) {
+        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: problem } });
+      }
 
-    // Revokes every session, including this one — changing a password must not
-    // leave a stolen session alive.
-    store.setUserPassword(me.user.id, await hashPassword(body.newPassword));
-    clearSessionCookies(res);
-    res.json({ ok: true, note: "Password changed. All sessions signed out — sign in again." });
-  });
+      // Revokes every session, including this one — changing a password must not
+      // leave a stolen session alive.
+      store.setUserPassword(me.user.id, await hashPassword(body.newPassword));
+      clearSessionCookies(res);
+      res.json({ ok: true, note: "Password changed. All sessions signed out — sign in again." });
+    }),
+  );
 
   // -------------------------------------------------------------- invitations
 

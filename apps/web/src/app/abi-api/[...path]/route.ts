@@ -40,12 +40,13 @@ function resolveOrigin(): string | null {
 }
 
 /**
- * Routes that mint a root guardian key without an existing credential. The API
- * gates them behind ABI_SIGNUP_TOKEN (roadmap P1-T4), and the browser must
- * never hold that token — so the console attaches it here, server-side, where
- * the secret already lives alongside ABI_API_ORIGIN.
+ * Routes that mint a root credential (a guardian key, or an owner account plus
+ * its organization) without an existing one. The API gates them behind
+ * ABI_SIGNUP_TOKEN (roadmap P1-T4), and the browser must never hold that token
+ * — so the console attaches it here, server-side, where the secret already
+ * lives alongside ABI_API_ORIGIN.
  */
-const SIGNUP_PATHS = new Set(["v1/demo/bootstrap", "v1/guardian/orgs"]);
+const SIGNUP_PATHS = new Set(["v1/demo/bootstrap", "v1/guardian/orgs", "v1/auth/signup"]);
 
 const HOP_BY_HOP = new Set([
   "connection",

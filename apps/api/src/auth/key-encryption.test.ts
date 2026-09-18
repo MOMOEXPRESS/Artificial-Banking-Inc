@@ -18,9 +18,8 @@ process.env.ABI_NO_LISTEN = "1";
 process.env.ABI_KEK = "test-key-encryption-key";
 
 const { store } = await import("../store.js");
-const { decryptSecret, encryptSecret, isEncrypted, KeyEncryptionError } = await import(
-  "./key-encryption.js"
-);
+const { assertKekConfigured, decryptSecret, encryptSecret, isEncrypted, KeyEncryptionError } =
+  await import("./key-encryption.js");
 const Database = (await import("better-sqlite3")).default;
 
 const ORIGINAL_ENV = process.env.NODE_ENV;
@@ -89,6 +88,19 @@ describe("encryptSecret / decryptSecret", () => {
     // The fallback is a literal in a public repository; silently accepting it
     // would mean real keys encrypted under a known value.
     assert.throws(() => encryptSecret(SECRET, "org_1"), KeyEncryptionError);
+  });
+
+  it("can be checked at boot, so the refusal happens before the first sign-up", () => {
+    process.env.NODE_ENV = "production";
+    delete process.env.ABI_KEK;
+    assert.throws(() => assertKekConfigured(), /ABI_KEK is required in production/);
+
+    process.env.ABI_KEK = "any-configured-value";
+    assert.doesNotThrow(() => assertKekConfigured());
+
+    delete process.env.NODE_ENV;
+    delete process.env.ABI_KEK;
+    assert.doesNotThrow(() => assertKekConfigured(), "development falls back to the dev KEK");
   });
 });
 

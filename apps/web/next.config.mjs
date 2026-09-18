@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Money API is embedded on Vercel via /abi-api — keep native/sqlite out of the bundle.
+  // The API is a separate process; /abi-api only proxies to it. These stay
+  // external so no native/sqlite code is ever pulled into the console bundle.
   serverExternalPackages: [
     "better-sqlite3",
     "express",

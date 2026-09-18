@@ -50,6 +50,17 @@ function kek(): Buffer {
   return createHash("sha256").update(configured).digest();
 }
 
+/**
+ * Boot-time check. `kek()` is otherwise resolved lazily, on the first encrypt
+ * or decrypt — so a production deploy with `ABI_KEK` unset and an empty
+ * database passed `/health` and only failed on the first "Create account",
+ * as an opaque 500. Call this at startup so the mistake is a refusal to boot
+ * with the variable named, not a broken sign-up form.
+ */
+export function assertKekConfigured(): void {
+  kek();
+}
+
 export function isEncrypted(value: string): boolean {
   return value.startsWith(PREFIX);
 }

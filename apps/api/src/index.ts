@@ -60,6 +60,7 @@ import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./outbound-url.js";
 import { hashSecret } from "./secrets.js";
 import { csrfProblem } from "./auth/session.js";
+import { assertKekConfigured } from "./auth/key-encryption.js";
 import { currentUser, registerAuthRoutes } from "./routes/auth-routes.js";
 import { registerMfaRoutes, stepUpThresholdMicro } from "./routes/mfa-routes.js";
 import { registerAgentRoutes } from "./routes/agent-routes.js";
@@ -547,7 +548,7 @@ function guardianRoute(
   };
 }
 
-registerAuthRoutes(app);
+registerAuthRoutes(app, { signupTokenProblem });
 registerMfaRoutes(app);
 registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
 registerAgentRoutes(app, { guardianRoute });
@@ -2245,9 +2246,31 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
       error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
     });
   }
+  // body-parser rejects unparseable or oversized JSON with a 4xx of its own
+  // (`entity.parse.failed`, `entity.too.large`). That is the caller's mistake,
+  // not ours: report it as such instead of a 500 that looks like an outage.
+  const status = bodyParserStatus(err);
+  if (status) {
+    return res.status(status).json({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: status === 413 ? "Request body too large" : "Malformed request body",
+      },
+    });
+  }
   console.error("unhandled route error:", err);
   res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
 });
+
+/** body-parser's client-fault error families; anything else stays a 500. */
+const BODY_PARSER_TYPES = /^(entity|encoding|charset|request)\./;
+
+function bodyParserStatus(err: unknown): number | null {
+  if (!err || typeof err !== "object") return null;
+  const { status, type } = err as { status?: unknown; type?: unknown };
+  if (typeof status !== "number" || status < 400 || status >= 500) return null;
+  return typeof type === "string" && BODY_PARSER_TYPES.test(type) ? status : null;
+}
 
 /** Exported so tests can drive the API over an ephemeral port. */
 export { app };
@@ -2266,6 +2289,9 @@ const noListen = process.env.ABI_NO_LISTEN === "1";
 const runJobsInProcess = process.env.ABI_RUN_JOBS !== "0";
 
 if (!noListen) {
+  // Refuse to serve rather than pass /health and fail the first sign-up.
+  assertKekConfigured();
+
   if (runJobsInProcess) {
     startScheduler();
     startTelegramPolling();

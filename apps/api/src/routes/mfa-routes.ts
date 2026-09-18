@@ -21,6 +21,7 @@ import {
 import { notify } from "../platform/notifier.js";
 import { store } from "../store.js";
 import { currentUser } from "./auth-routes.js";
+import { asyncHandler } from "./async-handler.js";
 
 /** How long a step-up lasts before a high-value approval needs it again. */
 export const STEP_UP_TTL_MS = Number(process.env.ABI_STEP_UP_TTL_MINUTES ?? 5) * 60_000;
@@ -92,20 +93,23 @@ export function registerMfaRoutes(app: express.Express) {
     });
   });
 
-  app.post("/v1/auth/mfa/disable", async (req, res) => {
-    const me = currentUser(req);
-    if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
-    const body = z.object({ password: z.string() }).parse(req.body);
+  app.post(
+    "/v1/auth/mfa/disable",
+    asyncHandler(async (req, res) => {
+      const me = currentUser(req);
+      if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+      const body = z.object({ password: z.string() }).parse(req.body);
 
-    // Turning off a second factor is exactly what an attacker with a stolen
-    // session would try, so re-prove the password.
-    const found = store.findUserCredentialsByEmail(me.user.email);
-    if (!found || !(await verifyPassword(body.password, found.passwordHash))) {
-      return res.status(403).json({ error: { code: "UNAUTHORIZED", message: "Password is incorrect." } });
-    }
-    store.disableMfa(me.user.id);
-    res.json({ ok: true });
-  });
+      // Turning off a second factor is exactly what an attacker with a stolen
+      // session would try, so re-prove the password.
+      const found = store.findUserCredentialsByEmail(me.user.email);
+      if (!found || !(await verifyPassword(body.password, found.passwordHash))) {
+        return res.status(403).json({ error: { code: "UNAUTHORIZED", message: "Password is incorrect." } });
+      }
+      store.disableMfa(me.user.id);
+      res.json({ ok: true });
+    }),
+  );
 
   app.get("/v1/auth/mfa", (req, res) => {
     const me = currentUser(req);
@@ -129,49 +133,52 @@ export function registerMfaRoutes(app: express.Express) {
    * Re-prove identity, granting a short-lived window in which high-value
    * approvals may be resolved.
    */
-  app.post("/v1/auth/step-up", async (req, res) => {
-    const me = currentUser(req);
-    if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
-    const body = z
-      .object({ code: z.string().optional(), password: z.string().optional() })
-      .parse(req.body);
+  app.post(
+    "/v1/auth/step-up",
+    asyncHandler(async (req, res) => {
+      const me = currentUser(req);
+      if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+      const body = z
+        .object({ code: z.string().optional(), password: z.string().optional() })
+        .parse(req.body);
 
-    const mfa = store.getMfa(me.user.id);
-    if (mfa?.confirmed) {
-      if (!body.code) {
-        return res.status(400).json({
-          error: { code: "MFA_REQUIRED", message: "Enter a code from your authenticator app." },
-        });
-      }
-      const check = verifyCode(mfa.secret, body.code, { lastUsedStep: mfa.lastStep });
-      if (!check.ok) {
-        // Fall back to a recovery code so a lost device is not a lockout.
-        if (!store.useRecoveryCode(me.user.id, body.code)) {
-          return res.status(403).json({ error: { code: "MFA_INVALID", message: "That code is not valid." } });
+      const mfa = store.getMfa(me.user.id);
+      if (mfa?.confirmed) {
+        if (!body.code) {
+          return res.status(400).json({
+            error: { code: "MFA_REQUIRED", message: "Enter a code from your authenticator app." },
+          });
+        }
+        const check = verifyCode(mfa.secret, body.code, { lastUsedStep: mfa.lastStep });
+        if (!check.ok) {
+          // Fall back to a recovery code so a lost device is not a lockout.
+          if (!store.useRecoveryCode(me.user.id, body.code)) {
+            return res.status(403).json({ error: { code: "MFA_INVALID", message: "That code is not valid." } });
+          }
+        } else {
+          store.recordMfaStep(me.user.id, check.step);
         }
       } else {
-        store.recordMfaStep(me.user.id, check.step);
+        // No second factor enrolled: the password is the strongest proof there is.
+        if (!body.password) {
+          return res.status(400).json({
+            error: { code: "PASSWORD_REQUIRED", message: "Confirm your password to continue." },
+          });
+        }
+        const found = store.findUserCredentialsByEmail(me.user.email);
+        if (!found || !(await verifyPassword(body.password, found.passwordHash))) {
+          return res.status(403).json({ error: { code: "UNAUTHORIZED", message: "Password is incorrect." } });
+        }
       }
-    } else {
-      // No second factor enrolled: the password is the strongest proof there is.
-      if (!body.password) {
-        return res.status(400).json({
-          error: { code: "PASSWORD_REQUIRED", message: "Confirm your password to continue." },
-        });
-      }
-      const found = store.findUserCredentialsByEmail(me.user.email);
-      if (!found || !(await verifyPassword(body.password, found.passwordHash))) {
-        return res.status(403).json({ error: { code: "UNAUTHORIZED", message: "Password is incorrect." } });
-      }
-    }
 
-    store.grantStepUp(me.user.id, me.sessionId, STEP_UP_TTL_MS);
-    res.json({
-      ok: true,
-      expiresInMinutes: STEP_UP_TTL_MS / 60_000,
-      note: "High-value approvals are unlocked for this window.",
-    });
-  });
+      store.grantStepUp(me.user.id, me.sessionId, STEP_UP_TTL_MS);
+      res.json({
+        ok: true,
+        expiresInMinutes: STEP_UP_TTL_MS / 60_000,
+        note: "High-value approvals are unlocked for this window.",
+      });
+    }),
+  );
 
   // ------------------------------------------------------- password reset
 
@@ -216,23 +223,26 @@ export function registerMfaRoutes(app: express.Express) {
     });
   });
 
-  app.post("/v1/auth/password-reset/confirm", async (req, res) => {
-    const body = z.object({ token: z.string(), newPassword: z.string() }).parse(req.body);
-    const problem = passwordProblem(body.newPassword);
-    if (problem) {
-      return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: problem } });
-    }
+  app.post(
+    "/v1/auth/password-reset/confirm",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ token: z.string(), newPassword: z.string() }).parse(req.body);
+      const problem = passwordProblem(body.newPassword);
+      if (problem) {
+        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: problem } });
+      }
 
-    const consumed = store.consumePasswordReset(body.token);
-    if (!consumed) {
-      return res.status(400).json({
-        error: { code: "INVALID_TOKEN", message: "That reset link is invalid, used, or expired." },
-      });
-    }
-    // Also revokes every session for this user — a reset must evict whoever
-    // prompted it.
-    store.setUserPassword(consumed.userId, await hashPassword(body.newPassword));
-    clearSessionCookies(res);
-    res.json({ ok: true, note: "Password updated. Sign in with the new password." });
-  });
+      const consumed = store.consumePasswordReset(body.token);
+      if (!consumed) {
+        return res.status(400).json({
+          error: { code: "INVALID_TOKEN", message: "That reset link is invalid, used, or expired." },
+        });
+      }
+      // Also revokes every session for this user — a reset must evict whoever
+      // prompted it.
+      store.setUserPassword(consumed.userId, await hashPassword(body.newPassword));
+      clearSessionCookies(res);
+      res.json({ ok: true, note: "Password updated. Sign in with the new password." });
+    }),
+  );
 }
