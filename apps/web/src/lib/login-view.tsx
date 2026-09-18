@@ -192,6 +192,13 @@ export function Login({
       if (!d.orgs.length) {
         throw new Error("This account is not a member of any organization yet.");
       }
+      const sessionCheck = await fetch(`${API}/v1/auth/me`, { credentials: "include" });
+      if (!sessionCheck.ok) {
+        throw new Error(
+          "Signed in, but the session cookie did not stick. On Vercel this usually means " +
+            "ABI_API_ORIGIN is unset or the API is on a different site — see docs/DEPLOY.md.",
+        );
+      }
       onLogin({
         mode: "session",
         guardianKey: "",
@@ -282,6 +289,13 @@ export function Login({
         user: { id: string; email: string; name: string };
         org: { id: string; role: string };
       };
+      const sessionCheck = await fetch(`${API}/v1/auth/me`, { credentials: "include" });
+      if (!sessionCheck.ok) {
+        throw new Error(
+          "Account created, but the session cookie did not stick. On Vercel this usually means " +
+            "ABI_API_ORIGIN is unset or the API is on a different site — see docs/DEPLOY.md.",
+        );
+      }
       onLogin({
         mode: "session",
         guardianKey: "",

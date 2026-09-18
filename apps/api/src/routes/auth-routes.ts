@@ -42,6 +42,19 @@ const LOGIN_FAILED = {
   error: { code: "UNAUTHORIZED", message: "Email or password is incorrect." },
 };
 
+/**
+ * Express 4 does not forward rejected async handlers to the error middleware.
+ * Login/signup used to hang or return HTML 500 on a Zod throw or hashing
+ * failure, which the console surfaces as a useless "HTTP 500".
+ */
+function asyncHandler(
+  fn: (req: express.Request, res: express.Response) => unknown | Promise<unknown>,
+): express.RequestHandler {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res)).catch(next);
+  };
+}
+
 export function registerAuthRoutes(app: express.Express) {
   /**
    * Create an account, and an organization to own.
@@ -49,7 +62,7 @@ export function registerAuthRoutes(app: express.Express) {
    * Gated the same way org creation is: this mints an owner. Roadmap P3-T5
    * adds email verification, at which point the token gate can relax.
    */
-  app.post("/v1/auth/signup", async (req, res) => {
+  app.post("/v1/auth/signup", asyncHandler(async (req, res) => {
     const body = z
       .object({
         email: emailSchema,
@@ -113,9 +126,9 @@ export function registerAuthRoutes(app: express.Express) {
       org: { id: orgId, role },
       note: "Signed in. Agent API keys are issued separately from the console.",
     });
-  });
+  }));
 
-  app.post("/v1/auth/login", async (req, res) => {
+  app.post("/v1/auth/login", asyncHandler(async (req, res) => {
     const body = z.object({ email: emailSchema, password: z.string() }).parse(req.body);
     const found = store.findUserCredentialsByEmail(body.email);
 
@@ -140,7 +153,7 @@ export function registerAuthRoutes(app: express.Express) {
         role: m.role,
       })),
     });
-  });
+  }));
 
   app.post("/v1/auth/logout", (req, res) => {
     const token = parseCookies(req)[SESSION_COOKIE];
@@ -163,7 +176,7 @@ export function registerAuthRoutes(app: express.Express) {
     });
   });
 
-  app.post("/v1/auth/change-password", async (req, res) => {
+  app.post("/v1/auth/change-password", asyncHandler(async (req, res) => {
     const me = currentUser(req);
     if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
     const body = z
@@ -186,7 +199,7 @@ export function registerAuthRoutes(app: express.Express) {
     store.setUserPassword(me.user.id, await hashPassword(body.newPassword));
     clearSessionCookies(res);
     res.json({ ok: true, note: "Password changed. All sessions signed out — sign in again." });
-  });
+  }));
 
   // -------------------------------------------------------------- invitations
 
