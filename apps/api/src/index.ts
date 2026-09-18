@@ -60,6 +60,7 @@ import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./outbound-url.js";
 import { hashSecret } from "./secrets.js";
 import { csrfProblem } from "./auth/session.js";
+import { assertKekConfigured } from "./auth/key-encryption.js";
 import { currentUser, registerAuthRoutes } from "./routes/auth-routes.js";
 import { registerMfaRoutes, stepUpThresholdMicro } from "./routes/mfa-routes.js";
 import { registerAgentRoutes } from "./routes/agent-routes.js";
@@ -2288,6 +2289,9 @@ const noListen = process.env.ABI_NO_LISTEN === "1";
 const runJobsInProcess = process.env.ABI_RUN_JOBS !== "0";
 
 if (!noListen) {
+  // Refuse to serve rather than pass /health and fail the first sign-up.
+  assertKekConfigured();
+
   if (runJobsInProcess) {
     startScheduler();
     startTelegramPolling();
