@@ -13,7 +13,23 @@ import { randomBytes } from "node:crypto";
 import type express from "express";
 
 export const SESSION_COOKIE = "abi_session";
-export const SESSION_TTL_MS = Number(process.env.ABI_SESSION_TTL_HOURS ?? 12) * 3600_000;
+
+/** Default session lifetime when the env var is missing or unusable. */
+const DEFAULT_SESSION_TTL_HOURS = 12;
+
+/**
+ * Parse `ABI_SESSION_TTL_HOURS`. Empty strings, garbage, zero and negatives all
+ * fall back to 12h — otherwise `""` mints an instantly-expired session (login
+ * 200, then every call 401) and non-numeric values produce `NaN` (login 500
+ * serialising the expiry date).
+ */
+export function sessionTtlMsFromEnv(raw: string | undefined = process.env.ABI_SESSION_TTL_HOURS): number {
+  const hours = Number(raw ?? DEFAULT_SESSION_TTL_HOURS);
+  if (!Number.isFinite(hours) || hours <= 0) return DEFAULT_SESSION_TTL_HOURS * 3600_000;
+  return hours * 3600_000;
+}
+
+export const SESSION_TTL_MS = sessionTtlMsFromEnv();
 
 /** CSRF companion: readable by JS so the client can echo it in a header. */
 export const CSRF_COOKIE = "abi_csrf";

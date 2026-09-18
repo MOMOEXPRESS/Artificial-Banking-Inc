@@ -45,7 +45,7 @@ function resolveOrigin(): string | null {
  * never hold that token — so the console attaches it here, server-side, where
  * the secret already lives alongside ABI_API_ORIGIN.
  */
-const SIGNUP_PATHS = new Set(["v1/demo/bootstrap", "v1/guardian/orgs"]);
+const SIGNUP_PATHS = new Set(["v1/demo/bootstrap", "v1/guardian/orgs", "v1/auth/signup"]);
 
 const HOP_BY_HOP = new Set([
   "connection",

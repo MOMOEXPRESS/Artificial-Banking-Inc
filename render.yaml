@@ -45,8 +45,9 @@ services:
         sync: false
       - key: ABI_KEY_PEPPER
         sync: false
-      # Required by org creation / demo seeding. Those routes refuse to serve
-      # without it in production.
+      # Required by org creation / account sign-up / demo seeding. Those routes
+      # refuse to serve without it in production. Set the same value on Vercel —
+      # the console proxy attaches it server-side for /v1/auth/signup.
       - key: ABI_SIGNUP_TOKEN
         sync: false
       # Your console's public URL — password-reset links point here, and it is

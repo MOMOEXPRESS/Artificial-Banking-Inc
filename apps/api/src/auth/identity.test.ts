@@ -190,6 +190,109 @@ describe("signup and login", () => {
   });
 });
 
+/**
+ * Express 4 does not observe the promise an async handler returns. Before these
+ * routes were wrapped, a malformed body made `schema.parse` throw inside the
+ * async function, the rejection went unhandled, and Node exited the process —
+ * one mistyped email in the sign-in form took the API down for everyone.
+ */
+describe("malformed auth requests", () => {
+  const malformed: { name: string; path: string; body: unknown }[] = [
+    { name: "login with an invalid email", path: "/v1/auth/login", body: { email: "bob", password: "x" } },
+    { name: "login with no password", path: "/v1/auth/login", body: { email: "bob@example.com" } },
+    { name: "login with a non-object body", path: "/v1/auth/login", body: "just a string" },
+    { name: "signup with a missing name", path: "/v1/auth/signup", body: { email: "a@b.co", password: PASSWORD } },
+    { name: "password reset confirm with no token", path: "/v1/auth/password-reset/confirm", body: { newPassword: PASSWORD } },
+  ];
+
+  for (const c of malformed) {
+    it(`answers 400 VALIDATION_ERROR to ${c.name}, and stays up`, async () => {
+      const res = await call(c.path, { method: "POST", body: c.body });
+      assert.equal(res.status, 400);
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      assert.equal(body.error.code, "VALIDATION_ERROR");
+      assert.ok(body.error.message.length > 0, "explains what was wrong");
+
+      const health = await call("/health");
+      assert.equal(health.status, 200, "the process must survive a bad request");
+    });
+  }
+
+  it("answers 400 to a body that is not JSON at all", async () => {
+    const res = await fetch(`${base}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{not json",
+    });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as { error: { code: string } };
+    assert.equal(body.error.code, "VALIDATION_ERROR");
+  });
+
+  it("still requires a cookie on the authenticated async routes", async () => {
+    // A wrong body must not be able to bypass the session check by throwing first.
+    const res = await call("/v1/auth/change-password", { method: "POST", body: { nope: 1 } });
+    assert.equal(res.status, 401);
+  });
+});
+
+/**
+ * Self-serve sign-up mints an owner and an organization, exactly what
+ * `/v1/guardian/orgs` does — so it must sit behind the same invite gate, or
+ * closing public org creation in production closes nothing.
+ */
+describe("signup token gate", () => {
+  const TOKEN = "test-signup-token";
+
+  it("refuses a new-org signup without the token when one is configured", async () => {
+    process.env.ABI_SIGNUP_TOKEN = TOKEN;
+    try {
+      const denied = await call("/v1/auth/signup", {
+        method: "POST",
+        body: { email: uniqueEmail(), name: "Gated", password: PASSWORD, orgName: "Gated Co" },
+      });
+      assert.equal(denied.status, 403);
+      assert.match(((await denied.json()) as { error: { message: string } }).error.message, /signup-token/);
+
+      const allowed = await call("/v1/auth/signup", {
+        method: "POST",
+        headers: { "x-abi-signup-token": TOKEN },
+        body: { email: uniqueEmail(), name: "Gated", password: PASSWORD, orgName: "Gated Co" },
+      });
+      assert.equal(allowed.status, 201);
+    } finally {
+      delete process.env.ABI_SIGNUP_TOKEN;
+    }
+  });
+
+  it("lets an invited user join without the token — the invitation is the credential", async () => {
+    const owner = new Jar();
+    const created = await signup(owner, uniqueEmail(), "Inviting Co");
+    const orgId = ((await created.res.json()) as { org: { id: string } }).org.id;
+    const inviteeEmail = uniqueEmail();
+    const invite = await call(`/v1/auth/orgs/${orgId}/invitations`, {
+      method: "POST",
+      jar: owner,
+      body: { email: inviteeEmail, role: "viewer" },
+    });
+    assert.equal(invite.status, 201);
+    const { invitationToken } = (await invite.json()) as { invitationToken: string };
+
+    process.env.ABI_SIGNUP_TOKEN = TOKEN;
+    try {
+      const res = await call("/v1/auth/signup", {
+        method: "POST",
+        jar: new Jar(),
+        body: { email: inviteeEmail, name: "Invitee", password: PASSWORD, invitationToken },
+      });
+      assert.equal(res.status, 201);
+      assert.equal(((await res.json()) as { org: { role: string } }).org.role, "viewer");
+    } finally {
+      delete process.env.ABI_SIGNUP_TOKEN;
+    }
+  });
+});
+
 describe("sessions", () => {
   it("authorizes guardian routes with a cookie, no bearer key", async () => {
     const jar = new Jar();
