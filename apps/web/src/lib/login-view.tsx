@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ABLockup } from "./brand";
 import { Icon } from "./ui";
@@ -151,7 +151,7 @@ export function Login({
     return () => window.clearTimeout(t);
   }, [copied]);
 
-  async function checkApi() {
+  const checkApi = useCallback(async () => {
     setApiStatus({ state: "checking" });
     try {
       const res = await fetch(`${API}/health`, {
@@ -184,11 +184,11 @@ export function Login({
         message: "The console could not reach the ABI API. Check the API service and try again.",
       });
     }
-  }
+  }, []);
 
   useEffect(() => {
     void checkApi();
-  }, []);
+  }, [checkApi]);
 
   async function connect() {
     setBusy(true);
