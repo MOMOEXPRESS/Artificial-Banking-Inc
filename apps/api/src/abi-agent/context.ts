@@ -14,7 +14,8 @@ export type OrgContext = {
   perTxMaxUsdc: string;
   dailyMaxUsdc: string;
   quiet: string;
-  booksOk: boolean;
+  /** null means reconciliation could not be run; never report that as clean. */
+  booksOk: boolean | null;
 };
 
 export function buildOrgContext(orgId: string): OrgContext {
@@ -26,11 +27,11 @@ export function buildOrgContext(orgId: string): OrgContext {
   const quiet = t.quietHours
     ? quietHoursStatus(t.quietHours)
     : { enabled: false, inQuiet: false, countdown: "—", label: "Quiet hours off", clock: "" };
-  let booksOk = true;
+  let booksOk: boolean | null = null;
   try {
     booksOk = store.reconcileOrg(orgId).ok;
   } catch {
-    booksOk = true;
+    booksOk = null;
   }
   return {
     pendingApprovals: pending,
@@ -53,6 +54,6 @@ export function formatOrgContext(ctx: OrgContext): string {
     `Vault $${ctx.vaultUsdc} · ${ctx.activeAgents} active agents · ${ctx.pendingApprovals} pending approvals`,
     `Policy bands: ask-me-above $${ctx.hitlAboveUsdc} · per-payment $${ctx.perTxMaxUsdc} · daily $${ctx.dailyMaxUsdc}`,
     `Quiet: ${ctx.quiet}`,
-    `Books: ${ctx.booksOk ? "clean" : "drift detected"}`,
+    `Books: ${ctx.booksOk === true ? "clean" : ctx.booksOk === false ? "drift detected" : "unverified"}`,
   ].join("\n");
 }

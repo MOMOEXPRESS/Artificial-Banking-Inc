@@ -16,11 +16,17 @@ export function synthesizeAdvice(
       `${ctx.pendingApprovals} payment${ctx.pendingApprovals === 1 ? "" : "s"} waiting in Approvals — clear those before tightening bands.`,
     );
   }
-  if (!ctx.booksOk) {
-    bullets.push("Books show drift — open Overview / Ledger and reconcile before trusting balances.");
+  if (ctx.booksOk === false) {
+    bullets.push(
+      "Books show drift — open Overview / Ledger and reconcile before trusting balances.",
+    );
+  } else if (ctx.booksOk === null) {
+    bullets.push("Books could not be verified — reconcile before trusting balances.");
   }
   if (ctx.quiet.toLowerCase().includes("in quiet")) {
-    bullets.push(`Quiet hours are active (${ctx.quiet}) — expect more holds until the window ends.`);
+    bullets.push(
+      `Quiet hours are active (${ctx.quiet}) — expect more holds until the window ends.`,
+    );
   }
 
   const rec = results.find((r) => r.tool === "recommend_next");
@@ -31,18 +37,28 @@ export function synthesizeAdvice(
   }
 
   const denials = results.find((r) => r.tool === "list_denials");
-  if (denials?.text && /blocked|denial/i.test(denials.text) && !/Nothing blocked/i.test(denials.text)) {
-    bullets.push("Review recent denials — either the agent is probing outside policy or bands are too tight.");
+  if (
+    denials?.text &&
+    /blocked|denial/i.test(denials.text) &&
+    !/Nothing blocked/i.test(denials.text)
+  ) {
+    bullets.push(
+      "Review recent denials — either the agent is probing outside policy or bands are too tight.",
+    );
   }
 
   const agents = results.find((r) => r.tool === "list_agents" || r.tool === "agent_detail");
   if (agents?.text && /frozen/i.test(agents.text)) {
-    bullets.push("At least one agent is frozen — thaw only after you understand the freeze reason.");
+    bullets.push(
+      "At least one agent is frozen — thaw only after you understand the freeze reason.",
+    );
   }
 
   const explain = results.find((r) => r.tool === "explain_decision");
   if (explain?.text && /\bDENY\b/.test(explain.text) && !bullets.some((b) => /denial/i.test(b))) {
-    bullets.push("If denials look wrong, open Policy and adjust ask-me-above or the per-payment ceiling.");
+    bullets.push(
+      "If denials look wrong, open Policy and adjust ask-me-above or the per-payment ceiling.",
+    );
   }
 
   const gov = results.find((r) => r.tool === "governance_status");

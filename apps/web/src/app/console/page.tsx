@@ -66,19 +66,20 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
 
 const NAV: { key: View; label: string; icon: string; group: string }[] = [
-  { key: "overview", label: "Overview", icon: "home", group: "Money" },
+  { key: "overview", label: "Overview", icon: "home", group: "Home" },
+  { key: "insights", label: "Insights", icon: "spark", group: "Home" },
   { key: "treasury", label: "Treasury", icon: "wallet", group: "Money" },
-  { key: "payments", label: "Payments", icon: "zap", group: "Money" },
+  { key: "payments", label: "Transactions", icon: "zap", group: "Money" },
+  { key: "ledger", label: "Ledger", icon: "list", group: "Money" },
   { key: "agents", label: "Agents", icon: "robot", group: "Agents" },
-  { key: "playground", label: "Playground", icon: "play", group: "Agents" },
-  { key: "chat", label: "ABI Chat", icon: "spark", group: "Agents" },
   { key: "work", label: "Work", icon: "book", group: "Agents" },
-  { key: "ledger", label: "Ledger", icon: "list", group: "Records" },
-  { key: "insights", label: "Insights", icon: "spark", group: "Records" },
-  { key: "policy", label: "Policy", icon: "sliders", group: "Config" },
+  { key: "approvals", label: "Approvals", icon: "check", group: "Controls" },
+  { key: "policy", label: "Policies", icon: "sliders", group: "Controls" },
+  { key: "playground", label: "Playground", icon: "play", group: "Developers" },
+  { key: "webhooks", label: "Webhooks", icon: "zap", group: "Developers" },
 ];
 
-const NAV_GROUPS = ["Money", "Agents", "Records", "Config"] as const;
+const NAV_GROUPS = ["Home", "Money", "Agents", "Controls", "Developers"] as const;
 
 const ALL_VIEWS = new Set<View>([
   "overview",
@@ -154,16 +155,18 @@ function writeConsoleQuery(view: View, tab: string | null) {
 }
 
 function navGroupOf(view: View): string {
-  if (view === "settings" || view === "webhooks") return "Config";
-  if (view === "approvals" || view === "invoices" || view === "escrows") return "Money";
-  if (view === "activity") return "Records";
+  if (view === "settings") return "Organization";
+  if (view === "webhooks" || view === "playground") return "Developers";
+  if (view === "approvals") return "Controls";
+  if (view === "invoices" || view === "escrows" || view === "activity") return "Money";
+  if (view === "chat") return "Assistant";
   return NAV.find((n) => n.key === view)?.group ?? "Console";
 }
 
 function viewLabelOf(view: View): string {
   if (view === "settings") return "Settings";
-  if (view === "approvals") return "Payments · Approvals";
-  if (view === "activity") return "Insights · Activity";
+  if (view === "approvals") return "Approvals";
+  if (view === "activity") return "Transactions";
   if (view === "webhooks") return "Webhooks";
   if (view === "invoices") return "Payments · Invoices";
   if (view === "escrows") return "Payments · Escrows";
@@ -209,10 +212,11 @@ export default function Console() {
   const [navContext, setNavContext] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState<Record<string, boolean>>({
+    Home: true,
     Money: true,
     Agents: true,
-    Records: true,
-    Config: true,
+    Controls: true,
+    Developers: true,
   });
   const help = useKeyboardHelp();
   const theme = useTheme();
@@ -281,7 +285,8 @@ export default function Console() {
       const canon = canonicalView(v);
       if (canon === "treasury" && TREASURY_TAB_SET.has(prev)) return prev;
       if (canon === "payments" && PAYMENTS_TAB_SET.has(prev)) return prev;
-      if ((v === "insights" || v === "activity") && (prev === "trail" || prev === "activity")) return prev;
+      if ((v === "insights" || v === "activity") && (prev === "trail" || prev === "activity"))
+        return prev;
       return null;
     });
   }, []);
@@ -294,7 +299,12 @@ export default function Console() {
     if (effective) {
       if (canon === "treasury" && !TREASURY_TAB_SET.has(effective)) effective = alias;
       else if (canon === "payments" && !PAYMENTS_TAB_SET.has(effective)) effective = alias;
-      else if (canon !== "treasury" && canon !== "payments" && view !== "insights" && view !== "activity") {
+      else if (
+        canon !== "treasury" &&
+        canon !== "payments" &&
+        view !== "insights" &&
+        view !== "activity"
+      ) {
         effective = alias;
       }
     }
@@ -623,11 +633,14 @@ export default function Console() {
       setView("approvals");
       setToast(`Agent parked a ${fmtUsd(a.amountUsdc)} payment — opened Approvals.`, "info");
     } else if (viewRef.current === "playground") {
-      setToast(`Agent parked ${fmtUsd(a.amountUsdc)} — approve or deny it right in the timeline.`, "info");
+      setToast(
+        `Agent parked ${fmtUsd(a.amountUsdc)} — approve or deny it right in the timeline.`,
+        "info",
+      );
     } else if (viewRef.current === "chat") {
       setToast(`New approval in chat · ${fmtUsd(a.amountUsdc)}`, "info");
     }
-  }, [pending, loading, agentName, setToast]);
+  }, [pending, loading, agentName, setToast, setView]);
 
   useEffect(() => {
     if (banner && !pending.some((p) => `apr_${p.id}` === banner.id)) setBanner(null);
@@ -648,10 +661,13 @@ export default function Console() {
     }
   }
 
-  const goView = useCallback((v: ShortcutView) => {
-    setView(v as View);
-    if (v !== "agents") setNavContext(null);
-  }, []);
+  const goView = useCallback(
+    (v: ShortcutView) => {
+      setView(v as View);
+      if (v !== "agents") setNavContext(null);
+    },
+    [setView],
+  );
 
   useConsoleShortcuts({
     enabled: hydrated && Boolean(session),
@@ -661,464 +677,535 @@ export default function Console() {
   });
 
   if (!hydrated) return null;
-  if (!session)
-    return <Login onLogin={saveSession} setToast={setToast} />;
+  if (!session) return <Login onLogin={saveSession} setToast={setToast} />;
 
   const readOnly = org?.actor?.role === "viewer";
   const shared = { busy, act, gFetch, agentName, org, setToast, setView, readOnly };
   const viewLabel = viewLabelOf(view);
   const groupLabel = navGroupOf(view);
-  const railActive = canonicalView(view);
+  const railActive =
+    view === "approvals" || view === "activity" || view === "webhooks" ? view : canonicalView(view);
 
   return (
     <TooltipProvider delayDuration={250}>
-    <div className={`app ${railOpen ? "rail-open" : ""}`}>
-      <button
-        type="button"
-        className="rail-burger"
-        aria-label={railOpen ? "Close navigation" : "Open navigation"}
-        onClick={() => setRailOpen((v) => !v)}
-      >
-        <Icon name="list" />
-      </button>
-      {railOpen && <button type="button" className="rail-scrim" aria-label="Close navigation" onClick={() => setRailOpen(false)} />}
-      <Sidebar className="rail rail-folders" label="Console navigation">
-        <Link href="/" className="rail-logo" title="Back to landing" style={{ textDecoration: "none" }}>
-          <ABAppIcon size={38} />
-        </Link>
-        {NAV_GROUPS.map((group) => {
-          const items = NAV.filter((n) => n.group === group);
-          const groupActive = items.some((n) => n.key === railActive);
-          const showBadge =
-            (group === "Money" && pending.length > 0) ||
-            (group === "Agents" && (pending.length > 0 || mission.running));
-          return (
-            <SidebarFolder
-              key={group}
-              title={group}
-              open={folderOpen[group] ?? true}
-              onOpenChange={(open) => setFolderOpen((f) => ({ ...f, [group]: open }))}
-              active={groupActive}
-              badge={showBadge}
-            >
-              {items.map((n) => (
-                <SidebarItem
-                  key={n.key}
-                  nested
-                  active={railActive === n.key}
-                  label={n.label}
-                  onClick={() => {
-                    setView(n.key);
-                    if (n.key !== "agents") setNavContext(null);
-                    setRailOpen(false);
-                  }}
-                >
-                  <Icon name={n.icon} />
-                  {n.key === "payments" && pending.length > 0 && <span className="dot-badge" />}
-                  {n.key === "chat" && pending.length > 0 && <span className="dot-badge" />}
-                  {n.key === "playground" && mission.running && (
-                    <span className="dot-badge" style={{ background: "var(--accent)" }} />
-                  )}
-                </SidebarItem>
-              ))}
-            </SidebarFolder>
-          );
-        })}
-        <div className="rail-spacer" />
-        <SidebarItem
-          nested
-          active={view === "webhooks"}
-          label="Webhooks"
-          onClick={() => {
-            setView("webhooks");
-            setRailOpen(false);
-          }}
+      <div className={`app ${railOpen ? "rail-open" : ""}`}>
+        <button
+          type="button"
+          className="rail-burger"
+          aria-label={railOpen ? "Close navigation" : "Open navigation"}
+          onClick={() => setRailOpen((v) => !v)}
         >
-          <Icon name="zap" />
-        </SidebarItem>
-        <RailQuietClock
-          quiet={policy?.quietHours}
-          onOpenPolicy={() => {
-            setView("policy");
-            setRailOpen(false);
-          }}
-        />
-        <SidebarItem
-          nested
-          active={view === "settings"}
-          label="Settings"
-          onClick={() => {
-            setView("settings");
-            setRailOpen(false);
-          }}
-        >
-          <Icon name="gear" />
-        </SidebarItem>
-      </Sidebar>
-
-      <main className="main">
-        <header className="topbar">
-          <div className="topbar-title-block">
-            <nav className="crumb" aria-label="Breadcrumb">
-              <span className="crumb-group">{groupLabel}</span>
-              <span className="crumb-sep" aria-hidden>
-                /
-              </span>
-              <span className="crumb-current">{viewLabel}</span>
-              {navContext ? (
-                <>
-                  <span className="crumb-sep" aria-hidden>
-                    /
-                  </span>
-                  <span className="crumb-drill">{navContext}</span>
-                </>
-              ) : null}
-            </nav>
-            <h1>{viewLabel}</h1>
-          </div>
-          <div className="spacer" />
+          <Icon name="list" />
+        </button>
+        {railOpen && (
           <button
             type="button"
-            className="search search-btn"
-            onClick={() => setPaletteOpen(true)}
-            aria-label="Open command palette"
+            className="rail-scrim"
+            aria-label="Close navigation"
+            onClick={() => setRailOpen(false)}
+          />
+        )}
+        <Sidebar className="rail rail-folders" label="Console navigation">
+          <Link
+            href="/"
+            className="rail-brand"
+            title="Back to landing"
+            style={{ textDecoration: "none" }}
           >
-            <Icon name="search" />
-            <span className="search-placeholder">Command palette…</span>
-            <kbd className="search-kbd">⌘K</kbd>
-          </button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button type="button" className="user-chip" aria-label="Account menu">
-                <div className="avatar">{(org?.org.name ?? "PV").slice(0, 2).toUpperCase()}</div>
-                <div className="who">
-                  <b>{org?.org.name ?? "Loading…"}</b>
-                  <span>
-                    {org?.actor?.role === "viewer"
-                      ? "Viewer · read-only"
-                      : org?.actor?.role === "approver"
-                        ? "Approver · live"
-                        : connected
-                          ? "Guardian · live"
-                          : "reconnecting…"}
-                    {org?.org.status === "frozen" ? " · FROZEN" : ""}
-                  </span>
-                </div>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>{org?.org.name ?? "Organization"}</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setView("settings")}>Settings</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setPaletteOpen(true)}>Command palette</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => help.setOpen(true)}>Keyboard shortcuts</DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => theme.toggle()}>
-                Theme: {theme.resolved === "dark" ? "Dark" : "Light"} (toggle)
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={() => {
-                  // Clearing local state is not signing out: the server session
-                  // would stay valid until it expired. Revoke it first.
-                  if (sessionRef.current?.mode === "session") {
-                    void fetch(`${API}/v1/auth/logout`, {
-                      method: "POST",
-                      credentials: "include",
-                      headers: { "x-abi-csrf": readCsrf() },
-                    }).catch(() => {});
-                  }
-                  saveSession(null);
-                }}
+            <ABAppIcon size={38} />
+            <span>
+              <b>Artificial Banking</b>
+              <small>Financial operations</small>
+            </span>
+          </Link>
+          {NAV_GROUPS.map((group) => {
+            const items = NAV.filter((n) => n.group === group);
+            const groupActive = items.some((n) => n.key === railActive);
+            const showBadge =
+              (group === "Money" && pending.length > 0) ||
+              (group === "Agents" && (pending.length > 0 || mission.running));
+            return (
+              <SidebarFolder
+                key={group}
+                title={group}
+                open={folderOpen[group] ?? true}
+                onOpenChange={(open) => setFolderOpen((f) => ({ ...f, [group]: open }))}
+                active={groupActive}
+                badge={showBadge}
               >
-                Sign out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Popover open={notifOpen} onOpenChange={setNotifOpen}>
-            <PopoverTrigger asChild>
-              <button className="icon-btn" aria-label="Alerts">
-                <Icon name="bell" />
-                {visibleAlerts.length > 0 && <span className="ping" />}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-[min(360px,calc(100vw-24px))] p-0">
-              <div className="notif-head">
-                <span>Needs attention ({visibleAlerts.length})</span>
-                {visibleAlerts.length > 0 && (
-                  <Button
-                    type="button"
-                    variant="bare"
-                    size="sm"
+                {items.map((n) => (
+                  <SidebarItem
+                    key={n.key}
+                    nested
+                    active={railActive === n.key}
+                    label={n.label}
                     onClick={() => {
-                      setDismissedAlerts((prev) => {
-                        const next = new Set(prev);
-                        for (const a of visibleAlerts) next.add(a.id);
-                        return next;
-                      });
-                      setNotifOpen(false);
+                      setView(n.key);
+                      if (n.key !== "agents") setNavContext(null);
+                      setRailOpen(false);
                     }}
                   >
-                    Clear
-                  </Button>
-                )}
-              </div>
-              <ScrollArea className="max-h-80">
-                {visibleAlerts.length === 0 ? (
-                  <div style={{ padding: 26, textAlign: "center", fontSize: 12.5 }} className="muted">
-                    All clear. Nothing is waiting on you.
+                    <Icon name={n.icon} />
+                    {n.key === "payments" && pending.length > 0 && <span className="dot-badge" />}
+                    {n.key === "chat" && pending.length > 0 && <span className="dot-badge" />}
+                    {n.key === "playground" && mission.running && (
+                      <span className="dot-badge" style={{ background: "var(--accent)" }} />
+                    )}
+                  </SidebarItem>
+                ))}
+              </SidebarFolder>
+            );
+          })}
+          <div className="rail-spacer" />
+          <RailQuietClock
+            quiet={policy?.quietHours}
+            onOpenPolicy={() => {
+              setView("policy");
+              setRailOpen(false);
+            }}
+          />
+          <SidebarItem
+            nested
+            active={view === "settings"}
+            label="Settings"
+            onClick={() => {
+              setView("settings");
+              setRailOpen(false);
+            }}
+          >
+            <Icon name="gear" />
+          </SidebarItem>
+        </Sidebar>
+
+        <main className="main">
+          <header className="topbar">
+            <div className="topbar-title-block">
+              <nav className="crumb" aria-label="Breadcrumb">
+                <span className="crumb-group">{groupLabel}</span>
+                <span className="crumb-sep" aria-hidden>
+                  /
+                </span>
+                <span className="crumb-current">{viewLabel}</span>
+                {navContext ? (
+                  <>
+                    <span className="crumb-sep" aria-hidden>
+                      /
+                    </span>
+                    <span className="crumb-drill">{navContext}</span>
+                  </>
+                ) : null}
+              </nav>
+              <h1>{viewLabel}</h1>
+            </div>
+            <div className="spacer" />
+            <button
+              type="button"
+              className={`environment-chip ${org?.ledgerMode === "live" ? "live" : "sandbox"}`}
+              onClick={() => setView("settings")}
+              aria-label="Open environment settings"
+            >
+              <i />
+              <span>{org?.ledgerMode === "live" ? "Live" : "Sandbox"}</span>
+              <Icon name="arrowRight" size={12} />
+            </button>
+            <button
+              type="button"
+              className="search search-btn"
+              onClick={() => setPaletteOpen(true)}
+              aria-label="Open command palette"
+            >
+              <Icon name="search" />
+              <span className="search-placeholder">Command palette…</span>
+              <kbd className="search-kbd">⌘K</kbd>
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className="user-chip" aria-label="Account menu">
+                  <div className="avatar">{(org?.org.name ?? "PV").slice(0, 2).toUpperCase()}</div>
+                  <div className="who">
+                    <b>{org?.org.name ?? "Loading…"}</b>
+                    <span>
+                      {org?.actor?.role === "viewer"
+                        ? "Viewer · read-only"
+                        : org?.actor?.role === "approver"
+                          ? "Approver · live"
+                          : connected
+                            ? "Guardian · live"
+                            : "reconnecting…"}
+                      {org?.org.status === "frozen" ? " · FROZEN" : ""}
+                    </span>
                   </div>
-                ) : (
-                  visibleAlerts.slice(0, 8).map((al) => (
-                    <button
-                      key={al.id}
-                      className="notif-item"
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>{org?.org.name ?? "Organization"}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setView("settings")}>Settings</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setPaletteOpen(true)}>
+                  Command palette
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => help.setOpen(true)}>
+                  Keyboard shortcuts
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => theme.toggle()}>
+                  Theme: {theme.resolved === "dark" ? "Dark" : "Light"} (toggle)
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => {
+                    // Clearing local state is not signing out: the server session
+                    // would stay valid until it expired. Revoke it first.
+                    if (sessionRef.current?.mode === "session") {
+                      void fetch(`${API}/v1/auth/logout`, {
+                        method: "POST",
+                        credentials: "include",
+                        headers: { "x-abi-csrf": readCsrf() },
+                      }).catch(() => {});
+                    }
+                    saveSession(null);
+                  }}
+                >
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Popover open={notifOpen} onOpenChange={setNotifOpen}>
+              <PopoverTrigger asChild>
+                <button className="icon-btn" aria-label="Alerts">
+                  <Icon name="bell" />
+                  {visibleAlerts.length > 0 && <span className="ping" />}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-[min(360px,calc(100vw-24px))] p-0">
+                <div className="notif-head">
+                  <span>Needs attention ({visibleAlerts.length})</span>
+                  {visibleAlerts.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="bare"
+                      size="sm"
                       onClick={() => {
-                        if (al.kind === "fund") setView("treasury", "move");
-                        else setView(al.goto);
+                        setDismissedAlerts((prev) => {
+                          const next = new Set(prev);
+                          for (const a of visibleAlerts) next.add(a.id);
+                          return next;
+                        });
                         setNotifOpen(false);
                       }}
                     >
-                      <span
-                        className="ico"
-                        style={{
-                          background:
-                            al.tone === "bad" ? "var(--red-soft)" : al.tone === "warn" ? "var(--orange-soft)" : "var(--accent-soft)",
-                          color: al.tone === "bad" ? "var(--red)" : al.tone === "warn" ? "var(--orange)" : "var(--accent)",
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <ScrollArea className="max-h-80">
+                  {visibleAlerts.length === 0 ? (
+                    <div
+                      style={{ padding: 26, textAlign: "center", fontSize: 12.5 }}
+                      className="muted"
+                    >
+                      All clear. Nothing is waiting on you.
+                    </div>
+                  ) : (
+                    visibleAlerts.slice(0, 8).map((al) => (
+                      <button
+                        key={al.id}
+                        className="notif-item"
+                        onClick={() => {
+                          if (al.kind === "fund") setView("treasury", "move");
+                          else setView(al.goto);
+                          setNotifOpen(false);
                         }}
                       >
-                        <Icon name={al.kind === "approval" ? "check" : al.kind === "drift" ? "alert" : "zap"} size={15} />
-                      </span>
-                      <span className="body">
-                        <b>{al.title}</b>
-                        <span>{al.body}</span>
-                      </span>
-                    </button>
-                  ))
+                        <span
+                          className="ico"
+                          style={{
+                            background:
+                              al.tone === "bad"
+                                ? "var(--red-soft)"
+                                : al.tone === "warn"
+                                  ? "var(--orange-soft)"
+                                  : "var(--accent-soft)",
+                            color:
+                              al.tone === "bad"
+                                ? "var(--red)"
+                                : al.tone === "warn"
+                                  ? "var(--orange)"
+                                  : "var(--accent)",
+                          }}
+                        >
+                          <Icon
+                            name={
+                              al.kind === "approval"
+                                ? "check"
+                                : al.kind === "drift"
+                                  ? "alert"
+                                  : "zap"
+                            }
+                            size={15}
+                          />
+                        </span>
+                        <span className="body">
+                          <b>{al.title}</b>
+                          <span>{al.body}</span>
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </ScrollArea>
+              </PopoverContent>
+            </Popover>
+          </header>
+
+          <div className="scroll">
+            {banner && view !== "approvals" && (
+              <div className="banner" style={{ marginBottom: 12 }}>
+                <span className="ico">
+                  <Icon name="alert" size={16} />
+                </span>
+                <span className="txt">
+                  <b>{banner.title}</b>
+                  <span>{banner.body}</span>
+                </span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    banner.kind === "fund" ? setView("treasury", "move") : setView(banner.goto)
+                  }
+                >
+                  Review now
+                </Button>
+                <Button variant="bare" size="sm" onClick={() => setBanner(null)}>
+                  <Icon name="x" size={14} />
+                </Button>
+              </div>
+            )}
+
+            {loading ? (
+              <ConsoleSkeleton />
+            ) : (
+              <div className="view">
+                {view !== "overview" && (
+                  <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
                 )}
-              </ScrollArea>
-            </PopoverContent>
-          </Popover>
-        </header>
+                {view === "overview" && (
+                  <Overview
+                    {...shared}
+                    metrics={metrics}
+                    decisions={decisions}
+                    approvals={approvals}
+                    escrows={escrows}
+                    policy={policy}
+                    session={session}
+                    updateSession={updateSession}
+                    alerts={alerts}
+                    summary={summary}
+                    invStats={invStats}
+                  />
+                )}
+                {view === "treasury" && (
+                  <TreasuryView
+                    gFetch={gFetch}
+                    busy={busy}
+                    act={act}
+                    readOnly={readOnly}
+                    ledgerMode={org?.ledgerMode ?? "sandbox"}
+                    initialTab={tabHint && TREASURY_TAB_SET.has(tabHint) ? tabHint : null}
+                    onTabChange={(t) => setTabHint(t)}
+                  />
+                )}
+                {view === "agents" && (
+                  <AgentsView
+                    gFetch={gFetch}
+                    busy={busy}
+                    act={act}
+                    readOnly={readOnly}
+                    onContextChange={setNavContext}
+                    onKeyRevealed={(entry) => {
+                      updateSession({
+                        agentKeys: [
+                          ...session!.agentKeys.filter((k) => k.agentId !== entry.agentId),
+                          entry,
+                        ],
+                      });
+                    }}
+                  />
+                )}
+                {view === "payments" && (
+                  <PaymentsView
+                    gFetch={gFetch}
+                    busy={busy}
+                    act={act}
+                    readOnly={readOnly}
+                    invoices={invoices}
+                    invStats={invStats}
+                    escrows={escrows}
+                    approvals={approvals}
+                    pending={pending}
+                    agentName={agentName}
+                    setToast={setToast}
+                    setView={setView}
+                    org={org}
+                    initialTab={
+                      tabHint && PAYMENTS_TAB_SET.has(tabHint)
+                        ? (tabHint as
+                            | "approvals"
+                            | "recent"
+                            | "subs"
+                            | "rails"
+                            | "invoices"
+                            | "escrows"
+                            | "batch"
+                            | "schedule")
+                        : undefined
+                    }
+                    onTabChange={(t) => setTabHint(t)}
+                    agents={(org?.agents ?? []).map((a) => ({
+                      id: a.id,
+                      name: a.name,
+                      status: a.status,
+                    }))}
+                  />
+                )}
+                {(view === "invoices" || view === "escrows" || view === "approvals") && (
+                  <PaymentsView
+                    gFetch={gFetch}
+                    busy={busy}
+                    act={act}
+                    readOnly={readOnly}
+                    invoices={invoices}
+                    invStats={invStats}
+                    escrows={escrows}
+                    approvals={approvals}
+                    pending={pending}
+                    agentName={agentName}
+                    setToast={setToast}
+                    setView={setView}
+                    org={org}
+                    initialTab={
+                      (tabHint && PAYMENTS_TAB_SET.has(tabHint)
+                        ? tabHint
+                        : view === "approvals"
+                          ? "approvals"
+                          : view) as
+                        | "approvals"
+                        | "recent"
+                        | "subs"
+                        | "rails"
+                        | "invoices"
+                        | "escrows"
+                        | "batch"
+                        | "schedule"
+                    }
+                    onTabChange={(t) => setTabHint(t)}
+                    agents={(org?.agents ?? []).map((a) => ({
+                      id: a.id,
+                      name: a.name,
+                      status: a.status,
+                    }))}
+                  />
+                )}
+                {view === "playground" && (
+                  <Playground
+                    {...shared}
+                    session={session}
+                    updateSession={updateSession}
+                    policy={policy}
+                    pending={pending}
+                    mission={mission}
+                    setMission={setMission}
+                    cancelRef={missionCancel}
+                  />
+                )}
+                {view === "chat" && (
+                  <ChatView
+                    gFetch={gFetch}
+                    act={act}
+                    busy={busy}
+                    readOnly={readOnly}
+                    pending={pending}
+                    agentName={agentName}
+                    onGoto={(v) => setView(v as View)}
+                  />
+                )}
+                {view === "work" && <WorkView runs={runs} busy={busy} act={act} gFetch={gFetch} />}
+                {(view === "insights" || view === "activity") && (
+                  <InsightsView
+                    gFetch={gFetch}
+                    setView={(v) => setView(v as View)}
+                    decisions={decisions}
+                    agentName={agentName}
+                    setToast={setToast}
+                    query={query}
+                    initialTab={view === "activity" ? "trail" : undefined}
+                    activitySeed={activitySeed ?? undefined}
+                  />
+                )}
+                {view === "ledger" && (
+                  <Ledger journals={journals} metrics={metrics} recon={recon} />
+                )}
+                {view === "policy" &&
+                  (policy ? <PolicyView {...shared} policy={policy} /> : <ConsoleSkeleton />)}
+                {view === "webhooks" && (
+                  <Webhooks {...shared} webhooks={webhooks} deliveries={deliveries} />
+                )}
+                {view === "settings" && (
+                  <SettingsView
+                    setup={setup}
+                    recon={recon}
+                    prefs={prefs}
+                    savePrefs={savePrefs}
+                    session={session}
+                    org={org}
+                    metrics={metrics}
+                    agents={org?.agents ?? []}
+                    busy={busy}
+                    act={act}
+                    gFetch={gFetch}
+                    api={API}
+                    sellerUrl={SELLER}
+                    actorRole={org?.actor?.role ?? "owner"}
+                    onGoto={(v) => setView(v as View)}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        </main>
 
-        <div className="scroll">
-          {banner && view !== "approvals" && (
-            <div className="banner" style={{ marginBottom: 12 }}>
-              <span className="ico">
-                <Icon name="alert" size={16} />
-              </span>
-              <span className="txt">
-                <b>{banner.title}</b>
-                <span>{banner.body}</span>
-              </span>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() =>
-                  banner.kind === "fund" ? setView("treasury", "move") : setView(banner.goto)
-                }
-              >
-                Review now
-              </Button>
-              <Button variant="bare" size="sm" onClick={() => setBanner(null)}>
-                <Icon name="x" size={14} />
-              </Button>
-            </div>
-          )}
+        <button
+          type="button"
+          className="abi-assistant-fab"
+          onClick={() => setView("chat")}
+          aria-label="Open ABI assistant"
+          title="Open ABI assistant"
+        >
+          <Icon name="spark" size={17} />
+          <span>Ask ABI</span>
+          {pending.length > 0 && <i>{pending.length}</i>}
+        </button>
 
-          {loading ? (
-            <ConsoleSkeleton />
-          ) : (
-            <div className="view">
-              <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
-              {view === "overview" && (
-                <Overview
-                  {...shared}
-                  metrics={metrics}
-                  decisions={decisions}
-                  approvals={approvals}
-                  escrows={escrows}
-                  policy={policy}
-                  session={session}
-                  updateSession={updateSession}
-                  alerts={alerts}
-                  summary={summary}
-                  invStats={invStats}
-                />
-              )}
-              {view === "treasury" && (
-                <TreasuryView
-                  gFetch={gFetch}
-                  busy={busy}
-                  act={act}
-                  readOnly={readOnly}
-                  ledgerMode={org?.ledgerMode ?? "sandbox"}
-                  initialTab={tabHint && TREASURY_TAB_SET.has(tabHint) ? tabHint : null}
-                  onTabChange={(t) => setTabHint(t)}
-                />
-              )}
-              {view === "agents" && (
-                <AgentsView
-                  gFetch={gFetch}
-                  busy={busy}
-                  act={act}
-                  readOnly={readOnly}
-                  onContextChange={setNavContext}
-                  onKeyRevealed={(entry) => {
-                    updateSession({
-                      agentKeys: [
-                        ...session!.agentKeys.filter((k) => k.agentId !== entry.agentId),
-                        entry,
-                      ],
-                    });
-                  }}
-                />
-              )}
-              {view === "payments" && (
-                <PaymentsView
-                  gFetch={gFetch}
-                  busy={busy}
-                  act={act}
-                  readOnly={readOnly}
-                  invoices={invoices}
-                  invStats={invStats}
-                  escrows={escrows}
-                  approvals={approvals}
-                  pending={pending}
-                  agentName={agentName}
-                  setToast={setToast}
-                  setView={setView}
-                  org={org}
-                  initialTab={
-                    tabHint && PAYMENTS_TAB_SET.has(tabHint)
-                      ? (tabHint as "approvals" | "recent" | "subs" | "rails" | "invoices" | "escrows" | "batch" | "schedule")
-                      : undefined
-                  }
-                  onTabChange={(t) => setTabHint(t)}
-                  agents={(org?.agents ?? []).map((a) => ({
-                    id: a.id,
-                    name: a.name,
-                    status: a.status,
-                  }))}
-                />
-              )}
-              {(view === "invoices" || view === "escrows" || view === "approvals") && (
-                <PaymentsView
-                  gFetch={gFetch}
-                  busy={busy}
-                  act={act}
-                  readOnly={readOnly}
-                  invoices={invoices}
-                  invStats={invStats}
-                  escrows={escrows}
-                  approvals={approvals}
-                  pending={pending}
-                  agentName={agentName}
-                  setToast={setToast}
-                  setView={setView}
-                  org={org}
-                  initialTab={
-                    (tabHint && PAYMENTS_TAB_SET.has(tabHint)
-                      ? tabHint
-                      : view === "approvals"
-                        ? "approvals"
-                        : view) as "approvals" | "recent" | "subs" | "rails" | "invoices" | "escrows" | "batch" | "schedule"
-                  }
-                  onTabChange={(t) => setTabHint(t)}
-                  agents={(org?.agents ?? []).map((a) => ({
-                    id: a.id,
-                    name: a.name,
-                    status: a.status,
-                  }))}
-                />
-              )}
-              {view === "playground" && (
-                <Playground
-                  {...shared}
-                  session={session}
-                  updateSession={updateSession}
-                  policy={policy}
-                  pending={pending}
-                  mission={mission}
-                  setMission={setMission}
-                  cancelRef={missionCancel}
-                />
-              )}
-              {view === "chat" && (
-                <ChatView
-                  gFetch={gFetch}
-                  act={act}
-                  busy={busy}
-                  readOnly={readOnly}
-                  pending={pending}
-                  agentName={agentName}
-                  onGoto={(v) => setView(v as View)}
-                />
-              )}
-              {view === "work" && (
-                <WorkView runs={runs} busy={busy} act={act} gFetch={gFetch} />
-              )}
-              {(view === "insights" || view === "activity") && (
-                <InsightsView
-                  gFetch={gFetch}
-                  setView={(v) => setView(v as View)}
-                  decisions={decisions}
-                  agentName={agentName}
-                  setToast={setToast}
-                  query={query}
-                  initialTab={view === "activity" ? "trail" : undefined}
-                  activitySeed={activitySeed ?? undefined}
-                />
-              )}
-              {view === "ledger" && <Ledger journals={journals} metrics={metrics} recon={recon} />}
-              {view === "policy" &&
-                (policy ? <PolicyView {...shared} policy={policy} /> : <ConsoleSkeleton />)}
-              {view === "webhooks" && <Webhooks {...shared} webhooks={webhooks} deliveries={deliveries} />}
-              {view === "settings" && (
-                <SettingsView
-                  setup={setup}
-                  recon={recon}
-                  prefs={prefs}
-                  savePrefs={savePrefs}
-                  session={session}
-                  org={org}
-                  metrics={metrics}
-                  agents={org?.agents ?? []}
-                  busy={busy}
-                  act={act}
-                  gFetch={gFetch}
-                  api={API}
-                  sellerUrl={SELLER}
-                  actorRole={org?.actor?.role ?? "owner"}
-                  onGoto={(v) => setView(v as View)}
-                />
-              )}
-            </div>
-          )}
-        </div>
-      </main>
-
-      <ConsoleCommandPalette
-        open={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        agents={(org?.agents ?? []).map((a) => ({ id: a.id, name: a.name, status: a.status }))}
-        decisions={decisions}
-        onGo={goView}
-        onSelectAgent={() => setView("agents")}
-        onJumpToDenial={(d) => {
-          const dest = d.destination.replace(/^https?:\/\//, "").split("/")[0] ?? d.destination;
-          setQuery(d.destination);
-          setActivitySeed({
-            filter: "deny",
-            dest,
-            key: Date.now(),
-          });
-          setView("activity");
-        }}
-      />
-      <KeyboardHelp open={help.open} onClose={() => help.setOpen(false)} />
-      {stepUpModal}
-    </div>
+        <ConsoleCommandPalette
+          open={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          agents={(org?.agents ?? []).map((a) => ({ id: a.id, name: a.name, status: a.status }))}
+          decisions={decisions}
+          onGo={goView}
+          onSelectAgent={() => setView("agents")}
+          onJumpToDenial={(d) => {
+            const dest = d.destination.replace(/^https?:\/\//, "").split("/")[0] ?? d.destination;
+            setQuery(d.destination);
+            setActivitySeed({
+              filter: "deny",
+              dest,
+              key: Date.now(),
+            });
+            setView("activity");
+          }}
+        />
+        <KeyboardHelp open={help.open} onClose={() => help.setOpen(false)} />
+        {stepUpModal}
+      </div>
     </TooltipProvider>
   );
 }
-
