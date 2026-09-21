@@ -19,6 +19,7 @@ import {
 } from "../auth/session.js";
 import { store, type GuardianRoleName, type UserRow } from "../store.js";
 import { signupTokenProblem } from "../auth/signup-token.js";
+import { assertAuthRuntimeReady } from "../auth/key-encryption.js";
 
 const INVITE_TTL_MS = 7 * 24 * 3600_000;
 
@@ -96,6 +97,10 @@ export function registerAuthRoutes(app: express.Express) {
         },
       });
     }
+
+    // Check secret-dependent org and session operations before committing a user.
+    // This prevents a configuration error from leaving an orphan account.
+    assertAuthRuntimeReady();
 
     const created = store.createUser({
       email: body.email,
