@@ -280,7 +280,9 @@ registerNotifier("webhook", (payload) => {
 // ---------------------------------------------------------------------------
 const RATE_LIMIT_PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN ?? 5000);
 /** Credential-minting routes get their own, far tighter budget per IP. */
-const SIGNUP_LIMIT_PER_HOUR = Number(process.env.ABI_SIGNUP_LIMIT_PER_HOUR ?? 10);
+const SIGNUP_LIMIT_PER_HOUR = Number(
+  process.env.ABI_SIGNUP_LIMIT_PER_HOUR ?? (process.env.NODE_ENV === "production" ? 10 : 1000),
+);
 /** Cap the window map so a key-rotating caller cannot exhaust memory. */
 const RATE_MAX_KEYS = 50_000;
 
