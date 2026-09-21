@@ -7,7 +7,6 @@ import {
 import { DevLocalProvider, SelfCustodyVaultProvider, cdpEnvConfigured, getCustodyProvider, setCustodyProvider } from "@policyvault/custody";
 import { recogniseRevenue, transferAvailable } from "@policyvault/ledger";
 import { evaluatePolicy, matchedAutomationRules } from "@policyvault/policy";
-import { timingSafeEqual } from "node:crypto";
 import cors from "cors";
 import express from "express";
 import { privateKeyToAccount } from "viem/accounts";
@@ -60,6 +59,7 @@ import { openApiDocument } from "./platform/openapi.js";
 import { webhookUrlProblem } from "./outbound-url.js";
 import { hashSecret } from "./secrets.js";
 import { csrfProblem } from "./auth/session.js";
+import { signupTokenProblem } from "./auth/signup-token.js";
 import { currentUser, registerAuthRoutes } from "./routes/auth-routes.js";
 import { registerMfaRoutes, stepUpThresholdMicro } from "./routes/mfa-routes.js";
 import { registerAgentRoutes } from "./routes/agent-routes.js";
@@ -351,40 +351,6 @@ function bearer(req: express.Request): string | null {
   const header = req.header("authorization");
   if (!header?.startsWith("Bearer ")) return null;
   return header.slice("Bearer ".length).trim();
-}
-
-/**
- * Invite gate for the two routes that mint a root guardian key without an
- * existing credential (org creation, demo seeding).
- *
- * When `ABI_SIGNUP_TOKEN` is set, callers must present it via
- * `x-abi-signup-token`. Unset means open, which is correct for local
- * development and wrong for anything reachable by others — so production
- * refuses to serve these routes at all unless a token is configured.
- *
- * Returns a problem string, or null when the caller may proceed.
- */
-function signupTokenProblem(req: express.Request): string | null {
-  const expected = process.env.ABI_SIGNUP_TOKEN?.trim();
-  if (!expected) {
-    if (process.env.NODE_ENV === "production") {
-      return "Self-serve organization creation requires ABI_SIGNUP_TOKEN to be configured.";
-    }
-    return null;
-  }
-  const presented = req.header("x-abi-signup-token")?.trim();
-  if (!presented || !timingSafeEqualStr(presented, expected)) {
-    return "Missing or invalid x-abi-signup-token.";
-  }
-  return null;
-}
-
-/** Constant-time string compare so the token cannot be probed byte by byte. */
-function timingSafeEqualStr(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return timingSafeEqual(ab, bb);
 }
 
 type AgentAuth = { orgId: string; agentId: string; scopes: string[] };
