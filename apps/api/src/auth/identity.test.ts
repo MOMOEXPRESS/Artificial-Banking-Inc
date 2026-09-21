@@ -158,6 +158,16 @@ describe("signup and login", () => {
     assert.equal(res.status, 400);
   });
 
+  it("returns JSON validation errors without terminating the API", async () => {
+    const invalid = await call("/v1/auth/signup", { method: "POST", body: {} });
+    assert.equal(invalid.status, 400);
+    assert.equal(
+      ((await invalid.json()) as { error: { code: string } }).error.code,
+      "VALIDATION_ERROR",
+    );
+    assert.equal((await call("/health")).status, 200);
+  });
+
   it("gives the same answer for a wrong password and a missing account", async () => {
     // Distinguishing them turns the login form into an account-existence oracle.
     const jar = new Jar();
