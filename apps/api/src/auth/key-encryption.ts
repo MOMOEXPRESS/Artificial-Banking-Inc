@@ -18,6 +18,7 @@
  * a ciphertext cannot be moved from one org's row to another's.
  */
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { demoDerivedSecret, keyPepper } from "../secrets.js";
 
 const PREFIX = "v1:";
 const ALGO = "aes-256-gcm";
@@ -35,7 +36,7 @@ export class KeyEncryptionError extends Error {}
  * a passphrase or a base64 blob without it silently truncating.
  */
 function kek(): Buffer {
-  const configured = process.env.ABI_KEK?.trim();
+  const configured = process.env.ABI_KEK?.trim() || demoDerivedSecret("key-encryption");
   if (!configured) {
     if (process.env.NODE_ENV === "production") {
       throw new KeyEncryptionError(
@@ -48,6 +49,12 @@ function kek(): Buffer {
     return createHash("sha256").update(DEV_KEK).digest();
   }
   return createHash("sha256").update(configured).digest();
+}
+
+/** Fail before accepting traffic if account/session cryptography cannot operate. */
+export function assertAuthRuntimeReady(): void {
+  void keyPepper();
+  void kek();
 }
 
 export function isEncrypted(value: string): boolean {

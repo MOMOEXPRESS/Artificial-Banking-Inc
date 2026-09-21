@@ -60,6 +60,7 @@ import { webhookUrlProblem } from "./outbound-url.js";
 import { hashSecret } from "./secrets.js";
 import { csrfProblem } from "./auth/session.js";
 import { signupTokenProblem } from "./auth/signup-token.js";
+import { assertAuthRuntimeReady } from "./auth/key-encryption.js";
 import { currentUser, registerAuthRoutes } from "./routes/auth-routes.js";
 import { registerMfaRoutes, stepUpThresholdMicro } from "./routes/mfa-routes.js";
 import { registerAgentRoutes } from "./routes/agent-routes.js";
@@ -279,7 +280,9 @@ registerNotifier("webhook", (payload) => {
 // ---------------------------------------------------------------------------
 const RATE_LIMIT_PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN ?? 5000);
 /** Credential-minting routes get their own, far tighter budget per IP. */
-const SIGNUP_LIMIT_PER_HOUR = Number(process.env.ABI_SIGNUP_LIMIT_PER_HOUR ?? 10);
+const SIGNUP_LIMIT_PER_HOUR = Number(
+  process.env.ABI_SIGNUP_LIMIT_PER_HOUR ?? (process.env.NODE_ENV === "production" ? 10 : 1000),
+);
 /** Cap the window map so a key-rotating caller cannot exhaust memory. */
 const RATE_MAX_KEYS = 50_000;
 
@@ -313,7 +316,7 @@ function overLimit(key: string, limit: number, windowMs: number): boolean {
   return hits.length > limit;
 }
 
-const SIGNUP_PATHS = new Set(["/v1/guardian/orgs", "/v1/demo/bootstrap"]);
+const SIGNUP_PATHS = new Set(["/v1/auth/signup", "/v1/guardian/orgs", "/v1/demo/bootstrap"]);
 
 app.use((req, res, next) => {
   if (req.path === "/health" || req.path === "/metrics") return next();
@@ -2201,6 +2204,14 @@ app.post("/v1/agent/escrow/:id/refund", (req, res) => {
  */
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (res.headersSent) return;
+  if (
+    err instanceof SyntaxError &&
+    (err as { type?: string }).type === "entity.parse.failed"
+  ) {
+    return res.status(400).json({
+      error: { code: "INVALID_JSON", message: "Request body contains invalid JSON." },
+    });
+  }
   if (err instanceof z.ZodError) {
     return res.status(400).json({
       error: { code: "VALIDATION_ERROR", message: err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") },
@@ -2232,6 +2243,11 @@ const noListen = process.env.ABI_NO_LISTEN === "1";
 const runJobsInProcess = process.env.ABI_RUN_JOBS !== "0";
 
 if (!noListen) {
+  // Do not advertise a healthy API that cannot create accounts or sessions.
+  // In explicit demo mode, missing values are purpose-derived from the existing
+  // server-side signup token; normal production still requires dedicated keys.
+  assertAuthRuntimeReady();
+
   if (runJobsInProcess) {
     startScheduler();
     startTelegramPolling();
