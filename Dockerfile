@@ -60,3 +60,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 COPY --from=build /app /app
 RUN mkdir -p /data
 CMD ["node", "apps/worker/dist/index.js"]
+
+# Render builds the final Dockerfile stage when no target is specified. Keep the
+# web-service image as the default so an automatic deploy always exposes /health
+# and binds PORT. Background workers must explicitly select --target worker.
+FROM api AS production
