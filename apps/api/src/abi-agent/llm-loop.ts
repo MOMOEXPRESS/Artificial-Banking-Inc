@@ -10,7 +10,12 @@ import {
   transcriptSnippet,
   type ChatTurn,
 } from "./memory.js";
-import { TOOL_NAMES, runTool, type ToolName, type ToolResult } from "./tools.js";
+import {
+  TOOL_NAMES,
+  runTool,
+  type ToolName,
+  type ToolResult,
+} from "./tools.js";
 import { store } from "../store.js";
 import { resolveAiEgress } from "./ai-settings.js";
 
@@ -38,8 +43,7 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   governance_status: "Guardian seats, roles, max-approve limits, and approval quorum.",
   treasury_snapshot: "Org vault USDC + other holdings + budget envelopes.",
   compare_agents: "Compare agents by stipend and 24h spend.",
-  recommend_next:
-    "Prioritized next actions for the guardian (approvals, low stipends, quiet, drift).",
+  recommend_next: "Prioritized next actions for the guardian (approvals, low stipends, quiet, drift).",
   remember_fact: "Save a guardian-taught org fact to durable memory.",
   recall_facts: "Recall previously saved org facts / notes.",
   draft_marketing_blurb: "Draft marketing copy from org facts (not published).",
