@@ -95,6 +95,14 @@ function downloadKeysFile(session: Session, kind: "real" | "demo") {
 
 type Phase = "ready" | "keys";
 type LoginMode = "signin" | "signup" | "key" | "demo" | "reset";
+type ApiStatus =
+  | { state: "checking" | "ready" }
+  | {
+      state: "error";
+      code: string;
+      message: string;
+      setup?: { missing?: string; where?: string; example?: string; docs?: string };
+    };
 
 export function Login({
   onLogin,
@@ -104,6 +112,7 @@ export function Login({
   setToast: (m: string, k?: "ok" | "err" | "info") => void;
 }) {
   const [key, setKey] = useState("");
+  const [apiStatus, setApiStatus] = useState<ApiStatus>({ state: "checking" });
   const [orgName, setOrgName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -141,6 +150,45 @@ export function Login({
     const t = window.setTimeout(() => setCopied(null), 1600);
     return () => window.clearTimeout(t);
   }, [copied]);
+
+  async function checkApi() {
+    setApiStatus({ state: "checking" });
+    try {
+      const res = await fetch(`${API}/health`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (res.ok) {
+        setApiStatus({ state: "ready" });
+        return;
+      }
+      const payload = (await res.json().catch(() => null)) as
+        | {
+            error?: {
+              code?: string;
+              message?: string;
+              setup?: { missing?: string; where?: string; example?: string; docs?: string };
+            };
+          }
+        | null;
+      setApiStatus({
+        state: "error",
+        code: payload?.error?.code ?? `HTTP_${res.status}`,
+        message: payload?.error?.message ?? `The ABI API returned HTTP ${res.status}.`,
+        setup: payload?.error?.setup,
+      });
+    } catch {
+      setApiStatus({
+        state: "error",
+        code: "API_UNREACHABLE",
+        message: "The console could not reach the ABI API. Check the API service and try again.",
+      });
+    }
+  }
+
+  useEffect(() => {
+    void checkApi();
+  }, []);
 
   async function connect() {
     setBusy(true);
@@ -331,6 +379,57 @@ export function Login({
 
   const showLogin = phase === "ready";
   const showKeys = phase === "keys" && pending;
+
+  if (showLogin && apiStatus.state === "error") {
+    return (
+      <div className="login-wrap is-ready">
+        <Link href="/" className="login-back">
+          <Icon name="arrowLeft" size={14} />
+          Back to site
+        </Link>
+        <div className="login-reveal">
+          <div className="login-brand-beat">
+            <ABLockup size={180} tone="#fff" />
+          </div>
+          <div className="login-card">
+            <span className="pill bad" style={{ marginBottom: 16 }}>
+              <i /> Service unavailable
+            </span>
+            <h1 style={{ margin: "0 0 10px", fontSize: 24 }}>Console setup required</h1>
+            <p className="login-sub">{apiStatus.message}</p>
+            {apiStatus.setup?.missing ? (
+              <div
+                style={{
+                  padding: 14,
+                  marginBottom: 16,
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                  fontSize: 12,
+                  lineHeight: 1.65,
+                }}
+              >
+                <div>
+                  Missing: <code>{apiStatus.setup.missing}</code>
+                </div>
+                {apiStatus.setup.where ? <div>Configure it in {apiStatus.setup.where}.</div> : null}
+                {apiStatus.setup.example ? (
+                  <div>
+                    Example: <code>{apiStatus.setup.example}</code>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            <Button style={{ width: "100%" }} onClick={() => void checkApi()}>
+              Try again
+            </Button>
+            <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.55 }}>
+              Error code: <code>{apiStatus.code}</code>
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`login-wrap is-ready${showKeys ? " is-keys" : ""}`}>
