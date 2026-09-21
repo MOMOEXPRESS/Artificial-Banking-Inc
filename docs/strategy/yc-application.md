@@ -9,7 +9,7 @@ Copy into the form. Cross out anything that isn’t true for you. Replace `[brac
 **Demo:** https://artificial-banking-inc-gaia10.vercel.app  
 (Use whatever Domains URL Vercel shows as Production if it changed after transfer.)
 
-**Repo:** https://github.com/MOMOEXPRESS/Artificial-Banking-Inc  
+**Repo:** https://github.com/MOMOEXPRESS/Artificial-Banking-Inc
 
 **Not a bank. Not FDIC. Product money = USDC.**
 
@@ -18,9 +18,11 @@ Copy into the form. Cross out anything that isn’t true for you. Replace `[brac
 ## Company
 
 ### Company name
+
 Artificial Banking Inc
 
 ### Describe what your company does in 50 characters or less
+
 ~49 chars:
 
 ```text
@@ -34,9 +36,11 @@ Spend controls for AI agents paying in USDC
 ```
 
 ### Company URL
+
 Your Production console URL (Vercel Domains).
 
 ### Demo / product link
+
 Same console URL + note: Launch demo org → Treasury Move → Playground → Approvals.
 
 ---
@@ -46,7 +50,7 @@ Same console URL + note: Launch demo org → Treasury Move → Playground → Ap
 ### What is your company going to make?
 
 ```text
-Software that gives every AI agent its own USDC wallet with hard budgets, allowlists, and human approval before spend. Operators set policy in a console; agents call an API/SDK; keys never enter the model. Settles on Base (Coinbase CDP). Not a bank — spend controls between the LLM and the money.
+Software that gives every AI agent policy-bound USDC spending authority with hard budgets, allowlists, and human approval before spend. Operators set policy in a console; agents call an API/SDK; keys never enter the model. The demo settles on Base Sepolia using application-managed encrypted keys. Not a bank — spend controls between the LLM and the money.
 ```
 
 ### Why did you pick this idea? Why are you the right people?
@@ -58,13 +62,13 @@ Agents can already browse and call APIs; the next step is paying. Most stacks gi
 ### Why now?
 
 ```text
-Agent frameworks and x402-style pay-per-request APIs are shipping now. Coinbase CDP makes programmatic wallets usable. USDC on Base is cheap enough for small agent tickets. Without policy, operators either block agents from money entirely or hand them keys and hope — both break at scale.
+Agent frameworks and x402-style pay-per-request APIs are shipping now, and programmatic wallets are becoming usable. USDC on Base is cheap enough for small agent tickets. Without policy, operators either block agents from money entirely or hand them keys and hope — both break at scale.
 ```
 
 ### Progress — what have you built so far?
 
 ```text
-Working product on Vercel: guardian console + embedded API. Demo org bootstrap with reveal-once keys. Org vault, budgets, agent stipends, policy engine (allow / review / deny), approvals inbox, playground missions, ledger/activity, CDP-backed custody flag on Base Sepolia, optional Telegram hooks. Monorepo with agent SDK, MCP server, x402 seller demo. Live console: [URL].
+Working product: guardian console + persistent API. Demo org bootstrap with reveal-once keys. Org vault, budgets, agent stipends, deterministic policy engine (allow / review / deny), approvals inbox, playground missions, ledger/activity, application-managed encrypted custody on Base Sepolia, and optional Telegram hooks. Monorepo with agent SDK, stdio MCP server, and x402 development facilitator. Live console: [URL].
 ```
 
 ### How do you know people want this?
@@ -110,6 +114,7 @@ Buyer is the human operator (founder, platform ops), not the agent. They need ki
 ## Founders (YOU fill — be specific)
 
 ### Founder name / email / location
+
 Ebale Maurice — momomaurice20006@gmail.com — [city, country]
 
 ### Something impressive each founder built or achieved (1–2 sentences)
@@ -119,12 +124,15 @@ Ebale Maurice — momomaurice20006@gmail.com — [city, country]
 ```
 
 ### Equity ownership
+
 Solo: 100% (or list split if cofounder). Be exact.
 
 ### How long have you known each other / worked together?
+
 Solo founder → say so. If cofounder: months/years + how you met.
 
 ### Are you full-time?
+
 [Yes / will be if funded / still [job].] YC prefers full-time commitment plan.
 
 ### Non-computer system you hacked
@@ -141,10 +149,10 @@ All founders on camera (you). Phone/laptop cam. No slides. No reading.
 
 **Talk track:**
 
-1. “I’m Ebale. We’re Artificial Banking.”  
-2. “AI agents are about to spend money. Most stacks have no brakes.”  
-3. “We give each agent a USDC wallet with budgets and human approval before spend.”  
-4. “Live demo on Base Sepolia with Coinbase CDP — console, playground, approvals.”  
+1. “I’m Ebale. We’re Artificial Banking.”
+2. “AI agents are about to spend money. Most stacks have no brakes.”
+3. “We give each agent a USDC wallet with budgets and human approval before spend.”
+4. “Live demo on Base Sepolia — console, deterministic policy, and human approvals.”
 5. “Not a bank. Controls between the model and the money. Looking for YC to [customers / distribution / crypto+AI intros].”
 
 Optional: 5s screen share of Approvals — only if it doesn’t eat the whole minute. Prefer face.
@@ -154,18 +162,18 @@ Optional: 5s screen share of Approvals — only if it doesn’t eat the whole mi
 ## Anything else?
 
 ```text
-Demo: [URL]. Repo: github.com/MOMOEXPRESS/Artificial-Banking-Inc. Custody path uses Coinbase CDP behind an existing org vault; product money is USDC on Base. Community token (if any) is explicitly separate from the console. Happy to walk through a live Sepolia approve in the interview.
+Demo: [URL]. Repo: github.com/MOMOEXPRESS/Artificial-Banking-Inc. The current demo uses application-managed encrypted keys on Base Sepolia; managed MPC/HSM custody is a planned integration. Product money is USDC on Base. Community token (if any) is explicitly separate from the console. Happy to walk through a live Sepolia approval in the interview.
 ```
 
 ---
 
 ## Submit checklist
 
-- [ ] Form answers pasted (no marketing fluff)  
-- [ ] Demo URL loads without Vercel login wall  
-- [ ] 1-min video uploaded  
-- [ ] Founder impressive-achievement line is specific  
-- [ ] Equity / location / commitment filled  
-- [ ] Submit by **July 27, 8pm PT** if you want the Aug 28 decision window  
+- [ ] Form answers pasted (no marketing fluff)
+- [ ] Demo URL loads without Vercel login wall
+- [ ] 1-min video uploaded
+- [ ] Founder impressive-achievement line is specific
+- [ ] Equity / location / commitment filled
+- [ ] Submit by **July 27, 8pm PT** if you want the Aug 28 decision window
 
 After submit: keep shipping Sepolia → one real Approve → optional X thread with screenshot (not the YC form).

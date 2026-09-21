@@ -1203,7 +1203,13 @@ app.post(
     const raw = useAgent
       ? await runAbiAgent(org.id, body.message, prior)
       : { ...answerQuestion(org.id, body.message), toolsUsed: [] as string[] };
-    const text = await presentAnswer(org.id, body.message, raw.answer);
+    // The LLM tool loop already synthesized a final answer. Sending that answer
+    // through a second model call adds cost and gives another model a chance to
+    // distort verified figures. Only polish deterministic/keyword output.
+    const text =
+      "via" in raw && raw.via === "llm"
+        ? raw.answer
+        : await presentAnswer(org.id, body.message, raw.answer);
     const reply = store.appendChatMessage({
       orgId: org.id,
       role: "assistant",

@@ -16,8 +16,10 @@ export function synthesizeAdvice(
       `${ctx.pendingApprovals} payment${ctx.pendingApprovals === 1 ? "" : "s"} waiting in Approvals — clear those before tightening bands.`,
     );
   }
-  if (!ctx.booksOk) {
+  if (ctx.booksOk === false) {
     bullets.push("Books show drift — open Overview / Ledger and reconcile before trusting balances.");
+  } else if (ctx.booksOk === null) {
+    bullets.push("Books could not be verified — reconcile before trusting balances.");
   }
   if (ctx.quiet.toLowerCase().includes("in quiet")) {
     bullets.push(`Quiet hours are active (${ctx.quiet}) — expect more holds until the window ends.`);

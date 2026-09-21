@@ -135,14 +135,15 @@ describe("agent policy overrides", () => {
     assert.equal(provenance.perTxMaxMicro, "org");
   });
 
-  it("ignores a corrupted override rather than blocking the agent", () => {
-    // A bad row must degrade to the org default, not fail every payment.
+  it("fails closed when an agent policy override is corrupted", () => {
+    // The corrupted override may have been stricter than the org default. It
+    // must never silently widen the agent's authority.
     const { org, tight } = orgWithTwoAgents();
     store.setAgentPolicyOverride(org.id, tight.agentId, { perTxMaxMicro: 2_000_000n });
     store.setAgentPolicyRawForTests(tight.agentId, "{not json");
 
-    assert.equal(store.getAgentPolicyOverrideAnyOrg(tight.agentId), null);
-    assert.equal(resolvedPolicyFor(tight.agentId, org.id).effective.perTxMaxMicro, 25_000_000n);
+    assert.throws(() => store.getAgentPolicyOverrideAnyOrg(tight.agentId), /CORRUPT_AGENT_POLICY/);
+    assert.throws(() => resolvedPolicyFor(tight.agentId, org.id), /CORRUPT_AGENT_POLICY/);
   });
 
   it("lists which agents deviate from the default", () => {

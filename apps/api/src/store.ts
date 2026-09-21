@@ -2768,10 +2768,11 @@ export const store = {
         typeof v === "string" && v.startsWith("bigint:") ? BigInt(v.slice(7)) : v,
       ) as PolicyOverride;
     } catch {
-      // A corrupt override must fall back to the org default rather than
-      // failing every payment for that agent.
-      console.error(`agent policy override for ${agentId} is unparseable; ignoring`);
-      return null;
+      // Never silently widen an agent's authority. The override may have been
+      // stricter than the organization default, so falling back can fail open.
+      // Throwing makes all spend attempts fail closed until an owner repairs or
+      // clears the corrupted policy row.
+      throw new Error(`CORRUPT_AGENT_POLICY: ${agentId}`);
     }
   },
 
