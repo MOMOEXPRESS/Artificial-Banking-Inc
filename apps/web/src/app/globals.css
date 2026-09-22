@@ -8097,6 +8097,23 @@ button.sm.ghost.on {
   padding: 0;
 }
 
+.nav-collapsed .rail-clock {
+  justify-content: center;
+  width: 42px;
+  min-width: 42px;
+  margin-inline: auto;
+  padding-inline: 0;
+}
+
+.nav-collapsed .rail-clock-face {
+  width: 28px;
+  height: 28px;
+}
+
+.nav-collapsed .rail-clock-meta {
+  display: none;
+}
+
 .nav-collapsed .app .rail-btn,
 .nav-collapsed .rail-btn {
   justify-content: center;
@@ -8389,6 +8406,21 @@ button.sm.ghost.on {
   .nav-collapsed .rail-folder-content {
     align-items: stretch;
     padding-left: 2px;
+  }
+
+  .nav-collapsed .rail-clock {
+    justify-content: flex-start;
+    width: 100%;
+    padding-inline: 8px;
+  }
+
+  .nav-collapsed .rail-clock-face {
+    width: 42px;
+    height: 42px;
+  }
+
+  .nav-collapsed .rail-clock-meta {
+    display: flex;
   }
 
   .nav-collapsed .rail-btn {
