@@ -13,7 +13,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @policyvault/common -w @policyvault/policy -w @policyvault/ledger -w @policyvault/custody -w @policyvault/sdk -w @policyvault/api -w @policyvault/mcp-server -w @policyvault/worker -w @policyvault/web",
+    "build": "npm run build -w @policyvault/common -w @policyvault/policy -w @policyvault/ledger -w @policyvault/custody -w @policyvault/sdk -w @policyvault/api -w @policyvault/x402-seller -w @policyvault/mcp-server -w @policyvault/worker -w @policyvault/web",
     "dev": "node scripts/dev.mjs",
     "dev:api": "npm run dev -w @policyvault/api",
     "dev:web": "npm run dev -w @policyvault/web",

@@ -1,52 +1,50 @@
-/**
- * x402 client rail: PolicyVault performs the HTTP 402 payment dance on behalf
- * of the agent, signing via the registered CustodyProvider. The agent never
- * sees the key — it only receives the paid resource and a receipt.
- *
- * Flow (x402 "exact" scheme):
- *   1. GET resource → 402 + accepts[] payment requirements
- *   2. Check the seller's price against the policy-authorized amount
- *   3. Sign an EIP-712 TransferWithAuthorization for exactly the price
- *   4. Retry with X-PAYMENT header → seller verifies via its facilitator → 200
- *
- * Works fully locally against apps/x402-seller (dev facilitator). Going live
- * on Base mainnet/Sepolia = the SELLER pointing at the real x402 facilitator
- * and this wallet holding real USDC; the client dance below is unchanged.
- */
-import { randomBytes } from "node:crypto";
+/** x402 V2 buyer rail. ABI authorizes; the SDK constructs the payment payload. */
 import { getCustodyProvider } from "@policyvault/custody";
 import type { MicroUsdc } from "@policyvault/common";
+import { x402Client, x402HTTPClient } from "@x402/core/client";
+import type { PaymentRequired, PaymentRequirements } from "@x402/core/types";
+import { ExactEvmScheme, type ClientEvmSigner } from "@x402/evm";
 import { outboundUrlProblem } from "../outbound-url.js";
 import { tokenDomain } from "../chain/token-domain.js";
 import type { PaymentRail, PaymentRailContext, PaymentRailResult } from "./types.js";
 
-export interface PaymentRequirements {
-  scheme: string;
-  network: string;
-  maxAmountRequired: string; // micro-USDC (6-decimal base units)
-  resource: string;
-  description?: string;
-  payTo: `0x${string}`;
-  asset: `0x${string}`;
-  maxTimeoutSeconds?: number;
+const NETWORKS = {
+  "eip155:84532": { legacy: "base-sepolia", asset: "0x036cbd53842c5426634e7929541ec2318f3dcf7e" },
+  "eip155:8453": { legacy: "base", asset: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" },
+} as const;
+
+/** Exported for domain/signature regression tests and custody adapters. */
+export const AUTHORIZATION_TYPES = {
+  TransferWithAuthorization: [
+    { name: "from", type: "address" },
+    { name: "to", type: "address" },
+    { name: "value", type: "uint256" },
+    { name: "validAfter", type: "uint256" },
+    { name: "validBefore", type: "uint256" },
+    { name: "nonce", type: "bytes32" },
+  ],
+} as const;
+
+export function eip712Domain(network: string, asset: `0x${string}`) {
+  const legacy = network === "base" || network === "eip155:8453" ? "base" : "base-sepolia";
+  const domain = tokenDomain(legacy, asset);
+  return {
+    name: domain.name,
+    version: domain.version,
+    chainId: domain.chainId,
+    verifyingContract: domain.verifyingContract,
+  } as const;
 }
 
 export interface X402Receipt {
-  /** What was actually charged (seller price), in micro-USDC */
   amountMicro: MicroUsdc;
-  network: string;
+  network: keyof typeof NETWORKS;
   payer: `0x${string}`;
   payTo: `0x${string}`;
-  txHash?: string;
-  settled: boolean;
+  txHash: `0x${string}`;
+  settled: true;
 }
 
-/**
- * Failure codes the engine maps to HTTP statuses. The on-chain transfer rail
- * raises the last three; they belong in this union so the type describes the
- * real contract rather than being smuggled through a duck-typed `code` on a
- * plain Error (see rails/evm-usdc-transfer.ts).
- */
 export type RailErrorCode =
   | "PRICE_EXCEEDS_AUTHORIZED"
   | "NO_PAYMENT_REQUIRED"
@@ -68,180 +66,121 @@ export class X402Error extends Error {
   }
 }
 
-export const AUTHORIZATION_TYPES = {
-  TransferWithAuthorization: [
-    { name: "from", type: "address" },
-    { name: "to", type: "address" },
-    { name: "value", type: "uint256" },
-    { name: "validAfter", type: "uint256" },
-    { name: "validBefore", type: "uint256" },
-    { name: "nonce", type: "bytes32" },
-  ],
-} as const;
-
-/**
- * EIP-712 domain for the token being paid in.
- *
- * This used to hardcode `name: "USD Coin"` for every network. Base Sepolia's
- * USDC is actually named "USDC", so on the default chain every signature was
- * computed over the wrong domain separator — recovering to the wrong address
- * against any real verifier. The dev facilitator shared the same wrong constant
- * and so agreed with it, which is why the demo passed and real settlement never
- * did. See chain/token-domain.ts for the verified values.
- */
-export function eip712Domain(network: string, asset: `0x${string}`) {
-  const chain = network === "base" ? "base" : "base-sepolia";
-  const domain = tokenDomain(chain, asset);
-  return {
-    name: domain.name,
-    version: domain.version,
-    chainId: domain.chainId,
-    verifyingContract: domain.verifyingContract,
-  } as const;
+function isAddress(value: string): value is `0x${string}` {
+  return /^0x[a-fA-F0-9]{40}$/.test(value);
 }
 
-/**
- * Token contracts we are willing to sign a transfer authorization for. The
- * seller proposes the asset; without this pin it could name any contract —
- * including one it controls — and we would sign away a transfer of it.
- */
-const ALLOWED_ASSETS: Record<string, string> = {
-  "base-sepolia": "0x036cbd53842c5426634e7929541ec2318f3dcf7e",
-  base: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-};
+function isTxHash(value: string): value is `0x${string}` {
+  return /^0x[a-fA-F0-9]{64}$/.test(value);
+}
 
-/** Never sign an authorization valid for longer than this, whatever the seller asks. */
-const MAX_AUTHORIZATION_SECONDS = 120;
+function selectRequirement(
+  required: PaymentRequired,
+  authorizedMicro: bigint,
+  blocklist: string[],
+): { requirement: PaymentRequirements; priceMicro: bigint; network: keyof typeof NETWORKS } {
+  if (required.x402Version !== 2) {
+    throw new X402Error(
+      "UNSUPPORTED_SCHEME",
+      `Seller offered x402 V${required.x402Version}; ABI requires V2.`,
+    );
+  }
+  const requirement = required.accepts.find((r) => r.scheme === "exact" && r.network in NETWORKS);
+  if (!requirement) {
+    throw new X402Error(
+      "UNSUPPORTED_SCHEME",
+      "Seller did not offer exact USDC on Base or Base Sepolia.",
+    );
+  }
+  const network = requirement.network as keyof typeof NETWORKS;
+  if (requirement.asset.toLowerCase() !== NETWORKS[network].asset) {
+    throw new X402Error(
+      "UNSUPPORTED_SCHEME",
+      `Seller requested unsupported asset ${requirement.asset}.`,
+    );
+  }
+  if (!isAddress(requirement.payTo)) {
+    throw new X402Error("SELLER_REJECTED", `Malformed payTo address: ${requirement.payTo}`);
+  }
+  if (blocklist.some((x) => x.toLowerCase() === requirement.payTo.toLowerCase())) {
+    throw new X402Error(
+      "SELLER_REJECTED",
+      `Seller payout address is blocklisted: ${requirement.payTo}`,
+    );
+  }
+  let priceMicro: bigint;
+  try {
+    priceMicro = BigInt(requirement.amount);
+  } catch {
+    throw new X402Error("SELLER_REJECTED", `Malformed price: ${requirement.amount}`);
+  }
+  if (priceMicro <= 0n)
+    throw new X402Error("SELLER_REJECTED", "Seller quoted a non-positive price.");
+  if (priceMicro > authorizedMicro) {
+    throw new X402Error(
+      "PRICE_EXCEEDS_AUTHORIZED",
+      `Seller price ${priceMicro} exceeds authorized ${authorizedMicro}`,
+    );
+  }
+  return { requirement, priceMicro, network };
+}
+
+async function readBody(response: Response): Promise<unknown> {
+  return response.headers.get("content-type")?.includes("application/json")
+    ? response.json()
+    : response.text();
+}
 
 export async function payViaX402(args: {
   url: string;
-  /** Policy-authorized ceiling for this intent, micro-USDC */
   authorizedMicro: MicroUsdc;
   orgId: string;
-  /** Destinations the guardian has blocked — the payee is checked against these. */
   blocklist?: string[];
   fetchImpl?: typeof fetch;
 }): Promise<{ receipt: X402Receipt; resource: unknown; contentType: string | null }> {
-  const doFetch = args.fetchImpl ?? fetch;
-
-  // The seller URL comes from the agent. The policy allowlist already gates
-  // *which* destinations are permitted, but an allowlisted host can still
-  // resolve somewhere this process should not be reaching — so re-check the
-  // target itself before any request leaves.
-  const urlProblem = outboundUrlProblem(args.url, "Payment destination");
-  if (urlProblem) {
-    throw new X402Error("INVALID_DESTINATION", urlProblem);
-  }
+  const problem = outboundUrlProblem(args.url, "Payment destination");
+  if (problem) throw new X402Error("INVALID_DESTINATION", problem);
 
   const custody = getCustodyProvider();
-  const addr = await custody.getAddress(args.orgId);
-  if (!addr) {
-    throw new X402Error(
-      "CUSTODY_UNAVAILABLE",
-      "Org has no custody address — recreate org or configure CDP",
-    );
-  }
-
-  const first = await doFetch(args.url, {
-    signal: AbortSignal.timeout(10_000),
-    redirect: "error",
-  });
+  const wallet = await custody.getAddress(args.orgId);
+  if (!wallet) throw new X402Error("CUSTODY_UNAVAILABLE", "Organization has no custody address.");
+  const doFetch = args.fetchImpl ?? fetch;
+  const first = await doFetch(args.url, { signal: AbortSignal.timeout(10_000), redirect: "error" });
   if (first.status !== 402) {
-    if (first.ok) {
+    if (first.ok)
       throw new X402Error("NO_PAYMENT_REQUIRED", "Resource did not request payment (HTTP 200)");
-    }
     throw new X402Error("RAIL_FAILED", `Seller returned HTTP ${first.status}`);
   }
 
-  const challenge = (await first.json().catch(() => ({}))) as { accepts?: PaymentRequirements[] };
-  const requirement = challenge.accepts?.find(
-    (a) => a.scheme === "exact" && (a.network === "base-sepolia" || a.network === "base"),
-  );
-  if (!requirement) {
-    throw new X402Error("UNSUPPORTED_SCHEME", "No supported x402 payment scheme in accepts[]");
-  }
-
-  // The seller controls every field below. Validate before signing anything.
-  const expectedAsset = ALLOWED_ASSETS[requirement.network];
-  if (!expectedAsset || requirement.asset?.toLowerCase() !== expectedAsset) {
-    throw new X402Error(
-      "UNSUPPORTED_SCHEME",
-      `Seller asked to be paid in an unrecognised token (${requirement.asset}) — refusing to sign.`,
-    );
-  }
-  if (!/^0x[a-fA-F0-9]{40}$/.test(requirement.payTo ?? "")) {
-    throw new X402Error("SELLER_REJECTED", `Malformed payTo address: ${requirement.payTo}`);
-  }
-  if (args.blocklist?.some((b) => b.toLowerCase() === requirement.payTo.toLowerCase())) {
-    throw new X402Error("SELLER_REJECTED", `Seller's payout address is blocklisted: ${requirement.payTo}`);
-  }
-
-  let priceMicro: bigint;
+  const challengeBody = await readBody(first);
+  let paymentRequired: PaymentRequired;
   try {
-    priceMicro = BigInt(requirement.maxAmountRequired);
-  } catch {
-    throw new X402Error("SELLER_REJECTED", `Malformed price: ${requirement.maxAmountRequired}`);
-  }
-  if (priceMicro <= 0n) {
-    throw new X402Error("SELLER_REJECTED", `Seller quoted a non-positive price: ${priceMicro}`);
-  }
-  if (priceMicro > args.authorizedMicro) {
+    paymentRequired = new x402HTTPClient(new x402Client()).getPaymentRequiredResponse(
+      (name) => first.headers.get(name),
+      challengeBody,
+    );
+  } catch (error) {
     throw new X402Error(
-      "PRICE_EXCEEDS_AUTHORIZED",
-      `Seller price ${requirement.maxAmountRequired} exceeds authorized ${args.authorizedMicro}`,
+      "SELLER_REJECTED",
+      `Invalid x402 challenge: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-
-  const nowSec = Math.floor(Date.now() / 1000);
-  // Clamp the validity window: a seller-chosen expiry could leave a signed,
-  // redeemable authorization alive long after we released the hold.
-  const ttl = Math.min(requirement.maxTimeoutSeconds ?? 60, MAX_AUTHORIZATION_SECONDS);
-  const authorization = {
-    from: addr.address,
-    to: requirement.payTo,
-    value: priceMicro,
-    validAfter: BigInt(nowSec - 60),
-    validBefore: BigInt(nowSec + ttl),
-    nonce: `0x${randomBytes(32).toString("hex")}` as `0x${string}`,
+  const selected = selectRequirement(paymentRequired, args.authorizedMicro, args.blocklist ?? []);
+  const signer: ClientEvmSigner = {
+    address: wallet.address,
+    signTypedData: (typedData) => custody.signTypedData({ orgId: args.orgId, typedData }),
   };
-  let signature: `0x${string}`;
-  try {
-    signature = await custody.signTypedData({
-      orgId: args.orgId,
-      typedData: {
-        domain: { ...eip712Domain(requirement.network, requirement.asset) },
-        types: { ...AUTHORIZATION_TYPES },
-        primaryType: "TransferWithAuthorization",
-        message: authorization as unknown as Record<string, unknown>,
-      },
-    });
-  } catch (e) {
-    throw new X402Error(
-      "CUSTODY_UNAVAILABLE",
-      e instanceof Error ? e.message : "Custody provider failed to sign",
-    );
-  }
-
-  const paymentHeader = Buffer.from(
-    JSON.stringify({
-      x402Version: 1,
-      scheme: "exact",
-      network: requirement.network,
-      payload: {
-        signature,
-        authorization: {
-          ...authorization,
-          value: authorization.value.toString(),
-          validAfter: authorization.validAfter.toString(),
-          validBefore: authorization.validBefore.toString(),
-        },
-      },
-    }),
-  ).toString("base64");
-
+  const core = new x402Client((_version, requirements) => requirements[0])
+    .register(selected.network, new ExactEvmScheme(signer))
+    .setSpendControls(false);
+  const http = new x402HTTPClient(core);
+  const payload = await http.createPaymentPayload({
+    ...paymentRequired,
+    accepts: [selected.requirement],
+  });
   const paid = await doFetch(args.url, {
-    headers: { "X-PAYMENT": paymentHeader },
-    signal: AbortSignal.timeout(15_000),
+    headers: http.encodePaymentSignatureHeader(payload),
+    signal: AbortSignal.timeout(30_000),
     redirect: "error",
   });
   if (!paid.ok) {
@@ -249,39 +188,48 @@ export async function payViaX402(args: {
     throw new X402Error("SELLER_REJECTED", `Seller rejected payment: HTTP ${paid.status} ${body}`);
   }
 
-  let settlement: { txHash?: string; success?: boolean } = {};
-  const settleHeader = paid.headers.get("x-payment-response");
-  if (settleHeader) {
-    try {
-      settlement = JSON.parse(Buffer.from(settleHeader, "base64").toString("utf8"));
-    } catch {
-      /* tolerate absent/opaque settlement info */
-    }
+  let settlement;
+  try {
+    settlement = http.getPaymentSettleResponse((name) => paid.headers.get(name));
+  } catch (error) {
+    throw new X402Error(
+      "RAIL_FAILED",
+      `Missing or invalid PAYMENT-RESPONSE: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
-
+  if (!settlement.success || !isTxHash(settlement.transaction)) {
+    throw new X402Error(
+      "RAIL_FAILED",
+      settlement.errorMessage ??
+        settlement.errorReason ??
+        "Facilitator did not confirm settlement.",
+    );
+  }
+  const chargedMicro = BigInt(settlement.amount ?? selected.priceMicro.toString());
+  if (chargedMicro <= 0n || chargedMicro > args.authorizedMicro) {
+    throw new X402Error(
+      "RAIL_FAILED",
+      `Facilitator reported invalid settled amount ${chargedMicro}.`,
+    );
+  }
   const contentType = paid.headers.get("content-type");
-  const resource = contentType?.includes("application/json")
-    ? await paid.json()
-    : await paid.text();
-
+  const resource = await readBody(paid);
   return {
     receipt: {
-      amountMicro: priceMicro,
-      network: requirement.network,
-      payer: addr.address,
-      payTo: requirement.payTo,
-      txHash: settlement.txHash,
-      // Require an explicit success flag — missing/undefined must not book a payment.
-      settled: settlement.success === true,
+      amountMicro: chargedMicro,
+      network: selected.network,
+      payer: settlement.payer && isAddress(settlement.payer) ? settlement.payer : wallet.address,
+      payTo: selected.requirement.payTo as `0x${string}`,
+      txHash: settlement.transaction,
+      settled: true,
     },
     resource,
     contentType,
   };
 }
 
-/** PaymentRail adapter around payViaX402. */
 export class X402Rail implements PaymentRail {
-  readonly name = "x402";
+  readonly name = "x402-v2";
 
   async settle(ctx: PaymentRailContext): Promise<PaymentRailResult> {
     if (!/^https?:\/\//i.test(ctx.destination)) {
@@ -293,13 +241,14 @@ export class X402Rail implements PaymentRail {
       orgId: ctx.orgId,
       blocklist: ctx.blocklist,
     });
+    ctx.onBroadcast?.(this.name, paid.receipt.txHash);
     return {
       chargedMicro: paid.receipt.amountMicro,
       rail: this.name,
       txHash: paid.receipt.txHash,
       resource: paid.resource,
       contentType: paid.contentType,
-      settled: paid.receipt.settled,
+      settled: true,
     };
   }
 }

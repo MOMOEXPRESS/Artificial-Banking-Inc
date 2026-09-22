@@ -13,7 +13,7 @@ Keys never enter the prompt.
 ![Status](https://img.shields.io/badge/status-pre--beta-orange)
 ![License](https://img.shields.io/badge/license-proprietary-lightgrey)
 
-*Not a bank. Not FDIC insured.*
+_Not a bank. Not FDIC insured._
 
 </div>
 
@@ -32,28 +32,28 @@ This table is the honest maturity picture. It is maintained deliberately,
 because a previous version of this README described capabilities that did not
 exist.
 
-| Capability | State | Notes |
-|---|---|---|
-| Deterministic policy engine | ✅ **Built** | Caps, velocity, allow/blocklists, quiet hours, HITL bands, IF/THEN automation, versioning, replay simulator |
-| Double-entry ledger | ✅ **Built** | Balanced journals, no-negative asset accounts, cross-tenant guard, genesis-replay reconciliation |
-| Human-in-the-loop approvals | ✅ **Built** | Park → notify → quorum → atomic claim → **policy re-check** → execute |
-| Agent lifecycle | ✅ **Built** | Create, profile, group, scoped session keys, freeze, archive, rotate, revoke |
-| Escrow between agents | ✅ **Built** | Lock, release, refund, timeout auto-refund |
-| Signed webhooks | ✅ **Built** | HMAC-SHA256, rotatable secret, delivery dedupe, SSRF-guarded |
-| Real Base USDC transfers | ✅ **Built** | Genuine ERC-20 `transfer` from the org vault, verifiable on Basescan |
-| Guardian console | ✅ **Built** | Treasury, agents, payments, policy, insights, playground, audit |
-| MCP server + TypeScript SDK | ✅ **Built** | Not yet published to npm |
-| Per-agent programmable budgets | ✅ **Built** | Policy layers org → agent: per-agent caps, thresholds and allowlists, with provenance showing which layer applied. Org-wide daily ceiling too |
-| **x402 payments** | 🚧 **Partial** | Signing domain now correct per network (was wrong on testnet). Still only proven against the bundled dev facilitator — a real facilitator settlement is the remaining step |
-| **Treasury** | 🚧 **Partial** | On-chain deposit detection is real; manual "receive/send" is ledger-only |
-| Durable persistence | ✅ **Fixed** | Persistent API process, real transactions. Postgres is next for horizontal scale ([ADR](docs/adr/2026-07-26-persistent-api-over-serverless.md)) |
-| Background jobs | ✅ **Fixed** | Subscriptions, escrow timeouts, approval expiry and reconcile now actually run, with leases so scaling cannot double-charge |
-| Authentication | ✅ **Built** | Accounts, hashed passwords, httpOnly sessions + CSRF, memberships, invitations, TOTP MFA, step-up on large approvals, password reset. SSO/SAML still ahead |
-| **Managed custody** | ❌ **Not built** | Self-custody. Keys are now encrypted at rest and serialised per vault, but they still live in this process — CDP/MPC is the real fix |
-| **Compliance screening** | ❌ **Not built** | Extension point exists; no OFAC/KYT data source behind it |
-| Destructive endpoints | ✅ **Removed** | Demo seeding no longer wipes tenants; the global reset is a local script |
-| **Python SDK** | ❌ **Not built** | TypeScript only |
-| ERC-4337 / account abstraction | ❌ **Not scoped** | — |
+| Capability                     | State                    | Notes                                                                                                                                                                                                                                  |
+| ------------------------------ | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deterministic policy engine    | ✅ **Built**             | Caps, velocity, allow/blocklists, quiet hours, HITL bands, IF/THEN automation, versioning, replay simulator                                                                                                                            |
+| Double-entry ledger            | ✅ **Built**             | Balanced journals, no-negative asset accounts, cross-tenant guard, genesis-replay reconciliation                                                                                                                                       |
+| Human-in-the-loop approvals    | ✅ **Built**             | Park → notify → quorum → atomic claim → **policy re-check** → execute                                                                                                                                                                  |
+| Agent lifecycle                | ✅ **Built**             | Create, profile, group, scoped session keys, freeze, archive, rotate, revoke                                                                                                                                                           |
+| Escrow between agents          | ✅ **Built**             | Lock, release, refund, timeout auto-refund                                                                                                                                                                                             |
+| Signed webhooks                | ✅ **Built**             | HMAC-SHA256, rotatable secret, delivery dedupe, SSRF-guarded                                                                                                                                                                           |
+| Real Base USDC transfers       | ✅ **Built**             | Genuine ERC-20 `transfer` from the org vault, verifiable on Basescan                                                                                                                                                                   |
+| Guardian console               | ✅ **Built**             | Treasury, agents, payments, policy, insights, playground, audit                                                                                                                                                                        |
+| MCP server + TypeScript SDK    | ✅ **Built**             | SDK package is publication-ready; npm release still requires registry credentials                                                                                                                                                      |
+| Per-agent programmable budgets | ✅ **Built**             | Policy layers org → agent: per-agent caps, thresholds and allowlists, with provenance showing which layer applied. Org-wide daily ceiling too                                                                                          |
+| **x402 payments**              | 🚧 **Release candidate** | Buyer and seller speak x402 V2 through the official SDK. Seller uses a real facilitator and ABI rejects receipts without an authentic transaction hash. A funded Base Sepolia smoke is still required before claiming production proof |
+| **Treasury**                   | 🚧 **Partial**           | On-chain deposit detection is real; manual "receive/send" is ledger-only                                                                                                                                                               |
+| Durable persistence            | ✅ **Fixed**             | Persistent API process, real transactions. Postgres is next for horizontal scale ([ADR](docs/adr/2026-07-26-persistent-api-over-serverless.md))                                                                                        |
+| Background jobs                | ✅ **Fixed**             | Subscriptions, escrow timeouts, approval expiry and reconcile now actually run, with leases so scaling cannot double-charge                                                                                                            |
+| Authentication                 | ✅ **Built**             | Accounts, hashed passwords, httpOnly sessions + CSRF, memberships, invitations, TOTP MFA, step-up on large approvals, password reset. SSO/SAML still ahead                                                                             |
+| **Managed custody**            | ❌ **Not built**         | Self-custody. Keys are now encrypted at rest and serialised per vault, but they still live in this process — CDP/MPC is the real fix                                                                                                   |
+| **Compliance screening**       | ❌ **Not built**         | Extension point exists; no OFAC/KYT data source behind it                                                                                                                                                                              |
+| Destructive endpoints          | ✅ **Removed**           | Demo seeding no longer wipes tenants; the global reset is a local script                                                                                                                                                               |
+| **Python SDK**                 | ❌ **Not built**         | TypeScript only                                                                                                                                                                                                                        |
+| ERC-4337 / account abstraction | ❌ **Not scoped**        | —                                                                                                                                                                                                                                      |
 
 ---
 
@@ -99,11 +99,11 @@ in one auditable ledger with the exact rule that fired.
 
 Three outcomes, always explained:
 
-| Outcome | What happens |
-|---|---|
-| **allow** | Funds held, rail settles, exact charge booked, remainder released |
+| Outcome    | What happens                                                                   |
+| ---------- | ------------------------------------------------------------------------------ |
+| **allow**  | Funds held, rail settles, exact charge booked, remainder released              |
 | **review** | Payment parks; guardian notified; agent polls; **policy re-runs at execution** |
-| **deny** | Nothing moves; the rule that fired is recorded on the decision |
+| **deny**   | Nothing moves; the rule that fired is recorded on the decision                 |
 
 The re-check on approval matters more than it looks. A guardian's approval
 satisfies the human-in-the-loop rule — it does not waive caps, freezes, or the
@@ -121,7 +121,7 @@ apps/
   mcp-server/    MCP tools so Claude / LangGraph / Eliza runtimes can spend
   worker/        Background jobs (stub — becomes the job runner in P2-T3)
   demo-agent/    Runnable example: budget → simulate → pay → denied → HITL → escrow
-  x402-seller/   Demo paid API + dev facilitator, for local x402 testing
+  x402-seller/   x402 V2 paid API; real facilitator settlement
 
 packages/
   common/        Money types (micro-USDC bigint), error codes, account ids
@@ -141,14 +141,14 @@ The interfaces below exist so the corresponding implementations can be swapped
 without touching the engine. Several are currently backed by development
 implementations — that is the honest state, and each is a roadmap item.
 
-| Seam | Interface | Today | Next |
-|---|---|---|---|
-| Custody | `CustodyProvider` | Self-custody, local key | Coinbase CDP Server Wallets (P4-T1) |
-| Payment rails | `PaymentRail` | x402 · Base ERC-20 · mock | Real facilitator (P5-T2) |
-| Compliance | `ComplianceScreener` | Env denylist | Chainalysis / TRM / OFAC (P11-T1) |
-| Storage | `store.ts` | SQLite | Postgres (P2-T2) |
-| Notifications | `registerNotifier` | in-app, Telegram, Slack, email | — |
-| Observability | `ObservabilitySink` | Prometheus text | Real monitoring (P12-T1) |
+| Seam          | Interface            | Today                          | Next                                         |
+| ------------- | -------------------- | ------------------------------ | -------------------------------------------- |
+| Custody       | `CustodyProvider`    | Self-custody, local key        | Coinbase CDP Server Wallets (P4-T1)          |
+| Payment rails | `PaymentRail`        | x402 V2 · Base ERC-20 · mock   | Funded public proof + production facilitator |
+| Compliance    | `ComplianceScreener` | Env denylist                   | Chainalysis / TRM / OFAC (P11-T1)            |
+| Storage       | `store.ts`           | SQLite                         | Postgres (P2-T2)                             |
+| Notifications | `registerNotifier`   | in-app, Telegram, Slack, email | —                                            |
+| Observability | `ObservabilitySink`  | Prometheus text                | Real monitoring (P12-T1)                     |
 
 Full detail: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -156,16 +156,16 @@ Full detail: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Technology
 
-| Layer | Choice | Why |
-|---|---|---|
-| Language | TypeScript (strict, ESM) | One language across API, web, SDK, agents |
-| API | Express 4 | Small surface; the value is in the domain, not the framework |
-| Web | Next.js 15 · React 19 | App Router, Tailwind, Radix primitives |
-| Money | `bigint` micro-USDC | Floating point has no place in a ledger |
-| Chain | viem · Base / Base Sepolia | USDC settlement, EIP-712 signing |
-| Storage | better-sqlite3 → Postgres | All SQL behind one module, so the swap is contained |
-| Validation | Zod | Every request body parsed at the boundary |
-| Tests | `node:test` | No runner dependency |
+| Layer      | Choice                     | Why                                                          |
+| ---------- | -------------------------- | ------------------------------------------------------------ |
+| Language   | TypeScript (strict, ESM)   | One language across API, web, SDK, agents                    |
+| API        | Express 4                  | Small surface; the value is in the domain, not the framework |
+| Web        | Next.js 15 · React 19      | App Router, Tailwind, Radix primitives                       |
+| Money      | `bigint` micro-USDC        | Floating point has no place in a ledger                      |
+| Chain      | viem · Base / Base Sepolia | USDC settlement, EIP-712 signing                             |
+| Storage    | better-sqlite3 → Postgres  | All SQL behind one module, so the swap is contained          |
+| Validation | Zod                        | Every request body parsed at the boundary                    |
+| Tests      | `node:test`                | No runner dependency                                         |
 
 ---
 
@@ -209,6 +209,8 @@ destinations · unknown counterparties go to review.
 ### Try x402 locally
 
 ```bash
+X402_SELLER_ADDRESS=0xYourBaseSepoliaWallet \
+X402_FACILITATOR_URL=https://x402.org/facilitator \
 npm run dev -w @policyvault/x402-seller
 ```
 
@@ -224,9 +226,11 @@ curl -s -X POST http://localhost:8787/v1/agent/pay_api \
   -d '{"amountUsdc":"2","destination":"http://localhost:9402/report","idempotencyKey":"try_x402_1"}'
 ```
 
-The bundled facilitator verifies the EIP-712 signature cryptographically but
-**fakes on-chain settlement**. Settling against a real facilitator is roadmap
-**P5-T2**, and a signing-domain bug must be fixed first (**P5-T1**).
+The seller uses x402 V2 (`eip155:84532`) and delegates verification and
+settlement to the configured facilitator. ABI books the payment only when the
+seller returns a successful `PAYMENT-RESPONSE` with a 32-byte transaction hash.
+Follow [`docs/X402-BASE-SEPOLIA-PROOF.md`](docs/X402-BASE-SEPOLIA-PROOF.md) for
+the funded proof and BaseScan checks.
 
 ---
 
@@ -270,9 +274,9 @@ A full runnable loop lives in `apps/demo-agent`:
 POLICYVAULT_API_KEY=pv_agent_... npm run demo:agent
 ```
 
-> The SDK is **not yet published to npm** (roadmap P10-T1) and there is **no
-> Python SDK** (P10-T2). Today, integrating means vendoring the client or
-> calling REST directly.
+> `packages/sdk` is now publishable and includes x402 receipt and merchant
+> onboarding examples. The first npm release still requires an owner of the
+> `@policyvault` scope to run `npm publish`; there is no Python SDK yet.
 
 ### Agent endpoints
 
@@ -291,27 +295,30 @@ from the key, never from the request.
 
 Copy `.env.example` and adjust. Every variable, with what happens if it is unset:
 
-| Variable | Default | Required in production | Effect |
-|---|---|---|---|
-| `PORT` | `8787` | no | API port |
-| `POLICYVAULT_DB` | `./apps/api/data/policyvault.db` | no | SQLite path |
-| `ABI_KEY_PEPPER` | *dev fallback only* | **yes** | Salt for API-key hashing. Production **refuses to boot** without it |
-| `NEXT_PUBLIC_API_URL` | `/abi-api` | no | Console → API origin |
-| `POLICYVAULT_ALLOW_BOOTSTRAP` | on outside production | **set to `0`** | Enables demo-org seeding. No longer destructive, but it mints a root key |
-| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE` | on outside production | **set to `0`** | Self-serve org creation |
-| `ABI_SIGNUP_TOKEN` | — | **yes** (if the above is on) | Required header `x-abi-signup-token` for org creation / demo seeding |
-| `ABI_SIGNUP_LIMIT_PER_HOUR` | `10` | no | Per-IP cap on credential-minting routes |
-| `ABI_ALLOW_LOCAL_TARGETS` | on outside production | **set to `0`** | Permits outbound fetches to loopback/private addresses (local x402 seller) |
-| `CHAIN` | `base-sepolia` | no | `base` or `base-sepolia` |
-| `CHAIN_RPC_URL` | public RPC | recommended | Use a paid RPC; public endpoints rate-limit |
-| `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET` | — | no | Selects production-mode custody. **Does not enable Coinbase custody** — see [SECURITY.md](docs/SECURITY.md) |
-| `OPENAI_API_KEY` | — | no | Enables the console assistant. **Sends org financial data to OpenAI** (P8-T2) |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | — | no | Approve from Telegram |
-| `SLACK_WEBHOOK_URL`, `RESEND_API_KEY`, `ABI_NOTIFY_EMAIL_TO` | — | no | Notification channels; log a stub when unset |
-| `ABI_COMPLIANCE_DENYLIST` | empty | no | Comma-separated denied destinations |
-| `ABI_COMPLIANCE_FAIL_CLOSED` | off | **yes** | Block rather than allow when a screener errors |
-| `RATE_LIMIT_PER_MIN` | `5000` | no | Abuse protection, not throttling |
-| `APPROVAL_TTL_MINUTES` | `10` | no | How long a parked payment waits |
+| Variable                                                     | Default                          | Required in production       | Effect                                                                                                      |
+| ------------------------------------------------------------ | -------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `PORT`                                                       | `8787`                           | no                           | API port                                                                                                    |
+| `POLICYVAULT_DB`                                             | `./apps/api/data/policyvault.db` | no                           | SQLite path                                                                                                 |
+| `ABI_KEY_PEPPER`                                             | _dev fallback only_              | **yes**                      | Salt for API-key hashing. Production **refuses to boot** without it                                         |
+| `NEXT_PUBLIC_API_URL`                                        | `/abi-api`                       | no                           | Console → API origin                                                                                        |
+| `POLICYVAULT_ALLOW_BOOTSTRAP`                                | on outside production            | **set to `0`**               | Enables demo-org seeding. No longer destructive, but it mints a root key                                    |
+| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE`                        | on outside production            | **set to `0`**               | Self-serve org creation                                                                                     |
+| `ABI_SIGNUP_TOKEN`                                           | —                                | **yes** (if the above is on) | Required header `x-abi-signup-token` for org creation / demo seeding                                        |
+| `ABI_SIGNUP_LIMIT_PER_HOUR`                                  | `10`                             | no                           | Per-IP cap on credential-minting routes                                                                     |
+| `ABI_ALLOW_LOCAL_TARGETS`                                    | on outside production            | **set to `0`**               | Permits outbound fetches to loopback/private addresses (local x402 seller)                                  |
+| `CHAIN`                                                      | `base-sepolia`                   | no                           | `base` or `base-sepolia`                                                                                    |
+| `X402_FACILITATOR_URL`                                       | `https://x402.org/facilitator`   | seller only                  | Facilitator used by the x402 seller; public endpoint is for testnet proof                                   |
+| `X402_SELLER_ADDRESS`                                        | —                                | seller only, **yes**         | Base wallet receiving seller USDC; seller refuses to boot without it                                        |
+| `X402_PRICE_USDC`                                            | `$0.01`                          | no                           | Demo seller route price                                                                                     |
+| `CHAIN_RPC_URL`                                              | public RPC                       | recommended                  | Use a paid RPC; public endpoints rate-limit                                                                 |
+| `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET`                      | —                                | no                           | Selects production-mode custody. **Does not enable Coinbase custody** — see [SECURITY.md](docs/SECURITY.md) |
+| `OPENAI_API_KEY`                                             | —                                | no                           | Enables the console assistant. **Sends org financial data to OpenAI** (P8-T2)                               |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`                    | —                                | no                           | Approve from Telegram                                                                                       |
+| `SLACK_WEBHOOK_URL`, `RESEND_API_KEY`, `ABI_NOTIFY_EMAIL_TO` | —                                | no                           | Notification channels; log a stub when unset                                                                |
+| `ABI_COMPLIANCE_DENYLIST`                                    | empty                            | no                           | Comma-separated denied destinations                                                                         |
+| `ABI_COMPLIANCE_FAIL_CLOSED`                                 | off                              | **yes**                      | Block rather than allow when a screener errors                                                              |
+| `RATE_LIMIT_PER_MIN`                                         | `5000`                           | no                           | Abuse protection, not throttling                                                                            |
+| `APPROVAL_TTL_MINUTES`                                       | `10`                             | no                           | How long a parked payment waits                                                                             |
 
 ---
 
@@ -356,11 +363,11 @@ Details: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 <!-- Placeholders. Replace with real captures once the console settles after Phase 9. -->
 
-| | |
-|---|---|
-| `docs/assets/screenshot-overview.png` | `docs/assets/screenshot-approvals.png` |
-| **Overview** — vault, agents, live activity | **Approvals** — parked payments awaiting a person |
-| `docs/assets/screenshot-policy.png` | `docs/assets/screenshot-playground.png` |
+|                                                             |                                                                |
+| ----------------------------------------------------------- | -------------------------------------------------------------- |
+| `docs/assets/screenshot-overview.png`                       | `docs/assets/screenshot-approvals.png`                         |
+| **Overview** — vault, agents, live activity                 | **Approvals** — parked payments awaiting a person              |
+| `docs/assets/screenshot-policy.png`                         | `docs/assets/screenshot-playground.png`                        |
 | **Policy** — replay real history against unsaved rule edits | **Playground** — a real agent spending through the real engine |
 
 ---
@@ -370,34 +377,34 @@ Details: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 Full plan with dependencies, complexity and priority:
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-| Phase | Focus |
-|---|---|
-| **0** | Repository hygiene, CI, truthful claims ← *current* |
-| **1** | Remove destructive endpoints and fund-loss paths |
-| **2** | Persistent API + Postgres; restore background jobs |
-| **3** | Authentication, sessions, roles, recovery |
-| **4** | Managed custody, key encryption, gas |
-| **5** | Settlement correctness; real x402 |
-| **6** | Per-agent programmable budgets |
-| **7** | Treasury integrity + on-chain reconciliation |
-| **8** | Agent depth and runtime adapters — **beta gate** |
+| Phase    | Focus                                                 |
+| -------- | ----------------------------------------------------- |
+| **0**    | Repository hygiene, CI, truthful claims ← _current_   |
+| **1**    | Remove destructive endpoints and fund-loss paths      |
+| **2**    | Persistent API + Postgres; restore background jobs    |
+| **3**    | Authentication, sessions, roles, recovery             |
+| **4**    | Managed custody, key encryption, gas                  |
+| **5**    | Settlement correctness; real x402                     |
+| **6**    | Per-agent programmable budgets                        |
+| **7**    | Treasury integrity + on-chain reconciliation          |
+| **8**    | Agent depth and runtime adapters — **beta gate**      |
 | **9–12** | UX, SDKs, compliance, launch — **public launch gate** |
 
 ---
 
 ## Documentation
 
-| Document | Purpose |
-|---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System design and extension points |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Phased plan, dependencies, beta/launch gates |
-| [`docs/SECURITY.md`](docs/SECURITY.md) | Actual posture, enforced guarantees, disclosure |
-| [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | Setup, conventions, money-path review rules |
-| [`docs/DEPLOY.md`](docs/DEPLOY.md) | Deployment and go-live |
+| Document                                         | Purpose                                                               |
+| ------------------------------------------------ | --------------------------------------------------------------------- |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)   | System design and extension points                                    |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md)             | Phased plan, dependencies, beta/launch gates                          |
+| [`docs/SECURITY.md`](docs/SECURITY.md)           | Actual posture, enforced guarantees, disclosure                       |
+| [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md)   | Setup, conventions, money-path review rules                           |
+| [`docs/DEPLOY.md`](docs/DEPLOY.md)               | Deployment and go-live                                                |
 | [`docs/OWNER-ACTIONS.md`](docs/OWNER-ACTIONS.md) | Work blocked on the repo owner: secrets, funding, legal, verification |
-| [`docs/adr/`](docs/adr/) | Decision records |
-| [`docs/strategy/`](docs/strategy/) | Positioning, GTM, fundraising |
-| [`docs/archive/`](docs/archive/) | Dated, point-in-time documents — not maintained |
+| [`docs/adr/`](docs/adr/)                         | Decision records                                                      |
+| [`docs/strategy/`](docs/strategy/)               | Positioning, GTM, fundraising                                         |
+| [`docs/archive/`](docs/archive/)                 | Dated, point-in-time documents — not maintained                       |
 
 ---
 

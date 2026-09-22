@@ -38,21 +38,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ConsoleSkeleton } from "@/components/ui/skeleton";
-import type {
-  Approval,
-  Decision,
-  Delivery,
-  Escrow,
-  Journal,
-  Metrics,
-  OrgView,
-  Prefs,
-  Recon,
-  Session,
-  Setup,
-  View,
-  Webhook,
-  Alert as ConsoleAlert,
+import {
+  sessionForPersistentStorage,
+  type Approval,
+  type Decision,
+  type Delivery,
+  type Escrow,
+  type Journal,
+  type Metrics,
+  type OrgView,
+  type Prefs,
+  type Recon,
+  type Session,
+  type Setup,
+  type View,
+  type Webhook,
+  type Alert as ConsoleAlert,
 } from "../../lib/console-types";
 import type { MissionState } from "../../lib/playground-view";
 import { Login } from "../../lib/login-view";
@@ -250,7 +251,11 @@ export default function Console() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem("pv_session");
-      if (raw) setSession(JSON.parse(raw));
+      if (raw) {
+        const safe = sessionForPersistentStorage(JSON.parse(raw) as Session);
+        if (safe) setSession(safe);
+        else localStorage.removeItem("pv_session");
+      }
       const p = localStorage.getItem("pv_prefs");
       if (p) {
         const parsed = JSON.parse(p) as Partial<Prefs> & { sound?: boolean };
@@ -321,7 +326,8 @@ export default function Console() {
       seenApprovals.current = new Set();
       firstApprovalLoad.current = true;
     }
-    if (s) localStorage.setItem("pv_session", JSON.stringify(s));
+    const persistent = sessionForPersistentStorage(s);
+    if (persistent) localStorage.setItem("pv_session", JSON.stringify(persistent));
     else localStorage.removeItem("pv_session");
   }, []);
 
@@ -335,7 +341,9 @@ export default function Console() {
     setSession((prev) => {
       if (!prev) return prev;
       const next = { ...prev, ...patch };
-      localStorage.setItem("pv_session", JSON.stringify(next));
+      const persistent = sessionForPersistentStorage(next);
+      if (persistent) localStorage.setItem("pv_session", JSON.stringify(persistent));
+      else localStorage.removeItem("pv_session");
       return next;
     });
   }, []);
