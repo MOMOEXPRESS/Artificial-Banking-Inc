@@ -199,6 +199,107 @@ describe("organization-wide spend", () => {
   });
 });
 
+describe("shared merchant ceilings", () => {
+  const endpoint = "https://seller.example/report";
+
+  it("counts settled payments from every agent at one endpoint and denies the next one", () => {
+    const { org, tight, loose } = orgWithTwoAgents();
+    const template = store.getPolicyTemplate(org.id);
+    store.setPolicyTemplate(org.id, {
+      ...template,
+      vendorAllowlist: [endpoint],
+      merchantDailyCaps: { [endpoint]: 10_000_000n },
+    });
+    store.addKnownCounterparty(org.id, endpoint);
+    store.recordPay(tight.agentId, 4_000_000n, org.id, { destination: endpoint });
+    store.recordPay(loose.agentId, 5_000_000n, org.id, { destination: endpoint });
+    assert.equal(store.merchantSpentLast24h(org.id, endpoint), 9_000_000n);
+    const request = (agentId: string, amountMicro: bigint) =>
+      evaluatePolicy(
+        {
+          agentId,
+          orgId: org.id,
+          tool: "pay_api",
+          amountMicro,
+          destination: endpoint,
+          idempotencyKey: "merchant-cap-test",
+        },
+        rulesFor(agentId, org.id, endpoint),
+      );
+    assert.equal(request(loose.agentId, 1_000_000n).outcome, "allow", "exact cap is allowed");
+    assert.deepEqual(request(tight.agentId, 2_000_000n).ruleIds, ["merchant_daily_max"]);
+
+    // A payment that was approvable earlier must fail the same check on release.
+    store.recordPay(loose.agentId, 1_000_000n, org.id, { destination: endpoint });
+    assert.deepEqual(request(tight.agentId, 1_000_000n).ruleIds, ["merchant_daily_max"]);
+    assert.equal(store.merchantSpentLast24h("another-org", endpoint), 0n);
+    assert.equal(store.merchantSpentLast24h(org.id, "https://seller.example/other"), 0n);
+  });
+
+  it("validates and exposes an owner-configured cap with current spend", async () => {
+    const { app } = await import("./index.js");
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const base = `http://127.0.0.1:${address.port}`;
+    try {
+      const { org, tight } = orgWithTwoAgents();
+      const headers = {
+        authorization: `Bearer ${org.guardianKey}`,
+        "content-type": "application/json",
+      };
+      const rejected = await fetch(`${base}/v1/guardian/policy`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ merchantDailyCaps: { [endpoint]: "-1" } }),
+      });
+      assert.equal(rejected.status, 400);
+      const saved = await fetch(`${base}/v1/guardian/policy`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ merchantDailyCaps: { [endpoint]: "10" } }),
+      });
+      assert.equal(saved.status, 200);
+      assert.equal(store.getPolicyTemplate(org.id).merchantDailyCaps?.[endpoint], 10_000_000n);
+      store.recordPay(tight.agentId, 3_000_000n, org.id, { destination: endpoint });
+      const usage = await fetch(`${base}/v1/guardian/policy/merchant-spend`, { headers });
+      assert.equal(usage.status, 200);
+      assert.deepEqual(((await usage.json()) as { merchants: unknown[] }).merchants, [
+        {
+          destination: endpoint,
+          capUsdc: "10",
+          spentUsdc: "3",
+          reservedUsdc: "0",
+          remainingUsdc: "7",
+        },
+      ]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("reserves headroom atomically while another agent's rail is in flight", () => {
+    const { org, tight, loose } = orgWithTwoAgents();
+    const first = id("int");
+    const second = id("int");
+    const claim = (agentId: string, intentId: string, amountMicro: bigint) =>
+      store.reserveMerchantCap({
+        orgId: org.id,
+        agentId,
+        intentId,
+        destination: endpoint,
+        amountMicro,
+        capMicro: 10_000_000n,
+      });
+    assert.equal(claim(tight.agentId, first, 7_000_000n), true);
+    assert.equal(claim(loose.agentId, second, 4_000_000n), false);
+    assert.equal(store.getSettlement(second), undefined, "rejected payment must not start a rail");
+    store.finishSettlement(first, { state: "failed", error: "seller unavailable" });
+    assert.equal(claim(loose.agentId, second, 4_000_000n), true, "failed rail frees headroom");
+  });
+});
+
 describe("counterparty first-seen", () => {
   it("is recorded the first time and not overwritten afterwards", () => {
     const org = store.createOrg("Cooldown Co", 0n);
