@@ -16,6 +16,7 @@ export type Policy = {
   addressAllowlist: string[];
   domainAllowlist: string[];
   vendorAllowlist: string[];
+  merchantDailyCaps?: Record<string, string>;
   blocklist: string[];
   hitlCategories: string[];
   quietHours?: { startHour: number; endHour: number; action: "review" | "deny" } | null;
@@ -109,7 +110,8 @@ function ListEditor({
             style={{ paddingRight: 5 }}
           >
             {v}
-            <Button variant="bare"
+            <Button
+              variant="bare"
               style={{ padding: "0 2px", lineHeight: 1, color: "inherit" }}
               onClick={() => onChange(items.filter((x) => x !== v))}
               aria-label={`Remove ${v}`}
@@ -214,9 +216,17 @@ export function PolicyView({
   const [automation, setAutomation] = useState(policy.automation ?? []);
   const [touched, setTouched] = useState(false);
   const [versions, setVersions] = useState<
-    { id: string; version: string; note?: string; createdAt: string; summary?: Record<string, unknown> }[]
+    {
+      id: string;
+      version: string;
+      note?: string;
+      createdAt: string;
+      summary?: Record<string, unknown>;
+    }[]
   >([]);
-  const [templates, setTemplates] = useState<{ id: string; name: string; description: string }[]>([]);
+  const [templates, setTemplates] = useState<{ id: string; name: string; description: string }[]>(
+    [],
+  );
   const [currentVersion, setCurrentVersion] = useState<string>("");
   const [quorum, setQuorum] = useState(policy.approvalQuorum ?? 1);
   const [quorumSeats, setQuorumSeats] = useState(1);
@@ -231,9 +241,7 @@ export function PolicyView({
   >([]);
   const [tab, setTab] = useState<
     "limits" | "allowlists" | "rules" | "governance" | "budgets" | "simulate"
-  >(
-    "limits",
-  );
+  >("limits");
 
   useEffect(() => {
     void (async () => {
@@ -426,7 +434,8 @@ export function PolicyView({
               <div>
                 <h2>Judgment bands</h2>
                 <div className="sub">
-                  Same drag bars as Agent spend — linked bands keep the review gap and daily headroom nested as you move them. Nothing is live until you save.
+                  Same drag bars as Agent spend — linked bands keep the review gap and daily
+                  headroom nested as you move them. Nothing is live until you save.
                 </div>
               </div>
             </div>
@@ -471,15 +480,11 @@ export function PolicyView({
               onChange={(id, value) => {
                 setTouched(true);
                 setF((s) => {
-                  const next = applyJudgmentBandDrag(
-                    id as "hitl" | "cap" | "daily",
-                    value,
-                    {
-                      hitl: Number(s.hitlAboveUsdc) || 0,
-                      cap: Number(s.perTxMaxUsdc) || 0,
-                      daily: Number(s.dailyMaxUsdc) || 0,
-                    },
-                  );
+                  const next = applyJudgmentBandDrag(id as "hitl" | "cap" | "daily", value, {
+                    hitl: Number(s.hitlAboveUsdc) || 0,
+                    cap: Number(s.perTxMaxUsdc) || 0,
+                    daily: Number(s.dailyMaxUsdc) || 0,
+                  });
                   return {
                     ...s,
                     hitlAboveUsdc: formatBandUsd(next.hitl),
@@ -506,7 +511,9 @@ export function PolicyView({
             <div className="card-head">
               <div>
                 <h2>Pace & cool-down</h2>
-                <div className="sub">How fast an agent can fire, and how long a new counterparty waits.</div>
+                <div className="sub">
+                  How fast an agent can fire, and how long a new counterparty waits.
+                </div>
               </div>
             </div>
             <LimitControl
@@ -625,7 +632,8 @@ export function PolicyView({
             </div>
             {quietOn && (
               <p className="faint" style={{ fontSize: 12.5, marginBottom: 10, lineHeight: 1.5 }}>
-                Live analog clock ticks in the sidebar under <b>Webhooks</b> — it lights up when quiet hours are active.
+                Live analog clock ticks in the sidebar under <b>Webhooks</b> — it lights up when
+                quiet hours are active.
               </p>
             )}
             {quietOn && (
@@ -678,7 +686,10 @@ export function PolicyView({
                     <option value="deny">Refuse outright</option>
                   </select>
                 </div>
-                <span className="faint" style={{ fontSize: 11.5, alignSelf: "flex-end", paddingBottom: 8 }}>
+                <span
+                  className="faint"
+                  style={{ fontSize: 11.5, alignSelf: "flex-end", paddingBottom: 8 }}
+                >
                   {quiet.startHour === quiet.endHour
                     ? "Start and end are the same — the window is disabled."
                     : `Covers ${
@@ -700,7 +711,9 @@ export function PolicyView({
                   approval” parks under Payments → Approvals.
                 </div>
               </div>
-              <Button variant="ghost" size="sm"
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   setTouched(true);
                   setAutomation((a) => [
@@ -734,8 +747,7 @@ export function PolicyView({
                 <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.55 }}>
                   {policy.automation!.map((r) => (
                     <li key={r.id}>
-                      <b>{r.name}</b> · when <code>{r.when.kind}</code> →{" "}
-                      <code>{r.then.kind}</code>
+                      <b>{r.name}</b> · when <code>{r.when.kind}</code> → <code>{r.then.kind}</code>
                       {r.createdAt ? (
                         <span className="faint">
                           {" "}
@@ -761,123 +773,122 @@ export function PolicyView({
                   borderBottom: "1px solid var(--border)",
                 }}
               >
-              <div
-                className="row"
-                style={{ gap: 8, flexWrap: "wrap", marginBottom: 6, alignItems: "flex-end" }}
-              >
-                <div className="field" style={{ margin: 0, minWidth: 120 }}>
-                  <label>Name</label>
-                  <input
-                    value={rule.name}
-                    onChange={(e) => {
-                      setTouched(true);
-                      setAutomation((rows) =>
-                        rows.map((r, i) => (i === idx ? { ...r, name: e.target.value } : r)),
-                      );
-                    }}
-                  />
-                </div>
-                <div className="field" style={{ margin: 0 }}>
-                  <label>When</label>
-                  <select
-                    value={rule.when.kind === "budget_exceeded" ? "daily_cap_exceeded" : rule.when.kind}
-                    onChange={(e) => {
-                      setTouched(true);
-                      const kind = e.target.value;
-                      setAutomation((rows) =>
-                        rows.map((r, i) => {
-                          if (i !== idx) return r;
-                          if (kind === "amount_above") {
-                            return { ...r, when: { kind: "amount_above", micro: "10000000" } };
-                          }
-                          if (kind === "balance_below") {
-                            return { ...r, when: { kind: "balance_below", micro: "5000000" } };
-                          }
-                          if (kind === "daily_cap_exceeded" || kind === "budget_exceeded") {
-                            return { ...r, when: { kind: "daily_cap_exceeded" } };
-                          }
-                          return { ...r, when: { kind: "merchant_unknown" } };
-                        }),
-                      );
-                    }}
-                  >
-                    <option value="merchant_unknown">merchant unknown</option>
-                    <option value="daily_cap_exceeded">daily spend cap would exceed</option>
-                    <option value="amount_above">amount above (µUSDC)</option>
-                    <option value="balance_below">balance below (µUSDC)</option>
-                  </select>
-                </div>
-                {(rule.when.kind === "amount_above" || rule.when.kind === "balance_below") && (
-                  <div className="field" style={{ margin: 0, width: 140 }}>
-                    <label>Micro</label>
+                <div
+                  className="row"
+                  style={{ gap: 8, flexWrap: "wrap", marginBottom: 6, alignItems: "flex-end" }}
+                >
+                  <div className="field" style={{ margin: 0, minWidth: 120 }}>
+                    <label>Name</label>
                     <input
-                      value={rule.when.micro}
+                      value={rule.name}
                       onChange={(e) => {
                         setTouched(true);
-                        const micro = e.target.value;
                         setAutomation((rows) =>
-                          rows.map((r, i) =>
-                            i === idx && (r.when.kind === "amount_above" || r.when.kind === "balance_below")
-                              ? { ...r, when: { ...r.when, micro } }
-                              : r,
-                          ),
+                          rows.map((r, i) => (i === idx ? { ...r, name: e.target.value } : r)),
                         );
                       }}
                     />
                   </div>
-                )}
-                <div className="field" style={{ margin: 0 }}>
-                  <label>Then</label>
-                  <select
-                    value={rule.then.kind}
-                    onChange={(e) => {
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>When</label>
+                    <select
+                      value={
+                        rule.when.kind === "budget_exceeded" ? "daily_cap_exceeded" : rule.when.kind
+                      }
+                      onChange={(e) => {
+                        setTouched(true);
+                        const kind = e.target.value;
+                        setAutomation((rows) =>
+                          rows.map((r, i) => {
+                            if (i !== idx) return r;
+                            if (kind === "amount_above") {
+                              return { ...r, when: { kind: "amount_above", micro: "10000000" } };
+                            }
+                            if (kind === "balance_below") {
+                              return { ...r, when: { kind: "balance_below", micro: "5000000" } };
+                            }
+                            if (kind === "daily_cap_exceeded" || kind === "budget_exceeded") {
+                              return { ...r, when: { kind: "daily_cap_exceeded" } };
+                            }
+                            return { ...r, when: { kind: "merchant_unknown" } };
+                          }),
+                        );
+                      }}
+                    >
+                      <option value="merchant_unknown">merchant unknown</option>
+                      <option value="daily_cap_exceeded">daily spend cap would exceed</option>
+                      <option value="amount_above">amount above (µUSDC)</option>
+                      <option value="balance_below">balance below (µUSDC)</option>
+                    </select>
+                  </div>
+                  {(rule.when.kind === "amount_above" || rule.when.kind === "balance_below") && (
+                    <div className="field" style={{ margin: 0, width: 140 }}>
+                      <label>Micro</label>
+                      <input
+                        value={rule.when.micro}
+                        onChange={(e) => {
+                          setTouched(true);
+                          const micro = e.target.value;
+                          setAutomation((rows) =>
+                            rows.map((r, i) =>
+                              i === idx &&
+                              (r.when.kind === "amount_above" || r.when.kind === "balance_below")
+                                ? { ...r, when: { ...r.when, micro } }
+                                : r,
+                            ),
+                          );
+                        }}
+                      />
+                    </div>
+                  )}
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Then</label>
+                    <select
+                      value={rule.then.kind}
+                      onChange={(e) => {
+                        setTouched(true);
+                        const kind = e.target.value as
+                          "notify" | "require_approval" | "deny" | "freeze_agent";
+                        setAutomation((rows) =>
+                          rows.map((r, i) =>
+                            i === idx
+                              ? {
+                                  ...r,
+                                  then: kind === "notify" ? { kind, channel: "in_app" } : { kind },
+                                }
+                              : r,
+                          ),
+                        );
+                      }}
+                    >
+                      <option value="require_approval">require approval</option>
+                      <option value="notify">notify</option>
+                      <option value="deny">deny</option>
+                      <option value="freeze_agent">freeze agent</option>
+                    </select>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
                       setTouched(true);
-                      const kind = e.target.value as
-                        | "notify"
-                        | "require_approval"
-                        | "deny"
-                        | "freeze_agent";
-                      setAutomation((rows) =>
-                        rows.map((r, i) =>
-                          i === idx
-                            ? {
-                                ...r,
-                                then:
-                                  kind === "notify"
-                                    ? { kind, channel: "in_app" }
-                                    : { kind },
-                              }
-                            : r,
-                        ),
-                      );
+                      setAutomation((rows) => rows.filter((_, i) => i !== idx));
                     }}
                   >
-                    <option value="require_approval">require approval</option>
-                    <option value="notify">notify</option>
-                    <option value="deny">deny</option>
-                    <option value="freeze_agent">freeze agent</option>
-                  </select>
+                    Remove
+                  </Button>
                 </div>
-                <Button variant="ghost" size="sm"
-                  onClick={() => {
-                    setTouched(true);
-                    setAutomation((rows) => rows.filter((_, i) => i !== idx));
-                  }}
-                >
-                  Remove
-                </Button>
-              </div>
-              {(rule.createdAt || rule.updatedAt) && (
-                <div className="faint" style={{ fontSize: 11, marginTop: 2 }}>
-                  {rule.createdAt
-                    ? `First saved ${new Date(rule.createdAt).toLocaleString()}`
-                    : "Not saved yet"}
-                  {rule.updatedAt
-                    ? ` · last edit ${new Date(rule.updatedAt).toLocaleString()}`
-                    : ""}
-                  <span className="mono"> · id {rule.id}</span>
-                </div>
-              )}
+                {(rule.createdAt || rule.updatedAt) && (
+                  <div className="faint" style={{ fontSize: 11, marginTop: 2 }}>
+                    {rule.createdAt
+                      ? `First saved ${new Date(rule.createdAt).toLocaleString()}`
+                      : "Not saved yet"}
+                    {rule.updatedAt
+                      ? ` · last edit ${new Date(rule.updatedAt).toLocaleString()}`
+                      : ""}
+                    <span className="mono"> · id {rule.id}</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -891,8 +902,9 @@ export function PolicyView({
               <div>
                 <h2>Who can approve HITL payments</h2>
                 <div className="sub">
-                  Pick eligible guardians and how many must agree. Approvers vote on parked payments;
-                  viewers can sign in but cannot approve. Restrict an approver to a max amount.
+                  Pick eligible guardians and how many must agree. Approvers vote on parked
+                  payments; viewers can sign in but cannot approve. Restrict an approver to a max
+                  amount.
                 </div>
               </div>
             </div>
@@ -1014,7 +1026,9 @@ export function PolicyView({
                       )}
                     </div>
                   </div>
-                  <span className={`pill ${g.role === "viewer" ? "mute" : restricted ? "warn" : "ok"}`}>
+                  <span
+                    className={`pill ${g.role === "viewer" ? "mute" : restricted ? "warn" : "ok"}`}
+                  >
                     <i /> {g.role === "viewer" ? "viewer" : restricted ? "restricted" : "approver"}
                   </span>
                 </div>
@@ -1075,9 +1089,13 @@ export function PolicyView({
               <div key={t.id} className="between" style={{ marginBottom: 10, gap: 8 }}>
                 <div>
                   <b style={{ fontSize: 13 }}>{t.name}</b>
-                  <div className="faint" style={{ fontSize: 12 }}>{t.description}</div>
+                  <div className="faint" style={{ fontSize: 12 }}>
+                    {t.description}
+                  </div>
                 </div>
-                <Button variant="ghost" size="sm"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   disabled={locked}
                   onClick={() =>
                     void act("Apply template", async () => {
@@ -1107,13 +1125,19 @@ export function PolicyView({
             </div>
             <div style={{ maxHeight: 280, overflow: "auto" }}>
               {versions.map((v) => (
-                <div key={v.id} className="between" style={{ fontSize: 12, padding: "6px 0", gap: 8 }}>
+                <div
+                  key={v.id}
+                  className="between"
+                  style={{ fontSize: 12, padding: "6px 0", gap: 8 }}
+                >
                   <div>
                     <span className="mono">{v.version}</span>
                     {v.note && <span className="faint"> · {v.note}</span>}
                     <div className="faint">{new Date(v.createdAt).toLocaleString()}</div>
                   </div>
-                  <Button variant="ghost" size="sm"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     disabled={locked}
                     onClick={() =>
                       void act("Restore policy", async () => {
@@ -1131,7 +1155,9 @@ export function PolicyView({
                   </Button>
                 </div>
               ))}
-              {!versions.length && <div className="faint">No versions yet — save a policy to start history.</div>}
+              {!versions.length && (
+                <div className="faint">No versions yet — save a policy to start history.</div>
+              )}
             </div>
           </div>
         </div>
@@ -1178,7 +1204,11 @@ export function PolicyView({
             <Button variant="ghost" size="sm" onClick={reset}>
               Discard
             </Button>
-            <Button size="sm" disabled={locked || bandsInvalid || dailyInvalid} onClick={() => void save()}>
+            <Button
+              size="sm"
+              disabled={locked || bandsInvalid || dailyInvalid}
+              onClick={() => void save()}
+            >
               Save policy
             </Button>
           </div>
