@@ -47,6 +47,18 @@ type Merchant = {
   };
 };
 
+type MerchantPayment = {
+  intentId: string;
+  state: string;
+  amountUsdc: string;
+  chargedUsdc: string | null;
+  rail: string | null;
+  txHash: string | null;
+  explorerUrl: string | null;
+  createdAt: string;
+  error: string | null;
+};
+
 const SECTIONS = [
   {
     key: "golive",
@@ -184,6 +196,11 @@ export function SettingsView({
   } | null>(null);
   const [obs, setObs] = useState<{ sink?: string } | null>(null);
   const [merchants, setMerchants] = useState<Merchant[]>([]);
+  const [selectedMerchantId, setSelectedMerchantId] = useState<string | null>(null);
+  const [merchantPayments, setMerchantPayments] = useState<MerchantPayment[]>([]);
+  const [activityError, setActivityError] = useState("");
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [copiedSellerConfig, setCopiedSellerConfig] = useState(false);
   const [merchantForm, setMerchantForm] = useState({ key: "", label: "", category: "" });
   const [gatewayForm, setGatewayForm] = useState({
     label: "",
@@ -229,6 +246,28 @@ export function SettingsView({
     if (s === "team" || s === "recurring") void loadTeam();
     if (s === "org" || s === "merchants" || s === "golive") void loadPlatform();
   };
+
+  const loadMerchantActivity = async (merchantId: string) => {
+    setSelectedMerchantId(merchantId);
+    setActivityLoading(true);
+    setActivityError("");
+    setMerchantPayments([]);
+    try {
+      const response = await gFetch(`/v1/guardian/merchant-gateway/${merchantId}/activity`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error?.message ?? "Could not load seller activity");
+      setMerchantPayments(data.settlements ?? []);
+    } catch (error) {
+      setActivityError(error instanceof Error ? error.message : "Could not load seller activity");
+    } finally {
+      setActivityLoading(false);
+    }
+  };
+
+  const selectedMerchant = merchants.find((m) => m.id === selectedMerchantId);
+  const sellerConfig = selectedMerchant?.meta?.gateway
+    ? `X402_SELLER_ADDRESS=${selectedMerchant.meta.gateway.payoutAddress ?? "0x..."}\nX402_PRICE_USDC=$${selectedMerchant.meta.gateway.priceUsdc ?? "0.01"}\nCHAIN=${selectedMerchant.meta.gateway.network === "eip155:8453" ? "base" : "base-sepolia"}\nX402_FACILITATOR_URL=https://x402.org/facilitator`
+    : "";
 
   const orgFrozen = org?.org.status === "frozen";
   const activeSection = SECTIONS.find((item) => item.key === section) ?? SECTIONS[0];
@@ -613,10 +652,11 @@ export function SettingsView({
             <div className="card">
               <div className="card-head">
                 <div>
-                  <h2>Onboard an x402 seller</h2>
+                  <h2>Merchant Gateway · accept test payments</h2>
                   <div className="sub">
-                    Register the seller's own payout wallet and paid endpoint. ABI verifies the V2
-                    challenge; funds still settle directly to the seller.
+                    1. Protect a GET endpoint with x402 V2. 2. Register its URL, USDC wallet and
+                    price. 3. Verify the unpaid HTTP 402 challenge. 4. Make a policy-approved
+                    payment and inspect the receipt below. USDC settles to the seller wallet.
                   </div>
                 </div>
               </div>
@@ -675,7 +715,9 @@ export function SettingsView({
                     onChange={(e) => setGatewayForm({ ...gatewayForm, network: e.target.value })}
                   >
                     <option value="eip155:84532">Base Sepolia · testnet</option>
-                    <option value="eip155:8453">Base · live</option>
+                    <option value="eip155:8453">
+                      Base · live (requires production payment setup)
+                    </option>
                   </select>
                 </div>
               </div>
@@ -697,12 +739,20 @@ export function SettingsView({
                     const d = await res.json();
                     if (!res.ok) throw new Error(d.error?.message ?? "onboarding failed");
                     await loadPlatform();
-                    return "Seller saved. Verify the endpoint when it is serving x402 V2.";
+                    setSelectedMerchantId(d.merchant.id);
+                    setMerchantPayments([]);
+                    return "Seller profile saved. Verify its x402 V2 endpoint below.";
                   })
                 }
               >
                 Create seller profile
               </Button>
+              <p className="muted" style={{ fontSize: 12, lineHeight: 1.6 }}>
+                The payout address must belong to the seller. Endpoint verification checks payment
+                configuration; it does not prove wallet ownership or seller identity. Buyer payments
+                also require the endpoint on the agent&apos;s policy allowlist, an agent USDC
+                balance, and ETH for gas. Start on Base Sepolia.
+              </p>
             </div>
             <div className="card">
               <div className="card-head">
@@ -765,86 +815,242 @@ export function SettingsView({
               >
                 Save merchant
               </Button>
-              <table style={{ marginTop: 14 }}>
-                <thead>
-                  <tr>
-                    <th>Key</th>
-                    <th>Label</th>
-                    <th>Category</th>
-                    <th>x402</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {merchants.map((m) => (
-                    <tr key={m.id}>
-                      <td className="mono">{m.key}</td>
-                      <td>{m.label ?? "—"}</td>
-                      <td className="faint">{m.category ?? "—"}</td>
-                      <td>
-                        {m.meta?.gateway ? (
-                          <div className="row" style={{ gap: 8 }}>
-                            <span
-                              className={`pill ${m.meta.gateway.status === "verified" ? "ok" : "warn"}`}
-                            >
-                              <i />
-                              {m.meta.gateway.status ?? "pending"}
-                            </span>
-                            {m.meta.gateway.status !== "verified" && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={busy || readOnly}
-                                onClick={() =>
-                                  void act("Verify seller", async () => {
-                                    const res = await gFetch(
-                                      `/v1/guardian/merchant-gateway/${m.id}/verify`,
-                                      { method: "POST" },
-                                    );
-                                    const d = await res.json();
-                                    if (!res.ok)
-                                      throw new Error(d.error?.message ?? "verification failed");
-                                    await loadPlatform();
-                                    return "x402 V2 endpoint verified.";
-                                  })
-                                }
-                              >
-                                Verify
-                              </Button>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="faint">directory only</span>
-                        )}
-                      </td>
-                      <td>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy || readOnly}
-                          onClick={() =>
-                            void act("Delete merchant", async () => {
-                              const res = await gFetch(`/v1/guardian/merchants/${m.id}`, {
-                                method: "DELETE",
-                              });
-                              if (!res.ok) throw new Error(JSON.stringify(await res.json()));
-                              await loadPlatform();
-                            })
-                          }
-                        >
-                          Delete
-                        </Button>
-                      </td>
+              <div style={{ overflowX: "auto", marginTop: 14 }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Key</th>
+                      <th>Label</th>
+                      <th>Category</th>
+                      <th>x402</th>
+                      <th />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {merchants.map((m) => (
+                      <tr key={m.id}>
+                        <td className="mono">{m.key}</td>
+                        <td>{m.label ?? "—"}</td>
+                        <td className="faint">{m.category ?? "—"}</td>
+                        <td>
+                          {m.meta?.gateway ? (
+                            <div className="row" style={{ gap: 8 }}>
+                              <span
+                                className={`pill ${m.meta.gateway.status === "verified" ? "ok" : "warn"}`}
+                              >
+                                <i />
+                                {m.meta.gateway.status ?? "pending"}
+                              </span>
+                              {m.meta.gateway.status !== "verified" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={busy || readOnly}
+                                  onClick={() =>
+                                    void act("Verify seller", async () => {
+                                      const res = await gFetch(
+                                        `/v1/guardian/merchant-gateway/${m.id}/verify`,
+                                        { method: "POST" },
+                                      );
+                                      const d = await res.json();
+                                      if (!res.ok)
+                                        throw new Error(d.error?.message ?? "verification failed");
+                                      await loadPlatform();
+                                      return "x402 V2 endpoint verified.";
+                                    })
+                                  }
+                                >
+                                  Verify
+                                </Button>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="faint">directory only</span>
+                          )}
+                        </td>
+                        <td>
+                          {m.meta?.gateway && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => void loadMerchantActivity(m.id)}
+                            >
+                              {selectedMerchantId === m.id ? "Selected" : "Open"}
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy || readOnly}
+                            onClick={() =>
+                              void act("Delete merchant", async () => {
+                                const res = await gFetch(`/v1/guardian/merchants/${m.id}`, {
+                                  method: "DELETE",
+                                });
+                                if (!res.ok) throw new Error(JSON.stringify(await res.json()));
+                                await loadPlatform();
+                              })
+                            }
+                          >
+                            Delete
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               {!merchants.length && (
                 <p className="muted" style={{ fontSize: 12.5 }}>
                   No merchants yet — add one or allocate spend to seed known counterparties.
                 </p>
               )}
             </div>
+            {selectedMerchant?.meta?.gateway && (
+              <div className="card" aria-label="Selected seller details">
+                <div className="card-head">
+                  <div>
+                    <h2>{selectedMerchant.label ?? "Seller"} · gateway</h2>
+                    <div className="sub">Configuration, buyer setup and settlement history</div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void loadMerchantActivity(selectedMerchant.id)}
+                  >
+                    Refresh activity
+                  </Button>
+                </div>
+                <div className="kv">
+                  <span className="k">Endpoint</span>
+                  <span className="v mono" style={{ overflowWrap: "anywhere" }}>
+                    {selectedMerchant.meta.gateway.endpoint}
+                  </span>
+                </div>
+                <div className="kv">
+                  <span className="k">Wallet</span>
+                  <span className="v mono" style={{ overflowWrap: "anywhere" }}>
+                    {selectedMerchant.meta.gateway.payoutAddress}
+                  </span>
+                </div>
+                <div className="kv">
+                  <span className="k">Price</span>
+                  <span className="v">
+                    ${selectedMerchant.meta.gateway.priceUsdc} USDC ·{" "}
+                    {selectedMerchant.meta.gateway.network === "eip155:8453"
+                      ? "Base mainnet"
+                      : "Base Sepolia"}
+                  </span>
+                </div>
+                <div className="kv">
+                  <span className="k">Endpoint check</span>
+                  <span className="v">
+                    {selectedMerchant.meta.gateway.status === "verified"
+                      ? "x402 V2 challenge matches"
+                      : "Pending verification"}
+                  </span>
+                </div>
+                <h3 style={{ marginTop: 24 }}>Seller integration</h3>
+                <p className="muted" style={{ fontSize: 12.5 }}>
+                  Use x402 V2 middleware to return HTTP 402 for an unpaid GET. Configure the same
+                  network, wallet and price. For a runnable Express example, see
+                  <span className="mono"> apps/x402-seller/src/index.ts</span>.
+                </p>
+                <pre className="code" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                  {sellerConfig}
+                </pre>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(sellerConfig);
+                      setCopiedSellerConfig(true);
+                    } catch {
+                      setCopiedSellerConfig(false);
+                    }
+                  }}
+                >
+                  {copiedSellerConfig ? "Copied settings" : "Copy seller settings"}
+                </Button>
+                <p className="muted" style={{ fontSize: 12.5 }}>
+                  Once verified, allowlist this exact URL in the buyer agent&apos;s policy. Send a
+                  <span className="mono"> pay_api</span> request from an agent with test USDC and
+                  gas. A merchant profile alone does not authorize spend.
+                </p>
+                <h3 style={{ marginTop: 24 }}>Payment activity</h3>
+                <p className="muted" style={{ fontSize: 12 }}>
+                  Receipt hashes come from the seller&apos;s x402 response. Check the transfer and
+                  payout address on Basescan to confirm chain settlement.
+                </p>
+                {activityLoading && (
+                  <p className="muted" role="status">
+                    Loading payments…
+                  </p>
+                )}
+                {activityError && (
+                  <p className="muted" role="alert">
+                    {activityError}
+                  </p>
+                )}
+                {!activityLoading && !activityError && merchantPayments.length === 0 && (
+                  <p className="muted">
+                    No buyer payment attempts for this endpoint yet. Verification is an unpaid
+                    check; run an agent payment to see a receipt here.
+                  </p>
+                )}
+                {!!merchantPayments.length && (
+                  <div style={{ overflowX: "auto" }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>When</th>
+                          <th>State</th>
+                          <th>USDC</th>
+                          <th>Receipt</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {merchantPayments.map((payment) => (
+                          <tr key={payment.intentId}>
+                            <td>{new Date(payment.createdAt).toLocaleString()}</td>
+                            <td>
+                              <span
+                                className={`pill ${payment.state === "settled" ? "ok" : "warn"}`}
+                              >
+                                <i />
+                                {payment.state}
+                              </span>
+                              {payment.error && (
+                                <div className="faint" title={payment.error}>
+                                  Payment failed
+                                </div>
+                              )}
+                            </td>
+                            <td>{payment.chargedUsdc ?? payment.amountUsdc}</td>
+                            <td>
+                              {payment.txHash && payment.explorerUrl ? (
+                                <a
+                                  href={payment.explorerUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="mono"
+                                  aria-label={`View transaction ${payment.txHash} on Basescan`}
+                                >
+                                  {payment.txHash.slice(0, 10)}… ↗
+                                </a>
+                              ) : (
+                                <span className="faint">No on-chain receipt</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
 

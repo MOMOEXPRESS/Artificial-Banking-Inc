@@ -207,6 +207,13 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
       "/v1/guardian/merchant-gateway/{id}/verify": {
         post: stub(["guardian"], "Verify seller x402 challenge", "guardianBearer"),
       },
+      "/v1/guardian/merchant-gateway/{id}/activity": {
+        get: stub(
+          ["guardian"],
+          "List seller endpoint payment attempts and receipts",
+          "guardianBearer",
+        ),
+      },
       "/v1/guardian/burn": { get: stub(["guardian"], "Burn-rate forecast", "guardianBearer") },
       "/v1/guardian/anomalies": { get: stub(["guardian"], "Spend anomalies", "guardianBearer") },
       "/v1/guardian/economics": { get: stub(["guardian"], "Job economics", "guardianBearer") },

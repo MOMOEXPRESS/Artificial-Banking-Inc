@@ -2999,6 +2999,16 @@ export const store = {
     ).map(rowToSettlement);
   },
 
+  listMerchantSettlements(orgId: string, endpoint: string, limit = 100): SettlementRow[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM settlement_attempts WHERE org_id = ? AND destination = ? AND tool = 'pay_api' ORDER BY created_at DESC LIMIT ?",
+        )
+        .all(orgId, endpoint, Math.min(Math.max(1, limit), 100)) as Row[]
+    ).map(rowToSettlement);
+  },
+
   // ---------------------------------------------------------------- MFA
 
   startMfaEnrolment(userId: string, secret: string): void {
