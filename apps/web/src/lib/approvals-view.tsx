@@ -75,7 +75,7 @@ export function Approvals({
   const approved = history.filter((h) => h.status === "approved").length;
 
   return (
-    <>
+    <div className="approval-workspace">
       <div className="grid g-4">
         <Stat label="Waiting on you" value={String(pending.length)} foot="agents parked right now" />
         <Stat label="Approved" value={String(approved)} foot="you let these through" />
@@ -210,6 +210,6 @@ export function Approvals({
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
