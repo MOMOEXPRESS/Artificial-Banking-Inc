@@ -1275,12 +1275,16 @@ app.post(
             required.x402Version === 2 &&
             accept.scheme === "exact" &&
             accept.network === gateway.network &&
+            accept.asset.toLowerCase() ===
+              (gateway.network === "eip155:8453"
+                ? "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+                : "0x036cbd53842c5426634e7929541ec2318f3dcf7e") &&
             accept.payTo.toLowerCase() === String(gateway.payoutAddress).toLowerCase() &&
             accept.amount === gateway.amountMicro,
         );
         if (!match)
           throw new Error(
-            "The x402 challenge does not match the declared network, wallet, and price.",
+            "The x402 challenge does not match the declared network, USDC asset, wallet, and price.",
           );
         const verified = store.upsertMerchant({
           orgId: org.id,
@@ -1311,6 +1315,39 @@ app.post(
     },
     { ownerOnly: true },
   ),
+);
+
+/** Seller activity is scoped to the organization and this exact paid endpoint. */
+app.get(
+  "/v1/guardian/merchant-gateway/:id/activity",
+  guardianRoute((org, req, res) => {
+    const merchant = store.listMerchants(org.id).find((item) => item.id === req.params.id);
+    const gateway = merchant?.meta?.gateway as Record<string, unknown> | undefined;
+    if (!merchant || !gateway || typeof gateway.endpoint !== "string") {
+      return res
+        .status(404)
+        .json({ error: { code: "NOT_FOUND", message: "Merchant gateway profile" } });
+    }
+    const explorer =
+      gateway.network === "eip155:8453"
+        ? "https://basescan.org/tx/"
+        : "https://sepolia.basescan.org/tx/";
+    const settlements = store.listMerchantSettlements(org.id, gateway.endpoint).map((row) => ({
+      intentId: row.intentId,
+      state: row.state,
+      amountUsdc: formatMicroToUsdc(row.chargedMicro ?? row.amountMicro),
+      chargedUsdc: row.chargedMicro === undefined ? null : formatMicroToUsdc(row.chargedMicro),
+      rail: row.rail ?? null,
+      txHash: row.rail === "x402-v2" && row.state === "settled" ? (row.txHash ?? null) : null,
+      explorerUrl:
+        row.rail === "x402-v2" && row.state === "settled" && row.txHash
+          ? `${explorer}${row.txHash}`
+          : null,
+      createdAt: row.createdAt,
+      error: row.state === "failed" ? (row.error ?? null) : null,
+    }));
+    res.json({ merchantId: merchant.id, endpoint: gateway.endpoint, settlements });
+  }),
 );
 
 app.get(
