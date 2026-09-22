@@ -1,5 +1,9 @@
 # ABI product and system audit
 
+> Historical snapshot from 2026-09-21. A real x402 V2 Base Sepolia payment was
+> subsequently recorded. See [the proof](X402-BASE-SEPOLIA-PROOF.md) and the
+> [current next-build plan](NEXT-BUILD-PLAN.md) for present status.
+
 Date: 2026-09-21
 
 ## Executive verdict

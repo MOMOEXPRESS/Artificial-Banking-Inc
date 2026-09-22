@@ -85,3 +85,9 @@ contain `rail: "x402-v2"` and `txHash`.
 The funded settlement path is publicly proven. Keep the two remaining
 operational checks explicit until the live idempotency replay and post-payment
 ledger conformance checks have also been recorded.
+
+The local HTTP regression in `apps/api/src/x402-payment-flow.test.ts` exercises
+the full buyer path and confirms a same-key replay creates one seller request
+and one ledger posting with a balanced genesis replay. Its seller emits a
+synthetic settlement response. It closes the automated regression gap but does
+not close either unchecked **live** proof item above.
