@@ -11,8 +11,7 @@ import {
 import type express from "express";
 import { z } from "zod";
 import { simulatePolicy } from "../analytics.js";
-import {
-  scopedStore, store, type OrgRow } from "../store.js";
+import { scopedStore, store, type OrgRow } from "../store.js";
 import { resolvedPolicyFor } from "../engine.js";
 
 type GuardianRoute = (
@@ -40,14 +39,18 @@ export function policyView(template: ReturnType<typeof store.getPolicyTemplate>)
     addressAllowlist: template.addressAllowlist,
     domainAllowlist: template.domainAllowlist,
     vendorAllowlist: template.vendorAllowlist,
+    merchantDailyCaps: Object.fromEntries(
+      Object.entries(template.merchantDailyCaps ?? {}).map(([destination, amount]) => [
+        destination,
+        formatMicroToUsdc(amount),
+      ]),
+    ),
     blocklist: template.blocklist,
     hitlCategories: template.hitlCategories,
     quietHours: template.quietHours ?? null,
     quietHoursTimezone: template.quietHoursTimezone ?? "UTC",
     orgDailyMaxUsdc:
-      template.orgDailyMaxMicro === undefined
-        ? null
-        : formatMicroToUsdc(template.orgDailyMaxMicro),
+      template.orgDailyMaxMicro === undefined ? null : formatMicroToUsdc(template.orgDailyMaxMicro),
     approvalQuorum: template.approvalQuorum ?? 1,
     categoryCaps: Object.fromEntries(
       Object.entries(template.categoryCaps ?? {}).map(([key, cap]) => [
@@ -201,6 +204,26 @@ export function registerPolicyRoutes(
   const { guardianRoute } = deps;
 
   app.get(
+    "/v1/guardian/policy/merchant-spend",
+    guardianRoute((org, _req, res) => {
+      const caps = store.getPolicyTemplate(org.id).merchantDailyCaps ?? {};
+      res.json({
+        merchants: Object.entries(caps).map(([destination, cap]) => {
+          const spent = store.merchantSpentLast24h(org.id, destination);
+          const reserved = store.merchantReservedMicro(org.id, destination);
+          return {
+            destination,
+            capUsdc: formatMicroToUsdc(cap),
+            spentUsdc: formatMicroToUsdc(spent),
+            reservedUsdc: formatMicroToUsdc(reserved),
+            remainingUsdc: formatMicroToUsdc(cap > spent + reserved ? cap - spent - reserved : 0n),
+          };
+        }),
+      });
+    }),
+  );
+
+  app.get(
     "/v1/guardian/quorum",
     guardianRoute((org, _req, res) => {
       const seats =
@@ -214,22 +237,25 @@ export function registerPolicyRoutes(
 
   app.post(
     "/v1/guardian/quorum",
-    guardianRoute((org, req, res) => {
-      const body = z.object({ approvalQuorum: z.number().int().min(1).max(5) }).parse(req.body);
-      const current = store.getPolicyTemplate(org.id);
-      const seats =
-        store.listGuardians(org.id).filter((g) => !g.revokedAt && g.role !== "viewer").length + 1;
-      if (body.approvalQuorum > seats) {
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message: `Quorum of ${body.approvalQuorum} needs ${body.approvalQuorum} guardians; you have ${seats}. Approvals would be unresolvable.`,
-          },
-        });
-      }
-      store.setPolicyTemplate(org.id, { ...current, approvalQuorum: body.approvalQuorum });
-      res.json({ ok: true, approvalQuorum: body.approvalQuorum });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const body = z.object({ approvalQuorum: z.number().int().min(1).max(5) }).parse(req.body);
+        const current = store.getPolicyTemplate(org.id);
+        const seats =
+          store.listGuardians(org.id).filter((g) => !g.revokedAt && g.role !== "viewer").length + 1;
+        if (body.approvalQuorum > seats) {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message: `Quorum of ${body.approvalQuorum} needs ${body.approvalQuorum} guardians; you have ${seats}. Approvals would be unresolvable.`,
+            },
+          });
+        }
+        store.setPolicyTemplate(org.id, { ...current, approvalQuorum: body.approvalQuorum });
+        res.json({ ok: true, approvalQuorum: body.approvalQuorum });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   app.post(
@@ -255,7 +281,12 @@ export function registerPolicyRoutes(
             })
             .nullable()
             .optional(),
-          windowHours: z.number().int().positive().max(24 * 90).default(24 * 7),
+          windowHours: z
+            .number()
+            .int()
+            .positive()
+            .max(24 * 90)
+            .default(24 * 7),
         })
         .parse(req.body);
       const { windowHours, ...change } = body;
@@ -278,15 +309,18 @@ export function registerPolicyRoutes(
 
   app.post(
     "/v1/guardian/policy/versions/:id/restore",
-    guardianRoute((org, req, res) => {
-      const versions = store.listPolicyVersions(org.id, 100);
-      const hit = versions.find((v) => v.id === req.params.id || v.version === req.params.id);
-      if (!hit) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "policy version" } });
-      }
-      store.setPolicyTemplate(org.id, hit.rules, `restore:${hit.version}`);
-      res.json({ ok: true, policy: policyView(store.getPolicyTemplate(org.id)) });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const versions = store.listPolicyVersions(org.id, 100);
+        const hit = versions.find((v) => v.id === req.params.id || v.version === req.params.id);
+        if (!hit) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "policy version" } });
+        }
+        store.setPolicyTemplate(org.id, hit.rules, `restore:${hit.version}`);
+        res.json({ ok: true, policy: policyView(store.getPolicyTemplate(org.id)) });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   app.get(
@@ -298,32 +332,41 @@ export function registerPolicyRoutes(
 
   app.post(
     "/v1/guardian/policy/apply-template",
-    guardianRoute((org, req, res) => {
-      const body = z
-        .object({
-          templateId: z.enum(["solo_swarm", "swarm", "api_seller"]),
-          /** Keep current allowlists when applying a starter template. */
-          keepAllowlists: z.boolean().optional(),
-        })
-        .parse(req.body);
-      const current = store.getPolicyTemplate(org.id);
-      const next = policyTemplateById(body.templateId as PolicyTemplateId);
-      if (body.keepAllowlists) {
-        next.addressAllowlist = current.addressAllowlist;
-        next.domainAllowlist = current.domainAllowlist;
-        next.vendorAllowlist = current.vendorAllowlist;
-        next.blocklist = current.blocklist;
-      }
-      // Preserve quorum seats choice unless template sets one.
-      if (next.approvalQuorum === undefined) {
-        next.approvalQuorum = current.approvalQuorum;
-      }
-      store.setPolicyTemplate(org.id, next, `template:${body.templateId}`);
-      for (const v of [...next.vendorAllowlist, ...next.domainAllowlist, ...next.addressAllowlist]) {
-        store.addKnownCounterparty(org.id, v);
-      }
-      res.json({ ok: true, policy: policyView(store.getPolicyTemplate(org.id)) });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const body = z
+          .object({
+            templateId: z.enum(["solo_swarm", "swarm", "api_seller"]),
+            /** Keep current allowlists when applying a starter template. */
+            keepAllowlists: z.boolean().optional(),
+          })
+          .parse(req.body);
+        const current = store.getPolicyTemplate(org.id);
+        const next = policyTemplateById(body.templateId as PolicyTemplateId);
+        if (body.keepAllowlists) {
+          next.addressAllowlist = current.addressAllowlist;
+          next.domainAllowlist = current.domainAllowlist;
+          next.vendorAllowlist = current.vendorAllowlist;
+          next.blocklist = current.blocklist;
+        }
+        // A starter template must not silently remove an existing merchant ceiling.
+        next.merchantDailyCaps = current.merchantDailyCaps;
+        // Preserve quorum seats choice unless template sets one.
+        if (next.approvalQuorum === undefined) {
+          next.approvalQuorum = current.approvalQuorum;
+        }
+        store.setPolicyTemplate(org.id, next, `template:${body.templateId}`);
+        for (const v of [
+          ...next.vendorAllowlist,
+          ...next.domainAllowlist,
+          ...next.addressAllowlist,
+        ]) {
+          store.addKnownCounterparty(org.id, v);
+        }
+        res.json({ ok: true, policy: policyView(store.getPolicyTemplate(org.id)) });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   // ---------------------------------------------------------- per-agent
@@ -360,78 +403,91 @@ export function registerPolicyRoutes(
    */
   app.put(
     "/v1/guardian/agents/:id/policy",
-    guardianRoute((org, req, res) => {
-      const agent = scopedStore(org.id).getAgent(req.params.id);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      const body = agentOverrideSchema.parse(req.body);
+    guardianRoute(
+      (org, req, res) => {
+        const agent = scopedStore(org.id).getAgent(req.params.id);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+        }
+        const body = agentOverrideSchema.parse(req.body);
 
-      const override: Record<string, unknown> = {};
-      if (body.perTxMaxUsdc !== undefined) override.perTxMaxMicro = parseUsdcToMicro(body.perTxMaxUsdc);
-      if (body.dailyMaxUsdc !== undefined) override.dailyMaxMicro = parseUsdcToMicro(body.dailyMaxUsdc);
-      if (body.hitlAboveUsdc !== undefined) override.hitlAboveMicro = parseUsdcToMicro(body.hitlAboveUsdc);
-      if (body.maxPaysPerMinute !== undefined) override.maxPaysPerMinute = body.maxPaysPerMinute;
-      if (body.newCounterpartyCooldownHours !== undefined) {
-        override.newCounterpartyCooldownHours = body.newCounterpartyCooldownHours;
-      }
-      if (body.addressAllowlist) override.addressAllowlist = body.addressAllowlist;
-      if (body.domainAllowlist) override.domainAllowlist = body.domainAllowlist;
-      if (body.vendorAllowlist) override.vendorAllowlist = body.vendorAllowlist;
-      if (body.blocklist) override.blocklist = body.blocklist;
-      if (body.hitlCategories) override.hitlCategories = body.hitlCategories;
-      if (body.quietHours !== undefined) override.quietHours = body.quietHours ?? undefined;
-      if (body.quietHoursTimezone !== undefined) override.quietHoursTimezone = body.quietHoursTimezone;
-      // null clears the override so the agent inherits the org default again;
-      // undefined leaves whatever it already had.
-      if (body.categoryCaps !== undefined) override.categoryCaps = toCategoryCaps(body.categoryCaps);
-      if (body.budgetWindow !== undefined) override.budgetWindow = toBudgetWindow(body.budgetWindow);
-      if (body.counterpartyRiskReviewAbove !== undefined) {
-        override.counterpartyRiskReviewAbove = body.counterpartyRiskReviewAbove ?? undefined;
-      }
+        const override: Record<string, unknown> = {};
+        if (body.perTxMaxUsdc !== undefined)
+          override.perTxMaxMicro = parseUsdcToMicro(body.perTxMaxUsdc);
+        if (body.dailyMaxUsdc !== undefined)
+          override.dailyMaxMicro = parseUsdcToMicro(body.dailyMaxUsdc);
+        if (body.hitlAboveUsdc !== undefined)
+          override.hitlAboveMicro = parseUsdcToMicro(body.hitlAboveUsdc);
+        if (body.maxPaysPerMinute !== undefined) override.maxPaysPerMinute = body.maxPaysPerMinute;
+        if (body.newCounterpartyCooldownHours !== undefined) {
+          override.newCounterpartyCooldownHours = body.newCounterpartyCooldownHours;
+        }
+        if (body.addressAllowlist) override.addressAllowlist = body.addressAllowlist;
+        if (body.domainAllowlist) override.domainAllowlist = body.domainAllowlist;
+        if (body.vendorAllowlist) override.vendorAllowlist = body.vendorAllowlist;
+        if (body.blocklist) override.blocklist = body.blocklist;
+        if (body.hitlCategories) override.hitlCategories = body.hitlCategories;
+        if (body.quietHours !== undefined) override.quietHours = body.quietHours ?? undefined;
+        if (body.quietHoursTimezone !== undefined)
+          override.quietHoursTimezone = body.quietHoursTimezone;
+        // null clears the override so the agent inherits the org default again;
+        // undefined leaves whatever it already had.
+        if (body.categoryCaps !== undefined)
+          override.categoryCaps = toCategoryCaps(body.categoryCaps);
+        if (body.budgetWindow !== undefined)
+          override.budgetWindow = toBudgetWindow(body.budgetWindow);
+        if (body.counterpartyRiskReviewAbove !== undefined) {
+          override.counterpartyRiskReviewAbove = body.counterpartyRiskReviewAbove ?? undefined;
+        }
 
-      // Bands must still nest after merging, or an override could invert them
-      // and quietly disable the approval step for this agent.
-      const merged = { ...store.getPolicyTemplate(org.id), ...override } as ReturnType<
-        typeof store.getPolicyTemplate
-      >;
-      if (merged.hitlAboveMicro >= merged.perTxMaxMicro) {
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message:
-              "hitlAboveUsdc must stay below perTxMaxUsdc once merged with the org default " +
-              "(allow < review < deny).",
-          },
-        });
-      }
-      if (merged.dailyMaxMicro < merged.perTxMaxMicro) {
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "dailyMaxUsdc must be at least perTxMaxUsdc once merged with the org default.",
-          },
-        });
-      }
+        // Bands must still nest after merging, or an override could invert them
+        // and quietly disable the approval step for this agent.
+        const merged = { ...store.getPolicyTemplate(org.id), ...override } as ReturnType<
+          typeof store.getPolicyTemplate
+        >;
+        if (merged.hitlAboveMicro >= merged.perTxMaxMicro) {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message:
+                "hitlAboveUsdc must stay below perTxMaxUsdc once merged with the org default " +
+                "(allow < review < deny).",
+            },
+          });
+        }
+        if (merged.dailyMaxMicro < merged.perTxMaxMicro) {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message:
+                "dailyMaxUsdc must be at least perTxMaxUsdc once merged with the org default.",
+            },
+          });
+        }
 
-      store.setAgentPolicyOverride(org.id, agent.id, override, guardianLabel(req));
-      const { effective, provenance } = resolvedPolicyFor(agent.id, org.id);
-      res.json({ ok: true, agentId: agent.id, effective: policyView(effective), provenance });
-    }, { ownerOnly: true }),
+        store.setAgentPolicyOverride(org.id, agent.id, override, guardianLabel(req));
+        const { effective, provenance } = resolvedPolicyFor(agent.id, org.id);
+        res.json({ ok: true, agentId: agent.id, effective: policyView(effective), provenance });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Drop the override so the agent inherits the organization default again. */
   app.delete(
     "/v1/guardian/agents/:id/policy",
-    guardianRoute((org, req, res) => {
-      const agent = scopedStore(org.id).getAgent(req.params.id);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      const removed = store.clearAgentPolicyOverride(agent.id);
-      const { effective } = resolvedPolicyFor(agent.id, org.id);
-      res.json({ ok: true, removed, effective: policyView(effective) });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const agent = scopedStore(org.id).getAgent(req.params.id);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+        }
+        const removed = store.clearAgentPolicyOverride(agent.id);
+        const { effective } = resolvedPolicyFor(agent.id, org.id);
+        res.json({ ok: true, removed, effective: policyView(effective) });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Which agents deviate from the org default — the policy screen's index. */
@@ -454,156 +510,196 @@ export function registerPolicyRoutes(
 
   app.post(
     "/v1/guardian/policy",
-    guardianRoute((org, req, res) => {
-      const body = z
-        .object({
-          perTxMaxUsdc: z.string().optional(),
-          dailyMaxUsdc: z.string().optional(),
-          /** Ceiling for the whole org in 24h. null removes it. */
-          orgDailyMaxUsdc: z.string().nullable().optional(),
-          hitlAboveUsdc: z.string().optional(),
-          maxPaysPerMinute: z.number().int().positive().optional(),
-          newCounterpartyCooldownHours: z.number().int().min(0).optional(),
-          addressAllowlist: z.array(z.string()).optional(),
-          domainAllowlist: z.array(z.string()).optional(),
-          vendorAllowlist: z.array(z.string()).optional(),
-          blocklist: z.array(z.string()).optional(),
-          hitlCategories: z.array(toolEnum).optional(),
-          quietHours: z
-            .object({
-              startHour: z.number().int().min(0).max(23),
-              endHour: z.number().int().min(0).max(23),
-              action: z.enum(["review", "deny"]),
-            })
-            .nullable()
-            .optional(),
-          /** IANA zone the quiet-hours window is expressed in. */
-          quietHoursTimezone: z.string().max(64).optional(),
-          /** Per-category ceilings. null clears every category cap. */
-          categoryCaps: categoryCapsSchema,
-          /** Time-boxed budget. null clears it. */
-          budgetWindow: budgetWindowSchema,
-          /** Review above this counterparty risk score (0-100). null disables. */
-          counterpartyRiskReviewAbove: z.number().int().min(0).max(100).nullable().optional(),
-          automation: z
-            .array(
-              z.object({
-                id: z.string().min(1),
-                name: z.string().min(1),
-                createdAt: z.string().optional(),
-                updatedAt: z.string().optional(),
-                when: z.union([
-                  z.object({
-                    kind: z.literal("amount_above"),
-                    micro: z.union([z.string(), z.number()]),
-                  }),
-                  z.object({
-                    kind: z.literal("balance_below"),
-                    micro: z.union([z.string(), z.number()]),
-                    walletId: z.string().optional(),
-                  }),
-                  z.object({ kind: z.literal("merchant_unknown") }),
-                  z.object({ kind: z.literal("budget_exceeded") }),
-                  z.object({ kind: z.literal("daily_cap_exceeded") }),
-                ]),
-                then: z.union([
-                  z.object({
-                    kind: z.literal("notify"),
-                    channel: z.enum(["in_app", "telegram", "email", "slack"]).optional(),
-                  }),
-                  z.object({ kind: z.literal("require_approval") }),
-                  z.object({ kind: z.literal("deny") }),
-                  z.object({ kind: z.literal("freeze_agent") }),
-                ]),
-              }),
-            )
-            .optional(),
-        })
-        .parse(req.body);
-      const current = store.getPolicyTemplate(org.id);
-      const parseAutomationMicro = (v: string | number) =>
-        typeof v === "number" ? BigInt(Math.trunc(v)) : BigInt(String(v).replace(/^bigint:/, ""));
-      const prevById = new Map((current.automation ?? []).map((r) => [r.id, r]));
-      const stamp = new Date().toISOString();
-      const next = {
-        ...current,
-        ...(body.perTxMaxUsdc !== undefined && { perTxMaxMicro: parseUsdcToMicro(body.perTxMaxUsdc) }),
-        ...(body.dailyMaxUsdc !== undefined && { dailyMaxMicro: parseUsdcToMicro(body.dailyMaxUsdc) }),
-        ...(body.hitlAboveUsdc !== undefined && {
-          hitlAboveMicro: parseUsdcToMicro(body.hitlAboveUsdc),
-        }),
-        ...(body.maxPaysPerMinute !== undefined && { maxPaysPerMinute: body.maxPaysPerMinute }),
-        ...(body.newCounterpartyCooldownHours !== undefined && {
-          newCounterpartyCooldownHours: body.newCounterpartyCooldownHours,
-        }),
-        ...(body.addressAllowlist && { addressAllowlist: body.addressAllowlist }),
-        ...(body.domainAllowlist && { domainAllowlist: body.domainAllowlist }),
-        ...(body.vendorAllowlist && { vendorAllowlist: body.vendorAllowlist }),
-        ...(body.blocklist && { blocklist: body.blocklist }),
-        ...(body.hitlCategories && { hitlCategories: body.hitlCategories }),
-        ...(body.quietHours !== undefined && { quietHours: body.quietHours ?? undefined }),
-        ...(body.quietHoursTimezone !== undefined && {
-          quietHoursTimezone: body.quietHoursTimezone,
-        }),
-        ...(body.orgDailyMaxUsdc !== undefined && {
-          orgDailyMaxMicro:
-            body.orgDailyMaxUsdc === null ? undefined : parseUsdcToMicro(body.orgDailyMaxUsdc),
-        }),
-        ...(body.categoryCaps !== undefined && { categoryCaps: toCategoryCaps(body.categoryCaps) }),
-        ...(body.budgetWindow !== undefined && { budgetWindow: toBudgetWindow(body.budgetWindow) }),
-        ...(body.counterpartyRiskReviewAbove !== undefined && {
-          counterpartyRiskReviewAbove: body.counterpartyRiskReviewAbove ?? undefined,
-        }),
-        ...(body.automation !== undefined && {
-          automation: body.automation.map((rule) => {
-            const prev = prevById.get(rule.id);
-            return {
-              ...rule,
-              createdAt: prev?.createdAt ?? rule.createdAt ?? stamp,
-              updatedAt: stamp,
-              when:
-                rule.when.kind === "amount_above" || rule.when.kind === "balance_below"
-                  ? { ...rule.when, micro: parseAutomationMicro(rule.when.micro) }
-                  : rule.when,
-            };
+    guardianRoute(
+      (org, req, res) => {
+        const body = z
+          .object({
+            perTxMaxUsdc: z.string().optional(),
+            dailyMaxUsdc: z.string().optional(),
+            /** Ceiling for the whole org in 24h. null removes it. */
+            orgDailyMaxUsdc: z.string().nullable().optional(),
+            hitlAboveUsdc: z.string().optional(),
+            maxPaysPerMinute: z.number().int().positive().optional(),
+            newCounterpartyCooldownHours: z.number().int().min(0).optional(),
+            addressAllowlist: z.array(z.string()).optional(),
+            domainAllowlist: z.array(z.string()).optional(),
+            vendorAllowlist: z.array(z.string()).optional(),
+            merchantDailyCaps: z
+              .record(
+                z
+                  .string()
+                  .min(1)
+                  .max(2048)
+                  .regex(/^https?:\/\/[^/]+\/[^?]+/),
+                z.string().regex(/^\d+(?:\.\d{1,6})?$/),
+              )
+              .refine((caps) => Object.keys(caps).length <= 50, "Limit to 50 merchant caps")
+              .nullable()
+              .optional(),
+            blocklist: z.array(z.string()).optional(),
+            hitlCategories: z.array(toolEnum).optional(),
+            quietHours: z
+              .object({
+                startHour: z.number().int().min(0).max(23),
+                endHour: z.number().int().min(0).max(23),
+                action: z.enum(["review", "deny"]),
+              })
+              .nullable()
+              .optional(),
+            /** IANA zone the quiet-hours window is expressed in. */
+            quietHoursTimezone: z.string().max(64).optional(),
+            /** Per-category ceilings. null clears every category cap. */
+            categoryCaps: categoryCapsSchema,
+            /** Time-boxed budget. null clears it. */
+            budgetWindow: budgetWindowSchema,
+            /** Review above this counterparty risk score (0-100). null disables. */
+            counterpartyRiskReviewAbove: z.number().int().min(0).max(100).nullable().optional(),
+            automation: z
+              .array(
+                z.object({
+                  id: z.string().min(1),
+                  name: z.string().min(1),
+                  createdAt: z.string().optional(),
+                  updatedAt: z.string().optional(),
+                  when: z.union([
+                    z.object({
+                      kind: z.literal("amount_above"),
+                      micro: z.union([z.string(), z.number()]),
+                    }),
+                    z.object({
+                      kind: z.literal("balance_below"),
+                      micro: z.union([z.string(), z.number()]),
+                      walletId: z.string().optional(),
+                    }),
+                    z.object({ kind: z.literal("merchant_unknown") }),
+                    z.object({ kind: z.literal("budget_exceeded") }),
+                    z.object({ kind: z.literal("daily_cap_exceeded") }),
+                  ]),
+                  then: z.union([
+                    z.object({
+                      kind: z.literal("notify"),
+                      channel: z.enum(["in_app", "telegram", "email", "slack"]).optional(),
+                    }),
+                    z.object({ kind: z.literal("require_approval") }),
+                    z.object({ kind: z.literal("deny") }),
+                    z.object({ kind: z.literal("freeze_agent") }),
+                  ]),
+                }),
+              )
+              .optional(),
+          })
+          .parse(req.body);
+        const current = store.getPolicyTemplate(org.id);
+        const parseAutomationMicro = (v: string | number) =>
+          typeof v === "number" ? BigInt(Math.trunc(v)) : BigInt(String(v).replace(/^bigint:/, ""));
+        const prevById = new Map((current.automation ?? []).map((r) => [r.id, r]));
+        const stamp = new Date().toISOString();
+        const next = {
+          ...current,
+          ...(body.perTxMaxUsdc !== undefined && {
+            perTxMaxMicro: parseUsdcToMicro(body.perTxMaxUsdc),
           }),
-        }),
-      };
-      if (next.hitlAboveMicro >= next.perTxMaxMicro) {
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "hitlAboveUsdc must be below perTxMaxUsdc (allow < review < deny bands)",
-          },
+          ...(body.dailyMaxUsdc !== undefined && {
+            dailyMaxMicro: parseUsdcToMicro(body.dailyMaxUsdc),
+          }),
+          ...(body.hitlAboveUsdc !== undefined && {
+            hitlAboveMicro: parseUsdcToMicro(body.hitlAboveUsdc),
+          }),
+          ...(body.maxPaysPerMinute !== undefined && { maxPaysPerMinute: body.maxPaysPerMinute }),
+          ...(body.newCounterpartyCooldownHours !== undefined && {
+            newCounterpartyCooldownHours: body.newCounterpartyCooldownHours,
+          }),
+          ...(body.addressAllowlist && { addressAllowlist: body.addressAllowlist }),
+          ...(body.domainAllowlist && { domainAllowlist: body.domainAllowlist }),
+          ...(body.vendorAllowlist && { vendorAllowlist: body.vendorAllowlist }),
+          ...(body.merchantDailyCaps !== undefined && {
+            merchantDailyCaps:
+              body.merchantDailyCaps === null
+                ? undefined
+                : Object.fromEntries(
+                    Object.entries(body.merchantDailyCaps).map(([rawDestination, amount]) => {
+                      const destination = rawDestination.trim().toLowerCase();
+                      const parsed = parseUsdcToMicro(amount);
+                      return [destination, parsed];
+                    }),
+                  ),
+          }),
+          ...(body.blocklist && { blocklist: body.blocklist }),
+          ...(body.hitlCategories && { hitlCategories: body.hitlCategories }),
+          ...(body.quietHours !== undefined && { quietHours: body.quietHours ?? undefined }),
+          ...(body.quietHoursTimezone !== undefined && {
+            quietHoursTimezone: body.quietHoursTimezone,
+          }),
+          ...(body.orgDailyMaxUsdc !== undefined && {
+            orgDailyMaxMicro:
+              body.orgDailyMaxUsdc === null ? undefined : parseUsdcToMicro(body.orgDailyMaxUsdc),
+          }),
+          ...(body.categoryCaps !== undefined && {
+            categoryCaps: toCategoryCaps(body.categoryCaps),
+          }),
+          ...(body.budgetWindow !== undefined && {
+            budgetWindow: toBudgetWindow(body.budgetWindow),
+          }),
+          ...(body.counterpartyRiskReviewAbove !== undefined && {
+            counterpartyRiskReviewAbove: body.counterpartyRiskReviewAbove ?? undefined,
+          }),
+          ...(body.automation !== undefined && {
+            automation: body.automation.map((rule) => {
+              const prev = prevById.get(rule.id);
+              return {
+                ...rule,
+                createdAt: prev?.createdAt ?? rule.createdAt ?? stamp,
+                updatedAt: stamp,
+                when:
+                  rule.when.kind === "amount_above" || rule.when.kind === "balance_below"
+                    ? { ...rule.when, micro: parseAutomationMicro(rule.when.micro) }
+                    : rule.when,
+              };
+            }),
+          }),
+        };
+        if (next.hitlAboveMicro >= next.perTxMaxMicro) {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "hitlAboveUsdc must be below perTxMaxUsdc (allow < review < deny bands)",
+            },
+          });
+        }
+        if (next.orgDailyMaxMicro !== undefined && next.orgDailyMaxMicro < next.perTxMaxMicro) {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message:
+                "orgDailyMaxUsdc must be at least perTxMaxUsdc — otherwise no single payment " +
+                "could ever clear the organization ceiling.",
+            },
+          });
+        }
+        if (next.dailyMaxMicro < next.perTxMaxMicro) {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message:
+                "dailyMaxUsdc must be at least perTxMaxUsdc (daily headroom ≥ per-payment ceiling)",
+            },
+          });
+        }
+        store.setPolicyTemplate(org.id, next);
+        for (const v of [
+          ...next.vendorAllowlist,
+          ...next.domainAllowlist,
+          ...next.addressAllowlist,
+        ]) {
+          store.addKnownCounterparty(org.id, v);
+        }
+        res.json({
+          ok: true,
+          policy: policyView(next),
+          version: store.getPolicyVersion(org.id),
         });
-      }
-      if (next.orgDailyMaxMicro !== undefined && next.orgDailyMaxMicro < next.perTxMaxMicro) {
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message:
-              "orgDailyMaxUsdc must be at least perTxMaxUsdc — otherwise no single payment " +
-              "could ever clear the organization ceiling.",
-          },
-        });
-      }
-      if (next.dailyMaxMicro < next.perTxMaxMicro) {
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "dailyMaxUsdc must be at least perTxMaxUsdc (daily headroom ≥ per-payment ceiling)",
-          },
-        });
-      }
-      store.setPolicyTemplate(org.id, next);
-      for (const v of [...next.vendorAllowlist, ...next.domainAllowlist, ...next.addressAllowlist]) {
-        store.addKnownCounterparty(org.id, v);
-      }
-      res.json({
-        ok: true,
-        policy: policyView(next),
-        version: store.getPolicyVersion(org.id),
-      });
-    }, { ownerOnly: true }),
+      },
+      { ownerOnly: true },
+    ),
   );
 }
