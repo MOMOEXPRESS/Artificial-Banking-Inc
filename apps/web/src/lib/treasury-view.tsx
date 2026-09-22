@@ -647,7 +647,7 @@ export function TreasuryView({
                 Choose an asset to inspect its balance, network activity, and funding controls.
               </p>
 
-              <div className="vault-asset-grid" role="list" aria-label="Vault assets">
+              <div className="vault-asset-grid" aria-label="Vault assets">
                 {visibleHoldings.map((h) => {
                   const active = h.id === assetId;
                   const n = Number(
@@ -657,7 +657,6 @@ export function TreasuryView({
                     <button
                       key={h.id}
                       type="button"
-                      role="listitem"
                       className={`vault-asset-tile ${active ? "active" : ""}`}
                       onClick={() => setAssetId(h.id)}
                       aria-pressed={active}
