@@ -44,6 +44,53 @@ export function Overview({
         .slice(0, 8),
     [decisions],
   );
+  const spendingDays = useMemo(() => {
+    const byDay = new Map<string, { amount: number; count: number }>();
+    for (const decision of decisions) {
+      if (decision.outcome !== "allow") continue;
+      const at = new Date(decision.at);
+      if (Number.isNaN(at.getTime())) continue;
+      const key = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(
+        at.getDate(),
+      ).padStart(2, "0")}`;
+      const current = byDay.get(key) ?? { amount: 0, count: 0 };
+      current.amount += Number(decision.amountUsdc) || 0;
+      current.count += 1;
+      byDay.set(key, current);
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(today);
+    start.setDate(today.getDate() - today.getDay() - 28);
+    const days = Array.from({ length: 35 }, (_, index) => {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+        date.getDate(),
+      ).padStart(2, "0")}`;
+      return {
+        key,
+        date,
+        isFuture: date.getTime() > today.getTime(),
+        ...(byDay.get(key) ?? { amount: 0, count: 0 }),
+      };
+    });
+    const max = Math.max(1, ...days.map((day) => day.amount));
+    return days.map((day) => ({
+      ...day,
+      level: day.amount === 0 ? 0 : Math.max(1, Math.ceil((day.amount / max) * 4)),
+    }));
+  }, [decisions]);
+  const recentSpendDays = useMemo(
+    () =>
+      spendingDays
+        .filter((day) => !day.isFuture)
+        .slice(-7)
+        .reverse(),
+    [spendingDays],
+  );
+  const sevenDaySpend = recentSpendDays.reduce((sum, day) => sum + day.amount, 0);
   const activeAgents = (org?.agents ?? []).filter((agent) => agent.status !== "frozen").length;
   const isLive = org?.ledgerMode === "live";
   const actorRole = org?.actor?.role ?? "owner";
@@ -172,6 +219,85 @@ export function Overview({
           <span>Pending approval</span>
           <b>{pending.length}</b>
           <small>{pending.length ? "Requires your attention" : "Nothing waiting"}</small>
+        </div>
+      </section>
+
+      <section className="ops-spending" aria-labelledby="ops-spending-title">
+        <div className="ops-spending-head">
+          <div>
+            <div className="ops-eyebrow">Spending rhythm</div>
+            <h3 id="ops-spending-title">Daily agent spend</h3>
+            <p>Approved spend by day, paired with a precise seven-day operating table.</p>
+          </div>
+          <div className="ops-spending-total">
+            <span>Last 7 days</span>
+            <b>{fmtUsd(sevenDaySpend)}</b>
+            <small>
+              {recentSpendDays.reduce((sum, day) => sum + day.count, 0)} approved transactions
+            </small>
+          </div>
+        </div>
+        <div className="ops-spending-body">
+          <div className="ops-spend-calendar" aria-label="Five-week daily spending calendar">
+            <div className="ops-calendar-weekdays" aria-hidden>
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                <span key={day}>{day}</span>
+              ))}
+            </div>
+            <div className="ops-calendar-grid">
+              {spendingDays.map((day) => (
+                <div
+                  key={day.key}
+                  className={`ops-calendar-day level-${day.level} ${day.isFuture ? "future" : ""}`}
+                  title={`${day.date.toLocaleDateString(undefined, {
+                    month: "long",
+                    day: "numeric",
+                  })}: ${fmtUsd(day.amount)} across ${day.count} transactions`}
+                >
+                  <span>{day.date.getDate()}</span>
+                  {!day.isFuture && <b>{day.amount ? fmtUsd(day.amount) : "—"}</b>}
+                </div>
+              ))}
+            </div>
+            <div className="ops-calendar-legend">
+              <span>Less</span>
+              {[0, 1, 2, 3, 4].map((level) => (
+                <i key={level} className={`level-${level}`} />
+              ))}
+              <span>More</span>
+            </div>
+          </div>
+          <div className="ops-spend-table-wrap">
+            <table className="ops-spend-table">
+              <thead>
+                <tr>
+                  <th>Day</th>
+                  <th>Activity</th>
+                  <th className="num">Spend</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentSpendDays.map((day) => (
+                  <tr key={day.key}>
+                    <td>
+                      <b>{day.date.toLocaleDateString(undefined, { weekday: "short" })}</b>
+                      <span>
+                        {day.date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="ops-spend-count">
+                        {day.count || "No"} {day.count === 1 ? "payment" : "payments"}
+                      </span>
+                    </td>
+                    <td className="num mono">
+                      <b>{fmtUsd(day.amount)}</b>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
