@@ -203,7 +203,7 @@ export function Playground({
   const done = steps.filter((s) => s.status === "done").length;
 
   return (
-    <>
+    <div className="console-page playground-page">
       <div className="banner info">
         <span className="ico">
           <Icon name="robot" size={16} />
@@ -674,7 +674,7 @@ export function Playground({
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
