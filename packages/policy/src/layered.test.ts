@@ -33,15 +33,14 @@ function rules(template: PolicyTemplate, over: Partial<PolicyRules> = {}): Polic
   };
 }
 
-const intent = (amountMicro: bigint, destination = DEST) =>
-  ({
-    agentId: "agt_1",
-    orgId: "org_1",
-    tool: "pay_api" as const,
-    amountMicro,
-    destination,
-    idempotencyKey: "k",
-  });
+const intent = (amountMicro: bigint, destination = DEST) => ({
+  agentId: "agt_1",
+  orgId: "org_1",
+  tool: "pay_api" as const,
+  amountMicro,
+  destination,
+  idempotencyKey: "k",
+});
 
 describe("resolvePolicy", () => {
   it("inherits every org value when there is no override", () => {
@@ -148,6 +147,52 @@ describe("organization-wide daily cap", () => {
       rules(org, { spentLast24hMicro: org.dailyMaxMicro }),
     );
     assert.deepEqual(d.ruleIds, ["daily_max"], "agent limit is the tighter one here");
+  });
+});
+
+describe("merchant daily cap", () => {
+  const endpoint = "https://seller.example/report";
+  const org = {
+    ...templateSoloSwarm(),
+    vendorAllowlist: [endpoint],
+    merchantDailyCaps: { [endpoint]: 10_000_000n },
+    newCounterpartyCooldownHours: 0,
+  };
+
+  it("denies pay_api when shared merchant spend exceeds the ceiling", () => {
+    const d = evaluatePolicy(
+      intent(2_000_000n, endpoint),
+      rules(org, {
+        merchantSpentLast24hMicro: 9_000_000n,
+      }),
+    );
+    assert.equal(d.outcome, "deny");
+    assert.deepEqual(d.ruleIds, ["merchant_daily_max"]);
+  });
+
+  it("applies only to the configured endpoint and permits the exact ceiling", () => {
+    assert.equal(
+      evaluatePolicy(
+        intent(1_000_000n, endpoint),
+        rules(org, {
+          merchantSpentLast24hMicro: 9_000_000n,
+        }),
+      ).outcome,
+      "allow",
+    );
+    assert.equal(
+      evaluatePolicy(
+        intent(2_000_000n, "https://seller.example/other"),
+        rules(
+          {
+            ...org,
+            vendorAllowlist: [endpoint, "https://seller.example/other"],
+          },
+          { merchantSpentLast24hMicro: 9_000_000n },
+        ),
+      ).outcome,
+      "allow",
+    );
   });
 });
 

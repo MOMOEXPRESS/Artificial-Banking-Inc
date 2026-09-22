@@ -75,8 +75,13 @@ buyer/seller addresses, and remaining live checks.
 
 - Show the exact policy trace beside every payment and approval; make policy
   simulation and replay obvious before changing limits.
-- Add merchant allowlists, per-agent and per-merchant budgets, recurring
-  payments with human exception handling, and clear receipt/search workflows.
+- **Done in this block:** shared rolling 24h per-merchant endpoint ceilings,
+  configured under Policy → Budgets. They aggregate settled ABI spend across
+  agents, reserve headroom for payments in progress, and recheck approvals.
+  Merchant registration does not grant permission: the agent's allowlist remains
+  separate. These ceilings do not include payments outside ABI.
+- Still needed: clearer approval/payment policy traces, recurring payments
+  with human exception handling, and receipt/search workflows.
 - Publish the TypeScript SDK after its public API is stable; add a minimal
   Python client for agent teams. Offer a small MCP or ChatGPT-driven demo that
   proposes spending but never holds the wallet key.

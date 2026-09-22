@@ -40,6 +40,12 @@ export function policyView(template: ReturnType<typeof store.getPolicyTemplate>)
     addressAllowlist: template.addressAllowlist,
     domainAllowlist: template.domainAllowlist,
     vendorAllowlist: template.vendorAllowlist,
+    merchantDailyCaps: Object.fromEntries(
+      Object.entries(template.merchantDailyCaps ?? {}).map(([destination, amount]) => [
+        destination,
+        formatMicroToUsdc(amount),
+      ]),
+    ),
     blocklist: template.blocklist,
     hitlCategories: template.hitlCategories,
     quietHours: template.quietHours ?? null,
@@ -201,6 +207,26 @@ export function registerPolicyRoutes(
   const { guardianRoute } = deps;
 
   app.get(
+    "/v1/guardian/policy/merchant-spend",
+    guardianRoute((org, _req, res) => {
+      const caps = store.getPolicyTemplate(org.id).merchantDailyCaps ?? {};
+      res.json({
+        merchants: Object.entries(caps).map(([destination, cap]) => {
+          const spent = store.merchantSpentLast24h(org.id, destination);
+          const reserved = store.merchantReservedMicro(org.id, destination);
+          return {
+            destination,
+            capUsdc: formatMicroToUsdc(cap),
+            spentUsdc: formatMicroToUsdc(spent),
+            reservedUsdc: formatMicroToUsdc(reserved),
+            remainingUsdc: formatMicroToUsdc(cap > spent + reserved ? cap - spent - reserved : 0n),
+          };
+        }),
+      });
+    }),
+  );
+
+  app.get(
     "/v1/guardian/quorum",
     guardianRoute((org, _req, res) => {
       const seats =
@@ -314,6 +340,8 @@ export function registerPolicyRoutes(
         next.vendorAllowlist = current.vendorAllowlist;
         next.blocklist = current.blocklist;
       }
+      // A starter template must not silently remove an existing merchant ceiling.
+      next.merchantDailyCaps = current.merchantDailyCaps;
       // Preserve quorum seats choice unless template sets one.
       if (next.approvalQuorum === undefined) {
         next.approvalQuorum = current.approvalQuorum;
@@ -467,6 +495,14 @@ export function registerPolicyRoutes(
           addressAllowlist: z.array(z.string()).optional(),
           domainAllowlist: z.array(z.string()).optional(),
           vendorAllowlist: z.array(z.string()).optional(),
+          merchantDailyCaps: z
+            .record(
+              z.string().min(1).max(2048).regex(/^https?:\/\/[^/]+\/[^?]+/),
+              z.string().regex(/^\d+(?:\.\d{1,6})?$/),
+            )
+            .refine((caps) => Object.keys(caps).length <= 50, "Limit to 50 merchant caps")
+            .nullable()
+            .optional(),
           blocklist: z.array(z.string()).optional(),
           hitlCategories: z.array(toolEnum).optional(),
           quietHours: z
@@ -539,6 +575,15 @@ export function registerPolicyRoutes(
         ...(body.addressAllowlist && { addressAllowlist: body.addressAllowlist }),
         ...(body.domainAllowlist && { domainAllowlist: body.domainAllowlist }),
         ...(body.vendorAllowlist && { vendorAllowlist: body.vendorAllowlist }),
+        ...(body.merchantDailyCaps !== undefined && {
+          merchantDailyCaps: body.merchantDailyCaps === null
+            ? undefined
+            : Object.fromEntries(
+                Object.entries(body.merchantDailyCaps).map(([rawDestination, amount]) => [
+                  rawDestination.trim().toLowerCase(), parseUsdcToMicro(amount),
+                ]),
+              ),
+        }),
         ...(body.blocklist && { blocklist: body.blocklist }),
         ...(body.hitlCategories && { hitlCategories: body.hitlCategories }),
         ...(body.quietHours !== undefined && { quietHours: body.quietHours ?? undefined }),

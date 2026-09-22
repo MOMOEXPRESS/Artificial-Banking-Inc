@@ -214,6 +214,13 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
           "guardianBearer",
         ),
       },
+      "/v1/guardian/policy/merchant-spend": {
+        get: stub(
+          ["guardian"],
+          "Read organization spend against merchant ceilings",
+          "guardianBearer",
+        ),
+      },
       "/v1/guardian/burn": { get: stub(["guardian"], "Burn-rate forecast", "guardianBearer") },
       "/v1/guardian/anomalies": { get: stub(["guardian"], "Spend anomalies", "guardianBearer") },
       "/v1/guardian/economics": { get: stub(["guardian"], "Job economics", "guardianBearer") },

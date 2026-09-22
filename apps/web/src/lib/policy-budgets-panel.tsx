@@ -9,7 +9,7 @@
  * independently, so a half-finished category cannot block a limit change.
  */
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { Policy } from "./policy-view";
 
@@ -31,6 +31,50 @@ export function BudgetsPanel({
   const [win, setWin] = useState<Window | null>(() => policy.budgetWindow ?? null);
   const [risk, setRisk] = useState<number | null>(policy.counterpartyRiskReviewAbove ?? null);
   const [draftCategory, setDraftCategory] = useState("");
+  const [merchantCaps, setMerchantCaps] = useState<Record<string, string>>(
+    () => policy.merchantDailyCaps ?? {},
+  );
+  const [merchantEndpoint, setMerchantEndpoint] = useState("");
+  const [merchantAmount, setMerchantAmount] = useState("");
+  const [merchantUsage, setMerchantUsage] = useState<
+    Record<string, { spentUsdc: string; reservedUsdc: string; remainingUsdc: string }>
+  >({});
+  const [merchantError, setMerchantError] = useState("");
+
+  const refreshMerchantUsage = useCallback(async () => {
+    try {
+      const response = await gFetch("/v1/guardian/policy/merchant-spend");
+      if (!response.ok) throw new Error("Could not load merchant spend");
+      const data = await response.json();
+      setMerchantUsage(
+        Object.fromEntries(
+          (data.merchants ?? []).map(
+            (entry: {
+              destination: string;
+              spentUsdc: string;
+              reservedUsdc: string;
+              remainingUsdc: string;
+            }) => [entry.destination, entry],
+          ),
+        ),
+      );
+      setMerchantError("");
+    } catch {
+      setMerchantError("Merchant spend is temporarily unavailable.");
+    }
+  }, [gFetch]);
+
+  useEffect(() => {
+    void refreshMerchantUsage();
+  }, [refreshMerchantUsage]);
+
+  const saveMerchantCaps = (next: Record<string, string>) =>
+    act("Merchant caps", async () => {
+      await patch({ merchantDailyCaps: next });
+      setMerchantCaps(next);
+      await refreshMerchantUsage();
+      return "Shared merchant caps saved. Agents and pending approvals use the new limits.";
+    });
 
   const patch = async (body: Record<string, unknown>) => {
     const res = await gFetch("/v1/guardian/policy", {
@@ -104,8 +148,8 @@ export function BudgetsPanel({
           <div>
             <h2 style={{ margin: 0 }}>Spend categories</h2>
             <div className="sub">
-              Caps on what the money is for, not just how much. The category comes from the
-              merchant record — destinations without one are governed by the limits alone.
+              Caps on what the money is for, not just how much. The category comes from the merchant
+              record — destinations without one are governed by the limits alone.
             </div>
           </div>
         </div>
@@ -214,10 +258,111 @@ export function BudgetsPanel({
         <div className="card">
           <div className="card-head">
             <div>
+              <h2 style={{ margin: 0 }}>Merchant ceilings</h2>
+              <div className="sub">
+                One rolling 24h USDC ceiling per exact paid endpoint, shared by every agent.
+                Approvals recheck it before release.
+              </div>
+            </div>
+          </div>
+          {Object.entries(merchantCaps).map(([destination, cap]) => (
+            <div key={destination} className="kv" style={{ alignItems: "flex-start" }}>
+              <span className="k mono" style={{ overflowWrap: "anywhere" }}>
+                {destination}
+              </span>
+              <span className="v" style={{ textAlign: "right" }}>
+                ${merchantUsage[destination]?.spentUsdc ?? "—"} / ${cap} spent
+                <br />
+                <span className="faint">
+                  ${merchantUsage[destination]?.reservedUsdc ?? "—"} in progress
+                </span>
+                <br />
+                <span className="faint">
+                  ${merchantUsage[destination]?.remainingUsdc ?? "—"} left
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={locked}
+                  aria-label={`Remove cap for ${destination}`}
+                  onClick={() => {
+                    const next = { ...merchantCaps };
+                    delete next[destination];
+                    void saveMerchantCaps(next);
+                  }}
+                >
+                  Remove
+                </Button>
+              </span>
+            </div>
+          ))}
+          {!Object.keys(merchantCaps).length && <p className="faint">No merchant ceilings yet.</p>}
+          <label style={{ fontSize: 12, display: "block", marginTop: 12 }}>
+            Exact paid endpoint
+            <input
+              className="input sm"
+              placeholder="https://seller.example/report"
+              value={merchantEndpoint}
+              disabled={locked}
+              onChange={(e) => setMerchantEndpoint(e.target.value)}
+            />
+          </label>
+          <label style={{ fontSize: 12, display: "block", marginTop: 8 }}>
+            Maximum USDC per rolling 24h (0 blocks the merchant)
+            <input
+              className="input sm"
+              inputMode="decimal"
+              placeholder="10.00"
+              value={merchantAmount}
+              disabled={locked}
+              onChange={(e) => setMerchantAmount(e.target.value)}
+            />
+          </label>
+          <Button
+            type="button"
+            size="sm"
+            style={{ marginTop: 10 }}
+            disabled={locked || !merchantEndpoint.trim() || !merchantAmount.trim()}
+            onClick={() => {
+              const endpoint = merchantEndpoint.trim().toLowerCase();
+              if (
+                !/^https?:\/\/[^/]+\/[^?]+/.test(endpoint) ||
+                !/^\d+(?:\.\d{1,6})?$/.test(merchantAmount) ||
+                (Object.keys(merchantCaps).length >= 50 && !(endpoint in merchantCaps))
+              ) {
+                setMerchantError(
+                  "Enter an HTTP paid endpoint and a non-negative USDC amount (up to six decimals; 50 caps maximum).",
+                );
+                return;
+              }
+              setMerchantError("");
+              void saveMerchantCaps({ ...merchantCaps, [endpoint]: merchantAmount.trim() });
+              setMerchantEndpoint("");
+              setMerchantAmount("");
+            }}
+          >
+            Save merchant ceiling
+          </Button>
+          {merchantError && (
+            <p role="alert" className="faint">
+              {merchantError}
+            </p>
+          )}
+          <p className="faint" style={{ fontSize: 12, lineHeight: 1.55 }}>
+            This cap does not allowlist a seller. Set Policy → Allowlists separately. Spend comes
+            from settled ABI payments and excludes payments made outside ABI. Check current spend
+            before changing a cap; lowering it below money already spent blocks further payments
+            until the rolling window clears.
+          </p>
+        </div>
+        <div className="card">
+          <div className="card-head">
+            <div>
               <h2 style={{ margin: 0 }}>Time-boxed budget</h2>
               <div className="sub">
-                A total and an end date. Past the end, every payment is refused — the safety
-                expiry for an agent nobody remembers deploying.
+                A total and an end date. Past the end, every payment is refused — the safety expiry
+                for an agent nobody remembers deploying.
               </div>
             </div>
             {expired && (
@@ -268,7 +413,12 @@ export function BudgetsPanel({
               />
             </label>
             <div className="row" style={{ gap: 8 }}>
-              <Button type="button" size="sm" disabled={locked} onClick={() => void saveWindow(win)}>
+              <Button
+                type="button"
+                size="sm"
+                disabled={locked}
+                onClick={() => void saveWindow(win)}
+              >
                 Save budget
               </Button>
               {win && (
@@ -291,9 +441,9 @@ export function BudgetsPanel({
             <div>
               <h2 style={{ margin: 0 }}>Counterparty risk</h2>
               <div className="sub">
-                The allowlist is yes-or-no. This scores a destination 0–100 on age, payment
-                history and screening, and parks anything above the threshold — so an allowlisted
-                but brand-new vendor still gets a look.
+                The allowlist is yes-or-no. This scores a destination 0–100 on age, payment history
+                and screening, and parks anything above the threshold — so an allowlisted but
+                brand-new vendor still gets a look.
               </div>
             </div>
           </div>

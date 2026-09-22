@@ -16,6 +16,7 @@ export type Policy = {
   addressAllowlist: string[];
   domainAllowlist: string[];
   vendorAllowlist: string[];
+  merchantDailyCaps?: Record<string, string>;
   blocklist: string[];
   hitlCategories: string[];
   quietHours?: { startHour: number; endHour: number; action: "review" | "deny" } | null;

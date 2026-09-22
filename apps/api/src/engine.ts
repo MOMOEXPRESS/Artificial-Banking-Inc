@@ -4,7 +4,13 @@
  * and by the Telegram approvals bot.
  */
 import { randomBytes } from "node:crypto";
-import { accountId, formatMicroToUsdc, parseUsdcToMicro, type IntentTool, type MicroUsdc } from "@policyvault/common";
+import {
+  accountId,
+  formatMicroToUsdc,
+  parseUsdcToMicro,
+  type IntentTool,
+  type MicroUsdc,
+} from "@policyvault/common";
 import {
   finalizePayment,
   holdForPayment,
@@ -53,7 +59,10 @@ export function scopedIdempotencyKey(agentId: string, key: string): string {
  * layers: organization defaults, then an optional per-agent override.
  */
 export function resolvedPolicyFor(agentId: string, orgId: string) {
-  return resolvePolicy(store.getPolicyTemplate(orgId), scopedStore(orgId).getAgentPolicyOverride(agentId));
+  return resolvePolicy(
+    store.getPolicyTemplate(orgId),
+    scopedStore(orgId).getAgentPolicyOverride(agentId),
+  );
 }
 
 export function rulesFor(agentId: string, orgId: string, destination?: string): PolicyRules {
@@ -74,15 +83,17 @@ export function rulesFor(agentId: string, orgId: string, destination?: string): 
     // pointless scan on every single evaluation.
     orgSpentLast24hMicro:
       effective.orgDailyMaxMicro === undefined ? undefined : store.orgSpentLast24h(orgId),
+    merchantSpentLast24hMicro:
+      destination && effective.merchantDailyCaps?.[destination.trim().toLowerCase()] !== undefined
+        ? store.merchantSpentLast24h(orgId, destination)
+        : undefined,
     // Drives the cooldown. Undefined for a destination never seen before.
     counterpartyFirstSeenMs: destination
       ? store.counterpartyFirstSeenMs(orgId, destination)
       : undefined,
     // P6-T3: what the money is FOR. Uncategorised destinations fall through
     // to the agent/org caps, which is the pre-existing behaviour.
-    destinationCategory: destination
-      ? store.categoryForDestination(orgId, destination)
-      : undefined,
+    destinationCategory: destination ? store.categoryForDestination(orgId, destination) : undefined,
     // Only computed when a cap for that category exists — otherwise it is a
     // scan whose result nothing reads.
     categorySpentLast24hMicro: (() => {
@@ -317,6 +328,50 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       }),
     ]);
 
+  const merchantCap =
+    input.tool === "pay_api"
+      ? store.getPolicyTemplate(input.orgId).merchantDailyCaps?.[
+          input.destination.trim().toLowerCase()
+        ]
+      : undefined;
+  if (
+    merchantCap !== undefined &&
+    !store.reserveMerchantCap({
+      orgId: input.orgId,
+      agentId: input.agentId,
+      intentId: input.intentId,
+      destination: input.destination,
+      amountMicro: input.amountMicro,
+      capMicro: merchantCap,
+    })
+  ) {
+    releaseFullHold();
+    recordDecision({
+      intentId: input.intentId,
+      orgId: input.orgId,
+      agentId: input.agentId,
+      outcome: "deny",
+      ruleIds: ["merchant_daily_max"],
+      reasons: ["Merchant ceiling consumed by another payment in progress"],
+      tool: input.tool,
+      amountUsdc: input.amountUsdc,
+      destination: input.destination,
+    });
+    return {
+      ok: false,
+      status: 403,
+      payload: {
+        intentId: input.intentId,
+        outcome: "deny",
+        ruleIds: ["merchant_daily_max"],
+        error: {
+          code: "POLICY_DENIED",
+          message: "Merchant ceiling consumed by another payment in progress",
+        },
+      },
+    };
+  }
+
   let chargedMicro = input.amountMicro;
   let rail = transferMockRail.name;
   let txHash: string | undefined;
@@ -330,6 +385,12 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
   });
   if (!screen.ok) {
     releaseFullHold();
+    if (merchantCap !== undefined) {
+      store.finishSettlement(input.intentId, {
+        state: "failed",
+        error: "Compliance screen blocked payment",
+      });
+    }
     emitEvent(input.orgId, "compliance.flagged", {
       intentId: input.intentId,
       agentId: input.agentId,
@@ -400,8 +461,7 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       authorizedMicro: input.amountMicro,
       blocklist: store.getPolicyTemplate(input.orgId).blocklist,
       // Called the instant a hash exists, before waiting for confirmation.
-      onBroadcast: (rail, txHash) =>
-        store.markSettlementBroadcast(input.intentId, rail, txHash),
+      onBroadcast: (rail, txHash) => store.markSettlementBroadcast(input.intentId, rail, txHash),
     });
     if (!settled.settled) {
       throw new X402Error(
@@ -515,7 +575,10 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     try {
       releaseFullHold();
     } catch (releaseErr) {
-      console.error(`HOLD ORPHANED intent=${input.intentId} — manual reconciliation required:`, releaseErr);
+      console.error(
+        `HOLD ORPHANED intent=${input.intentId} — manual reconciliation required:`,
+        releaseErr,
+      );
     }
     emitEvent(input.orgId, "payment.failed", {
       intentId: input.intentId,
@@ -813,7 +876,12 @@ export async function resolveApproval(
       resolvedBy,
       reason: recheck.reasons[0],
     });
-    return { kind: "resolved", ok: false, execStatus: 403, approval: store.getApproval(approvalId, orgId)! };
+    return {
+      kind: "resolved",
+      ok: false,
+      execStatus: 403,
+      approval: store.getApproval(approvalId, orgId)!,
+    };
   }
   const result = await executeIntent({
     orgId: approval.orgId,
