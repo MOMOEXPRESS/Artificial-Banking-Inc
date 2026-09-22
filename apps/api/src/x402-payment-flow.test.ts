@@ -37,18 +37,20 @@ let buyerBase = "";
 let sellerBase = "";
 
 const seller = createServer((req, res) => {
-  if (req.url !== "/report") {
+  if (req.url !== "/report" && req.url !== "/wrong-token") {
     res.writeHead(404).end();
     return;
   }
   const required: PaymentRequired = {
     x402Version: 2,
-    resource: { url: `${sellerBase}/report`, mimeType: "application/json" },
+    resource: { url: `${sellerBase}${req.url}`, mimeType: "application/json" },
     accepts: [
       {
         scheme: "exact",
         network: "eip155:84532",
-        asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        asset: req.url === "/wrong-token"
+          ? "0x0000000000000000000000000000000000000001"
+          : "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
         amount: "10000",
         payTo: PAY_TO,
         maxTimeoutSeconds: 120,
@@ -160,4 +162,84 @@ it("replays one x402 settlement without a second seller request or ledger postin
   const finalRecon = store.reconcileOrgUncached(org.id);
   assert.equal(finalRecon.ok, true, JSON.stringify(finalRecon.drift));
   assert.equal(finalRecon.journalsReplayed, firstRecon.journalsReplayed);
+});
+
+it("verifies the seller challenge and scopes merchant activity to its organization and endpoint", async () => {
+  const org = store.createOrg("Merchant Gateway Co", 0n);
+  const otherOrg = store.createOrg("Other Seller Co", 0n);
+  const endpoint = `${sellerBase}/report`;
+  const headers = {
+    authorization: `Bearer ${org.guardianKey}`,
+    "content-type": "application/json",
+  };
+  const onboard = await fetch(`${buyerBase}/v1/guardian/merchant-gateway/onboard`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      label: "Test Seller",
+      endpoint,
+      payoutAddress: PAY_TO,
+      priceUsdc: "0.01",
+    }),
+  });
+  assert.equal(onboard.status, 201);
+  const { merchant } = (await onboard.json()) as { merchant: { id: string } };
+  const verify = await fetch(`${buyerBase}/v1/guardian/merchant-gateway/${merchant.id}/verify`, {
+    method: "POST",
+    headers,
+  });
+  assert.equal(verify.status, 200);
+  const wrongOrg = await fetch(
+    `${buyerBase}/v1/guardian/merchant-gateway/${merchant.id}/activity`,
+    {
+      headers: { authorization: `Bearer ${otherOrg.guardianKey}` },
+    },
+  );
+  assert.equal(wrongOrg.status, 404);
+
+  const agent = store.createAgent(org.id, "Merchant buyer");
+  store.beginSettlement({
+    intentId: "merchant-receipt",
+    orgId: org.id,
+    agentId: agent.agentId,
+    tool: "pay_api",
+    destination: endpoint,
+    amountMicro: 10_000n,
+  });
+  store.finishSettlement("merchant-receipt", {
+    state: "settled",
+    rail: "x402-v2",
+    chargedMicro: 10_000n,
+    txHash: TX_HASH,
+  });
+  store.beginSettlement({
+    intentId: "different-endpoint",
+    orgId: org.id,
+    agentId: agent.agentId,
+    tool: "pay_api",
+    destination: `${sellerBase}/other`,
+    amountMicro: 10_000n,
+  });
+  const activity = await fetch(
+    `${buyerBase}/v1/guardian/merchant-gateway/${merchant.id}/activity`,
+    { headers },
+  );
+  assert.equal(activity.status, 200);
+  const body = (await activity.json()) as {
+    settlements: { intentId: string; txHash: string; explorerUrl: string }[];
+  };
+  assert.equal(body.settlements.length, 1);
+  assert.equal(body.settlements[0].intentId, "merchant-receipt");
+  assert.equal(body.settlements[0].txHash, TX_HASH);
+  assert.equal(body.settlements[0].explorerUrl, `https://sepolia.basescan.org/tx/${TX_HASH}`);
+
+  const fakeToken = await fetch(`${buyerBase}/v1/guardian/merchant-gateway/onboard`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ label: "Wrong token", endpoint: `${sellerBase}/wrong-token`, payoutAddress: PAY_TO, priceUsdc: "0.01" }),
+  });
+  assert.equal(fakeToken.status, 201);
+  const badMerchant = (await fakeToken.json()) as { merchant: { id: string } };
+  const rejected = await fetch(`${buyerBase}/v1/guardian/merchant-gateway/${badMerchant.merchant.id}/verify`, { method: "POST", headers });
+  assert.equal(rejected.status, 422, "matching price and wallet must not verify a non-USDC asset");
 });
