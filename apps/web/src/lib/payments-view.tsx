@@ -30,6 +30,10 @@ type PayRow = {
   destination: string;
   agentName: string;
   outcome: string;
+  rail?: string;
+  settlementState?: string;
+  txHash?: string;
+  explorerUrl?: string;
 };
 
 type Escrow = {
@@ -69,8 +73,11 @@ export function PaymentsView({
   invoices?: Invoice[];
   invStats?: InvoiceStats | null;
   escrows?: Escrow[];
-  initialTab?: "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows" | "batch" | "approvals";
-  onTabChange?: (tab: "approvals" | "recent" | "subs" | "rails" | "invoices" | "escrows" | "batch") => void;
+  initialTab?:
+    "recent" | "schedule" | "subs" | "rails" | "invoices" | "escrows" | "batch" | "approvals";
+  onTabChange?: (
+    tab: "approvals" | "recent" | "subs" | "rails" | "invoices" | "escrows" | "batch",
+  ) => void;
   approvals?: Approval[];
   pending?: Approval[];
   agentName?: (id: string) => string;
@@ -134,7 +141,8 @@ export function PaymentsView({
     if (!form.agentId && agents[0]) setForm((f) => ({ ...f, agentId: agents[0].id }));
   }, [agents, form.agentId]);
 
-  const agentName = agentNameProp ?? ((id: string) => agents.find((a) => a.id === id)?.name ?? id.slice(0, 8));
+  const agentName =
+    agentNameProp ?? ((id: string) => agents.find((a) => a.id === id)?.name ?? id.slice(0, 8));
 
   const resolveEscrow = (id: string, action: "release" | "refund") =>
     act("Escrow", async () => {
@@ -218,7 +226,8 @@ export function PaymentsView({
             style={{ width: "100%", fontFamily: "var(--font-mono, monospace)", fontSize: 12 }}
           />
           <div className="row" style={{ marginTop: 12, gap: 8 }}>
-            <Button size="sm"
+            <Button
+              size="sm"
               disabled={locked}
               onClick={() =>
                 void act("Batch enqueue", async () => {
@@ -248,7 +257,9 @@ export function PaymentsView({
             >
               Enqueue batch
             </Button>
-            <Button variant="ghost" size="sm"
+            <Button
+              variant="ghost"
+              size="sm"
               disabled={readOnly || !agents[0]}
               onClick={() => {
                 const a = agents[0]!;
@@ -322,13 +333,16 @@ export function PaymentsView({
                       <td>
                         {e.state === "locked" ? (
                           <div className="row" style={{ flexWrap: "nowrap" }}>
-                            <Button size="sm"
+                            <Button
+                              size="sm"
                               disabled={locked}
                               onClick={() => void resolveEscrow(e.id, "release")}
                             >
                               Release
                             </Button>
-                            <Button variant="destructive" size="sm"
+                            <Button
+                              variant="destructive"
+                              size="sm"
                               disabled={locked}
                               onClick={() => void resolveEscrow(e.id, "refund")}
                             >
@@ -371,6 +385,7 @@ export function PaymentsView({
                   <th>Tool</th>
                   <th>Destination</th>
                   <th className="num">Amount</th>
+                  <th>Settlement</th>
                 </tr>
               </thead>
               <tbody>
@@ -383,6 +398,15 @@ export function PaymentsView({
                     <td className="mono">{p.tool}</td>
                     <td className="mono wrap">{p.destination}</td>
                     <td className="num mono">{fmtUsd(p.amountUsdc)}</td>
+                    <td>
+                      {p.txHash && p.explorerUrl ? (
+                        <a href={p.explorerUrl} target="_blank" rel="noreferrer" className="mono">
+                          {p.txHash.slice(0, 10)}…
+                        </a>
+                      ) : (
+                        <span className="faint">{p.rail ?? p.settlementState ?? "ledger"}</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -593,7 +617,9 @@ export function PaymentsView({
                       </td>
                       <td>
                         {s.status === "active" && (
-                          <Button variant="ghost" size="sm"
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             disabled={locked}
                             onClick={() =>
                               void act("Pause", async () => {
@@ -608,7 +634,9 @@ export function PaymentsView({
                           </Button>
                         )}
                         {s.status === "paused" && (
-                          <Button variant="ghost" size="sm"
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             disabled={locked}
                             onClick={() =>
                               void act("Resume", async () => {
@@ -623,7 +651,9 @@ export function PaymentsView({
                           </Button>
                         )}
                         {s.status !== "cancelled" && (
-                          <Button variant="ghost" size="sm"
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             disabled={locked}
                             onClick={() =>
                               void act("Cancel", async () => {

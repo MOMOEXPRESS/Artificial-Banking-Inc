@@ -22,6 +22,12 @@ export type Session = {
   agentKeys: AgentKey[];
 };
 
+/** Persist only non-secret account metadata; bearer and agent keys stay in memory. */
+export function sessionForPersistentStorage(session: Session | null): Session | null {
+  if (!session || session.mode !== "session") return null;
+  return { ...session, guardianKey: "", agentKeys: [] };
+}
+
 export type Prefs = { autoJump: boolean };
 
 export type OrgView = {
@@ -120,7 +126,12 @@ export type Setup = {
   cdpWired?: boolean;
   note?: string;
 };
-export type Recon = { ok: boolean; accountsChecked: number; journalsReplayed: number; drift: unknown[] };
+export type Recon = {
+  ok: boolean;
+  accountsChecked: number;
+  journalsReplayed: number;
+  drift: unknown[];
+};
 
 export type View =
   | "overview"

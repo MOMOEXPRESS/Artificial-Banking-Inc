@@ -1,16 +1,19 @@
+import { LEGAL_FOOTER, accountId, formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/common";
 import {
-  LEGAL_FOOTER,
-  accountId,
-  formatMicroToUsdc,
-  parseUsdcToMicro,
-} from "@policyvault/common";
-import { DevLocalProvider, SelfCustodyVaultProvider, cdpEnvConfigured, getCustodyProvider, setCustodyProvider } from "@policyvault/custody";
+  DevLocalProvider,
+  SelfCustodyVaultProvider,
+  cdpEnvConfigured,
+  getCustodyProvider,
+  setCustodyProvider,
+} from "@policyvault/custody";
 import { recogniseRevenue, transferAvailable } from "@policyvault/ledger";
 import { evaluatePolicy, matchedAutomationRules } from "@policyvault/policy";
 import cors from "cors";
 import express from "express";
 import { privateKeyToAccount } from "viem/accounts";
 import { z } from "zod";
+import { x402Client, x402HTTPClient } from "@x402/core/client";
+import type { PaymentRequired } from "@x402/core/types";
 import {
   APPROVAL_TTL_MINUTES,
   executeIntent,
@@ -24,12 +27,7 @@ import {
   sweepEscrowTimeouts,
   type ExecInput,
 } from "./engine.js";
-import {
-  anomalies,
-  burnForecast,
-  jobEconomics,
-  vendorLedger,
-} from "./analytics.js";
+import { anomalies, burnForecast, jobEconomics, vendorLedger } from "./analytics.js";
 import { answerQuestion, buildSummary } from "./insights.js";
 import { runAbiAgent } from "./abi-agent/index.js";
 import {
@@ -53,10 +51,15 @@ import {
   updateAiSettings,
 } from "./abi-agent/ai-settings.js";
 import { createOpenAiFactRephraser } from "./platform/openai-rephraser.js";
-import { recordObs, setObservabilitySink, PrometheusSink, getObservabilitySink } from "./platform/observability.js";
+import {
+  recordObs,
+  setObservabilitySink,
+  PrometheusSink,
+  getObservabilitySink,
+} from "./platform/observability.js";
 import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
-import { webhookUrlProblem } from "./outbound-url.js";
+import { outboundUrlProblem, webhookUrlProblem } from "./outbound-url.js";
 import { hashSecret } from "./secrets.js";
 import { csrfProblem } from "./auth/session.js";
 import { signupTokenProblem } from "./auth/signup-token.js";
@@ -105,7 +108,9 @@ registerTelegramNotifier();
 const promSink = new PrometheusSink({ consoleAlso: true });
 setObservabilitySink(promSink);
 
-function notifyOrgId(payload: Parameters<Parameters<typeof registerNotifier>[1]>[0]): string | undefined {
+function notifyOrgId(
+  payload: Parameters<Parameters<typeof registerNotifier>[1]>[0],
+): string | undefined {
   if (payload.kind === "approval.pending") return payload.approval.orgId;
   if ("orgId" in payload) return payload.orgId as string;
   return undefined;
@@ -205,15 +210,27 @@ registerNotifier("webhook", (payload) => {
     return;
   }
   if (payload.kind === "policy.denied") {
-    emitEvent(payload.orgId, "policy.denied", { title: payload.title, body: payload.body, ...payload.meta });
+    emitEvent(payload.orgId, "policy.denied", {
+      title: payload.title,
+      body: payload.body,
+      ...payload.meta,
+    });
     return;
   }
   if (payload.kind === "agent.frozen") {
-    emitEvent(payload.orgId, "agent.frozen", { title: payload.title, body: payload.body, ...payload.meta });
+    emitEvent(payload.orgId, "agent.frozen", {
+      title: payload.title,
+      body: payload.body,
+      ...payload.meta,
+    });
     return;
   }
   if (payload.kind === "compliance.flagged") {
-    emitEvent(payload.orgId, "compliance.flagged", { title: payload.title, body: payload.body, ...payload.meta });
+    emitEvent(payload.orgId, "compliance.flagged", {
+      title: payload.title,
+      body: payload.body,
+      ...payload.meta,
+    });
   }
 });
 
@@ -632,8 +649,7 @@ async function handleIntent(
   // or in flight — replays instead of executing a second time.
   if (!store.reserveIdempotent(input.orgId, idemKey)) {
     const existing = store.getIdempotent(input.orgId, idemKey) as
-      | { status?: string; httpStatus?: number }
-      | undefined;
+      { status?: string; httpStatus?: number } | undefined;
     if (existing?.status === "in_flight") {
       return res.status(409).json({
         error: {
@@ -808,9 +824,7 @@ app.get("/health", (_req, res) => {
 app.get("/metrics", (_req, res) => {
   const sink = getObservabilitySink();
   const text =
-    typeof sink.prometheusText === "function"
-      ? sink.prometheusText()
-      : "# no prometheus sink\n";
+    typeof sink.prometheusText === "function" ? sink.prometheusText() : "# no prometheus sink\n";
   res.type("text/plain; version=0.0.4; charset=utf-8").send(text);
 });
 
@@ -881,7 +895,8 @@ app.post("/v1/demo/bootstrap", (req, res) => {
  */
 const ALLOW_PUBLIC_ORG_CREATE =
   process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE === "1" ||
-  (process.env.NODE_ENV !== "production" && process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE !== "0");
+  (process.env.NODE_ENV !== "production" &&
+    process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE !== "0");
 
 app.post("/v1/guardian/orgs", (req, res) => {
   if (!ALLOW_PUBLIC_ORG_CREATE) {
@@ -969,59 +984,72 @@ app.get(
 /** Recurring agent spend — each run still passes the full policy engine. */
 app.post(
   "/v1/guardian/subscriptions",
-  guardianRoute((org, req, res) => {
-    const body = z
-      .object({
-        agentId: z.string(),
-        vendor: z.string().min(1),
-        amountUsdc: z.string(),
-        intervalHours: z.number().int().min(1).max(24 * 90),
-        maxTotalUsdc: z.string().optional(),
-        memo: z.string().max(200).optional(),
-        startNow: z.boolean().default(false),
-      })
-      .parse(req.body);
-    const agent = scopedStore(org.id).getAgent(body.agentId);
-    if (!agent) {
-      return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-    }
-    const sub = {
-      id: id("sub"),
-      orgId: org.id,
-      agentId: body.agentId,
-      vendor: body.vendor,
-      amountMicro: parseUsdcToMicro(body.amountUsdc),
-      intervalHours: body.intervalHours,
-      status: "active" as const,
-      createdAt: new Date().toISOString(),
-      nextRunAt: new Date(
-        Date.now() + (body.startNow ? 0 : body.intervalHours * 3600_000),
-      ).toISOString(),
-      runs: 0,
-      spentMicro: 0n,
-      maxTotalMicro: body.maxTotalUsdc ? parseUsdcToMicro(body.maxTotalUsdc) : undefined,
-      memo: body.memo,
-    };
-    store.createSubscription(sub);
-    res.status(201).json({ subscription: subView(sub) });
-  }, { ownerOnly: true }),
+  guardianRoute(
+    (org, req, res) => {
+      const body = z
+        .object({
+          agentId: z.string(),
+          vendor: z.string().min(1),
+          amountUsdc: z.string(),
+          intervalHours: z
+            .number()
+            .int()
+            .min(1)
+            .max(24 * 90),
+          maxTotalUsdc: z.string().optional(),
+          memo: z.string().max(200).optional(),
+          startNow: z.boolean().default(false),
+        })
+        .parse(req.body);
+      const agent = scopedStore(org.id).getAgent(body.agentId);
+      if (!agent) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+      }
+      const sub = {
+        id: id("sub"),
+        orgId: org.id,
+        agentId: body.agentId,
+        vendor: body.vendor,
+        amountMicro: parseUsdcToMicro(body.amountUsdc),
+        intervalHours: body.intervalHours,
+        status: "active" as const,
+        createdAt: new Date().toISOString(),
+        nextRunAt: new Date(
+          Date.now() + (body.startNow ? 0 : body.intervalHours * 3600_000),
+        ).toISOString(),
+        runs: 0,
+        spentMicro: 0n,
+        maxTotalMicro: body.maxTotalUsdc ? parseUsdcToMicro(body.maxTotalUsdc) : undefined,
+        memo: body.memo,
+      };
+      store.createSubscription(sub);
+      res.status(201).json({ subscription: subView(sub) });
+    },
+    { ownerOnly: true },
+  ),
 );
 
 app.post(
   "/v1/guardian/subscriptions/:id/:action",
-  guardianRoute((org, req, res) => {
-    const action = req.params.action;
-    if (!["pause", "resume", "cancel"].includes(action)) {
-      return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "bad action" } });
-    }
-    const sub = store.getSubscription(req.params.id, org.id);
-    if (!sub) return res.status(404).json({ error: { code: "NOT_FOUND" } });
-    store.setSubscriptionStatus(
-      sub.id,
-      action === "pause" ? "paused" : action === "resume" ? "active" : "cancelled",
-    );
-    res.json({ ok: true, status: action === "pause" ? "paused" : action === "resume" ? "active" : "cancelled" });
-  }, { ownerOnly: true }),
+  guardianRoute(
+    (org, req, res) => {
+      const action = req.params.action;
+      if (!["pause", "resume", "cancel"].includes(action)) {
+        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "bad action" } });
+      }
+      const sub = store.getSubscription(req.params.id, org.id);
+      if (!sub) return res.status(404).json({ error: { code: "NOT_FOUND" } });
+      store.setSubscriptionStatus(
+        sub.id,
+        action === "pause" ? "paused" : action === "resume" ? "active" : "cancelled",
+      );
+      res.json({
+        ok: true,
+        status: action === "pause" ? "paused" : action === "resume" ? "active" : "cancelled",
+      });
+    },
+    { ownerOnly: true },
+  ),
 );
 
 // ------------------------------------------------------------- guardians
@@ -1042,57 +1070,68 @@ app.get(
 /** Update secondary guardian role / HITL conditions. */
 app.patch(
   "/v1/guardian/guardians/:id",
-  guardianRoute((org, req, res) => {
-    const body = z
-      .object({
-        role: z.enum(["approver", "viewer"]).optional(),
-        conditions: z
-          .object({
-            restricted: z.boolean().optional(),
-            maxApproveUsdc: z.string().optional(),
-            note: z.string().max(200).optional(),
-          })
-          .nullable()
-          .optional(),
-      })
-      .parse(req.body);
-    const updated = store.updateGuardian(org.id, req.params.id, body);
-    if (!updated) {
-      return res.status(404).json({ error: { code: "NOT_FOUND", message: "Guardian not found" } });
-    }
-    const { guardianKey: _k, ...rest } = updated;
-    res.json({ guardian: { ...rest, guardianKey: "pv_guardian_***" } });
-  }, { ownerOnly: true }),
+  guardianRoute(
+    (org, req, res) => {
+      const body = z
+        .object({
+          role: z.enum(["approver", "viewer"]).optional(),
+          conditions: z
+            .object({
+              restricted: z.boolean().optional(),
+              maxApproveUsdc: z.string().optional(),
+              note: z.string().max(200).optional(),
+            })
+            .nullable()
+            .optional(),
+        })
+        .parse(req.body);
+      const updated = store.updateGuardian(org.id, req.params.id, body);
+      if (!updated) {
+        return res
+          .status(404)
+          .json({ error: { code: "NOT_FOUND", message: "Guardian not found" } });
+      }
+      const { guardianKey: _k, ...rest } = updated;
+      res.json({ guardian: { ...rest, guardianKey: "pv_guardian_***" } });
+    },
+    { ownerOnly: true },
+  ),
 );
 
 /** Invite a second decision-maker. Their key is shown once. */
 app.post(
   "/v1/guardian/guardians",
-  guardianRoute((org, req, res) => {
-    const body = z
-      .object({
-        name: z.string().min(1).max(60),
-        // Inviting another owner requires a future dual-control flow — not via this route.
-        role: z.enum(["approver", "viewer"]).default("approver"),
-      })
-      .parse(req.body);
-    const g = store.createGuardian(org.id, body.name, body.role);
-    res.status(201).json({
-      guardian: { id: g.id, name: g.name, role: g.role },
-      guardianKey: g.guardianKey,
-      note: "Shown once. This key can sign in to the console for this org.",
-    });
-  }, { ownerOnly: true }),
+  guardianRoute(
+    (org, req, res) => {
+      const body = z
+        .object({
+          name: z.string().min(1).max(60),
+          // Inviting another owner requires a future dual-control flow — not via this route.
+          role: z.enum(["approver", "viewer"]).default("approver"),
+        })
+        .parse(req.body);
+      const g = store.createGuardian(org.id, body.name, body.role);
+      res.status(201).json({
+        guardian: { id: g.id, name: g.name, role: g.role },
+        guardianKey: g.guardianKey,
+        note: "Shown once. This key can sign in to the console for this org.",
+      });
+    },
+    { ownerOnly: true },
+  ),
 );
 
 app.delete(
   "/v1/guardian/guardians/:id",
-  guardianRoute((org, req, res) => {
-    if (!store.revokeGuardian(req.params.id, org.id)) {
-      return res.status(404).json({ error: { code: "NOT_FOUND" } });
-    }
-    res.json({ ok: true });
-  }, { ownerOnly: true }),
+  guardianRoute(
+    (org, req, res) => {
+      if (!store.revokeGuardian(req.params.id, org.id)) {
+        return res.status(404).json({ error: { code: "NOT_FOUND" } });
+      }
+      res.json({ ok: true });
+    },
+    { ownerOnly: true },
+  ),
 );
 
 /** How many distinct approvals a payment needs before it executes — see policy-routes. */
@@ -1116,19 +1155,162 @@ app.get(
 
 app.post(
   "/v1/guardian/merchants",
-  guardianRoute((org, req, res) => {
-    const body = z
-      .object({
-        key: z.string().min(1),
-        label: z.string().optional(),
-        category: z.string().optional(),
-        meta: z.record(z.unknown()).optional(),
-      })
-      .parse(req.body);
-    const merchant = store.upsertMerchant({ orgId: org.id, ...body });
-    store.addKnownCounterparty(org.id, body.key);
-    res.json({ merchant });
-  }, { ownerOnly: true }),
+  guardianRoute(
+    (org, req, res) => {
+      const body = z
+        .object({
+          key: z.string().min(1),
+          label: z.string().optional(),
+          category: z.string().optional(),
+          meta: z.record(z.unknown()).optional(),
+        })
+        .parse(req.body);
+      const merchant = store.upsertMerchant({ orgId: org.id, ...body });
+      store.addKnownCounterparty(org.id, body.key);
+      res.json({ merchant });
+    },
+    { ownerOnly: true },
+  ),
+);
+
+/** Begin seller onboarding without taking custody of merchant funds. */
+app.post(
+  "/v1/guardian/merchant-gateway/onboard",
+  guardianRoute(
+    (org, req, res) => {
+      const body = z
+        .object({
+          label: z.string().min(1).max(120),
+          endpoint: z.string().url(),
+          payoutAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+          priceUsdc: z.string().regex(/^\d+(?:\.\d{1,6})?$/),
+          category: z.string().min(1).max(80).optional(),
+          network: z.enum(["eip155:84532", "eip155:8453"]).optional(),
+        })
+        .parse(req.body);
+      const urlProblem = outboundUrlProblem(body.endpoint, "Merchant endpoint");
+      if (urlProblem) {
+        return res
+          .status(400)
+          .json({ error: { code: "INVALID_DESTINATION", message: urlProblem } });
+      }
+      const amountMicro = parseUsdcToMicro(body.priceUsdc);
+      if (amountMicro <= 0n) {
+        return res
+          .status(400)
+          .json({ error: { code: "VALIDATION_ERROR", message: "Price must be positive." } });
+      }
+      const network = body.network ?? "eip155:84532";
+      const merchant = store.upsertMerchant({
+        orgId: org.id,
+        key: body.endpoint,
+        label: body.label,
+        category: body.category,
+        meta: {
+          gateway: {
+            protocol: "x402-v2",
+            status: "pending_verification",
+            endpoint: body.endpoint,
+            payoutAddress: body.payoutAddress,
+            priceUsdc: body.priceUsdc,
+            amountMicro: amountMicro.toString(),
+            network,
+            createdAt: new Date().toISOString(),
+          },
+        },
+      });
+      res.status(201).json({
+        merchant,
+        next: `POST /v1/guardian/merchant-gateway/${merchant.id}/verify`,
+        sellerConfig: {
+          x402Version: 2,
+          scheme: "exact",
+          network,
+          payTo: body.payoutAddress,
+          price: `$${body.priceUsdc}`,
+          facilitatorUrl: process.env.X402_FACILITATOR_URL ?? "https://x402.org/facilitator",
+        },
+      });
+    },
+    { ownerOnly: true },
+  ),
+);
+
+/** Verify the endpoint's unpaid x402 challenge against the onboarding declaration. */
+app.post(
+  "/v1/guardian/merchant-gateway/:id/verify",
+  guardianRoute(
+    async (org, req, res) => {
+      const merchant = store.listMerchants(org.id).find((item) => item.id === req.params.id);
+      const gateway = merchant?.meta?.gateway as Record<string, unknown> | undefined;
+      if (!merchant || !gateway) {
+        return res
+          .status(404)
+          .json({ error: { code: "NOT_FOUND", message: "Merchant gateway profile" } });
+      }
+      const endpoint = String(gateway.endpoint ?? "");
+      const urlProblem = outboundUrlProblem(endpoint, "Merchant endpoint");
+      if (urlProblem) {
+        return res
+          .status(400)
+          .json({ error: { code: "INVALID_DESTINATION", message: urlProblem } });
+      }
+      try {
+        const response = await fetch(endpoint, {
+          redirect: "error",
+          signal: AbortSignal.timeout(10_000),
+          headers: { accept: "application/json" },
+        });
+        if (response.status !== 402)
+          throw new Error(`Expected HTTP 402; received ${response.status}.`);
+        const contentType = response.headers.get("content-type") ?? "";
+        const responseBody = contentType.includes("application/json")
+          ? await response.json()
+          : await response.text();
+        const required: PaymentRequired = new x402HTTPClient(
+          new x402Client(),
+        ).getPaymentRequiredResponse((name) => response.headers.get(name), responseBody);
+        const match = required.accepts.find(
+          (accept) =>
+            required.x402Version === 2 &&
+            accept.scheme === "exact" &&
+            accept.network === gateway.network &&
+            accept.payTo.toLowerCase() === String(gateway.payoutAddress).toLowerCase() &&
+            accept.amount === gateway.amountMicro,
+        );
+        if (!match)
+          throw new Error(
+            "The x402 challenge does not match the declared network, wallet, and price.",
+          );
+        const verified = store.upsertMerchant({
+          orgId: org.id,
+          key: merchant.key,
+          label: merchant.label,
+          category: merchant.category,
+          meta: {
+            ...merchant.meta,
+            gateway: {
+              ...gateway,
+              status: "verified",
+              verifiedAt: new Date().toISOString(),
+              asset: match.asset,
+              x402Version: required.x402Version,
+            },
+          },
+        });
+        store.addKnownCounterparty(org.id, endpoint);
+        res.json({ merchant: verified, verified: true });
+      } catch (error) {
+        res.status(422).json({
+          error: {
+            code: "MERCHANT_VERIFICATION_FAILED",
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+      }
+    },
+    { ownerOnly: true },
+  ),
 );
 
 app.get(
@@ -1424,34 +1606,37 @@ app.get(
 
 app.post(
   "/v1/guardian/allocate",
-  guardianRoute((org, req, res) => {
-    const body = z
-      .object({
-        agentId: z.string(),
-        amountUsdc: z.string(),
-      })
-      .parse(req.body);
-    const agent = scopedStore(org.id).getAgent(body.agentId);
-    if (!agent) {
-      return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-    }
-    const amount = parseUsdcToMicro(body.amountUsdc);
-    try {
-      store.applyEntries(org.id, [
-        transferAvailable({
-          orgId: org.id,
-          journalId: id("j"),
-          fromAvailableId: accountId("org", org.id),
-          toAvailableId: accountId("agent", body.agentId),
-          amountMicro: amount,
-          memo: "allocate_stipend",
-        }),
-      ]);
-      res.json({ ok: true, amountUsdc: body.amountUsdc });
-    } catch (e) {
-      res.status(400).json({ error: { code: "INSUFFICIENT_STIPEND", message: String(e) } });
-    }
-  }, { ownerOnly: true }),
+  guardianRoute(
+    (org, req, res) => {
+      const body = z
+        .object({
+          agentId: z.string(),
+          amountUsdc: z.string(),
+        })
+        .parse(req.body);
+      const agent = scopedStore(org.id).getAgent(body.agentId);
+      if (!agent) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+      }
+      const amount = parseUsdcToMicro(body.amountUsdc);
+      try {
+        store.applyEntries(org.id, [
+          transferAvailable({
+            orgId: org.id,
+            journalId: id("j"),
+            fromAvailableId: accountId("org", org.id),
+            toAvailableId: accountId("agent", body.agentId),
+            amountMicro: amount,
+            memo: "allocate_stipend",
+          }),
+        ]);
+        res.json({ ok: true, amountUsdc: body.amountUsdc });
+      } catch (e) {
+        res.status(400).json({ error: { code: "INSUFFICIENT_STIPEND", message: String(e) } });
+      }
+    },
+    { ownerOnly: true },
+  ),
 );
 
 /**
@@ -1461,55 +1646,60 @@ app.post(
  */
 app.post(
   "/v1/guardian/reclaim",
-  guardianRoute((org, req, res) => {
-    const body = z
-      .object({
-        agentId: z.string(),
-        /** Omit to sweep the agent's entire available balance. */
-        amountUsdc: z.string().optional(),
-      })
-      .parse(req.body);
-    const agent = scopedStore(org.id).getAgent(body.agentId);
-    if (!agent) {
-      return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-    }
-    const accounts = store.getAccountMap(org.id);
-    const available = accounts.get(accountId("agent", body.agentId))?.balanceMicro ?? 0n;
-    const held = accounts.get(accountId("agent", body.agentId, "held"))?.balanceMicro ?? 0n;
-    const amount = body.amountUsdc ? parseUsdcToMicro(body.amountUsdc) : available;
+  guardianRoute(
+    (org, req, res) => {
+      const body = z
+        .object({
+          agentId: z.string(),
+          /** Omit to sweep the agent's entire available balance. */
+          amountUsdc: z.string().optional(),
+        })
+        .parse(req.body);
+      const agent = scopedStore(org.id).getAgent(body.agentId);
+      if (!agent) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+      }
+      const accounts = store.getAccountMap(org.id);
+      const available = accounts.get(accountId("agent", body.agentId))?.balanceMicro ?? 0n;
+      const held = accounts.get(accountId("agent", body.agentId, "held"))?.balanceMicro ?? 0n;
+      const amount = body.amountUsdc ? parseUsdcToMicro(body.amountUsdc) : available;
 
-    if (amount <= 0n) {
-      return res.status(400).json({
-        error: { code: "VALIDATION_ERROR", message: "Nothing available to reclaim" },
-      });
-    }
-    if (amount > available) {
-      return res.status(400).json({
-        error: {
-          code: "INSUFFICIENT_STIPEND",
-          message: `Agent has ${formatMicroToUsdc(available)} available${
-            held > 0n ? ` (${formatMicroToUsdc(held)} is held mid-payment and cannot be reclaimed)` : ""
-          }`,
-        },
-      });
-    }
+      if (amount <= 0n) {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: "Nothing available to reclaim" },
+        });
+      }
+      if (amount > available) {
+        return res.status(400).json({
+          error: {
+            code: "INSUFFICIENT_STIPEND",
+            message: `Agent has ${formatMicroToUsdc(available)} available${
+              held > 0n
+                ? ` (${formatMicroToUsdc(held)} is held mid-payment and cannot be reclaimed)`
+                : ""
+            }`,
+          },
+        });
+      }
 
-    store.applyEntries(org.id, [
-      transferAvailable({
-        orgId: org.id,
-        journalId: id("j"),
-        fromAvailableId: accountId("agent", body.agentId),
-        toAvailableId: accountId("org", org.id),
-        amountMicro: amount,
-        memo: "reclaim_stipend",
-      }),
-    ]);
-    res.json({
-      ok: true,
-      amountUsdc: formatMicroToUsdc(amount),
-      agentRemainingUsdc: formatMicroToUsdc(available - amount),
-    });
-  }, { ownerOnly: true }),
+      store.applyEntries(org.id, [
+        transferAvailable({
+          orgId: org.id,
+          journalId: id("j"),
+          fromAvailableId: accountId("agent", body.agentId),
+          toAvailableId: accountId("org", org.id),
+          amountMicro: amount,
+          memo: "reclaim_stipend",
+        }),
+      ]);
+      res.json({
+        ok: true,
+        amountUsdc: formatMicroToUsdc(amount),
+        agentRemainingUsdc: formatMicroToUsdc(available - amount),
+      });
+    },
+    { ownerOnly: true },
+  ),
 );
 
 /**
@@ -1519,119 +1709,136 @@ app.post(
  */
 app.post(
   "/v1/guardian/transfer",
-  guardianRoute((org, req, res) => {
-    const body = z
-      .object({
-        fromAgentId: z.string(),
-        toAgentId: z.string(),
-        amountUsdc: z.string().optional(),
-      })
-      .parse(req.body);
-    if (body.fromAgentId === body.toAgentId) {
-      return res
-        .status(400)
-        .json({ error: { code: "VALIDATION_ERROR", message: "Source and destination are the same agent" } });
-    }
-    const from = scopedStore(org.id).getAgent(body.fromAgentId);
-    const to = scopedStore(org.id).getAgent(body.toAgentId);
-    if (!from || !to) {
-      return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-    }
-    const accounts = store.getAccountMap(org.id);
-    const available = accounts.get(accountId("agent", body.fromAgentId))?.balanceMicro ?? 0n;
-    const held = accounts.get(accountId("agent", body.fromAgentId, "held"))?.balanceMicro ?? 0n;
-    const amount = body.amountUsdc ? parseUsdcToMicro(body.amountUsdc) : available;
+  guardianRoute(
+    (org, req, res) => {
+      const body = z
+        .object({
+          fromAgentId: z.string(),
+          toAgentId: z.string(),
+          amountUsdc: z.string().optional(),
+        })
+        .parse(req.body);
+      if (body.fromAgentId === body.toAgentId) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Source and destination are the same agent",
+          },
+        });
+      }
+      const from = scopedStore(org.id).getAgent(body.fromAgentId);
+      const to = scopedStore(org.id).getAgent(body.toAgentId);
+      if (!from || !to) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+      }
+      const accounts = store.getAccountMap(org.id);
+      const available = accounts.get(accountId("agent", body.fromAgentId))?.balanceMicro ?? 0n;
+      const held = accounts.get(accountId("agent", body.fromAgentId, "held"))?.balanceMicro ?? 0n;
+      const amount = body.amountUsdc ? parseUsdcToMicro(body.amountUsdc) : available;
 
-    if (amount <= 0n) {
-      return res
-        .status(400)
-        .json({ error: { code: "VALIDATION_ERROR", message: "Nothing available to move" } });
-    }
-    if (amount > available) {
-      return res.status(400).json({
-        error: {
-          code: "INSUFFICIENT_STIPEND",
-          message: `${from.name} has ${formatMicroToUsdc(available)} available${
-            held > 0n ? ` (${formatMicroToUsdc(held)} held mid-payment cannot be moved)` : ""
-          }`,
-        },
+      if (amount <= 0n) {
+        return res
+          .status(400)
+          .json({ error: { code: "VALIDATION_ERROR", message: "Nothing available to move" } });
+      }
+      if (amount > available) {
+        return res.status(400).json({
+          error: {
+            code: "INSUFFICIENT_STIPEND",
+            message: `${from.name} has ${formatMicroToUsdc(available)} available${
+              held > 0n ? ` (${formatMicroToUsdc(held)} held mid-payment cannot be moved)` : ""
+            }`,
+          },
+        });
+      }
+
+      store.applyEntries(org.id, [
+        transferAvailable({
+          orgId: org.id,
+          journalId: id("j"),
+          fromAvailableId: accountId("agent", body.fromAgentId),
+          toAvailableId: accountId("agent", body.toAgentId),
+          amountMicro: amount,
+          memo: "transfer_stipend",
+        }),
+      ]);
+      res.json({
+        ok: true,
+        amountUsdc: formatMicroToUsdc(amount),
+        from: from.name,
+        to: to.name,
       });
-    }
-
-    store.applyEntries(org.id, [
-      transferAvailable({
-        orgId: org.id,
-        journalId: id("j"),
-        fromAvailableId: accountId("agent", body.fromAgentId),
-        toAvailableId: accountId("agent", body.toAgentId),
-        amountMicro: amount,
-        memo: "transfer_stipend",
-      }),
-    ]);
-    res.json({
-      ok: true,
-      amountUsdc: formatMicroToUsdc(amount),
-      from: from.name,
-      to: to.name,
-    });
-  }, { ownerOnly: true }),
+    },
+    { ownerOnly: true },
+  ),
 );
 
 app.post(
   "/v1/guardian/freeze",
-  guardianRoute((org, req, res) => {
-    const body = z
-      .object({
-        agentId: z.string().optional(),
-        reason: z.string().default("manual"),
-      })
-      .parse(req.body);
-    if (body.agentId) {
-      const agent = scopedStore(org.id).getAgent(body.agentId);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND" } });
+  guardianRoute(
+    (org, req, res) => {
+      const body = z
+        .object({
+          agentId: z.string().optional(),
+          reason: z.string().default("manual"),
+        })
+        .parse(req.body);
+      if (body.agentId) {
+        const agent = scopedStore(org.id).getAgent(body.agentId);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND" } });
+        }
+        store.setAgentStatus(body.agentId, "frozen");
+        emitEvent(org.id, "agent.frozen", { agentId: body.agentId, reason: body.reason });
+        void notify({
+          kind: "agent.frozen",
+          orgId: org.id,
+          title: "Agent frozen",
+          body: `${agent.name} frozen — ${body.reason}`,
+          meta: { agentId: body.agentId },
+        });
+      } else {
+        store.setOrgStatus(org.id, "frozen");
+        void notify({
+          kind: "agent.frozen",
+          orgId: org.id,
+          title: "Organization frozen",
+          body: body.reason,
+        });
       }
-      store.setAgentStatus(body.agentId, "frozen");
-      emitEvent(org.id, "agent.frozen", { agentId: body.agentId, reason: body.reason });
-      void notify({
-        kind: "agent.frozen",
+      store.addFreeze(org.id, body.agentId, body.reason);
+      recordObs({
+        name: "freeze",
         orgId: org.id,
-        title: "Agent frozen",
-        body: `${agent.name} frozen — ${body.reason}`,
-        meta: { agentId: body.agentId },
+        agentId: body.agentId,
+        attrs: { reason: body.reason },
       });
-    } else {
-      store.setOrgStatus(org.id, "frozen");
-      void notify({
-        kind: "agent.frozen",
-        orgId: org.id,
-        title: "Organization frozen",
-        body: body.reason,
-      });
-    }
-    store.addFreeze(org.id, body.agentId, body.reason);
-    recordObs({ name: "freeze", orgId: org.id, agentId: body.agentId, attrs: { reason: body.reason } });
-    res.json({ ok: true });
-  }, { ownerOnly: true }),
+      res.json({ ok: true });
+    },
+    { ownerOnly: true },
+  ),
 );
 
 app.post(
   "/v1/guardian/unfreeze",
-  guardianRoute((org, req, res) => {
-    const body = z.object({ agentId: z.string().optional() }).parse(req.body);
-    if (body.agentId) {
-      const agent = scopedStore(org.id).getAgent(body.agentId);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND" } });
+  guardianRoute(
+    (org, req, res) => {
+      const body = z.object({ agentId: z.string().optional() }).parse(req.body);
+      if (body.agentId) {
+        const agent = scopedStore(org.id).getAgent(body.agentId);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND" } });
+        }
+        store.setAgentStatus(body.agentId, "active");
+        emitEvent(org.id, "agent.unfrozen", { agentId: body.agentId });
+      } else {
+        store.setOrgStatus(org.id, "active");
+        emitEvent(org.id, "agent.unfrozen", { org: true });
       }
-      store.setAgentStatus(body.agentId, "active");
-      emitEvent(org.id, "agent.unfrozen", { agentId: body.agentId });
-    } else {
-      store.setOrgStatus(org.id, "active");
-      emitEvent(org.id, "agent.unfrozen", { org: true });
-    }
-    res.json({ ok: true });
-  }, { ownerOnly: true }),
+      res.json({ ok: true });
+    },
+    { ownerOnly: true },
+  ),
 );
 
 app.get(
@@ -1706,9 +1913,7 @@ app.put(
         res.json({ ai, discloses: AI_EGRESS_DISCLOSURE });
       } catch (e) {
         if (e instanceof AiSettingsError) {
-          return res
-            .status(400)
-            .json({ error: { code: "VALIDATION_ERROR", message: e.message } });
+          return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: e.message } });
         }
         throw e;
       }
@@ -1908,22 +2113,25 @@ app.post(
 
 app.post(
   "/v1/guardian/webhooks",
-  guardianRoute((org, req, res) => {
-    const body = z.object({ url: z.string().url() }).parse(req.body);
-    const problem = webhookUrlProblem(body.url);
-    if (problem) {
-      return res.status(400).json({
-        error: { code: "VALIDATION_ERROR", message: problem },
+  guardianRoute(
+    (org, req, res) => {
+      const body = z.object({ url: z.string().url() }).parse(req.body);
+      const problem = webhookUrlProblem(body.url);
+      if (problem) {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: problem },
+        });
+      }
+      const webhook = store.createWebhook(org.id, body.url);
+      res.status(201).json({
+        id: webhook.id,
+        url: webhook.url,
+        secret: webhook.secret,
+        note: "Verify x-policyvault-signature (HMAC-SHA256 of raw body with this secret) and dedupe on x-policyvault-delivery.",
       });
-    }
-    const webhook = store.createWebhook(org.id, body.url);
-    res.status(201).json({
-      id: webhook.id,
-      url: webhook.url,
-      secret: webhook.secret,
-      note: "Verify x-policyvault-signature (HMAC-SHA256 of raw body with this secret) and dedupe on x-policyvault-delivery.",
-    });
-  }, { ownerOnly: true }),
+    },
+    { ownerOnly: true },
+  ),
 );
 
 app.get(
@@ -1939,24 +2147,30 @@ app.get(
 
 app.delete(
   "/v1/guardian/webhooks/:id",
-  guardianRoute((org, req, res) => {
-    const deleted = store.deleteWebhook(req.params.id, org.id);
-    if (!deleted) return res.status(404).json({ error: { code: "NOT_FOUND" } });
-    res.json({ ok: true });
-  }, { ownerOnly: true }),
+  guardianRoute(
+    (org, req, res) => {
+      const deleted = store.deleteWebhook(req.params.id, org.id);
+      if (!deleted) return res.status(404).json({ error: { code: "NOT_FOUND" } });
+      res.json({ ok: true });
+    },
+    { ownerOnly: true },
+  ),
 );
 
 app.post(
   "/v1/guardian/webhooks/:id/rotate",
-  guardianRoute((org, req, res) => {
-    const secret = store.rotateWebhookSecret(req.params.id, org.id);
-    if (!secret) return res.status(404).json({ error: { code: "NOT_FOUND" } });
-    res.json({
-      id: req.params.id,
-      secret,
-      note: "New signing secret shown once — update receivers before the next delivery.",
-    });
-  }, { ownerOnly: true }),
+  guardianRoute(
+    (org, req, res) => {
+      const secret = store.rotateWebhookSecret(req.params.id, org.id);
+      if (!secret) return res.status(404).json({ error: { code: "NOT_FOUND" } });
+      res.json({
+        id: req.params.id,
+        secret,
+        note: "New signing secret shown once — update receivers before the next delivery.",
+      });
+    },
+    { ownerOnly: true },
+  ),
 );
 
 app.get(
@@ -1969,21 +2183,24 @@ app.get(
 /** Fire a signed test event so receivers can verify their integration. */
 app.post(
   "/v1/guardian/webhooks/:id/test",
-  guardianRoute((org, req, res) => {
-    const webhook = scopedStore(org.id).getWebhook(req.params.id);
-    if (!webhook) {
-      return res.status(404).json({ error: { code: "NOT_FOUND" } });
-    }
-    emitEvent(org.id, "payment.succeeded", {
-      test: true,
-      intentId: "int_test",
-      receiptId: "rcpt_test",
-      amountUsdc: "0",
-      destination: "test",
-      note: "Test delivery fired from the guardian console",
-    });
-    res.json({ ok: true, note: "Test event dispatched to all endpoints — check deliveries." });
-  }, { ownerOnly: true }),
+  guardianRoute(
+    (org, req, res) => {
+      const webhook = scopedStore(org.id).getWebhook(req.params.id);
+      if (!webhook) {
+        return res.status(404).json({ error: { code: "NOT_FOUND" } });
+      }
+      emitEvent(org.id, "payment.succeeded", {
+        test: true,
+        intentId: "int_test",
+        receiptId: "rcpt_test",
+        amountUsdc: "0",
+        destination: "test",
+        note: "Test delivery fired from the guardian console",
+      });
+      res.json({ ok: true, note: "Test event dispatched to all endpoints — check deliveries." });
+    },
+    { ownerOnly: true },
+  ),
 );
 
 // ---------------------------------------------------------------------------
@@ -2061,8 +2278,14 @@ async function handlePay(req: express.Request, res: express.Response, tool: "pay
   });
 }
 
-app.post("/v1/agent/pay_api", asyncRoute((req, res) => handlePay(req, res, "pay_api")));
-app.post("/v1/agent/pay", asyncRoute((req, res) => handlePay(req, res, "pay")));
+app.post(
+  "/v1/agent/pay_api",
+  asyncRoute((req, res) => handlePay(req, res, "pay_api")),
+);
+app.post(
+  "/v1/agent/pay",
+  asyncRoute((req, res) => handlePay(req, res, "pay")),
+);
 
 app.post("/v1/agent/simulate", (req, res) => {
   const auth = authAgent(req);
@@ -2120,7 +2343,12 @@ app.post(
         idempotencyKey: z.string().min(8),
         jobId: z.string().optional(),
         memo: z.string().optional(),
-        timeoutMinutes: z.number().int().positive().max(7 * 24 * 60).optional(),
+        timeoutMinutes: z
+          .number()
+          .int()
+          .positive()
+          .max(7 * 24 * 60)
+          .optional(),
       })
       .parse(req.body);
     const payee = scopedStore(auth.orgId).getAgent(body.payeeAgentId);
@@ -2208,29 +2436,31 @@ app.post("/v1/agent/escrow/:id/refund", (req, res) => {
  * JSON envelope. Without it a Zod throw escapes as Express's HTML 500 page,
  * which SDK clients cannot parse.
  */
-app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  if (res.headersSent) return;
-  if (
-    err instanceof SyntaxError &&
-    (err as { type?: string }).type === "entity.parse.failed"
-  ) {
-    return res.status(400).json({
-      error: { code: "INVALID_JSON", message: "Request body contains invalid JSON." },
-    });
-  }
-  if (err instanceof z.ZodError) {
-    return res.status(400).json({
-      error: { code: "VALIDATION_ERROR", message: err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") },
-    });
-  }
-  if (isInvalidUsdcAmount(err)) {
-    return res.status(400).json({
-      error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
-    });
-  }
-  console.error("unhandled route error:", err);
-  res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
-});
+app.use(
+  (err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (res.headersSent) return;
+    if (err instanceof SyntaxError && (err as { type?: string }).type === "entity.parse.failed") {
+      return res.status(400).json({
+        error: { code: "INVALID_JSON", message: "Request body contains invalid JSON." },
+      });
+    }
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({
+        error: {
+          code: "VALIDATION_ERROR",
+          message: err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+        },
+      });
+    }
+    if (isInvalidUsdcAmount(err)) {
+      return res.status(400).json({
+        error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
+      });
+    }
+    console.error("unhandled route error:", err);
+    res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
+  },
+);
 
 /** Exported so tests can drive the API over an ephemeral port. */
 export { app };

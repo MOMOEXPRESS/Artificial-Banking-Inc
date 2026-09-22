@@ -31,6 +31,21 @@ export type Recon = {
 };
 
 type Guardian = { id: string; name: string; role: string; createdAt: string; revokedAt?: string };
+type Merchant = {
+  id: string;
+  key: string;
+  label?: string;
+  category?: string;
+  meta?: {
+    gateway?: {
+      status?: string;
+      endpoint?: string;
+      payoutAddress?: string;
+      priceUsdc?: string;
+      network?: string;
+    };
+  };
+};
 
 const SECTIONS = [
   { key: "golive", label: "Go live", icon: "shield" },
@@ -94,10 +109,22 @@ export function SettingsView({
   const [orgSettings, setOrgSettings] = useState<Record<string, unknown>>({});
   const [planDraft, setPlanDraft] = useState("");
   const [treasuryHitlDraft, setTreasuryHitlDraft] = useState("50");
-  const [compliance, setCompliance] = useState<{ screener?: string; denylistConfigured?: boolean; denylistCount?: number } | null>(null);
+  const [compliance, setCompliance] = useState<{
+    screener?: string;
+    denylistConfigured?: boolean;
+    denylistCount?: number;
+  } | null>(null);
   const [obs, setObs] = useState<{ sink?: string } | null>(null);
-  const [merchants, setMerchants] = useState<{ id: string; key: string; label?: string; category?: string }[]>([]);
+  const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [merchantForm, setMerchantForm] = useState({ key: "", label: "", category: "" });
+  const [gatewayForm, setGatewayForm] = useState({
+    label: "",
+    endpoint: "",
+    payoutAddress: "",
+    priceUsdc: "0.01",
+    category: "data",
+    network: "eip155:84532",
+  });
 
   const loadTeam = async () => {
     try {
@@ -187,7 +214,11 @@ export function SettingsView({
     });
 
   const networkLabel =
-    setup?.network === "base" ? "Base" : setup?.network === "base-sepolia" ? "Base Sepolia" : setup?.network ?? "Base Sepolia";
+    setup?.network === "base"
+      ? "Base"
+      : setup?.network === "base-sepolia"
+        ? "Base Sepolia"
+        : (setup?.network ?? "Base Sepolia");
 
   const productionMode = !!setup?.productionMode;
 
@@ -216,8 +247,7 @@ export function SettingsView({
     {
       done: false,
       title: "E2E proof: agent USDC → your wallet",
-      body:
-        "1) Vault USDC + ETH (Fund auto-credits)  2) Move stipend to agent  3) Playground → Agent pays your wallet — paste Base Sepolia 0x → Run  4) Approve if HITL  5) Basescan Transfer. NOT Treasury Send. Track: docs/E2E-ONCHAIN-AGENT-PAY.md",
+      body: "1) Vault USDC + ETH (Fund auto-credits)  2) Move stipend to agent  3) Playground → Agent pays your wallet — paste Base Sepolia 0x → Run  4) Approve if HITL  5) Basescan Transfer. NOT Treasury Send. Track: docs/E2E-ONCHAIN-AGENT-PAY.md",
     },
     {
       done: !!setup?.telegram,
@@ -261,7 +291,11 @@ export function SettingsView({
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {golive.map((g) => (
-                  <div key={g.title} className="row" style={{ alignItems: "flex-start", gap: 11, flexWrap: "nowrap" }}>
+                  <div
+                    key={g.title}
+                    className="row"
+                    style={{ alignItems: "flex-start", gap: 11, flexWrap: "nowrap" }}
+                  >
                     <span
                       style={{
                         width: 26,
@@ -328,10 +362,7 @@ export function SettingsView({
                 </div>
               ))}
               {setup?.custodyDisclosure ? (
-                <div
-                  className="hint"
-                  style={{ marginTop: 10, color: "var(--amber, var(--warn))" }}
-                >
+                <div className="hint" style={{ marginTop: 10, color: "var(--amber, var(--warn))" }}>
                   {setup.custodyDisclosure}
                 </div>
               ) : null}
@@ -350,8 +381,8 @@ export function SettingsView({
                 <label>Vault address</label>
                 <div className="code">{org?.vaultAddress}</div>
                 <div className="hint">
-                  Fund with {networkLabel} <b>USDC</b> (agent spend) and a little <b>ETH</b> (gas for
-                  on-chain agent pays). Sync deposits on Treasury → Vault. Proof path:{" "}
+                  Fund with {networkLabel} <b>USDC</b> (agent spend) and a little <b>ETH</b> (gas
+                  for on-chain agent pays). Sync deposits on Treasury → Vault. Proof path:{" "}
                   <code>docs/E2E-ONCHAIN-AGENT-PAY.md</code>.
                 </div>
               </div>
@@ -387,7 +418,9 @@ export function SettingsView({
               <div className="card-head">
                 <div>
                   <h2>Organization settings</h2>
-                  <div className="sub">Feature flags and plan metadata stored in OrgSettings JSON</div>
+                  <div className="sub">
+                    Feature flags and plan metadata stored in OrgSettings JSON
+                  </div>
                 </div>
               </div>
               <div className="field">
@@ -413,7 +446,8 @@ export function SettingsView({
                   Payments → Approvals.
                 </p>
               </div>
-              <Button size="sm"
+              <Button
+                size="sm"
                 disabled={busy || readOnly}
                 onClick={() =>
                   void act("Save settings", async () => {
@@ -473,112 +507,252 @@ export function SettingsView({
                 <span className="v mono">{setup?.custody ?? "—"}</span>
               </div>
               {setup?.note && (
-                <p className="muted" style={{ fontSize: 12.5 }}>{setup.note}</p>
+                <p className="muted" style={{ fontSize: 12.5 }}>
+                  {setup.note}
+                </p>
               )}
             </div>
           </>
         )}
 
         {section === "merchants" && (
-          <div className="card">
-            <div className="card-head">
-              <div>
-                <h2>Merchant directory</h2>
-                <div className="sub">
-                  Labels and categories for vendors — does not gate spend. Use Policy → Allowlists
-                  to permit pay_api destinations.
+          <>
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <h2>Onboard an x402 seller</h2>
+                  <div className="sub">
+                    Register the seller's own payout wallet and paid endpoint. ABI verifies the V2
+                    challenge; funds still settle directly to the seller.
+                  </div>
                 </div>
               </div>
+              <div className="grid g-2" style={{ gap: "0 14px" }}>
+                <div className="field">
+                  <label>Seller name</label>
+                  <input
+                    value={gatewayForm.label}
+                    disabled={readOnly}
+                    onChange={(e) => setGatewayForm({ ...gatewayForm, label: e.target.value })}
+                    placeholder="Acme Data"
+                  />
+                </div>
+                <div className="field">
+                  <label>Paid endpoint</label>
+                  <input
+                    value={gatewayForm.endpoint}
+                    disabled={readOnly}
+                    onChange={(e) => setGatewayForm({ ...gatewayForm, endpoint: e.target.value })}
+                    placeholder="https://api.example.com/report"
+                  />
+                </div>
+                <div className="field">
+                  <label>USDC payout wallet</label>
+                  <input
+                    className="mono"
+                    value={gatewayForm.payoutAddress}
+                    disabled={readOnly}
+                    onChange={(e) =>
+                      setGatewayForm({ ...gatewayForm, payoutAddress: e.target.value })
+                    }
+                    placeholder="0x…"
+                  />
+                </div>
+                <div className="field">
+                  <label>Price (USDC)</label>
+                  <input
+                    value={gatewayForm.priceUsdc}
+                    disabled={readOnly}
+                    onChange={(e) => setGatewayForm({ ...gatewayForm, priceUsdc: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label>Category</label>
+                  <input
+                    value={gatewayForm.category}
+                    disabled={readOnly}
+                    onChange={(e) => setGatewayForm({ ...gatewayForm, category: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label>Network</label>
+                  <select
+                    value={gatewayForm.network}
+                    disabled={readOnly}
+                    onChange={(e) => setGatewayForm({ ...gatewayForm, network: e.target.value })}
+                  >
+                    <option value="eip155:84532">Base Sepolia · testnet</option>
+                    <option value="eip155:8453">Base · live</option>
+                  </select>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                disabled={
+                  busy ||
+                  readOnly ||
+                  !gatewayForm.label.trim() ||
+                  !gatewayForm.endpoint.trim() ||
+                  !gatewayForm.payoutAddress.trim()
+                }
+                onClick={() =>
+                  void act("Onboard seller", async () => {
+                    const res = await gFetch("/v1/guardian/merchant-gateway/onboard", {
+                      method: "POST",
+                      body: JSON.stringify(gatewayForm),
+                    });
+                    const d = await res.json();
+                    if (!res.ok) throw new Error(d.error?.message ?? "onboarding failed");
+                    await loadPlatform();
+                    return "Seller saved. Verify the endpoint when it is serving x402 V2.";
+                  })
+                }
+              >
+                Create seller profile
+              </Button>
             </div>
-            <div className="grid g-2" style={{ gap: "0 14px" }}>
-              <div className="field">
-                <label>Key</label>
-                <input
-                  value={merchantForm.key}
-                  disabled={readOnly}
-                  onChange={(e) => setMerchantForm({ ...merchantForm, key: e.target.value })}
-                  placeholder="api.openai.com"
-                />
+            <div className="card">
+              <div className="card-head">
+                <div>
+                  <h2>Merchant directory</h2>
+                  <div className="sub">
+                    Labels and categories for vendors — does not gate spend. Use Policy → Allowlists
+                    to permit pay_api destinations.
+                  </div>
+                </div>
               </div>
-              <div className="field">
-                <label>Label</label>
-                <input
-                  value={merchantForm.label}
-                  disabled={readOnly}
-                  onChange={(e) => setMerchantForm({ ...merchantForm, label: e.target.value })}
-                />
+              <div className="grid g-2" style={{ gap: "0 14px" }}>
+                <div className="field">
+                  <label>Key</label>
+                  <input
+                    value={merchantForm.key}
+                    disabled={readOnly}
+                    onChange={(e) => setMerchantForm({ ...merchantForm, key: e.target.value })}
+                    placeholder="api.openai.com"
+                  />
+                </div>
+                <div className="field">
+                  <label>Label</label>
+                  <input
+                    value={merchantForm.label}
+                    disabled={readOnly}
+                    onChange={(e) => setMerchantForm({ ...merchantForm, label: e.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label>Category</label>
+                  <input
+                    value={merchantForm.category}
+                    disabled={readOnly}
+                    onChange={(e) => setMerchantForm({ ...merchantForm, category: e.target.value })}
+                    placeholder="llm / data / tools"
+                  />
+                </div>
               </div>
-              <div className="field">
-                <label>Category</label>
-                <input
-                  value={merchantForm.category}
-                  disabled={readOnly}
-                  onChange={(e) => setMerchantForm({ ...merchantForm, category: e.target.value })}
-                  placeholder="llm / data / tools"
-                />
-              </div>
-            </div>
-            <Button size="sm"
-              disabled={busy || readOnly || !merchantForm.key.trim()}
-              onClick={() =>
-                void act("Upsert merchant", async () => {
-                  const res = await gFetch("/v1/guardian/merchants", {
-                    method: "POST",
-                    body: JSON.stringify({
-                      key: merchantForm.key.trim(),
-                      label: merchantForm.label.trim() || undefined,
-                      category: merchantForm.category.trim() || undefined,
-                    }),
-                  });
-                  const d = await res.json();
-                  if (!res.ok) throw new Error(d.error?.message ?? "failed");
-                  setMerchantForm({ key: "", label: "", category: "" });
-                  await loadPlatform();
-                  return "Merchant saved.";
-                })
-              }
-            >
-              Save merchant
-            </Button>
-            <table style={{ marginTop: 14 }}>
-              <thead>
-                <tr>
-                  <th>Key</th>
-                  <th>Label</th>
-                  <th>Category</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {merchants.map((m) => (
-                  <tr key={m.id}>
-                    <td className="mono">{m.key}</td>
-                    <td>{m.label ?? "—"}</td>
-                    <td className="faint">{m.category ?? "—"}</td>
-                    <td>
-                      <Button variant="ghost" size="sm"
-                        disabled={busy || readOnly}
-                        onClick={() =>
-                          void act("Delete merchant", async () => {
-                            const res = await gFetch(`/v1/guardian/merchants/${m.id}`, {
-                              method: "DELETE",
-                            });
-                            if (!res.ok) throw new Error(JSON.stringify(await res.json()));
-                            await loadPlatform();
-                          })
-                        }
-                      >
-                        Delete
-                      </Button>
-                    </td>
+              <Button
+                size="sm"
+                disabled={busy || readOnly || !merchantForm.key.trim()}
+                onClick={() =>
+                  void act("Upsert merchant", async () => {
+                    const res = await gFetch("/v1/guardian/merchants", {
+                      method: "POST",
+                      body: JSON.stringify({
+                        key: merchantForm.key.trim(),
+                        label: merchantForm.label.trim() || undefined,
+                        category: merchantForm.category.trim() || undefined,
+                      }),
+                    });
+                    const d = await res.json();
+                    if (!res.ok) throw new Error(d.error?.message ?? "failed");
+                    setMerchantForm({ key: "", label: "", category: "" });
+                    await loadPlatform();
+                    return "Merchant saved.";
+                  })
+                }
+              >
+                Save merchant
+              </Button>
+              <table style={{ marginTop: 14 }}>
+                <thead>
+                  <tr>
+                    <th>Key</th>
+                    <th>Label</th>
+                    <th>Category</th>
+                    <th>x402</th>
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {!merchants.length && (
-              <p className="muted" style={{ fontSize: 12.5 }}>No merchants yet — add one or allocate spend to seed known counterparties.</p>
-            )}
-          </div>
+                </thead>
+                <tbody>
+                  {merchants.map((m) => (
+                    <tr key={m.id}>
+                      <td className="mono">{m.key}</td>
+                      <td>{m.label ?? "—"}</td>
+                      <td className="faint">{m.category ?? "—"}</td>
+                      <td>
+                        {m.meta?.gateway ? (
+                          <div className="row" style={{ gap: 8 }}>
+                            <span
+                              className={`pill ${m.meta.gateway.status === "verified" ? "ok" : "warn"}`}
+                            >
+                              <i />
+                              {m.meta.gateway.status ?? "pending"}
+                            </span>
+                            {m.meta.gateway.status !== "verified" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={busy || readOnly}
+                                onClick={() =>
+                                  void act("Verify seller", async () => {
+                                    const res = await gFetch(
+                                      `/v1/guardian/merchant-gateway/${m.id}/verify`,
+                                      { method: "POST" },
+                                    );
+                                    const d = await res.json();
+                                    if (!res.ok)
+                                      throw new Error(d.error?.message ?? "verification failed");
+                                    await loadPlatform();
+                                    return "x402 V2 endpoint verified.";
+                                  })
+                                }
+                              >
+                                Verify
+                              </Button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="faint">directory only</span>
+                        )}
+                      </td>
+                      <td>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy || readOnly}
+                          onClick={() =>
+                            void act("Delete merchant", async () => {
+                              const res = await gFetch(`/v1/guardian/merchants/${m.id}`, {
+                                method: "DELETE",
+                              });
+                              if (!res.ok) throw new Error(JSON.stringify(await res.json()));
+                              await loadPlatform();
+                            })
+                          }
+                        >
+                          Delete
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!merchants.length && (
+                <p className="muted" style={{ fontSize: 12.5 }}>
+                  No merchants yet — add one or allocate spend to seed known counterparties.
+                </p>
+              )}
+            </div>
+          </>
         )}
 
         {section === "team" && (
@@ -588,8 +762,8 @@ export function SettingsView({
                 <div>
                   <h2>Approval quorum</h2>
                   <div className="sub">
-                    How many different guardians must approve before a parked payment executes.
-                    A denial from any one of them stops it immediately.
+                    How many different guardians must approve before a parked payment executes. A
+                    denial from any one of them stops it immediately.
                   </div>
                 </div>
               </div>
@@ -614,7 +788,9 @@ export function SettingsView({
               <div className="card-head">
                 <div>
                   <h2>Guardians</h2>
-                  <div className="sub">Anyone with a guardian key can approve spending for this org.</div>
+                  <div className="sub">
+                    Anyone with a guardian key can approve spending for this org.
+                  </div>
                 </div>
                 <div className="row">
                   <input
@@ -633,7 +809,11 @@ export function SettingsView({
                     <option value="approver">approver</option>
                     <option value="viewer">viewer</option>
                   </select>
-                  <Button size="sm" disabled={busy || readOnly || !newGuardian.trim()} onClick={() => void addGuardian()}>
+                  <Button
+                    size="sm"
+                    disabled={busy || readOnly || !newGuardian.trim()}
+                    onClick={() => void addGuardian()}
+                  >
                     <Icon name="plus" size={12} /> Invite
                   </Button>
                 </div>
@@ -642,7 +822,12 @@ export function SettingsView({
                 <div className="code" style={{ marginBottom: 12 }}>
                   Guardian key (shown once):
                   <div style={{ marginTop: 6, color: "var(--accent)" }}>{revealedKey}</div>
-                  <Button variant="ghost" size="sm" style={{ marginTop: 8 }} onClick={() => setRevealedKey(null)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    style={{ marginTop: 8 }}
+                    onClick={() => setRevealedKey(null)}
+                  >
                     I saved it
                   </Button>
                 </div>
@@ -659,7 +844,12 @@ export function SettingsView({
                   <span className="v" style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     {g.role}
                     {!g.revokedAt && (
-                      <Button variant="bare" size="sm" disabled={busy || readOnly} onClick={() => void revoke(g.id)}>
+                      <Button
+                        variant="bare"
+                        size="sm"
+                        disabled={busy || readOnly}
+                        onClick={() => void revoke(g.id)}
+                      >
                         revoke
                       </Button>
                     )}
@@ -681,7 +871,8 @@ export function SettingsView({
               <div>
                 <h2>Recurring spend moved</h2>
                 <div className="sub">
-                  Subscriptions and one-shot schedules live under Payments so money surfaces stay together.
+                  Subscriptions and one-shot schedules live under Payments so money surfaces stay
+                  together.
                 </div>
               </div>
             </div>
@@ -757,9 +948,10 @@ export function SettingsView({
                 onClick={() =>
                   void navigator.clipboard.writeText(session.guardianKey).then(
                     () => act("Copy guardian key", async () => "Guardian key copied."),
-                    () => act("Copy guardian key", async () => {
-                      throw new Error("Clipboard blocked — select the key and copy manually.");
-                    }),
+                    () =>
+                      act("Copy guardian key", async () => {
+                        throw new Error("Clipboard blocked — select the key and copy manually.");
+                      }),
                   )
                 }
               >
@@ -829,8 +1021,8 @@ ${agents || "_None saved in this browser session._"}
             <p className="muted" style={{ fontSize: 12.5, margin: 0, lineHeight: 1.7 }}>
               For Claude, Eliza or LangGraph, point the MCP server at this API and the same verbs
               become native tools — <span className="mono">get_budget</span>,{" "}
-              <span className="mono">pay_api</span>, <span className="mono">escrow_lock</span>.
-              The agent never sees a key or a wallet.
+              <span className="mono">pay_api</span>, <span className="mono">escrow_lock</span>. The
+              agent never sees a key or a wallet.
             </p>
           </div>
         )}
@@ -848,7 +1040,11 @@ ${agents || "_None saved in this browser session._"}
                   not merely hidden. Escrow releases are blocked too.
                 </span>
               </div>
-              <button className={orgFrozen ? "ghost" : "danger"} disabled={busy || readOnly} onClick={() => void toggleFreeze()}>
+              <button
+                className={orgFrozen ? "ghost" : "danger"}
+                disabled={busy || readOnly}
+                onClick={() => void toggleFreeze()}
+              >
                 {orgFrozen ? "Unfreeze org" : "Freeze everything"}
               </button>
             </div>

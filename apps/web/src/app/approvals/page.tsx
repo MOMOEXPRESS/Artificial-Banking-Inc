@@ -33,7 +33,11 @@ export default function MobileApprovalsPage() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem("pv_session");
-      if (raw) setSession(JSON.parse(raw));
+      if (raw) {
+        const parsed = JSON.parse(raw) as Session;
+        if (parsed.mode === "session" && !parsed.guardianKey) setSession(parsed);
+        else localStorage.removeItem("pv_session");
+      }
     } catch {
       /* ignore */
     }
@@ -86,7 +90,10 @@ export default function MobileApprovalsPage() {
   const refresh = useCallback(async () => {
     if (!session) return;
     if (typeof document !== "undefined" && document.hidden) return;
-    const [aRes, oRes] = await Promise.all([gFetch("/v1/guardian/approvals"), gFetch("/v1/guardian/org")]);
+    const [aRes, oRes] = await Promise.all([
+      gFetch("/v1/guardian/approvals"),
+      gFetch("/v1/guardian/org"),
+    ]);
     const body = (await aRes.json()) as { approvals?: Approval[] } | Approval[];
     const approvals = Array.isArray(body) ? body : (body.approvals ?? []);
     const org = await oRes.json();
@@ -178,7 +185,12 @@ export default function MobileApprovalsPage() {
                 <Button size="sm" disabled={busy === a.id} onClick={() => void resolve(a.id, true)}>
                   Approve
                 </Button>
-                <Button variant="destructive" size="sm" disabled={busy === a.id} onClick={() => void resolve(a.id, false)}>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={busy === a.id}
+                  onClick={() => void resolve(a.id, false)}
+                >
                   Deny
                 </Button>
               </div>

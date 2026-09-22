@@ -7,8 +7,7 @@ import { formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/common";
 import type express from "express";
 import { z } from "zod";
 import { id } from "../engine.js";
-import {
-  scopedStore, store, type OrgRow } from "../store.js";
+import { scopedStore, store, type OrgRow } from "../store.js";
 
 type GuardianRoute = (
   handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
@@ -85,10 +84,19 @@ export function registerPaymentRoutes(
             (d.tool === "pay" || d.tool === "pay_api" || d.tool === "escrow_lock"),
         )
         .slice(0, limit)
-        .map((d) => ({
-          ...d,
-          agentName: agents.get(d.agentId) ?? d.agentId.slice(0, 10),
-        }));
+        .map((d) => {
+          const settlement = store.getSettlement(d.intentId);
+          return {
+            ...d,
+            agentName: agents.get(d.agentId) ?? d.agentId.slice(0, 10),
+            settlementState: settlement?.state,
+            rail: settlement?.rail,
+            txHash: settlement?.txHash,
+            explorerUrl: settlement?.txHash
+              ? `${process.env.CHAIN === "base" ? "https://basescan.org" : "https://sepolia.basescan.org"}/tx/${settlement.txHash}`
+              : undefined,
+          };
+        });
       res.json({ payments: rows });
     }),
   );
@@ -99,109 +107,115 @@ export function registerPaymentRoutes(
    */
   app.post(
     "/v1/guardian/payments/schedule",
-    guardianRoute((org, req, res) => {
-      const body = z
-        .object({
-          agentId: z.string(),
-          vendor: z.string().min(1),
-          amountUsdc: z.string(),
-          runAt: z.string().datetime().optional(),
-          memo: z.string().max(200).optional(),
-        })
-        .parse(req.body);
-      const agent = scopedStore(org.id).getAgent(body.agentId);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      const amountMicro = parseUsdcToMicro(body.amountUsdc);
-      const runAt = body.runAt ? new Date(body.runAt) : new Date(Date.now() + 60_000);
-      if (Number.isNaN(runAt.getTime()) || runAt.getTime() < Date.now() - 60_000) {
-        return res.status(400).json({
-          error: { code: "VALIDATION_ERROR", message: "runAt must be a valid future time" },
+    guardianRoute(
+      (org, req, res) => {
+        const body = z
+          .object({
+            agentId: z.string(),
+            vendor: z.string().min(1),
+            amountUsdc: z.string(),
+            runAt: z.string().datetime().optional(),
+            memo: z.string().max(200).optional(),
+          })
+          .parse(req.body);
+        const agent = scopedStore(org.id).getAgent(body.agentId);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+        }
+        const amountMicro = parseUsdcToMicro(body.amountUsdc);
+        const runAt = body.runAt ? new Date(body.runAt) : new Date(Date.now() + 60_000);
+        if (Number.isNaN(runAt.getTime()) || runAt.getTime() < Date.now() - 60_000) {
+          return res.status(400).json({
+            error: { code: "VALIDATION_ERROR", message: "runAt must be a valid future time" },
+          });
+        }
+        const sub = {
+          id: id("sub"),
+          orgId: org.id,
+          agentId: body.agentId,
+          vendor: body.vendor,
+          amountMicro,
+          intervalHours: 24 * 365,
+          status: "active" as const,
+          createdAt: new Date().toISOString(),
+          nextRunAt: runAt.toISOString(),
+          runs: 0,
+          spentMicro: 0n,
+          maxTotalMicro: amountMicro,
+          memo: body.memo ?? "scheduled_one_shot",
+        };
+        store.createSubscription(sub);
+        res.status(201).json({
+          scheduled: subView(sub),
+          note: "One-shot schedule — runs through the full policy engine at runAt, then stops (maxTotal).",
         });
-      }
-      const sub = {
-        id: id("sub"),
-        orgId: org.id,
-        agentId: body.agentId,
-        vendor: body.vendor,
-        amountMicro,
-        intervalHours: 24 * 365,
-        status: "active" as const,
-        createdAt: new Date().toISOString(),
-        nextRunAt: runAt.toISOString(),
-        runs: 0,
-        spentMicro: 0n,
-        maxTotalMicro: amountMicro,
-        memo: body.memo ?? "scheduled_one_shot",
-      };
-      store.createSubscription(sub);
-      res.status(201).json({
-        scheduled: subView(sub),
-        note: "One-shot schedule — runs through the full policy engine at runAt, then stops (maxTotal).",
-      });
-    }, { ownerOnly: true }),
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Enqueue up to 10 one-shot schedules (batch). Each item is independent. */
   app.post(
     "/v1/guardian/payments/batch",
-    guardianRoute((org, req, res) => {
-      const body = z
-        .object({
-          items: z
-            .array(
-              z.object({
-                agentId: z.string(),
-                vendor: z.string().min(1),
-                amountUsdc: z.string(),
-                runAt: z.string().datetime().optional(),
-                memo: z.string().max(200).optional(),
-              }),
-            )
-            .min(1)
-            .max(10),
-        })
-        .parse(req.body);
-      const created: unknown[] = [];
-      const errors: { index: number; error: string }[] = [];
-      body.items.forEach((item, index) => {
-        const agent = scopedStore(org.id).getAgent(item.agentId);
-        if (!agent) {
-          errors.push({ index, error: "agent not found" });
-          return;
-        }
-        try {
-          const amountMicro = parseUsdcToMicro(item.amountUsdc);
-          const runAt = item.runAt
-            ? new Date(item.runAt)
-            : new Date(Date.now() + (index + 1) * 60_000);
-          const sub = {
-            id: id("sub"),
-            orgId: org.id,
-            agentId: item.agentId,
-            vendor: item.vendor,
-            amountMicro,
-            intervalHours: 24 * 365,
-            status: "active" as const,
-            createdAt: new Date().toISOString(),
-            nextRunAt: runAt.toISOString(),
-            runs: 0,
-            spentMicro: 0n,
-            maxTotalMicro: amountMicro,
-            memo: item.memo ?? `batch_${index}`,
-          };
-          store.createSubscription(sub);
-          created.push(subView(sub));
-        } catch (e) {
-          errors.push({ index, error: String(e) });
-        }
-      });
-      res.status(errors.length && !created.length ? 400 : 201).json({
-        created,
-        errors,
-        note: "Batch items are independent one-shot schedules — each still hits policy alone.",
-      });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const body = z
+          .object({
+            items: z
+              .array(
+                z.object({
+                  agentId: z.string(),
+                  vendor: z.string().min(1),
+                  amountUsdc: z.string(),
+                  runAt: z.string().datetime().optional(),
+                  memo: z.string().max(200).optional(),
+                }),
+              )
+              .min(1)
+              .max(10),
+          })
+          .parse(req.body);
+        const created: unknown[] = [];
+        const errors: { index: number; error: string }[] = [];
+        body.items.forEach((item, index) => {
+          const agent = scopedStore(org.id).getAgent(item.agentId);
+          if (!agent) {
+            errors.push({ index, error: "agent not found" });
+            return;
+          }
+          try {
+            const amountMicro = parseUsdcToMicro(item.amountUsdc);
+            const runAt = item.runAt
+              ? new Date(item.runAt)
+              : new Date(Date.now() + (index + 1) * 60_000);
+            const sub = {
+              id: id("sub"),
+              orgId: org.id,
+              agentId: item.agentId,
+              vendor: item.vendor,
+              amountMicro,
+              intervalHours: 24 * 365,
+              status: "active" as const,
+              createdAt: new Date().toISOString(),
+              nextRunAt: runAt.toISOString(),
+              runs: 0,
+              spentMicro: 0n,
+              maxTotalMicro: amountMicro,
+              memo: item.memo ?? `batch_${index}`,
+            };
+            store.createSubscription(sub);
+            created.push(subView(sub));
+          } catch (e) {
+            errors.push({ index, error: String(e) });
+          }
+        });
+        res.status(errors.length && !created.length ? 400 : 201).json({
+          created,
+          errors,
+          note: "Batch items are independent one-shot schedules — each still hits policy alone.",
+        });
+      },
+      { ownerOnly: true },
+    ),
   );
 }

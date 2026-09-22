@@ -29,6 +29,8 @@
     "@policyvault/custody": "*",
     "@policyvault/ledger": "*",
     "@policyvault/policy": "*",
+    "@x402/core": "^2.26.0",
+    "@x402/evm": "^2.26.0",
     "better-sqlite3": "^12.11.1",
     "cors": "^2.8.5",
     "express": "^4.21.2",

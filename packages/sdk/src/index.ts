@@ -1,4 +1,18 @@
-import type { AgentErrorCode } from "@policyvault/common";
+export type AgentErrorCode =
+  | "POLICY_DENIED"
+  | "INSUFFICIENT_STIPEND"
+  | "NEEDS_APPROVAL"
+  | "APPROVAL_TIMEOUT"
+  | "FROZEN"
+  | "ALLOWLIST_MISS"
+  | "IDEMPOTENCY_REPLAY"
+  | "RAIL_FAILED"
+  | "RECONCILE_STALE"
+  | "NOT_FOUND"
+  | "UNAUTHORIZED"
+  | "VALIDATION_ERROR"
+  | "COMPLIANCE_BLOCKED"
+  | "CUSTODY_UNAVAILABLE";
 
 export interface PolicyVaultClientOptions {
   baseUrl: string;
@@ -85,15 +99,13 @@ export class PolicyVaultClient extends AbiHttpClient {
       intentId: string;
       outcome: string;
       receiptId?: string;
+      rail?: string;
+      txHash?: string;
+      resource?: unknown;
     }>("/v1/agent/pay_api", { method: "POST", body: JSON.stringify(input) });
   }
 
-  pay(input: {
-    amountUsdc: string;
-    destination: string;
-    idempotencyKey: string;
-    jobId?: string;
-  }) {
+  pay(input: { amountUsdc: string; destination: string; idempotencyKey: string; jobId?: string }) {
     return this.request<{ intentId: string; outcome: string }>("/v1/agent/pay", {
       method: "POST",
       body: JSON.stringify(input),
@@ -243,7 +255,9 @@ export class AbiGuardianClient extends AbiHttpClient {
   }
 
   getPolicy() {
-    return this.request<{ policy: Record<string, unknown>; version?: string }>("/v1/guardian/policy");
+    return this.request<{ policy: Record<string, unknown>; version?: string }>(
+      "/v1/guardian/policy",
+    );
   }
 
   updatePolicy(patch: Record<string, unknown>) {
@@ -318,17 +332,19 @@ export class AbiGuardianClient extends AbiHttpClient {
     });
   }
 
-  batchSchedule(items: {
-    agentId: string;
-    vendor: string;
-    amountUsdc: string;
-    runAt?: string;
-    memo?: string;
-  }[]) {
-    return this.request<{ created: unknown[]; errors: unknown[] }>(
-      "/v1/guardian/payments/batch",
-      { method: "POST", body: JSON.stringify({ items }) },
-    );
+  batchSchedule(
+    items: {
+      agentId: string;
+      vendor: string;
+      amountUsdc: string;
+      runAt?: string;
+      memo?: string;
+    }[],
+  ) {
+    return this.request<{ created: unknown[]; errors: unknown[] }>("/v1/guardian/payments/batch", {
+      method: "POST",
+      body: JSON.stringify({ items }),
+    });
   }
 
   listPaymentRails() {
@@ -365,6 +381,31 @@ export class AbiGuardianClient extends AbiHttpClient {
       method: "POST",
       body: JSON.stringify(input),
     });
+  }
+
+  onboardMerchantGateway(input: {
+    label: string;
+    endpoint: string;
+    payoutAddress: `0x${string}`;
+    priceUsdc: string;
+    category?: string;
+    network?: "eip155:84532" | "eip155:8453";
+  }) {
+    return this.request<{
+      merchant: unknown;
+      next: string;
+      sellerConfig: Record<string, unknown>;
+    }>("/v1/guardian/merchant-gateway/onboard", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  verifyMerchantGateway(id: string) {
+    return this.request<{ merchant: unknown; verified: true }>(
+      `/v1/guardian/merchant-gateway/${id}/verify`,
+      { method: "POST" },
+    );
   }
 
   deleteMerchant(id: string) {

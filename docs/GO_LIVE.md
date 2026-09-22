@@ -74,6 +74,14 @@ Product money = **USDC**. Do not put a Solana meme token here.
 
 That single approved pay is the week’s definition of “live.”
 
+### Prove x402 separately
+
+Direct wallet pay and x402 API purchase are different rails. After the normal
+smoke passes, follow [`X402-BASE-SEPOLIA-PROOF.md`](./X402-BASE-SEPOLIA-PROOF.md).
+The proof is complete only when the facilitator returns a real transaction hash,
+BaseScan shows the USDC transfer to the seller wallet, and the same hash appears
+under Console → Transactions.
+
 **Harder proof (real USDC to your wallet):** after Sync works, follow [`docs/E2E-ONCHAIN-AGENT-PAY.md`](./E2E-ONCHAIN-AGENT-PAY.md) — agent `pay` to an allowlisted Base Sepolia wallet broadcasts an ERC-20 Transfer from the vault. Use a Sepolia-capable wallet (not a Coinbase exchange deposit address).
 
 ---
