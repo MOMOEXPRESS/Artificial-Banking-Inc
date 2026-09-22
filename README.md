@@ -24,7 +24,8 @@ _Not a bank. Not FDIC insured._
 **ABI is pre-beta and is not safe to run against real customer funds.**
 
 An independent audit in July 2026 found critical defects in persistence,
-custody, and authentication. They are being worked through in order; the plan is
+custody, and authentication. The [current next-build plan](docs/NEXT-BUILD-PLAN.md)
+tracks the testnet proof and next product phases. The original engineering plan is
 [`docs/ROADMAP.md`](docs/ROADMAP.md) and the audit is
 [`docs/archive/2026-07-26-independent-audit.md`](docs/archive/2026-07-26-independent-audit.md).
 
