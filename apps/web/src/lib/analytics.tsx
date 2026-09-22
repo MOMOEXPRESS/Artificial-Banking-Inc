@@ -207,7 +207,7 @@ export function InsightsView({
   const net = Number(econ?.netUsdc ?? 0);
 
   return (
-    <>
+    <div className="console-page insights-page">
       <div className="grid g-4">
         <Stat
           label="Net position"
@@ -506,7 +506,7 @@ export function InsightsView({
           ))}
       </div>
       )}
-    </>
+    </div>
   );
 }
 
