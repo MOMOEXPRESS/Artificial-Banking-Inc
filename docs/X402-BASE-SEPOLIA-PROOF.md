@@ -3,6 +3,28 @@
 This runbook produces the evidence required to call ABI's x402 integration
 proven. Testnet tokens have no monetary value.
 
+## Proven settlement — 2026-09-22
+
+ABI completed a funded x402 V2 settlement against the independently deployed
+demo seller at `https://abi-x402-seller.onrender.com/report`.
+
+| Evidence             | Value                                                                                                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Network              | Base Sepolia (`eip155:84532`)                                                                                                                                              |
+| Rail                 | `x402-v2`                                                                                                                                                                  |
+| Amount               | `0.01` test USDC (`10,000` micro-USDC)                                                                                                                                     |
+| Buyer vault          | `0xbC77a647Bc6Caf12E7Bc384bdbB4c7bc5C95bD22`                                                                                                                               |
+| Merchant vault       | `0x001f2Bd37f9847b24D220a499b48eC3661258EEc`                                                                                                                               |
+| Transaction          | [`0x5a923e17847112d5bb9a521946cd834d54a09954bdee1ef94b5599de746c7f3c`](https://sepolia.basescan.org/tx/0x5a923e17847112d5bb9a521946cd834d54a09954bdee1ef94b5599de746c7f3c) |
+| ABI settlement state | `settled`                                                                                                                                                                  |
+| Merchant Gateway     | `verified`                                                                                                                                                                 |
+
+An independent `eth_getTransactionReceipt` call to the public Base Sepolia RPC
+returned status `0x1`. Its official USDC `Transfer` event moves `0x2710`
+base units from the buyer vault to the merchant vault. After settlement, the
+seller returned the paid competitor-pricing report and ABI's recent-payments
+view returned the same transaction hash and BaseScan URL.
+
 ## Prerequisites
 
 - An ABI organization vault with Base Sepolia USDC.
@@ -51,15 +73,15 @@ contain `rail: "x402-v2"` and `txHash`.
 
 ## Proof checklist
 
-- [ ] BaseScan transaction exists on Base Sepolia.
-- [ ] Transaction succeeded and transferred the expected USDC to the seller.
-- [ ] Console → Transactions links the same hash.
-- [ ] Settlement record is `settled`, not `needs_review`.
+- [x] BaseScan transaction exists on Base Sepolia.
+- [x] Transaction succeeded and transferred the expected USDC to the seller.
+- [x] Console → Transactions links the same hash.
+- [x] Settlement record is `settled`, not `needs_review`.
 - [ ] ABI ledger remains balanced.
 - [ ] Reusing the idempotency key does not create a second transfer.
-- [ ] A price above the authorized ceiling fails before signing.
-- [ ] The seller profile shows `verified`.
+- [x] A price above the authorized ceiling fails before signing (automated regression test).
+- [x] The seller profile shows `verified`.
 
-Save the transaction URL in the release notes. Until this checklist has a real
-hash, describe the integration as implemented and locally tested—not publicly
-proven.
+The funded settlement path is publicly proven. Keep the two remaining
+operational checks explicit until the live idempotency replay and post-payment
+ledger conformance checks have also been recorded.
