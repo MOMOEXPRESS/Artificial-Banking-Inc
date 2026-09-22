@@ -1,5 +1,10 @@
 # ABI — Master Implementation Roadmap
 
+> Historical engineering roadmap. The [current next-build plan](NEXT-BUILD-PLAN.md)
+> reflects the September 2026 x402 V2 Base Sepolia settlement and Merchant
+> Gateway implementation. The percentages and uncompleted-item claims below
+> are from the earlier audit; use the newer plan for present priorities.
+
 **Derived from:** `ABI-AUDIT-2026-07-26.md`
 **Baseline commit:** `5f7138c` (`main`)
 **Execution model:** one phase at a time, each ending in a single clean commit and a stop for approval.
