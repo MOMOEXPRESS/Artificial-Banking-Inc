@@ -48,18 +48,86 @@ type Merchant = {
 };
 
 const SECTIONS = [
-  { key: "golive", label: "Go live", icon: "shield" },
-  { key: "org", label: "Org & compliance", icon: "shield" },
-  { key: "merchants", label: "Merchants", icon: "wallet" },
-  { key: "team", label: "Team & quorum", icon: "check" },
-  { key: "recurring", label: "Recurring spend", icon: "clock" },
-  { key: "webhooks", label: "Webhooks", icon: "zap" },
-  { key: "console", label: "Console", icon: "sliders" },
-  { key: "security", label: "Security", icon: "shield" },
-  { key: "ai", label: "AI & data", icon: "spark" },
-  { key: "connect", label: "Connect an agent", icon: "robot" },
-  { key: "danger", label: "Danger zone", icon: "alert" },
+  {
+    key: "golive",
+    label: "Go live",
+    icon: "shield",
+    group: "Launch",
+    description: "Readiness, custody, network, and reconciliation.",
+  },
+  {
+    key: "org",
+    label: "Org & compliance",
+    icon: "shield",
+    group: "Launch",
+    description: "Organization defaults, compliance, and financial controls.",
+  },
+  {
+    key: "merchants",
+    label: "Merchants",
+    icon: "wallet",
+    group: "Launch",
+    description: "Approved sellers, gateway profiles, and payout routes.",
+  },
+  {
+    key: "team",
+    label: "Team & quorum",
+    icon: "check",
+    group: "Access",
+    description: "People, roles, signing authority, and approval quorum.",
+  },
+  {
+    key: "security",
+    label: "Security",
+    icon: "shield",
+    group: "Access",
+    description: "Authentication, key posture, and incident controls.",
+  },
+  {
+    key: "recurring",
+    label: "Recurring spend",
+    icon: "clock",
+    group: "Automation",
+    description: "Standing financial commitments and scheduled controls.",
+  },
+  {
+    key: "webhooks",
+    label: "Webhooks",
+    icon: "zap",
+    group: "Automation",
+    description: "Delivery health and operational event routing.",
+  },
+  {
+    key: "console",
+    label: "Console",
+    icon: "sliders",
+    group: "Experience",
+    description: "Console behavior and operator preferences.",
+  },
+  {
+    key: "ai",
+    label: "AI & data",
+    icon: "spark",
+    group: "Experience",
+    description: "Assistant access, data boundaries, and model egress.",
+  },
+  {
+    key: "connect",
+    label: "Connect an agent",
+    icon: "robot",
+    group: "Experience",
+    description: "Give a runtime the minimum credentials and scopes it needs.",
+  },
+  {
+    key: "danger",
+    label: "Danger zone",
+    icon: "alert",
+    group: "Advanced",
+    description: "Organization-wide controls with irreversible consequences.",
+  },
 ] as const;
+
+const SETTINGS_GROUPS = ["Launch", "Access", "Automation", "Experience", "Advanced"] as const;
 
 type Section = (typeof SECTIONS)[number]["key"];
 
@@ -163,6 +231,7 @@ export function SettingsView({
   };
 
   const orgFrozen = org?.org.status === "frozen";
+  const activeSection = SECTIONS.find((item) => item.key === section) ?? SECTIONS[0];
 
   const toggleFreeze = () =>
     act("Org freeze", async () => {
@@ -268,15 +337,39 @@ export function SettingsView({
   return (
     <div className="set-grid console-page settings-page">
       <nav className="set-nav">
-        {SECTIONS.map((s) => (
-          <button key={s.key} className={section === s.key ? "on" : ""} onClick={() => go(s.key)}>
-            <Icon name={s.icon} />
-            {s.label}
-          </button>
+        <div className="set-nav-head">
+          <span>Organization</span>
+          <small>{actorRole}</small>
+        </div>
+        {SETTINGS_GROUPS.map((group) => (
+          <div className="set-nav-group" key={group}>
+            <span className="set-nav-label">{group}</span>
+            {SECTIONS.filter((item) => item.group === group).map((s) => (
+              <button
+                key={s.key}
+                className={section === s.key ? "on" : ""}
+                onClick={() => go(s.key)}
+              >
+                <Icon name={s.icon} />
+                <span>{s.label}</span>
+                {section === s.key && <Icon name="arrowRight" size={12} />}
+              </button>
+            ))}
+          </div>
         ))}
       </nav>
 
       <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+        <section className="settings-section-summary">
+          <span className="settings-section-icon">
+            <Icon name={activeSection.icon} size={17} />
+          </span>
+          <div>
+            <div className="ops-eyebrow">{activeSection.group}</div>
+            <h3>{activeSection.label}</h3>
+            <p>{activeSection.description}</p>
+          </div>
+        </section>
         {section === "golive" && (
           <>
             <div className="card">
