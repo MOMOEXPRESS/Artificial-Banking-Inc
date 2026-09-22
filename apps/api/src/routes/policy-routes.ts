@@ -496,18 +496,14 @@ export function registerPolicyRoutes(
           domainAllowlist: z.array(z.string()).optional(),
           vendorAllowlist: z.array(z.string()).optional(),
           merchantDailyCaps: z
-              .record(
-                z
-                  .string()
-                  .min(1)
-                  .max(2048)
-                  .regex(/^https?:\/\/[^/]+\/[^?]+/),
-                z.string().regex(/^\d+(?:\.\d{1,6})?$/),
-              )
-              .refine((caps) => Object.keys(caps).length <= 50, "Limit to 50 merchant caps")
-              .nullable()
-              .optional(),
-            blocklist: z.array(z.string()).optional(),
+            .record(
+              z.string().min(1).max(2048).regex(/^https?:\/\/[^/]+\/[^?]+/),
+              z.string().regex(/^\d+(?:\.\d{1,6})?$/),
+            )
+            .refine((caps) => Object.keys(caps).length <= 50, "Limit to 50 merchant caps")
+            .nullable()
+            .optional(),
+          blocklist: z.array(z.string()).optional(),
           hitlCategories: z.array(toolEnum).optional(),
           quietHours: z
             .object({
@@ -580,18 +576,15 @@ export function registerPolicyRoutes(
         ...(body.domainAllowlist && { domainAllowlist: body.domainAllowlist }),
         ...(body.vendorAllowlist && { vendorAllowlist: body.vendorAllowlist }),
         ...(body.merchantDailyCaps !== undefined && {
-            merchantDailyCaps:
-              body.merchantDailyCaps === null
-                ? undefined
-                : Object.fromEntries(
-                    Object.entries(body.merchantDailyCaps).map(([rawDestination, amount]) => {
-                      const destination = rawDestination.trim().toLowerCase();
-                      const parsed = parseUsdcToMicro(amount);
-                      return [destination, parsed];
-                    }),
-                  ),
-          }),
-          ...(body.blocklist && { blocklist: body.blocklist }),
+          merchantDailyCaps: body.merchantDailyCaps === null
+            ? undefined
+            : Object.fromEntries(
+                Object.entries(body.merchantDailyCaps).map(([rawDestination, amount]) => [
+                  rawDestination.trim().toLowerCase(), parseUsdcToMicro(amount),
+                ]),
+              ),
+        }),
+        ...(body.blocklist && { blocklist: body.blocklist }),
         ...(body.hitlCategories && { hitlCategories: body.hitlCategories }),
         ...(body.quietHours !== undefined && { quietHours: body.quietHours ?? undefined }),
         ...(body.quietHoursTimezone !== undefined && {
