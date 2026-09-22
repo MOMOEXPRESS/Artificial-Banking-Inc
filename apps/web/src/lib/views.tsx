@@ -570,7 +570,7 @@ export function WorkView({
     });
 
   return (
-    <>
+    <div className="console-page work-page">
       <div className="grid g-4">
         <Stat label="Runs" value={String(runs.length)} foot="missions executed" />
         <Stat label="Deliverables" value={String(withDeliverable.length)} foot="documents produced" />
@@ -690,6 +690,6 @@ export function WorkView({
           )}
         </div>
       </div>
-    </>
+    </div>
   );
 }
