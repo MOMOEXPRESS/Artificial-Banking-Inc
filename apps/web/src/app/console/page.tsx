@@ -82,6 +82,123 @@ const NAV: { key: View; label: string; icon: string; group: string }[] = [
 
 const NAV_GROUPS = ["Home", "Money", "Agents", "Controls", "Developers"] as const;
 
+const MOBILE_NAV: { key: View; label: string; icon: string }[] = [
+  { key: "overview", label: "Home", icon: "home" },
+  { key: "treasury", label: "Money", icon: "wallet" },
+  { key: "agents", label: "Agents", icon: "robot" },
+  { key: "approvals", label: "Approvals", icon: "check" },
+];
+
+const VIEW_META: Partial<
+  Record<View, { eyebrow: string; title: string; description: string; icon: string }>
+> = {
+  insights: {
+    eyebrow: "Home intelligence",
+    title: "Understand where the money is going.",
+    description:
+      "Track economics, vendor concentration, burn, anomalies, and the complete decision trail.",
+    icon: "spark",
+  },
+  treasury: {
+    eyebrow: "Money · Treasury",
+    title: "Put every dollar in the right place.",
+    description:
+      "Fund the vault, assign operating budgets, move USDC, and keep book balances reconciled with the chain.",
+    icon: "wallet",
+  },
+  payments: {
+    eyebrow: "Money · Transactions",
+    title: "Operate every payment from one queue.",
+    description:
+      "Review approvals, transactions, invoices, escrows, schedules, batches, and settlement rails together.",
+    icon: "zap",
+  },
+  approvals: {
+    eyebrow: "Controls · Approvals",
+    title: "Resolve exceptions without slowing agents down.",
+    description:
+      "See why a payment needs a human, inspect the policy trace, and make a controlled decision.",
+    icon: "check",
+  },
+  invoices: {
+    eyebrow: "Money · Invoices",
+    title: "Connect work delivered to money earned.",
+    description:
+      "Issue, monitor, and reconcile invoices without losing the agent and policy context behind them.",
+    icon: "book",
+  },
+  escrows: {
+    eyebrow: "Money · Escrows",
+    title: "Protect funds until the work is complete.",
+    description:
+      "Monitor locked balances, settlement state, release conditions, and refunds in one operational view.",
+    icon: "shield",
+  },
+  ledger: {
+    eyebrow: "Money · Ledger",
+    title: "A finance-grade record of every movement.",
+    description:
+      "Inspect double-entry journals, account balances, reconciliation health, and the source of every posting.",
+    icon: "list",
+  },
+  agents: {
+    eyebrow: "Agents · Directory",
+    title: "Manage the workforce that can spend.",
+    description:
+      "Create identities, assign operating context, control sessions, inspect activity, and stop an agent instantly.",
+    icon: "robot",
+  },
+  work: {
+    eyebrow: "Agents · Work",
+    title: "Connect agent output to financial results.",
+    description:
+      "Review runs, attribution, delivered work, and the revenue or cost attached to each outcome.",
+    icon: "book",
+  },
+  policy: {
+    eyebrow: "Controls · Policies",
+    title: "Turn financial intent into deterministic rules.",
+    description:
+      "Set limits, destinations, timing, and review bands—then simulate the outcome before agents encounter it.",
+    icon: "sliders",
+  },
+  playground: {
+    eyebrow: "Developers · Playground",
+    title: "Prove the complete payment path.",
+    description:
+      "Run a real agent request through policy, approval, settlement, and receipt without leaving the console.",
+    icon: "play",
+  },
+  webhooks: {
+    eyebrow: "Developers · Webhooks",
+    title: "Send financial events into your systems.",
+    description:
+      "Manage signed endpoints, delivery health, retries, and the event history your applications depend on.",
+    icon: "zap",
+  },
+  activity: {
+    eyebrow: "Money · Activity",
+    title: "Trace every financial decision.",
+    description:
+      "Search the complete allow, review, deny, and settlement history with the policy context intact.",
+    icon: "list",
+  },
+  settings: {
+    eyebrow: "Organization · Settings",
+    title: "Configure ABI around your operating model.",
+    description:
+      "Manage launch readiness, people, security, merchants, data controls, integrations, and console behavior.",
+    icon: "gear",
+  },
+  chat: {
+    eyebrow: "Assistant",
+    title: "Ask ABI about the operation.",
+    description:
+      "Investigate activity, policy, and risk with an assistant that cannot move money on its own.",
+    icon: "spark",
+  },
+};
+
 const ALL_VIEWS = new Set<View>([
   "overview",
   "treasury",
@@ -212,6 +329,7 @@ export default function Console() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [navContext, setNavContext] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const [folderOpen, setFolderOpen] = useState<Record<string, boolean>>({
     Home: true,
     Money: true,
@@ -261,6 +379,7 @@ export default function Console() {
         const parsed = JSON.parse(p) as Partial<Prefs> & { sound?: boolean };
         setPrefs({ autoJump: parsed.autoJump ?? true });
       }
+      setRailCollapsed(localStorage.getItem("abi_nav_collapsed") === "1");
     } catch {
       /* ignore */
     }
@@ -691,12 +810,13 @@ export default function Console() {
   const shared = { busy, act, gFetch, agentName, org, setToast, setView, readOnly };
   const viewLabel = viewLabelOf(view);
   const groupLabel = navGroupOf(view);
+  const viewMeta = VIEW_META[view];
   const railActive =
     view === "approvals" || view === "activity" || view === "webhooks" ? view : canonicalView(view);
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className={`app ${railOpen ? "rail-open" : ""}`}>
+      <div className={`app ${railOpen ? "rail-open" : ""} ${railCollapsed ? "nav-collapsed" : ""}`}>
         <button
           type="button"
           className="rail-burger"
@@ -714,18 +834,40 @@ export default function Console() {
           />
         )}
         <Sidebar className="rail rail-folders" label="Console navigation">
-          <Link
-            href="/"
-            className="rail-brand"
-            title="Back to landing"
-            style={{ textDecoration: "none" }}
-          >
-            <ABAppIcon size={38} />
-            <span>
-              <b>Artificial Banking</b>
-              <small>Financial operations</small>
-            </span>
-          </Link>
+          <div className="rail-brand-row">
+            <Link
+              href="/"
+              className="rail-brand"
+              title="Back to landing"
+              style={{ textDecoration: "none" }}
+            >
+              <ABAppIcon size={38} />
+              <span>
+                <b>Artificial Banking</b>
+                <small>Financial operations</small>
+              </span>
+            </Link>
+            <button
+              type="button"
+              className="rail-collapse"
+              aria-label={railCollapsed ? "Expand navigation" : "Collapse navigation"}
+              title={railCollapsed ? "Expand navigation" : "Collapse navigation"}
+              onClick={() => {
+                const next = !railCollapsed;
+                setRailCollapsed(next);
+                setFolderOpen({
+                  Home: true,
+                  Money: true,
+                  Agents: true,
+                  Controls: true,
+                  Developers: true,
+                });
+                localStorage.setItem("abi_nav_collapsed", next ? "1" : "0");
+              }}
+            >
+              <Icon name={railCollapsed ? "arrowRight" : "arrowLeft"} size={15} />
+            </button>
+          </div>
           {NAV_GROUPS.map((group) => {
             const items = NAV.filter((n) => n.group === group);
             const groupActive = items.some((n) => n.key === railActive);
@@ -993,6 +1135,24 @@ export default function Console() {
               <ConsoleSkeleton />
             ) : (
               <div className="view">
+                {view !== "overview" && viewMeta && (
+                  <section className="console-section-intro">
+                    <div className="console-section-mark" aria-hidden>
+                      <Icon name={viewMeta.icon} size={18} />
+                    </div>
+                    <div className="console-section-copy">
+                      <div className="ops-eyebrow">{viewMeta.eyebrow}</div>
+                      <h2>{viewMeta.title}</h2>
+                      <p>{viewMeta.description}</p>
+                    </div>
+                    <div className="console-section-context" aria-label="Current operating context">
+                      <span className={org?.ledgerMode === "live" ? "live" : ""}>
+                        <i /> {org?.ledgerMode === "live" ? "Live" : "Sandbox"}
+                      </span>
+                      <span>{org?.actor?.role ?? "owner"}</span>
+                    </div>
+                  </section>
+                )}
                 {view !== "overview" && (
                   <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
                 )}
@@ -1180,6 +1340,38 @@ export default function Console() {
             )}
           </div>
         </main>
+
+        <nav className="mobile-bottom-nav" aria-label="Primary navigation">
+          {MOBILE_NAV.map((item) => (
+            <button
+              type="button"
+              key={item.key}
+              className={railActive === item.key ? "active" : ""}
+              aria-current={railActive === item.key ? "page" : undefined}
+              onClick={() => {
+                setView(item.key);
+                setRailOpen(false);
+              }}
+            >
+              <span className="mobile-nav-icon">
+                <Icon name={item.icon} size={19} />
+                {item.key === "approvals" && pending.length > 0 && <i>{pending.length}</i>}
+              </span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className={railOpen ? "active" : ""}
+            aria-expanded={railOpen}
+            onClick={() => setRailOpen((open) => !open)}
+          >
+            <span className="mobile-nav-icon">
+              <Icon name="list" size={19} />
+            </span>
+            <span>More</span>
+          </button>
+        </nav>
 
         <button
           type="button"

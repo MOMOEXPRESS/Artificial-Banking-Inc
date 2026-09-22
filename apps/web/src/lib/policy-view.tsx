@@ -350,7 +350,7 @@ export function PolicyView({
   };
 
   return (
-    <>
+    <div className="console-page policy-page">
       <div className="card policy-hero">
         <div className="card-head" style={{ marginBottom: 12 }}>
           <div>
@@ -1184,6 +1184,6 @@ export function PolicyView({
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

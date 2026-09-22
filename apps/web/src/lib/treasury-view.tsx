@@ -440,7 +440,7 @@ export function TreasuryView({
   };
 
   return (
-    <>
+    <div className="console-page treasury-page">
       <div className="card treasury-hero">
         <div className="card-head" style={{ marginBottom: 0 }}>
           <div className="treasury-hero-copy">
@@ -1613,6 +1613,6 @@ export function TreasuryView({
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

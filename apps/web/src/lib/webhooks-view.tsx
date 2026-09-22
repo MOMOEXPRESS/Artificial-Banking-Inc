@@ -55,7 +55,7 @@ export function Webhooks({
   const rate = deliveries.length ? Math.round((ok / deliveries.length) * 100) : 100;
 
   return (
-    <>
+    <div className="console-page developer-page webhooks-page">
       <div className="banner info" style={{ marginBottom: 14 }}>
         <span className="txt">
           <b>What webhooks do</b>
@@ -212,7 +212,7 @@ export function Webhooks({
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
 

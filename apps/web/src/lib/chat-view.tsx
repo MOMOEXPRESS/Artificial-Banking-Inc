@@ -114,7 +114,7 @@ export function ChatView({
     });
 
   return (
-    <div className="chat-shell card" style={{ display: "flex", flexDirection: "column", minHeight: "70vh" }}>
+    <div className="chat-shell card console-page assistant-page" style={{ display: "flex", flexDirection: "column", minHeight: "70vh" }}>
       <div className="card-head">
         <div>
           <h2>ABI Assistant</h2>

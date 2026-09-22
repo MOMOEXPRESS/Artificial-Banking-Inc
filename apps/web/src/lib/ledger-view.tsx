@@ -20,7 +20,7 @@ export function Ledger({
   };
 
   return (
-    <>
+    <div className="console-page ledger-page">
       <div className="grid g-4">
         <Stat label="Journal entries" value={String(metrics?.journals ?? 0)} foot="every balanced movement" />
         <Stat label="In escrow" value={fmtUsd(metrics?.balancesUsdc?.escrow ?? "0")} foot="locked between agents" />
@@ -79,7 +79,7 @@ export function Ledger({
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }
 

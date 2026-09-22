@@ -163,7 +163,7 @@ export function PaymentsView({
   };
 
   return (
-    <>
+    <div className="console-page payments-page">
       <div className="card-head" style={{ marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: 0 }}>Payments</h2>
@@ -709,6 +709,6 @@ export function PaymentsView({
           ))}
         </div>
       )}
-    </>
+    </div>
   );
 }

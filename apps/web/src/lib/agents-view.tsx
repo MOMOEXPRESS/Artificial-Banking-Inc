@@ -308,7 +308,7 @@ export function AgentsView({
   const selectedAgent = agents.find((a) => a.id === selected);
 
   return (
-    <>
+    <div className="console-page agents-page">
       <div className="card-head" style={{ marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: 0 }}>Agents</h2>
@@ -1425,6 +1425,6 @@ export function AgentsView({
           )}
         </div>
       )}
-    </>
+    </div>
   );
 }
