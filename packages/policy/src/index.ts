@@ -30,6 +30,10 @@ export interface PolicyRules {
    * org-level ceiling, which is the pre-existing behaviour.
    */
   orgDailyMaxMicro?: MicroUsdc;
+  /** Shared rolling 24h ceilings for individual pay_api destinations across all agents. */
+  merchantDailyCaps?: Record<string, MicroUsdc>;
+  /** Settled org spend for this exact destination, injected by the runtime. */
+  merchantSpentLast24hMicro?: MicroUsdc;
   /**
    * Per-category ceilings (P6-T3), keyed by lowercase category.
    *
@@ -151,7 +155,8 @@ export function counterpartyRiskScore(
   const ageDays =
     stats.firstSeenMs === undefined ? 0 : Math.max(0, (nowMs - stats.firstSeenMs) / 86_400_000);
   const ageScore = Math.round(50 * (1 - Math.min(ageDays, 30) / 30));
-  if (ageScore > 0) factors.push(`known for ${ageDays < 1 ? "less than a day" : `${Math.floor(ageDays)}d`}`);
+  if (ageScore > 0)
+    factors.push(`known for ${ageDays < 1 ? "less than a day" : `${Math.floor(ageDays)}d`}`);
   score += ageScore;
 
   // History. Repeat payments are the strongest cheap signal of a real vendor.
@@ -188,7 +193,11 @@ export interface AutomationRule {
 
 export type AutomationCondition =
   | { kind: "amount_above"; micro: MicroUsdc }
-  | { kind: "balance_below"; micro: MicroUsdc; /** reserved: wallet id when multi-wallet lands */ walletId?: string }
+  | {
+      kind: "balance_below";
+      micro: MicroUsdc;
+      /** reserved: wallet id when multi-wallet lands */ walletId?: string;
+    }
   | { kind: "merchant_unknown" }
   /** @deprecated use daily_cap_exceeded — kept for stored policies */
   | { kind: "budget_exceeded" }
@@ -352,6 +361,18 @@ export function evaluatePolicy(
       reasons: ["Exceeds the organization's daily spending cap"],
       policyVersion,
     };
+  }
+
+  if (intent.tool === "pay_api") {
+    const cap = rules.merchantDailyCaps?.[intent.destination.trim().toLowerCase()];
+    if (cap !== undefined && (rules.merchantSpentLast24hMicro ?? 0n) + intent.amountMicro > cap) {
+      return {
+        outcome: "deny",
+        ruleIds: ["merchant_daily_max"],
+        reasons: [`Exceeds the organization's rolling 24h cap for ${intent.destination}`],
+        policyVersion,
+      };
+    }
   }
 
   // Time-boxed budget (P6-T4). Checked with the hard caps because an expired
@@ -692,6 +713,7 @@ export type PolicyTemplate = Omit<
   | "knownCounterparties"
   | "spentLast24hMicro"
   | "orgSpentLast24hMicro"
+  | "merchantSpentLast24hMicro"
   | "counterpartyFirstSeenMs"
   // Runtime-injected facts about THIS intent, not configuration an operator
   // sets. Leaving them settable would let a stored policy pin its own
@@ -856,9 +878,6 @@ export function listPolicyTemplateCatalog(): {
 }
 
 /** Rules whose `when` matches — used by the API to fire notify/freeze side-effects. */
-export function matchedAutomationRules(
-  intent: MoneyIntent,
-  rules: PolicyRules,
-): AutomationRule[] {
+export function matchedAutomationRules(intent: MoneyIntent, rules: PolicyRules): AutomationRule[] {
   return (rules.automation ?? []).filter((rule) => conditionMatches(rule.when, intent, rules));
 }
