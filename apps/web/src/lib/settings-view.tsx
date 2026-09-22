@@ -266,7 +266,7 @@ export function SettingsView({
   ];
 
   return (
-    <div className="set-grid">
+    <div className="set-grid console-page settings-page">
       <nav className="set-nav">
         {SECTIONS.map((s) => (
           <button key={s.key} className={section === s.key ? "on" : ""} onClick={() => go(s.key)}>
