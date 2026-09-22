@@ -16,6 +16,7 @@ export function Overview({
   agentName,
   setView,
   alerts,
+  readOnly,
 }: Shared & {
   metrics: Metrics | null;
   decisions: Decision[];
@@ -45,6 +46,7 @@ export function Overview({
   );
   const activeAgents = (org?.agents ?? []).filter((agent) => agent.status !== "frozen").length;
   const isLive = org?.ledgerMode === "live";
+  const actorRole = org?.actor?.role ?? "owner";
   const attentionItems = useMemo(() => {
     const approvalItems = pending.slice(0, 3).map((approval) => ({
       id: approval.id,
@@ -69,7 +71,7 @@ export function Overview({
   }, [agentName, alerts, pending, setView]);
 
   return (
-    <div className="ops-overview">
+    <div className={`ops-overview ${attentionItems.length ? "has-priority" : "is-clear"}`}>
       <section className="ops-page-intro">
         <div>
           <div className="ops-eyebrow">Financial control center</div>
@@ -80,14 +82,73 @@ export function Overview({
           </p>
         </div>
         <div className="ops-page-actions">
-          <Button variant="secondary" onClick={() => setView("agents")}>
-            <Icon name="robot" size={14} /> View agents
-          </Button>
-          <Button onClick={() => setView("treasury", "move")}>
-            <Icon name="swap" size={14} /> Move funds
-          </Button>
+          {actorRole === "approver" ? (
+            <>
+              <Button variant="secondary" onClick={() => setView("activity")}>
+                <Icon name="list" size={14} /> Review activity
+              </Button>
+              <Button onClick={() => setView("approvals")}>
+                <Icon name="check" size={14} /> Open approvals
+              </Button>
+            </>
+          ) : readOnly ? (
+            <>
+              <Button variant="secondary" onClick={() => setView("agents")}>
+                <Icon name="robot" size={14} /> View agents
+              </Button>
+              <Button onClick={() => setView("activity")}>
+                <Icon name="list" size={14} /> View activity
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={() => setView("agents")}>
+                <Icon name="robot" size={14} /> View agents
+              </Button>
+              <Button onClick={() => setView("treasury", "move")}>
+                <Icon name="swap" size={14} /> Move funds
+              </Button>
+            </>
+          )}
         </div>
       </section>
+
+      {attentionItems.length > 0 && (
+        <section className="ops-priority" aria-labelledby="ops-priority-title">
+          <div className="ops-priority-lead">
+            <span className="ops-priority-kicker">
+              <i /> Action required
+            </span>
+            <h3 id="ops-priority-title">
+              {attentionItems.length} {attentionItems.length === 1 ? "item needs" : "items need"}{" "}
+              your attention
+            </h3>
+            <p>Resolve the most urgent financial exceptions before they interrupt agent work.</p>
+          </div>
+          <div className="ops-priority-list">
+            {attentionItems.map((item, index) => (
+              <button
+                type="button"
+                className="ops-priority-row"
+                key={item.id}
+                onClick={item.onOpen}
+                style={{ animationDelay: `${120 + index * 70}ms` }}
+              >
+                <span className={`ops-attention-icon ${item.tone}`}>
+                  <Icon name={item.icon} size={15} />
+                </span>
+                <span className="ops-attention-copy">
+                  <b>{item.title}</b>
+                  <span>{item.body}</span>
+                </span>
+                <span className="ops-row-action">
+                  Review <Icon name="arrowRight" size={13} />
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="ops-balance-strip" aria-label="Balance summary">
         <div className="ops-primary-balance">
@@ -116,53 +177,19 @@ export function Overview({
 
       <section className="ops-workspace">
         <div className="ops-main-column">
-          <div className="ops-section-head">
-            <div>
-              <h3>Requires attention</h3>
-              <p>Exceptions and controls that need a human decision.</p>
-            </div>
-            {pending.length > 0 && (
-              <Button variant="bare" size="sm" onClick={() => setView("approvals")}>
-                View approvals <Icon name="arrowRight" size={13} />
-              </Button>
-            )}
-          </div>
-
-          <div className="ops-attention-list">
-            {attentionItems.length ? (
-              attentionItems.map((item) => (
-                <button
-                  type="button"
-                  className="ops-attention-row"
-                  key={item.id}
-                  onClick={item.onOpen}
-                >
-                  <span className={`ops-attention-icon ${item.tone}`}>
-                    <Icon name={item.icon} size={15} />
-                  </span>
-                  <span className="ops-attention-copy">
-                    <b>{item.title}</b>
-                    <span>{item.body}</span>
-                  </span>
-                  <span className="ops-row-action">
-                    Review <Icon name="arrowRight" size={13} />
-                  </span>
-                </button>
-              ))
-            ) : (
-              <div className="ops-clear-state">
-                <span>
-                  <Icon name="check" size={16} />
-                </span>
-                <div>
-                  <b>Everything is under control</b>
-                  <p>No approvals, reconciliation drift, or failed deliveries need attention.</p>
-                </div>
+          {attentionItems.length === 0 && (
+            <div className="ops-clear-state ops-clear-banner">
+              <span>
+                <Icon name="check" size={16} />
+              </span>
+              <div>
+                <b>Everything is under control</b>
+                <p>No approvals, reconciliation drift, or failed deliveries need attention.</p>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
-          <div className="ops-section-head ops-activity-head">
+          <div className={`ops-section-head ${attentionItems.length ? "" : "ops-activity-head"}`}>
             <div>
               <h3>Recent activity</h3>
               <p>A live record of agent payment decisions.</p>
