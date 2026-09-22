@@ -82,6 +82,13 @@ const NAV: { key: View; label: string; icon: string; group: string }[] = [
 
 const NAV_GROUPS = ["Home", "Money", "Agents", "Controls", "Developers"] as const;
 
+const MOBILE_NAV: { key: View; label: string; icon: string }[] = [
+  { key: "overview", label: "Home", icon: "home" },
+  { key: "treasury", label: "Money", icon: "wallet" },
+  { key: "agents", label: "Agents", icon: "robot" },
+  { key: "approvals", label: "Approvals", icon: "check" },
+];
+
 const ALL_VIEWS = new Set<View>([
   "overview",
   "treasury",
@@ -212,6 +219,7 @@ export default function Console() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [navContext, setNavContext] = useState<string | null>(null);
   const [railOpen, setRailOpen] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const [folderOpen, setFolderOpen] = useState<Record<string, boolean>>({
     Home: true,
     Money: true,
@@ -261,6 +269,7 @@ export default function Console() {
         const parsed = JSON.parse(p) as Partial<Prefs> & { sound?: boolean };
         setPrefs({ autoJump: parsed.autoJump ?? true });
       }
+      setRailCollapsed(localStorage.getItem("abi_nav_collapsed") === "1");
     } catch {
       /* ignore */
     }
@@ -696,7 +705,9 @@ export default function Console() {
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className={`app ${railOpen ? "rail-open" : ""}`}>
+      <div
+        className={`app ${railOpen ? "rail-open" : ""} ${railCollapsed ? "nav-collapsed" : ""}`}
+      >
         <button
           type="button"
           className="rail-burger"
@@ -714,18 +725,40 @@ export default function Console() {
           />
         )}
         <Sidebar className="rail rail-folders" label="Console navigation">
-          <Link
-            href="/"
-            className="rail-brand"
-            title="Back to landing"
-            style={{ textDecoration: "none" }}
-          >
-            <ABAppIcon size={38} />
-            <span>
-              <b>Artificial Banking</b>
-              <small>Financial operations</small>
-            </span>
-          </Link>
+          <div className="rail-brand-row">
+            <Link
+              href="/"
+              className="rail-brand"
+              title="Back to landing"
+              style={{ textDecoration: "none" }}
+            >
+              <ABAppIcon size={38} />
+              <span>
+                <b>Artificial Banking</b>
+                <small>Financial operations</small>
+              </span>
+            </Link>
+            <button
+              type="button"
+              className="rail-collapse"
+              aria-label={railCollapsed ? "Expand navigation" : "Collapse navigation"}
+              title={railCollapsed ? "Expand navigation" : "Collapse navigation"}
+              onClick={() => {
+                const next = !railCollapsed;
+                setRailCollapsed(next);
+                setFolderOpen({
+                  Home: true,
+                  Money: true,
+                  Agents: true,
+                  Controls: true,
+                  Developers: true,
+                });
+                localStorage.setItem("abi_nav_collapsed", next ? "1" : "0");
+              }}
+            >
+              <Icon name={railCollapsed ? "arrowRight" : "arrowLeft"} size={15} />
+            </button>
+          </div>
           {NAV_GROUPS.map((group) => {
             const items = NAV.filter((n) => n.group === group);
             const groupActive = items.some((n) => n.key === railActive);
@@ -1180,6 +1213,38 @@ export default function Console() {
             )}
           </div>
         </main>
+
+        <nav className="mobile-bottom-nav" aria-label="Primary navigation">
+          {MOBILE_NAV.map((item) => (
+            <button
+              type="button"
+              key={item.key}
+              className={railActive === item.key ? "active" : ""}
+              aria-current={railActive === item.key ? "page" : undefined}
+              onClick={() => {
+                setView(item.key);
+                setRailOpen(false);
+              }}
+            >
+              <span className="mobile-nav-icon">
+                <Icon name={item.icon} size={19} />
+                {item.key === "approvals" && pending.length > 0 && <i>{pending.length}</i>}
+              </span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className={railOpen ? "active" : ""}
+            aria-expanded={railOpen}
+            onClick={() => setRailOpen((open) => !open)}
+          >
+            <span className="mobile-nav-icon">
+              <Icon name="list" size={19} />
+            </span>
+            <span>More</span>
+          </button>
+        </nav>
 
         <button
           type="button"
