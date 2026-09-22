@@ -2827,6 +2827,29 @@ export const store = {
     return rows.reduce((acc, r) => acc + parseMicroColumn(r.amount_micro), 0n);
   },
 
+  /** Settled spend at this exact pay_api destination by every agent in the org. */
+  merchantSpentLast24h(orgId: string, destination: string): MicroUsdc {
+    const row = db
+      .prepare(
+        `SELECT p.amount_micro FROM pay_events p
+         LEFT JOIN agents a ON a.id = p.agent_id
+         WHERE COALESCE(p.org_id, a.org_id) = ? AND p.destination = ? AND p.at_ms >= ?`,
+      )
+      .all(orgId, destination.trim().toLowerCase(), Date.now() - 24 * 60 * 60 * 1000) as Row[];
+    return row.reduce((sum, entry) => sum + parseMicroColumn(entry.amount_micro), 0n);
+  },
+
+  merchantReservedMicro(orgId: string, destination: string): MicroUsdc {
+    const pending = db
+      .prepare(
+        `SELECT amount_micro FROM settlement_attempts
+         WHERE org_id = ? AND LOWER(destination) = ? AND tool = 'pay_api'
+           AND state IN ('pending', 'broadcast', 'needs_review')`,
+      )
+      .all(orgId, destination.trim().toLowerCase()) as Row[];
+    return pending.reduce((sum, row) => sum + parseMicroColumn(row.amount_micro), 0n);
+  },
+
   /** Epoch ms this counterparty was first recorded, if known. */
   counterpartyFirstSeenMs(orgId: string, value: string): number | undefined {
     const r = db
@@ -2925,6 +2948,26 @@ export const store = {
       now,
       now,
     );
+  },
+
+  /** Claim merchant headroom before an async rail can let another agent spend it. */
+  reserveMerchantCap(input: {
+    orgId: string;
+    agentId: string;
+    intentId: string;
+    destination: string;
+    amountMicro: bigint;
+    capMicro: bigint;
+  }): boolean {
+    const claim = db.transaction(() => {
+      if (this.getSettlement(input.intentId)) return false;
+      const settled = this.merchantSpentLast24h(input.orgId, input.destination);
+      const reserved = this.merchantReservedMicro(input.orgId, input.destination);
+      if (settled + reserved + input.amountMicro > input.capMicro) return false;
+      this.beginSettlement({ ...input, tool: "pay_api" });
+      return true;
+    });
+    return claim.immediate();
   },
 
   /**
