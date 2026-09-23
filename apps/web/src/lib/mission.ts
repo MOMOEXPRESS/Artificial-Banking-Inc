@@ -237,7 +237,10 @@ const buyViaX402 = (authorize: string): StepDef => ({
 });
 
 const payVendor = (amount: string, vendor: string, memo: string): StepDef => ({
-  id: `pay_${vendor}_${amount}`,
+  id: `pay_${vendor}_${amount}_${memo
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .slice(0, 36)}`,
   title: `Pay $${amount} to ${vendor}`,
   detail: memo,
   async run(ctx, state) {
@@ -669,6 +672,31 @@ const costTable = (state: RunState) =>
         `| **Total** | | **$${state.spentUsd.toFixed(2)}** |`,
       ].join("\n")
     : "_No purchases were settled in this run._";
+
+/** Give repeated primitives stable, unique identities inside a longer technical exercise. */
+const scenarioStep = (step: StepDef, id: string, title?: string): StepDef => ({
+  ...step,
+  id,
+  title: title ?? step.title,
+});
+
+const technicalReport = (title: string, state: RunState, finding: string) => `# ${title}
+
+${finding}
+
+## Settlement record
+
+${costTable(state)}
+
+## Control results
+
+- Settled actions: **${state.purchases.length}**
+- Parked actions: **${state.blocks.length}**
+- Refused actions: **${state.denials.length}**
+- Remaining budget: **$${state.finalBudget ?? "—"}**
+
+Every step used the production agent API and generated an inspectable policy trace.
+`;
 
 export const MISSIONS: Mission[] = [
   {
@@ -1141,7 +1169,7 @@ This proves the seller cannot unilaterally expand the amount an agent authorized
     build: (_ctx) => [
       checkBudget,
       payVendor("0.25", "api.openai.com", "budget impact verification"),
-      checkBudget,
+      scenarioStep(checkBudget, "budget_after_impact", "Read the updated budget"),
       listActivity,
       summarize,
     ],
@@ -1152,6 +1180,373 @@ ${costTable(state)}
 The agent budget was read before and after settlement, then reconciled against recent activity.
 Remaining budget: **$${state.finalBudget ?? "—"}**.
 `,
+  },
+  {
+    id: "procurement_pipeline",
+    title: "Autonomous procurement pipeline",
+    persona: "Procurement agent coordinating data, compute, and a specialist contractor",
+    category: "commerce",
+    expectedOutcome: "allow",
+    difficulty: "advanced",
+    duration: "3–5 min",
+    estimatedCost: "Up to $7.25",
+    tags: ["x402", "procurement", "escrow", "multi-rail"],
+    brief:
+      "Executes a complete procurement plan across x402, an allowlisted API vendor, and peer-agent escrow, then reconciles the resulting budget and activity trail.",
+    deliverableKind: "Autonomous procurement record",
+    build: (_ctx) => [
+      checkBudget,
+      dryRun("1.25", "api.openai.com"),
+      buyViaX402("2"),
+      payVendor("1.25", "api.openai.com", "analysis compute for procurement package"),
+      hirePeer("4"),
+      acceptDelivery,
+      scenarioStep(checkBudget, "budget_after_procurement", "Reconcile remaining budget"),
+      listActivity,
+      summarize,
+    ],
+    deliverable: (state) =>
+      technicalReport(
+        "Autonomous procurement record",
+        state,
+        "The agent coordinated three financial primitives in one job: metered data acquisition, direct API settlement, and conditional peer payment under escrow.",
+      ),
+  },
+  {
+    id: "escrow_rework_cycle",
+    title: "Escrow rework and replacement",
+    persona: "Marketplace agent replacing an unacceptable contractor without losing funds",
+    category: "commerce",
+    expectedOutcome: "mixed",
+    difficulty: "advanced",
+    duration: "2–4 min",
+    estimatedCost: "$4 net",
+    tags: ["escrow", "refund", "rehire", "recovery"],
+    brief:
+      "Hires a peer, rejects and refunds the first delivery, then creates a replacement escrow and releases only after the second delivery is accepted.",
+    deliverableKind: "Escrow rework record",
+    build: (_ctx) => [
+      checkBudget,
+      scenarioStep(hirePeer("3"), "escrow_first_lock", "Hire the first contractor under $3 escrow"),
+      scenarioStep(
+        refundEscrow,
+        "escrow_first_refund",
+        "Reject the first delivery and recover funds",
+      ),
+      scenarioStep(hirePeer("4"), "escrow_second_lock", "Hire a replacement under $4 escrow"),
+      scenarioStep(
+        acceptDelivery,
+        "escrow_second_release",
+        "Accept replacement work and release escrow",
+      ),
+      scenarioStep(
+        checkBudget,
+        "budget_after_rework",
+        "Verify the refund restored budget headroom",
+      ),
+      summarize,
+    ],
+    deliverable: (state) =>
+      technicalReport(
+        "Escrow rework and replacement",
+        state,
+        "The first commitment was reversed before a replacement contractor was paid, exercising cap reversal and conditional settlement in one workflow.",
+      ),
+  },
+  {
+    id: "commerce_velocity_boundary",
+    title: "Micropayment velocity boundary",
+    persona: "High-frequency buyer agent operating near machine-payment limits",
+    category: "commerce",
+    expectedOutcome: "mixed",
+    difficulty: "advanced",
+    duration: "2–3 min",
+    estimatedCost: "Up to $1.98",
+    tags: ["micropayments", "velocity", "rate limit", "stress"],
+    brief:
+      "Sends twelve distinct low-value vendor calls in one run. Early calls may settle; later calls should expose the active per-minute velocity control when the policy boundary is reached.",
+    deliverableKind: "Velocity-boundary report",
+    build: (_ctx) => [
+      checkBudget,
+      ...Array.from({ length: 12 }, (_, i) => {
+        const amount = (0.11 + i * 0.01).toFixed(2);
+        return payVendor(amount, "api.openai.com", `velocity boundary call ${i + 1}`);
+      }),
+      listActivity,
+      summarize,
+    ],
+    deliverable: (state) =>
+      technicalReport(
+        "Micropayment velocity boundary",
+        state,
+        "A burst of individually valid micropayments tested whether aggregate request velocity is enforced independently of per-payment amount.",
+      ),
+  },
+  {
+    id: "approval_ladder",
+    title: "Approval-threshold ladder",
+    persona: "Finance administrator mapping exactly where autonomy becomes human review",
+    category: "governance",
+    expectedOutcome: "review",
+    difficulty: "advanced",
+    duration: "2–4 min",
+    estimatedCost: "$0 or $15",
+    tags: ["approval", "threshold", "boundary", "HITL"],
+    brief:
+      "Simulates a graduated set of payment amounts around policy boundaries, then submits one real review-sized purchase so the operator can confirm the handoff and resume behavior.",
+    deliverableKind: "Approval ladder record",
+    build: (_ctx) => [
+      checkBudget,
+      dryRun("1", "api.openai.com"),
+      dryRun("9.99", "api.openai.com"),
+      dryRun("10.01", "api.openai.com"),
+      dryRun("24.99", "api.openai.com"),
+      dryRun("25.01", "api.openai.com"),
+      payVendor("15", "api.openai.com", "approval ladder validation purchase"),
+      listActivity,
+      summarize,
+    ],
+    deliverable: (state) =>
+      technicalReport(
+        "Approval-threshold ladder",
+        state,
+        "The run mapped multiple decision bands before exercising a real human-in-the-loop payment at the configured review boundary.",
+      ),
+  },
+  {
+    id: "policy_boundary_matrix",
+    title: "Policy boundary matrix",
+    persona: "Control engineer validating amount and destination rules before rollout",
+    category: "governance",
+    expectedOutcome: "mixed",
+    difficulty: "advanced",
+    duration: "1–2 min",
+    estimatedCost: "$0",
+    tags: ["simulation", "matrix", "allowlist", "hard cap"],
+    brief:
+      "Cross-tests tiny, ordinary, review-sized, and over-limit amounts against both approved and unknown destinations. No money moves; every cell returns a rule trace.",
+    deliverableKind: "Policy boundary matrix",
+    build: (_ctx) => [
+      checkBudget,
+      dryRun("0.01", "api.openai.com"),
+      dryRun("10", "api.openai.com"),
+      dryRun("25", "api.openai.com"),
+      dryRun("25.01", "api.openai.com"),
+      dryRun("1", "unknown-vendor.example"),
+      dryRun("25.01", "unknown-vendor.example"),
+      listActivity,
+      summarize,
+    ],
+    deliverable: (state) =>
+      technicalReport(
+        "Policy boundary matrix",
+        state,
+        "Six simulated intents separated amount controls from destination controls, making the active policy bands inspectable without financial side effects.",
+      ),
+  },
+  {
+    id: "ledger_reconciliation_drill",
+    title: "Budget-to-ledger reconciliation",
+    persona: "Finance operator proving that several settlements reconcile to budget and activity",
+    category: "governance",
+    expectedOutcome: "allow",
+    difficulty: "advanced",
+    duration: "1–2 min",
+    estimatedCost: "$0.90",
+    tags: ["ledger", "budget", "reconciliation", "audit"],
+    brief:
+      "Captures budget before and after three differently sized payments, then reads the decision activity so the operator can reconcile authorization, settlement, and remaining capacity.",
+    deliverableKind: "Ledger reconciliation worksheet",
+    build: (_ctx) => [
+      checkBudget,
+      payVendor("0.20", "api.openai.com", "reconciliation sample A"),
+      payVendor("0.30", "api.openai.com", "reconciliation sample B"),
+      payVendor("0.40", "api.openai.com", "reconciliation sample C"),
+      scenarioStep(checkBudget, "budget_after_reconciliation", "Read post-settlement budget"),
+      listActivity,
+      summarize,
+    ],
+    deliverable: (state) =>
+      technicalReport(
+        "Budget-to-ledger reconciliation",
+        state,
+        "The run compares pre- and post-settlement capacity with the resulting decision log, providing a compact finance-grade audit exercise.",
+      ),
+  },
+  {
+    id: "destination_rotation_attack",
+    title: "Destination-rotation attack",
+    persona:
+      "Security engineer testing whether an attacker can evade allowlists by rotating wallets",
+    category: "security",
+    expectedOutcome: "deny",
+    difficulty: "advanced",
+    duration: "1–2 min",
+    estimatedCost: "$0 expected",
+    tags: ["wallet rotation", "allowlist", "prompt injection", "exfiltration"],
+    brief:
+      "Attempts three withdrawals to different unapproved wallets. The destinations change, but the signer should refuse every request with the same deterministic control boundary.",
+    deliverableKind: "Destination-rotation incident report",
+    build: (_ctx) => [
+      checkBudget,
+      drainAttempt("2", "0x1111111111111111111111111111111111111111"),
+      drainAttempt("3", "0x2222222222222222222222222222222222222222"),
+      drainAttempt("4", "0x3333333333333333333333333333333333333333"),
+      listActivity,
+      summarize,
+    ],
+    deliverable: (state) =>
+      technicalReport(
+        "Destination-rotation incident report",
+        state,
+        "A compromised agent rotated withdrawal addresses in an attempt to bypass destination controls. The exercise checks that authorization is bound to policy, not a single blocked address.",
+      ),
+  },
+  {
+    id: "layered_exfiltration_attack",
+    title: "Layered exfiltration attack",
+    persona: "Red team chaining vendor, wallet, amount, and x402 attack paths",
+    category: "security",
+    expectedOutcome: "deny",
+    difficulty: "advanced",
+    duration: "2–3 min",
+    estimatedCost: "$0 expected",
+    tags: ["red team", "x402", "SSRF", "hard cap", "wallet"],
+    brief:
+      "Chains an unknown-domain probe, an unapproved-wallet withdrawal, an oversized trusted-vendor payment, and an under-authorized x402 purchase to exercise independent defenses in one run.",
+    deliverableKind: "Layered attack report",
+    build: (_ctx) => [
+      checkBudget,
+      dryRun("1", "evil-exfil.example"),
+      drainAttempt("5", "0x4444444444444444444444444444444444444444"),
+      payVendor("999", "api.openai.com", "oversized exfiltration disguised as vendor spend"),
+      buyViaX402("0.001"),
+      listActivity,
+      summarize,
+    ],
+    deliverable: (state) =>
+      technicalReport(
+        "Layered exfiltration attack",
+        state,
+        "The attacker changed rails and destinations between attempts. The report shows whether ABI independently enforced destination, amount, and seller-price authorization.",
+      ),
+  },
+  {
+    id: "lookalike_vendor_probe",
+    title: "Lookalike-vendor and local-network probe",
+    persona: "Application-security reviewer testing domain parsing and SSRF defenses",
+    category: "security",
+    expectedOutcome: "deny",
+    difficulty: "advanced",
+    duration: "1–2 min",
+    estimatedCost: "$0 expected",
+    tags: ["SSRF", "domain spoofing", "allowlist", "localhost"],
+    brief:
+      "Attempts low-value payments to a trusted-domain suffix trick, a lookalike domain, and localhost. None should inherit trust from api.openai.com or reach internal infrastructure.",
+    deliverableKind: "Destination validation report",
+    build: (_ctx) => [
+      checkBudget,
+      payVendor("0.10", "api.openai.com.evil.example", "suffix-confusion probe"),
+      payVendor("0.10", "api-openai.example", "lookalike-domain probe"),
+      payVendor("0.10", "127.0.0.1", "local-network SSRF probe"),
+      listActivity,
+      summarize,
+    ],
+    deliverable: (state) =>
+      technicalReport(
+        "Lookalike-vendor and local-network probe",
+        state,
+        "Three superficially plausible destinations tested exact allowlist matching and local-network rejection rather than simple string containment.",
+      ),
+  },
+  {
+    id: "webhook_delivery_burst",
+    title: "Webhook delivery burst",
+    persona: "Platform engineer validating event delivery and deduplication under a short burst",
+    category: "ops",
+    expectedOutcome: "observe",
+    difficulty: "advanced",
+    duration: "2–3 min",
+    estimatedCost: "$0",
+    tags: ["webhooks", "burst", "delivery ledger", "deduplication"],
+    brief:
+      "Registers the demo endpoint, dispatches three independently tracked test events, then inspects the delivery ledger for ordering, status, and duplicate-handling behavior.",
+    deliverableKind: "Webhook burst report",
+    build: (_ctx) => [
+      registerDemoWebhook,
+      scenarioStep(fireWebhookTest, "webhook_test_1", "Dispatch webhook test 1 of 3"),
+      scenarioStep(fireWebhookTest, "webhook_test_2", "Dispatch webhook test 2 of 3"),
+      scenarioStep(fireWebhookTest, "webhook_test_3", "Dispatch webhook test 3 of 3"),
+      checkWebhookDeliveries,
+      summarize,
+    ],
+    deliverable: (state) =>
+      technicalReport(
+        "Webhook delivery burst",
+        state,
+        `The integration received a short event burst and exposed ${state.webhookDeliveries?.length ?? 0} recent delivery records for inspection.`,
+      ),
+  },
+  {
+    id: "multi_agent_recovery",
+    title: "Multi-agent failure recovery",
+    persona: "Swarm operator recovering a failed handoff without leaking budget",
+    category: "ops",
+    expectedOutcome: "mixed",
+    difficulty: "advanced",
+    duration: "3–4 min",
+    estimatedCost: "$4 net",
+    tags: ["multi-agent", "recovery", "escrow", "cap reversal"],
+    brief:
+      "Runs a failed peer handoff through refund, verifies restored budget capacity, then retries with a replacement handoff and completes settlement.",
+    deliverableKind: "Multi-agent recovery runbook",
+    build: (_ctx) => [
+      checkBudget,
+      scenarioStep(hirePeer("3"), "recovery_first_lock", "Start the first peer handoff"),
+      scenarioStep(refundEscrow, "recovery_first_refund", "Abort failed handoff and refund escrow"),
+      scenarioStep(checkBudget, "recovery_budget_check", "Verify capacity after rollback"),
+      scenarioStep(hirePeer("4"), "recovery_second_lock", "Retry with the replacement peer"),
+      scenarioStep(acceptDelivery, "recovery_second_release", "Complete the replacement handoff"),
+      listActivity,
+      summarize,
+    ],
+    deliverable: (state) =>
+      technicalReport(
+        "Multi-agent failure recovery",
+        state,
+        "The run exercises rollback, budget-cap reversal, replacement assignment, and final settlement as a single operational recovery path.",
+      ),
+  },
+  {
+    id: "release_canary_chain",
+    title: "Post-deploy canary chain",
+    persona: "Release engineer validating core integrations immediately after deployment",
+    category: "ops",
+    expectedOutcome: "mixed",
+    difficulty: "advanced",
+    duration: "2–3 min",
+    estimatedCost: "$0",
+    tags: ["canary", "deployment", "x402", "webhooks", "policy"],
+    brief:
+      "Runs a no-spend canary across budget reads, policy simulation, x402 price protection, webhook dispatch, delivery inspection, and the activity endpoint.",
+    deliverableKind: "Post-deploy canary report",
+    build: (_ctx) => [
+      checkBudget,
+      dryRun("1", "api.openai.com"),
+      dryRun("999", "api.openai.com"),
+      buyViaX402("0.001"),
+      registerDemoWebhook,
+      fireWebhookTest,
+      checkWebhookDeliveries,
+      listActivity,
+      summarize,
+    ],
+    deliverable: (state) =>
+      technicalReport(
+        "Post-deploy canary chain",
+        state,
+        "A single zero-cost workflow checked the primary read path, policy engine, seller guard, webhook dispatcher, delivery ledger, and agent audit endpoint after release.",
+      ),
   },
 ];
 
