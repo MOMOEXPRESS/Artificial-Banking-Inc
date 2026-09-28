@@ -56,14 +56,14 @@ This is the product's strongest defensible positioning: **the control plane betw
 
 ### Partially aligned
 
-| Area               | Current limitation                                                                                                     | Consequence                                                               |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Custody            | Keys are encrypted with `ABI_KEK` but held by the application                                                          | Appropriate for testnet; not a production custody story                   |
-| Settlement         | Real Base ERC-20 transfer exists, while vendor-string transfers can use a mock and x402 uses a development facilitator | The UI must make Sandbox/Testnet/Live unmistakable                        |
-| Compliance         | Environment denylist behind a provider interface                                                                       | Not production transaction screening                                      |
-| Storage            | Persistent SQLite                                                                                                      | Fine for a free YC demo; weak for horizontally scaled production          |
-| Agent connectivity | MCP is stdio only                                                                                                      | Local AI runtimes can connect; hosted ChatGPT cannot connect directly yet |
-| Assistant          | Fixed tools plus optional model egress                                                                                 | Useful copilot, not an autonomous finance executive                       |
+| Area               | Current limitation                                                                                                     | Consequence                                                       |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Custody            | Keys are encrypted with `ABI_KEK` but held by the application                                                          | Appropriate for testnet; not a production custody story           |
+| Settlement         | Real Base ERC-20 transfer exists, while vendor-string transfers can use a mock and x402 uses a development facilitator | The UI must make Sandbox/Testnet/Live unmistakable                |
+| Compliance         | Environment denylist behind a provider interface                                                                       | Not production transaction screening                              |
+| Storage            | Persistent SQLite                                                                                                      | Fine for a free YC demo; weak for horizontally scaled production  |
+| Agent connectivity | Stdio MCP plus sandbox-only remote MCP over Streamable HTTP                                                            | Local runtimes and ChatGPT developer-mode custom apps can connect |
+| Assistant          | Fixed tools plus optional model egress                                                                                 | Useful copilot, not an autonomous finance executive               |
 
 ## Organization and hierarchy audit
 
@@ -166,13 +166,20 @@ Remaining assistant work:
 
 ## Can ChatGPT test ABI as an external agent?
 
-Yes conceptually, but not directly from this chat today. The repository exposes a **stdio MCP server**, which is suitable for local MCP-capable runtimes. This hosted ChatGPT conversation has no ABI connector, remote MCP endpoint, or scoped ABI agent credential.
+Yes. ABI now exposes a sandbox-only remote MCP Streamable HTTP endpoint backed
+by short-lived, revocable session credentials. A ChatGPT developer-mode custom
+app can authenticate as one ABI agent, use only its granted scopes, and submit
+requests through the same policy engine, idempotency layer, ledger and audit
+trail as every other agent client.
 
 There are three practical test levels:
 
 1. **Immediate and free:** use the built-in Playground or `apps/demo-agent` with a scoped test agent key.
 2. **Local external model:** connect an MCP-capable local client to `apps/mcp-server` using a Base Sepolia/demo agent key.
-3. **Hosted ChatGPT:** add an authenticated remote MCP server or a Custom GPT Action/OpenAPI adapter. This transport is not implemented yet.
+3. **Hosted ChatGPT:** mint a scoped session in Agents → Sessions and follow
+   [`docs/CHATGPT-REMOTE-MCP.md`](CHATGPT-REMOTE-MCP.md). The current
+   credential-in-URL bootstrap is for short-lived sandbox proofs; OAuth remains
+   the production connection model.
 
 Never paste a vault key, guardian key, signup token, or agent key into a chat. The model should receive only a tool connection whose server stores a scoped agent credential.
 
