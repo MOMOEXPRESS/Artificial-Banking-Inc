@@ -72,6 +72,7 @@ import { registerPaymentRoutes } from "./routes/payment-routes.js";
 import { registerPlatformRoutes } from "./routes/platform-routes.js";
 import { registerPolicyRoutes } from "./routes/policy-routes.js";
 import { registerTreasuryRoutes } from "./routes/treasury-routes.js";
+import { registerRemoteMcp } from "./remote-mcp.js";
 
 const app = express();
 /**
@@ -540,6 +541,7 @@ registerAgentRoutes(app, { guardianRoute });
 registerPolicyRoutes(app, { guardianRoute });
 registerPaymentRoutes(app, { guardianRoute });
 registerPlatformRoutes(app, { guardianRoute });
+registerRemoteMcp(app);
 
 /** Wrap an async route handler so rejections become clean HTTP errors. */
 function asyncRoute(
