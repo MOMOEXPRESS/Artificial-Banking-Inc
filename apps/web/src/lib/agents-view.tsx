@@ -164,6 +164,7 @@ export function AgentsView({
     "escrow",
   ]);
   const [revealedSession, setRevealedSession] = useState<string | null>(null);
+  const [revealedMcpUrl, setRevealedMcpUrl] = useState<string | null>(null);
 
   const [rosterReady, setRosterReady] = useState(false);
   const [fundAmounts, setFundAmounts] = useState<Record<string, string>>({});
@@ -799,6 +800,7 @@ export function AgentsView({
                         const d = await res.json();
                         if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
                         setRevealedSession(d.sessionKey.token);
+                        setRevealedMcpUrl(typeof d.mcpUrl === "string" ? d.mcpUrl : null);
                         setSessionLabel("");
                         await refresh();
                         return `Session minted with scopes: ${sessionScopes.join(", ")}.`;
@@ -820,6 +822,28 @@ export function AgentsView({
                     <code className="mono" style={{ wordBreak: "break-all", fontSize: 12 }}>
                       {revealedSession}
                     </code>
+                    {revealedMcpUrl && (
+                      <>
+                        <div className="muted" style={{ fontSize: 12, margin: "12px 0 6px" }}>
+                          ChatGPT developer-mode MCP URL (Sandbox only)
+                        </div>
+                        <code className="mono" style={{ wordBreak: "break-all", fontSize: 12 }}>
+                          {revealedMcpUrl}
+                        </code>
+                        <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void navigator.clipboard.writeText(revealedMcpUrl)}
+                          >
+                            Copy MCP URL
+                          </Button>
+                          <span className="muted" style={{ fontSize: 11.5 }}>
+                            Add as a no-auth custom app, then revoke this session after the test.
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 
