@@ -17,8 +17,7 @@ import { runAutoFundSweep } from "../auto-fund.js";
 import { id } from "../engine.js";
 import { notify } from "../platform/notifier.js";
 import { recordObs } from "../platform/observability.js";
-import {
-  scopedStore, store, type OrgRow } from "../store.js";
+import { scopedStore, store, type OrgRow } from "../store.js";
 import { emitEvent } from "../webhooks.js";
 
 type GuardianRoute = (
@@ -54,10 +53,7 @@ function balOf(orgId: string, agentId: string) {
   };
 }
 
-function validateProfileHints(
-  org: OrgRow,
-  profile: Record<string, unknown>,
-): string | null {
+function validateProfileHints(org: OrgRow, profile: Record<string, unknown>): string | null {
   if (profile.groupId !== undefined) {
     // Membership is a relationship, not a profile field. Accepting it here
     // would write a second copy that nothing reads and that drifts from the
@@ -112,30 +108,33 @@ export function registerAgentRoutes(
   /** Create agent — API key returned exactly once. */
   app.post(
     "/v1/guardian/agents",
-    guardianRoute((org, req, res) => {
-      const body = z
-        .object({
-          name: z.string().min(1).max(80),
-          profile: z.record(z.unknown()).optional(),
-        })
-        .parse(req.body);
-      if (body.profile) {
-        const err = validateProfileHints(org, body.profile);
-        if (err) {
-          return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: err } });
+    guardianRoute(
+      (org, req, res) => {
+        const body = z
+          .object({
+            name: z.string().min(1).max(80),
+            profile: z.record(z.unknown()).optional(),
+          })
+          .parse(req.body);
+        if (body.profile) {
+          const err = validateProfileHints(org, body.profile);
+          if (err) {
+            return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: err } });
+          }
         }
-      }
-      const { agentId, apiKey } = store.createAgent(org.id, body.name);
-      if (body.profile) store.setAgentProfile(agentId, body.profile);
-      const agent = scopedStore(org.id).getAgent(agentId)!;
-      recordObs({ name: "agent.created", orgId: org.id, agentId });
-      res.status(201).json({
-        agentId,
-        apiKey,
-        identity: identityOf(agent),
-        note: "Store this API key now — it is not shown again. Use as Bearer token for /v1/agent routes.",
-      });
-    }, { ownerOnly: true }),
+        const { agentId, apiKey } = store.createAgent(org.id, body.name);
+        if (body.profile) store.setAgentProfile(agentId, body.profile);
+        const agent = scopedStore(org.id).getAgent(agentId)!;
+        recordObs({ name: "agent.created", orgId: org.id, agentId });
+        res.status(201).json({
+          agentId,
+          apiKey,
+          identity: identityOf(agent),
+          note: "Store this API key now — it is not shown again. Use as Bearer token for /v1/agent routes.",
+        });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Agent detail — identity, balances, recent activity / runs. */
@@ -170,136 +169,154 @@ export function registerAgentRoutes(
   /** Rename + optional profile merge. */
   app.patch(
     "/v1/guardian/agents/:id",
-    guardianRoute((org, req, res) => {
-      const agent = scopedStore(org.id).getAgent(req.params.id);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      const body = z
-        .object({
-          name: z.string().min(1).max(80).optional(),
-          profile: z.record(z.unknown()).optional(),
-        })
-        .parse(req.body);
-      if (body.name) store.renameAgent(agent.id, body.name);
-      let profile = agent.profile;
-      if (body.profile) {
-        const err = validateProfileHints(org, body.profile);
-        if (err) {
-          return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: err } });
+    guardianRoute(
+      (org, req, res) => {
+        const agent = scopedStore(org.id).getAgent(req.params.id);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
         }
-        profile = { ...agent.profile, ...body.profile };
-        store.setAgentProfile(agent.id, profile);
-      }
-      const next = scopedStore(org.id).getAgent(agent.id)!;
-      res.json({ identity: identityOf(next) });
-    }, { ownerOnly: true }),
+        const body = z
+          .object({
+            name: z.string().min(1).max(80).optional(),
+            profile: z.record(z.unknown()).optional(),
+          })
+          .parse(req.body);
+        if (body.name) store.renameAgent(agent.id, body.name);
+        let profile = agent.profile;
+        if (body.profile) {
+          const err = validateProfileHints(org, body.profile);
+          if (err) {
+            return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: err } });
+          }
+          profile = { ...agent.profile, ...body.profile };
+          store.setAgentProfile(agent.id, profile);
+        }
+        const next = scopedStore(org.id).getAgent(agent.id)!;
+        res.json({ identity: identityOf(next) });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Patch extensible agent profile (groups, ownership, tags). */
   app.patch(
     "/v1/guardian/agents/:id/profile",
-    guardianRoute((org, req, res) => {
-      const agent = scopedStore(org.id).getAgent(req.params.id);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      const body = z.object({ profile: z.record(z.unknown()) }).parse(req.body);
-      const err = validateProfileHints(org, body.profile);
-      if (err) {
-        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: err } });
-      }
-      const next = { ...agent.profile, ...body.profile };
-      store.setAgentProfile(agent.id, next);
-      res.json({
-        agentId: agent.id,
-        profile: next,
-        identity: identityOf({ ...agent, profile: next }),
-      });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const agent = scopedStore(org.id).getAgent(req.params.id);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+        }
+        const body = z.object({ profile: z.record(z.unknown()) }).parse(req.body);
+        const err = validateProfileHints(org, body.profile);
+        if (err) {
+          return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: err } });
+        }
+        const next = { ...agent.profile, ...body.profile };
+        store.setAgentProfile(agent.id, next);
+        res.json({
+          agentId: agent.id,
+          profile: next,
+          identity: identityOf({ ...agent, profile: next }),
+        });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Soft-delete — archived agents cannot spend (treated as frozen). */
   app.post(
     "/v1/guardian/agents/:id/archive",
-    guardianRoute((org, req, res) => {
-      const agent = scopedStore(org.id).getAgent(req.params.id);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      store.setAgentStatus(agent.id, "archived");
-      store.addFreeze(org.id, agent.id, "archived");
-      store.revokeAgentKey(agent.id);
-      emitEvent(org.id, "agent.frozen", { agentId: agent.id, reason: "archived" });
-      res.json({ ok: true, identity: identityOf(scopedStore(org.id).getAgent(agent.id)!) });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const agent = scopedStore(org.id).getAgent(req.params.id);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+        }
+        store.setAgentStatus(agent.id, "archived");
+        store.addFreeze(org.id, agent.id, "archived");
+        store.revokeAgentKey(agent.id);
+        emitEvent(org.id, "agent.frozen", { agentId: agent.id, reason: "archived" });
+        res.json({ ok: true, identity: identityOf(scopedStore(org.id).getAgent(agent.id)!) });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   app.post(
     "/v1/guardian/agents/:id/unarchive",
-    guardianRoute((org, req, res) => {
-      const agent = scopedStore(org.id).getAgent(req.params.id);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      if (agent.status !== "archived") {
-        return res.status(400).json({
-          error: { code: "VALIDATION_ERROR", message: "Agent is not archived" },
+    guardianRoute(
+      (org, req, res) => {
+        const agent = scopedStore(org.id).getAgent(req.params.id);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+        }
+        if (agent.status !== "archived") {
+          return res.status(400).json({
+            error: { code: "VALIDATION_ERROR", message: "Agent is not archived" },
+          });
+        }
+        store.setAgentStatus(agent.id, "active");
+        const apiKey = store.rotateAgentKey(agent.id);
+        res.json({
+          ok: true,
+          apiKey,
+          identity: identityOf(scopedStore(org.id).getAgent(agent.id)!),
+          note: "Agent restored active with a fresh API key — store it now.",
         });
-      }
-      store.setAgentStatus(agent.id, "active");
-      const apiKey = store.rotateAgentKey(agent.id);
-      res.json({
-        ok: true,
-        apiKey,
-        identity: identityOf(scopedStore(org.id).getAgent(agent.id)!),
-        note: "Agent restored active with a fresh API key — store it now.",
-      });
-    }, { ownerOnly: true }),
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Rotate API key — old key dies immediately. */
   app.post(
     "/v1/guardian/agents/:id/rotate-key",
-    guardianRoute((org, req, res) => {
-      const agent = scopedStore(org.id).getAgent(req.params.id);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      if (agent.status === "archived") {
-        return res.status(400).json({
-          error: { code: "VALIDATION_ERROR", message: "Unarchive before rotating keys" },
+    guardianRoute(
+      (org, req, res) => {
+        const agent = scopedStore(org.id).getAgent(req.params.id);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+        }
+        if (agent.status === "archived") {
+          return res.status(400).json({
+            error: { code: "VALIDATION_ERROR", message: "Unarchive before rotating keys" },
+          });
+        }
+        const apiKey = store.rotateAgentKey(agent.id);
+        store.addFreeze(org.id, agent.id, "key rotated");
+        res.json({
+          agentId: agent.id,
+          apiKey,
+          note: "Old key is dead. Update the agent's environment now — it cannot spend until you do.",
         });
-      }
-      const apiKey = store.rotateAgentKey(agent.id);
-      store.addFreeze(org.id, agent.id, "key rotated");
-      res.json({
-        agentId: agent.id,
-        apiKey,
-        note: "Old key is dead. Update the agent's environment now — it cannot spend until you do.",
-      });
-    }, { ownerOnly: true }),
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Revoke long-lived key without replacement + kill session keys. */
   app.post(
     "/v1/guardian/agents/:id/revoke-key",
-    guardianRoute((org, req, res) => {
-      const agent = scopedStore(org.id).getAgent(req.params.id);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      store.revokeAgentKey(agent.id);
-      const sessionsRevoked = store.revokeAllSessionKeys(agent.id);
-      store.addFreeze(org.id, agent.id, "key revoked");
-      emitEvent(org.id, "agent.frozen", { agentId: agent.id, reason: "key_revoked" });
-      res.json({
-        ok: true,
-        agentId: agent.id,
-        sessionsRevoked,
-        note: "API key and session keys are dead. Rotate or issue a session key to restore access.",
-      });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const agent = scopedStore(org.id).getAgent(req.params.id);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+        }
+        store.revokeAgentKey(agent.id);
+        const sessionsRevoked = store.revokeAllSessionKeys(agent.id);
+        store.addFreeze(org.id, agent.id, "key revoked");
+        emitEvent(org.id, "agent.frozen", { agentId: agent.id, reason: "key_revoked" });
+        res.json({
+          ok: true,
+          agentId: agent.id,
+          sessionsRevoked,
+          note: "API key and session keys are dead. Rotate or issue a session key to restore access.",
+        });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Per-agent analytics rollup. */
@@ -370,236 +387,276 @@ export function registerAgentRoutes(
 
   app.post(
     "/v1/guardian/agent-groups",
-    guardianRoute((org, req, res) => {
-      const body = z.object({ name: z.string().min(1).max(80) }).parse(req.body);
-      const group = store.createAgentGroup(org.id, body.name);
-      res.status(201).json({ group });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const body = z.object({ name: z.string().min(1).max(80) }).parse(req.body);
+        const group = store.createAgentGroup(org.id, body.name);
+        res.status(201).json({ group });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   app.post(
     "/v1/guardian/agent-groups/:id/archive",
-    guardianRoute((org, req, res) => {
-      const group = scopedStore(org.id).getAgentGroup(req.params.id);
-      if (!group) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
-      }
-      store.setAgentGroupStatus(group.id, "archived");
-      store.clearGroupMembers(group.id);
-      res.json({ ok: true, group: { ...group, status: "archived" as const } });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const group = scopedStore(org.id).getAgentGroup(req.params.id);
+        if (!group) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
+        }
+        store.setAgentGroupStatus(group.id, "archived");
+        store.clearGroupMembers(group.id);
+        res.json({ ok: true, group: { ...group, status: "archived" as const } });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   app.post(
     "/v1/guardian/agent-groups/:id/assign",
-    guardianRoute((org, req, res) => {
-      const group = scopedStore(org.id).getAgentGroup(req.params.id);
-      if (!group || group.status !== "active") {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
-      }
-      const body = z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
-      const assigned: string[] = [];
-      for (const agentId of body.agentIds) {
-        const agent = scopedStore(org.id).getAgent(agentId);
-        if (!agent) continue;
-        store.addAgentToGroup(org.id, agent.id, group.id);
-        assigned.push(agent.id);
-      }
-      res.json({ ok: true, groupId: group.id, assigned });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const group = scopedStore(org.id).getAgentGroup(req.params.id);
+        if (!group || group.status !== "active") {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
+        }
+        const body = z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
+        const assigned: string[] = [];
+        for (const agentId of body.agentIds) {
+          const agent = scopedStore(org.id).getAgent(agentId);
+          if (!agent) continue;
+          store.addAgentToGroup(org.id, agent.id, group.id);
+          assigned.push(agent.id);
+        }
+        res.json({ ok: true, groupId: group.id, assigned });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   app.post(
     "/v1/guardian/agent-groups/:id/unassign",
-    guardianRoute((org, req, res) => {
-      const group = scopedStore(org.id).getAgentGroup(req.params.id);
-      if (!group) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
-      }
-      const body = z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
-      const removed: string[] = [];
-      for (const agentId of body.agentIds) {
-        const agent = scopedStore(org.id).getAgent(agentId);
-        if (!agent) continue;
-        store.removeAgentFromGroup(agent.id, group.id);
-        removed.push(agent.id);
-      }
-      res.json({ ok: true, groupId: group.id, removed });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const group = scopedStore(org.id).getAgentGroup(req.params.id);
+        if (!group) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
+        }
+        const body = z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
+        const removed: string[] = [];
+        for (const agentId of body.agentIds) {
+          const agent = scopedStore(org.id).getAgent(agentId);
+          if (!agent) continue;
+          store.removeAgentFromGroup(agent.id, group.id);
+          removed.push(agent.id);
+        }
+        res.json({ ok: true, groupId: group.id, removed });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Freeze every active member of a group (desk kill-switch). */
   app.post(
     "/v1/guardian/agent-groups/:id/freeze",
-    guardianRoute((org, req, res) => {
-      const group = scopedStore(org.id).getAgentGroup(req.params.id);
-      if (!group || group.status !== "active") {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
-      }
-      const body = z.object({ reason: z.string().default("group_freeze") }).parse(req.body ?? {});
-      const memberIds = new Set(scopedStore(org.id).listGroupMemberIds(group.id));
-      const members = store
-        .listAgents(org.id)
-        .filter((a) => memberIds.has(a.id) && a.status === "active");
-      for (const agent of members) {
-        store.setAgentStatus(agent.id, "frozen");
-        store.addFreeze(org.id, agent.id, `group:${group.id}:${body.reason}`);
-        emitEvent(org.id, "agent.frozen", { agentId: agent.id, reason: body.reason, groupId: group.id });
-      }
-      res.json({ ok: true, frozen: members.map((m) => m.id), groupId: group.id });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const group = scopedStore(org.id).getAgentGroup(req.params.id);
+        if (!group || group.status !== "active") {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
+        }
+        const body = z.object({ reason: z.string().default("group_freeze") }).parse(req.body ?? {});
+        const memberIds = new Set(scopedStore(org.id).listGroupMemberIds(group.id));
+        const members = store
+          .listAgents(org.id)
+          .filter((a) => memberIds.has(a.id) && a.status === "active");
+        for (const agent of members) {
+          store.setAgentStatus(agent.id, "frozen");
+          store.addFreeze(org.id, agent.id, `group:${group.id}:${body.reason}`);
+          emitEvent(org.id, "agent.frozen", {
+            agentId: agent.id,
+            reason: body.reason,
+            groupId: group.id,
+          });
+        }
+        res.json({ ok: true, frozen: members.map((m) => m.id), groupId: group.id });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Unfreeze every frozen member of a group. */
   app.post(
     "/v1/guardian/agent-groups/:id/unfreeze",
-    guardianRoute((org, req, res) => {
-      const group = scopedStore(org.id).getAgentGroup(req.params.id);
-      if (!group) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
-      }
-      const memberIds = new Set(scopedStore(org.id).listGroupMemberIds(group.id));
-      const members = store
-        .listAgents(org.id)
-        .filter((a) => memberIds.has(a.id) && a.status === "frozen");
-      for (const agent of members) {
-        store.setAgentStatus(agent.id, "active");
-        emitEvent(org.id, "agent.unfrozen", { agentId: agent.id, groupId: group.id });
-      }
-      res.json({ ok: true, unfrozen: members.map((m) => m.id), groupId: group.id });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const group = scopedStore(org.id).getAgentGroup(req.params.id);
+        if (!group) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
+        }
+        const memberIds = new Set(scopedStore(org.id).listGroupMemberIds(group.id));
+        const members = store
+          .listAgents(org.id)
+          .filter((a) => memberIds.has(a.id) && a.status === "frozen");
+        for (const agent of members) {
+          store.setAgentStatus(agent.id, "active");
+          emitEvent(org.id, "agent.unfrozen", { agentId: agent.id, groupId: group.id });
+        }
+        res.json({ ok: true, unfrozen: members.map((m) => m.id), groupId: group.id });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Split an equal stipend across group members from org vault or a budget. */
   app.post(
     "/v1/guardian/agent-groups/:id/fund",
-    guardianRoute((org, req, res) => {
-      const group = scopedStore(org.id).getAgentGroup(req.params.id);
-      if (!group || group.status !== "active") {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
-      }
-      const body = z
-        .object({
-          amountUsdcEach: z.string(),
-          fromScope: z.enum(["org", "department"]).default("org"),
-          fromId: z.string().optional(),
-        })
-        .parse(req.body);
-      const each = parseUsdcToMicro(body.amountUsdcEach);
-      if (each <= 0n) {
-        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "amount must be positive" } });
-      }
-      const memberIds = new Set(scopedStore(org.id).listGroupMemberIds(group.id));
-      const members = store
-        .listAgents(org.id)
-        .filter((a) => memberIds.has(a.id) && a.status !== "archived");
-      if (!members.length) {
-        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "group has no members" } });
-      }
-      const total = each * BigInt(members.length);
+    guardianRoute(
+      (org, req, res) => {
+        const group = scopedStore(org.id).getAgentGroup(req.params.id);
+        if (!group || group.status !== "active") {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
+        }
+        const body = z
+          .object({
+            amountUsdcEach: z.string(),
+            fromScope: z.enum(["org", "department"]).default("org"),
+            fromId: z.string().optional(),
+          })
+          .parse(req.body);
+        const each = parseUsdcToMicro(body.amountUsdcEach);
+        if (each <= 0n) {
+          return res
+            .status(400)
+            .json({ error: { code: "VALIDATION_ERROR", message: "amount must be positive" } });
+        }
+        const memberIds = new Set(scopedStore(org.id).listGroupMemberIds(group.id));
+        const members = store
+          .listAgents(org.id)
+          .filter((a) => memberIds.has(a.id) && a.status !== "archived");
+        if (!members.length) {
+          return res
+            .status(400)
+            .json({ error: { code: "VALIDATION_ERROR", message: "group has no members" } });
+        }
+        const total = each * BigInt(members.length);
 
-      let fromAvailableId: string;
-      let sourceLabel: string;
-      if (body.fromScope === "department") {
-        if (!body.fromId) {
+        let fromAvailableId: string;
+        let sourceLabel: string;
+        if (body.fromScope === "department") {
+          if (!body.fromId) {
+            return res.status(400).json({
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "fromId (budget id) is required when fromScope is department",
+              },
+            });
+          }
+          const dept = scopedStore(org.id).getDepartment(body.fromId);
+          if (!dept) {
+            return res.status(404).json({ error: { code: "NOT_FOUND", message: "budget" } });
+          }
+          fromAvailableId = accountId("department", dept.id);
+          sourceLabel = `${dept.name} budget`;
+        } else {
+          fromAvailableId = accountId("org", org.id);
+          sourceLabel = "org vault";
+        }
+
+        const sourceAvail = store.getAccountMap(org.id).get(fromAvailableId)?.balanceMicro ?? 0n;
+        if (total > sourceAvail) {
           return res.status(400).json({
-            error: { code: "VALIDATION_ERROR", message: "fromId (budget id) is required when fromScope is department" },
+            error: {
+              code: "INSUFFICIENT_STIPEND",
+              message: `Need $${formatMicroToUsdc(total)} total ($${formatMicroToUsdc(each)} × ${members.length} agents) from ${sourceLabel}; ${sourceLabel} has $${formatMicroToUsdc(sourceAvail)}`,
+            },
           });
         }
-        const dept = scopedStore(org.id).getDepartment(body.fromId);
-        if (!dept) {
-          return res.status(404).json({ error: { code: "NOT_FOUND", message: "budget" } });
+        const funded: string[] = [];
+        for (const agent of members) {
+          store.applyEntries(org.id, [
+            transferAvailable({
+              orgId: org.id,
+              journalId: id("j"),
+              fromAvailableId,
+              toAvailableId: accountId("agent", agent.id),
+              amountMicro: each,
+              memo: `group_fund:${group.id}:${body.fromScope}`,
+            }),
+          ]);
+          funded.push(agent.id);
         }
-        fromAvailableId = accountId("department", dept.id);
-        sourceLabel = `${dept.name} budget`;
-      } else {
-        fromAvailableId = accountId("org", org.id);
-        sourceLabel = "org vault";
-      }
-
-      const sourceAvail = store.getAccountMap(org.id).get(fromAvailableId)?.balanceMicro ?? 0n;
-      if (total > sourceAvail) {
-        return res.status(400).json({
-          error: {
-            code: "INSUFFICIENT_STIPEND",
-            message: `Need $${formatMicroToUsdc(total)} total ($${formatMicroToUsdc(each)} × ${members.length} agents) from ${sourceLabel}; ${sourceLabel} has $${formatMicroToUsdc(sourceAvail)}`,
-          },
+        res.json({
+          ok: true,
+          groupId: group.id,
+          funded,
+          amountUsdcEach: body.amountUsdcEach,
+          totalUsdc: formatMicroToUsdc(total),
+          fromScope: body.fromScope,
+          fromId: body.fromId ?? org.id,
+          sourceLabel,
         });
-      }
-      const funded: string[] = [];
-      for (const agent of members) {
-        store.applyEntries(org.id, [
-          transferAvailable({
-            orgId: org.id,
-            journalId: id("j"),
-            fromAvailableId,
-            toAvailableId: accountId("agent", agent.id),
-            amountMicro: each,
-            memo: `group_fund:${group.id}:${body.fromScope}`,
-          }),
-        ]);
-        funded.push(agent.id);
-      }
-      res.json({
-        ok: true,
-        groupId: group.id,
-        funded,
-        amountUsdcEach: body.amountUsdcEach,
-        totalUsdc: formatMicroToUsdc(total),
-        fromScope: body.fromScope,
-        fromId: body.fromId ?? org.id,
-        sourceLabel,
-      });
-    }, { ownerOnly: true }),
+      },
+      { ownerOnly: true },
+    ),
   );
 
   /** Configure proactive top-up when member stipends fall below a threshold. */
   app.patch(
     "/v1/guardian/agent-groups/:id/auto-fund",
-    guardianRoute((org, req, res) => {
-      const group = scopedStore(org.id).getAgentGroup(req.params.id);
-      if (!group || group.status !== "active") {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
-      }
-      const body = z
-        .object({
-          enabled: z.boolean(),
-          thresholdUsdc: z.string().default("5"),
-          topUpUsdc: z.string().default("25"),
-          minIntervalMinutes: z.number().int().min(1).max(7 * 24 * 60).default(5),
-        })
-        .parse(req.body);
-      if (body.enabled && !group.budgetId) {
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message:
-              "Link this ops label to a Treasury budget before enabling auto-fund (create the budget first).",
-          },
-        });
-      }
-      const topUp = parseUsdcToMicro(body.topUpUsdc);
-      if (body.enabled && topUp <= 0n) {
-        return res.status(400).json({
-          error: { code: "VALIDATION_ERROR", message: "topUpUsdc must be positive" },
-        });
-      }
-      const config = {
-        enabled: body.enabled,
-        thresholdUsdc: body.thresholdUsdc,
-        topUpUsdc: body.topUpUsdc,
-        minIntervalMinutes: body.minIntervalMinutes,
-      };
-      store.setAgentGroupAutoFund(group.id, config);
-      // Apply immediately so "save rule" / toggle doesn't wait for a timer.
-      let sweep = { toppedUp: 0 };
-      try {
-        sweep = runAutoFundSweep({ force: true });
-      } catch (e) {
-        console.error("auto-fund sweep failed:", e);
-      }
-      res.json({ ok: true, groupId: group.id, autoFund: config, toppedUp: sweep.toppedUp });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const group = scopedStore(org.id).getAgentGroup(req.params.id);
+        if (!group || group.status !== "active") {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
+        }
+        const body = z
+          .object({
+            enabled: z.boolean(),
+            thresholdUsdc: z.string().default("5"),
+            topUpUsdc: z.string().default("25"),
+            minIntervalMinutes: z
+              .number()
+              .int()
+              .min(1)
+              .max(7 * 24 * 60)
+              .default(5),
+          })
+          .parse(req.body);
+        if (body.enabled && !group.budgetId) {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message:
+                "Link this ops label to a Treasury budget before enabling auto-fund (create the budget first).",
+            },
+          });
+        }
+        const topUp = parseUsdcToMicro(body.topUpUsdc);
+        if (body.enabled && topUp <= 0n) {
+          return res.status(400).json({
+            error: { code: "VALIDATION_ERROR", message: "topUpUsdc must be positive" },
+          });
+        }
+        const config = {
+          enabled: body.enabled,
+          thresholdUsdc: body.thresholdUsdc,
+          topUpUsdc: body.topUpUsdc,
+          minIntervalMinutes: body.minIntervalMinutes,
+        };
+        store.setAgentGroupAutoFund(group.id, config);
+        // Apply immediately so "save rule" / toggle doesn't wait for a timer.
+        let sweep = { toppedUp: 0 };
+        try {
+          sweep = runAutoFundSweep({ force: true });
+        } catch (e) {
+          console.error("auto-fund sweep failed:", e);
+        }
+        res.json({ ok: true, groupId: group.id, autoFund: config, toppedUp: sweep.toppedUp });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   app.get(
@@ -622,46 +679,61 @@ export function registerAgentRoutes(
 
   app.post(
     "/v1/guardian/agents/:id/session-keys",
-    guardianRoute((org, req, res) => {
-      const agent = scopedStore(org.id).getAgent(req.params.id);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      if (agent.status !== "active") {
-        return res.status(400).json({
-          error: { code: "VALIDATION_ERROR", message: "Only active agents can mint session keys" },
+    guardianRoute(
+      (org, req, res) => {
+        const agent = scopedStore(org.id).getAgent(req.params.id);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+        }
+        if (agent.status !== "active") {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Only active agents can mint session keys",
+            },
+          });
+        }
+        const body = z
+          .object({
+            label: z.string().max(80).optional(),
+            scopes: z.array(z.enum(["read", "pay", "escrow", "admin"])).optional(),
+            ttlHours: z
+              .number()
+              .int()
+              .min(1)
+              .max(24 * 30)
+              .optional(),
+          })
+          .parse(req.body ?? {});
+        const session = store.createSessionKey({
+          orgId: org.id,
+          agentId: agent.id,
+          label: body.label,
+          scopes: body.scopes,
+          ttlHours: body.ttlHours,
         });
-      }
-      const body = z
-        .object({
-          label: z.string().max(80).optional(),
-          scopes: z.array(z.enum(["read", "pay", "escrow", "admin"])).optional(),
-          ttlHours: z.number().int().min(1).max(24 * 30).optional(),
-        })
-        .parse(req.body ?? {});
-      const session = store.createSessionKey({
-        orgId: org.id,
-        agentId: agent.id,
-        label: body.label,
-        scopes: body.scopes,
-        ttlHours: body.ttlHours,
-      });
-      res.status(201).json({
-        sessionKey: session,
-        note: "Session token shown once. Prefer Bearer pv_sess_… for short-lived agent runs.",
-      });
-    }, { ownerOnly: true }),
+        res.status(201).json({
+          sessionKey: session,
+          mcpUrl: `${req.protocol}://${req.get("host")}/mcp/${session.token}`,
+          note: "Session token and developer-mode MCP URL are shown once. The MCP URL is sandbox-only; revoke this session after testing.",
+        });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   app.post(
     "/v1/guardian/session-keys/:id/revoke",
-    guardianRoute((org, req, res) => {
-      const ok = store.revokeSessionKey(org.id, req.params.id);
-      if (!ok) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "session key" } });
-      }
-      res.json({ ok: true });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const ok = store.revokeSessionKey(org.id, req.params.id);
+        if (!ok) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "session key" } });
+        }
+        res.json({ ok: true });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   // ----------------------------------------------------------- freeze log
@@ -682,42 +754,53 @@ export function registerAgentRoutes(
   // Freeze / unfreeze stay callable here too (also on index for org kill-switch).
   app.post(
     "/v1/guardian/agents/:id/freeze",
-    guardianRoute((org, req, res) => {
-      const agent = scopedStore(org.id).getAgent(req.params.id);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND" } });
-      }
-      const body = z.object({ reason: z.string().default("manual") }).parse(req.body ?? {});
-      store.setAgentStatus(agent.id, "frozen");
-      store.addFreeze(org.id, agent.id, body.reason);
-      emitEvent(org.id, "agent.frozen", { agentId: agent.id, reason: body.reason });
-      void notify({
-        kind: "agent.frozen",
-        orgId: org.id,
-        title: "Agent frozen",
-        body: `${agent.name} frozen — ${body.reason}`,
-        meta: { agentId: agent.id },
-      });
-      recordObs({ name: "freeze", orgId: org.id, agentId: agent.id, attrs: { reason: body.reason } });
-      res.json({ ok: true, identity: identityOf(scopedStore(org.id).getAgent(agent.id)!) });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const agent = scopedStore(org.id).getAgent(req.params.id);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND" } });
+        }
+        const body = z.object({ reason: z.string().default("manual") }).parse(req.body ?? {});
+        store.setAgentStatus(agent.id, "frozen");
+        store.addFreeze(org.id, agent.id, body.reason);
+        emitEvent(org.id, "agent.frozen", { agentId: agent.id, reason: body.reason });
+        void notify({
+          kind: "agent.frozen",
+          orgId: org.id,
+          title: "Agent frozen",
+          body: `${agent.name} frozen — ${body.reason}`,
+          meta: { agentId: agent.id },
+        });
+        recordObs({
+          name: "freeze",
+          orgId: org.id,
+          agentId: agent.id,
+          attrs: { reason: body.reason },
+        });
+        res.json({ ok: true, identity: identityOf(scopedStore(org.id).getAgent(agent.id)!) });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   app.post(
     "/v1/guardian/agents/:id/unfreeze",
-    guardianRoute((org, req, res) => {
-      const agent = scopedStore(org.id).getAgent(req.params.id);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND" } });
-      }
-      if (agent.status === "archived") {
-        return res.status(400).json({
-          error: { code: "VALIDATION_ERROR", message: "Use unarchive for archived agents" },
-        });
-      }
-      store.setAgentStatus(agent.id, "active");
-      emitEvent(org.id, "agent.unfrozen", { agentId: agent.id });
-      res.json({ ok: true, identity: identityOf(scopedStore(org.id).getAgent(agent.id)!) });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const agent = scopedStore(org.id).getAgent(req.params.id);
+        if (!agent) {
+          return res.status(404).json({ error: { code: "NOT_FOUND" } });
+        }
+        if (agent.status === "archived") {
+          return res.status(400).json({
+            error: { code: "VALIDATION_ERROR", message: "Use unarchive for archived agents" },
+          });
+        }
+        store.setAgentStatus(agent.id, "active");
+        emitEvent(org.id, "agent.unfrozen", { agentId: agent.id });
+        res.json({ ok: true, identity: identityOf(scopedStore(org.id).getAgent(agent.id)!) });
+      },
+      { ownerOnly: true },
+    ),
   );
 }
