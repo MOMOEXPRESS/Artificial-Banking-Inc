@@ -182,7 +182,9 @@ export function AgentsView({
     const [a, g, b] = await Promise.all([
       gFetch("/v1/guardian/agents").then((x) => x.json()),
       gFetch("/v1/guardian/agent-groups").then((x) => x.json()),
-      gFetch("/v1/guardian/budgets").then((x) => x.json()).catch(() => ({ budgets: [] })),
+      gFetch("/v1/guardian/budgets")
+        .then((x) => x.json())
+        .catch(() => ({ budgets: [] })),
     ]);
     setAgents(a.agents ?? []);
     setGroups(g.groups ?? []);
@@ -264,12 +266,8 @@ export function AgentsView({
       const profile = (ident?.profile ?? {}) as Record<string, unknown>;
       setTags(Array.isArray(profile.tags) ? (profile.tags as string[]).join(", ") : "");
       setRuntime(typeof profile.runtime === "string" ? profile.runtime : "");
-      setOwnerId(
-        typeof profile.ownerGuardianId === "string" ? profile.ownerGuardianId : "owner",
-      );
-      setEditGroupIds(
-        groups.filter((g) => g.members.some((m) => m.id === id)).map((g) => g.id),
-      );
+      setOwnerId(typeof profile.ownerGuardianId === "string" ? profile.ownerGuardianId : "owner");
+      setEditGroupIds(groups.filter((g) => g.members.some((m) => m.id === id)).map((g) => g.id));
     },
     [gFetch, agents, groups, onContextChange],
   );
@@ -293,7 +291,7 @@ export function AgentsView({
     });
 
   const createGroup = () =>
-    act("Create ops label", async () => {
+    act("Create agent group", async () => {
       const res = await gFetch("/v1/guardian/agent-groups", {
         method: "POST",
         body: JSON.stringify({ name: groupName.trim() }),
@@ -302,7 +300,7 @@ export function AgentsView({
       if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
       setGroupName("");
       await refresh();
-      return `Ops label ${d.group.name} ready.`;
+      return `Agent group ${d.group.name} ready.`;
     });
 
   const selectedAgent = agents.find((a) => a.id === selected);
@@ -312,7 +310,7 @@ export function AgentsView({
       <div className="card-head" style={{ marginBottom: 16 }}>
         <div>
           <h2 style={{ margin: 0 }}>Agents</h2>
-          <div className="sub">Identity, ops labels, keys, sessions, freeze audit</div>
+          <div className="sub">Identity, groups, keys, sessions, freeze audit</div>
         </div>
         <SegTabs
           value={tab}
@@ -320,7 +318,7 @@ export function AgentsView({
           items={
             [
               { value: "roster", label: "Roster" },
-              { value: "groups", label: "Ops labels" },
+              { value: "groups", label: "Agent groups" },
               { value: "sessions", label: "Sessions" },
               { value: "freezes", label: "Freezes" },
             ] as const
@@ -343,7 +341,8 @@ export function AgentsView({
                   onChange={(e) => setNewName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && newName.trim() && void createAgent()}
                 />
-                <Button size="sm"
+                <Button
+                  size="sm"
                   disabled={locked || !newName.trim()}
                   onClick={() => void createAgent()}
                 >
@@ -352,106 +351,123 @@ export function AgentsView({
               </div>
             </div>
             {agents.length === 0 ? (
-              <Empty icon="robot">No agents yet — create one to start allocating stipends.</Empty>
+              <Empty icon="robot">No agents yet — create one, then grant access to a budget.</Empty>
             ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Ops label</th>
-                    <th>Available</th>
-                    <th>24h</th>
-                    <th>Key</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {agents.map((a) => (
-                    <tr key={a.id} className={selected === a.id ? "on" : undefined}>
-                      <td>
-                        <Button variant="ghost" size="sm"
-                          style={{ padding: 0, fontWeight: 600 }}
-                          onClick={() => void loadDetail(a.id)}
-                        >
-                          {a.name}
-                        </Button>
-                      </td>
-                      <td>
-                        <span className={`pill ${statusTone(a.status)}`}>
-                          <i /> {a.status}
-                        </span>
-                      </td>
-                      <td className="faint">{a.groupNames?.length ? a.groupNames.join(", ") : "—"}</td>
-                      <td className="mono">{fmt(a.availableUsdc)}</td>
-                      <td className="mono faint">{fmt(a.spent24hUsdc)}</td>
-                      <td className="faint">{a.apiKeyLive ? "live" : "revoked"}</td>
-                      <td>
-                        <div className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
-                          {a.status === "active" && (
-                            <Button variant="ghost" size="sm"
-                              disabled={locked}
-                              onClick={() =>
-                                void act("Freeze", async () => {
-                                  await gFetch(`/v1/guardian/agents/${a.id}/freeze`, {
-                                    method: "POST",
-                                    body: JSON.stringify({ reason: "guardian kill switch" }),
-                                  });
-                                  await refresh();
-                                  return `${a.name} frozen.`;
-                                })
-                              }
-                            >
-                              Freeze
-                            </Button>
-                          )}
-                          {a.status === "frozen" && (
-                            <Button variant="ghost" size="sm"
-                              disabled={locked}
-                              onClick={() =>
-                                void act("Unfreeze", async () => {
-                                  await gFetch(`/v1/guardian/agents/${a.id}/unfreeze`, {
-                                    method: "POST",
-                                    body: JSON.stringify({}),
-                                  });
-                                  await refresh();
-                                  return `${a.name} unfrozen.`;
-                                })
-                              }
-                            >
-                              Unfreeze
-                            </Button>
-                          )}
-                          {a.status !== "archived" && (
-                            <Button variant="ghost" size="sm"
-                              disabled={locked}
-                              onClick={() =>
-                                void act("Rotate key", async () => {
-                                  const res = await gFetch(
-                                    `/v1/guardian/agents/${a.id}/rotate-key`,
-                                    { method: "POST" },
-                                  );
-                                  const d = await res.json();
-                                  if (!res.ok) throw new Error(JSON.stringify(d.error));
-                                  onKeyRevealed?.({
-                                    agentId: a.id,
-                                    name: `${a.name} (rotated)`,
-                                    key: d.apiKey,
-                                  });
-                                  await refresh();
-                                  return "Key rotated.";
-                                })
-                              }
-                            >
-                              Rotate
-                            </Button>
-                          )}
-                        </div>
-                      </td>
+              <div
+                className="agent-roster-table"
+                role="region"
+                aria-label="Agent roster"
+                tabIndex={0}
+              >
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Status</th>
+                      <th>Group</th>
+                      <th>Available</th>
+                      <th>24h</th>
+                      <th>Key</th>
+                      <th />
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {agents.map((a) => (
+                      <tr key={a.id} className={selected === a.id ? "on" : undefined}>
+                        <td>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            style={{ padding: 0, fontWeight: 600 }}
+                            onClick={() => void loadDetail(a.id)}
+                          >
+                            {a.name}
+                          </Button>
+                        </td>
+                        <td>
+                          <span className={`pill ${statusTone(a.status)}`}>
+                            <i /> {a.status}
+                          </span>
+                        </td>
+                        <td className="faint">
+                          {a.groupNames?.length ? a.groupNames.join(", ") : "—"}
+                        </td>
+                        <td className="mono">{fmt(a.availableUsdc)}</td>
+                        <td className="mono faint">{fmt(a.spent24hUsdc)}</td>
+                        <td className="faint">{a.apiKeyLive ? "live" : "revoked"}</td>
+                        <td>
+                          <div className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
+                            {a.status === "active" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={locked}
+                                onClick={() =>
+                                  void act("Freeze", async () => {
+                                    await gFetch(`/v1/guardian/agents/${a.id}/freeze`, {
+                                      method: "POST",
+                                      body: JSON.stringify({ reason: "guardian kill switch" }),
+                                    });
+                                    await refresh();
+                                    return `${a.name} frozen.`;
+                                  })
+                                }
+                              >
+                                Freeze
+                              </Button>
+                            )}
+                            {a.status === "frozen" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={locked}
+                                onClick={() =>
+                                  void act("Unfreeze", async () => {
+                                    await gFetch(`/v1/guardian/agents/${a.id}/unfreeze`, {
+                                      method: "POST",
+                                      body: JSON.stringify({}),
+                                    });
+                                    await refresh();
+                                    return `${a.name} unfrozen.`;
+                                  })
+                                }
+                              >
+                                Unfreeze
+                              </Button>
+                            )}
+                            {a.status !== "archived" && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={locked}
+                                onClick={() =>
+                                  void act("Rotate key", async () => {
+                                    const res = await gFetch(
+                                      `/v1/guardian/agents/${a.id}/rotate-key`,
+                                      { method: "POST" },
+                                    );
+                                    const d = await res.json();
+                                    if (!res.ok) throw new Error(JSON.stringify(d.error));
+                                    onKeyRevealed?.({
+                                      agentId: a.id,
+                                      name: `${a.name} (rotated)`,
+                                      key: d.apiKey,
+                                    });
+                                    await refresh();
+                                    return "Key rotated.";
+                                  })
+                                }
+                              >
+                                Rotate
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
 
@@ -465,7 +481,9 @@ export function AgentsView({
                     <h2>{(detail.identity as AgentRow)?.name}</h2>
                     <div className="sub mono faint">{selected}</div>
                   </div>
-                  <span className={`pill ${statusTone((detail.identity as AgentRow)?.status ?? "")}`}>
+                  <span
+                    className={`pill ${statusTone((detail.identity as AgentRow)?.status ?? "")}`}
+                  >
                     <i /> {(detail.identity as AgentRow)?.status}
                   </span>
                 </div>
@@ -538,11 +556,21 @@ export function AgentsView({
                     padding: "4px 0 8px",
                   }}
                 >
-                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label
+                    className="muted"
+                    style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
+                  >
                     Display name
-                    <input value={rename} disabled={readOnly} onChange={(e) => setRename(e.target.value)} />
+                    <input
+                      value={rename}
+                      disabled={readOnly}
+                      onChange={(e) => setRename(e.target.value)}
+                    />
                   </label>
-                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label
+                    className="muted"
+                    style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
+                  >
                     Runtime
                     <input
                       placeholder="langgraph / eliza / custom"
@@ -551,16 +579,33 @@ export function AgentsView({
                       onChange={(e) => setRuntime(e.target.value)}
                     />
                   </label>
-                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label
+                    className="muted"
+                    style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
+                  >
                     Tags (comma-separated)
-                    <input value={tags} disabled={readOnly} onChange={(e) => setTags(e.target.value)} />
+                    <input
+                      value={tags}
+                      disabled={readOnly}
+                      onChange={(e) => setTags(e.target.value)}
+                    />
                   </label>
-                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label
+                    className="muted"
+                    style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
+                  >
                     Owner guardian id
-                    <input value={ownerId} disabled={readOnly} onChange={(e) => setOwnerId(e.target.value)} />
+                    <input
+                      value={ownerId}
+                      disabled={readOnly}
+                      onChange={(e) => setOwnerId(e.target.value)}
+                    />
                   </label>
-                  <label className="muted" style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-                    Ops labels (multi)
+                  <label
+                    className="muted"
+                    style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
+                  >
+                    Agent groups
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
                       {groups
                         .filter((g) => g.status === "active")
@@ -582,7 +627,9 @@ export function AgentsView({
                           </label>
                         ))}
                       {!groups.some((g) => g.status === "active") && (
-                        <span className="faint">No ops labels yet — create a budget or label first.</span>
+                        <span className="faint">
+                          No groups yet — create a budget or group first.
+                        </span>
                       )}
                     </div>
                   </label>
@@ -634,7 +681,7 @@ export function AgentsView({
                         }
                         await refresh();
                         await loadDetail(selected!);
-                        return "Profile + ops labels saved.";
+                        return "Profile and agent groups saved.";
                       })
                     }
                   >
@@ -643,7 +690,9 @@ export function AgentsView({
                 </div>
 
                 <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-                  <Button variant="ghost" size="sm"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     disabled={locked || selectedAgent?.status === "archived"}
                     onClick={() =>
                       void act("Revoke keys", async () => {
@@ -661,7 +710,9 @@ export function AgentsView({
                     Revoke all keys
                   </Button>
                   {selectedAgent?.status !== "archived" ? (
-                    <Button variant="ghost" size="sm"
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       disabled={locked}
                       onClick={() =>
                         void act("Archive", async () => {
@@ -677,7 +728,8 @@ export function AgentsView({
                       Archive
                     </Button>
                   ) : (
-                    <Button size="sm"
+                    <Button
+                      size="sm"
                       disabled={locked}
                       onClick={() =>
                         void act("Unarchive", async () => {
@@ -709,7 +761,10 @@ export function AgentsView({
                       placeholder="console"
                     />
                   </div>
-                  <div className="row" style={{ gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                  <div
+                    className="row"
+                    style={{ gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}
+                  >
                     {(["read", "pay", "escrow"] as const).map((scope) => (
                       <label key={scope} className="row" style={{ gap: 6, fontSize: 12.5 }}>
                         <input
@@ -718,9 +773,7 @@ export function AgentsView({
                           checked={sessionScopes.includes(scope)}
                           onChange={(e) =>
                             setSessionScopes((prev) =>
-                              e.target.checked
-                                ? [...prev, scope]
-                                : prev.filter((s) => s !== scope),
+                              e.target.checked ? [...prev, scope] : prev.filter((s) => s !== scope),
                             )
                           }
                         />
@@ -728,21 +781,21 @@ export function AgentsView({
                       </label>
                     ))}
                   </div>
-                  <Button size="sm"
-                    disabled={locked || selectedAgent?.status !== "active" || sessionScopes.length === 0}
+                  <Button
+                    size="sm"
+                    disabled={
+                      locked || selectedAgent?.status !== "active" || sessionScopes.length === 0
+                    }
                     onClick={() =>
                       void act("Mint session", async () => {
-                        const res = await gFetch(
-                          `/v1/guardian/agents/${selected}/session-keys`,
-                          {
-                            method: "POST",
-                            body: JSON.stringify({
-                              label: sessionLabel.trim() || "console",
-                              ttlHours: 24,
-                              scopes: sessionScopes,
-                            }),
-                          },
-                        );
+                        const res = await gFetch(`/v1/guardian/agents/${selected}/session-keys`, {
+                          method: "POST",
+                          body: JSON.stringify({
+                            label: sessionLabel.trim() || "console",
+                            ttlHours: 24,
+                            scopes: sessionScopes,
+                          }),
+                        });
                         const d = await res.json();
                         if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
                         setRevealedSession(d.sessionKey.token);
@@ -757,7 +810,10 @@ export function AgentsView({
                 </div>
 
                 {revealedSession && (
-                  <div className="card" style={{ marginBottom: 12, background: "var(--surface-2, #f6f4ef)" }}>
+                  <div
+                    className="card"
+                    style={{ marginBottom: 12, background: "var(--surface-2, #f6f4ef)" }}
+                  >
                     <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
                       Session token (once)
                     </div>
@@ -779,12 +835,21 @@ export function AgentsView({
                   Recent decisions
                 </div>
                 <div style={{ maxHeight: 180, overflow: "auto" }}>
-                  {((detail.recentDecisions as { outcome: string; tool: string; amountUsdc: string; at: string }[]) ?? [])
+                  {(
+                    (detail.recentDecisions as {
+                      outcome: string;
+                      tool: string;
+                      amountUsdc: string;
+                      at: string;
+                    }[]) ?? []
+                  )
                     .slice(0, 8)
                     .map((d, i) => (
                       <div key={i} className="between" style={{ fontSize: 12, padding: "4px 0" }}>
                         <span>
-                          <span className={`pill ${d.outcome === "allow" ? "ok" : d.outcome === "deny" ? "bad" : "warn"}`}>
+                          <span
+                            className={`pill ${d.outcome === "allow" ? "ok" : d.outcome === "deny" ? "bad" : "warn"}`}
+                          >
                             <i /> {d.outcome}
                           </span>{" "}
                           {d.tool}
@@ -793,7 +858,9 @@ export function AgentsView({
                       </div>
                     ))}
                   {!((detail.recentDecisions as unknown[]) ?? []).length && (
-                    <div className="faint" style={{ fontSize: 12 }}>No decisions yet.</div>
+                    <div className="faint" style={{ fontSize: 12 }}>
+                      No decisions yet.
+                    </div>
                   )}
                 </div>
 
@@ -801,12 +868,25 @@ export function AgentsView({
                   Recent runs
                 </div>
                 <div style={{ maxHeight: 140, overflow: "auto" }}>
-                  {((detail.recentRuns as { id: string; status: string; startedAt: string; title?: string }[]) ?? [])
+                  {(
+                    (detail.recentRuns as {
+                      id: string;
+                      status: string;
+                      startedAt: string;
+                      title?: string;
+                    }[]) ?? []
+                  )
                     .slice(0, 8)
                     .map((r) => (
-                      <div key={r.id} className="between" style={{ fontSize: 12, padding: "4px 0" }}>
+                      <div
+                        key={r.id}
+                        className="between"
+                        style={{ fontSize: 12, padding: "4px 0" }}
+                      >
                         <span>
-                          <span className={`pill ${r.status === "completed" ? "ok" : r.status === "failed" ? "bad" : "warn"}`}>
+                          <span
+                            className={`pill ${r.status === "completed" ? "ok" : r.status === "failed" ? "bad" : "warn"}`}
+                          >
                             <i /> {r.status}
                           </span>{" "}
                           {r.title ?? r.id.slice(0, 12)}
@@ -817,7 +897,9 @@ export function AgentsView({
                       </div>
                     ))}
                   {!((detail.recentRuns as unknown[]) ?? []).length && (
-                    <div className="faint" style={{ fontSize: 12 }}>No runs yet — try Playground missions.</div>
+                    <div className="faint" style={{ fontSize: 12 }}>
+                      No runs yet — try Playground missions.
+                    </div>
                   )}
                 </div>
               </>
@@ -829,48 +911,46 @@ export function AgentsView({
       {tab === "groups" && (
         <div className="card">
           {!rosterReady && (
-            <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>Loading roster…</div>
+            <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>
+              Loading roster…
+            </div>
           )}
           <div className="card-head">
             <div>
-              <h2>Ops labels</h2>
+              <h2>Agent groups</h2>
               <div className="sub">
-                Roster tags paired with Treasury budgets for freeze / bulk stipend —{" "}
-                <b>not wallets</b>. Creating a budget auto-creates a matching label. Prefer
-                separate agents per job (writer-finance vs writer-research) instead of one agent
-                in many money clubs.
+                Organize agents for shared controls, emergency freezes, and a default Treasury
+                budget. A group is <b>not a wallet</b> and does not own funds.
               </div>
             </div>
             <div className="row" style={{ gap: 8 }}>
               <input
-                placeholder="e.g. research-ops"
+                placeholder="e.g. Research team"
                 value={groupName}
                 disabled={readOnly}
                 onChange={(e) => setGroupName(e.target.value)}
               />
-              <Button size="sm"
+              <Button
+                size="sm"
                 disabled={locked || !groupName.trim()}
                 onClick={() => void createGroup()}
               >
-                Create label
+                Create group
               </Button>
             </div>
           </div>
-          <div
-            className="banner info"
-            style={{ marginBottom: 14 }}
-          >
+          <div className="banner info" style={{ marginBottom: 14 }}>
             <span className="txt">
-              <b>Budget → ops label</b>
+              <b>Budget → agent group</b>
               <span>
-                Create Finance under Treasury → Budgets — a Finance ops label is created and linked
-                automatically. Assign agents here, then fund them from that budget.
+                Create Finance under Treasury → Budgets and ABI creates a linked Finance group.
+                Assign agents here to give the team a clear default budget context.
               </span>
             </span>
           </div>
           {groups.length === 0 ? (
             <Empty icon="robot">
-              No ops labels yet — optional. Create agents and fund them from a budget in Treasury.
+              No agent groups yet. Groups are optional; budgets remain in Treasury.
             </Empty>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -895,9 +975,7 @@ export function AgentsView({
                   <Collapsible
                     key={g.id}
                     open={open}
-                    onOpenChange={(next) =>
-                      setOpenGroups((m) => ({ ...m, [g.id]: next }))
-                    }
+                    onOpenChange={(next) => setOpenGroups((m) => ({ ...m, [g.id]: next }))}
                     className={`ops-card ${open ? "is-open" : ""}`}
                   >
                     <div className="ops-card-head">
@@ -938,7 +1016,11 @@ export function AgentsView({
                             const panel = opsPanel[g.id] ?? "members";
                             return (
                               <>
-                                <div className="ops-subtabs" role="tablist" aria-label={`${g.name} ops`}>
+                                <div
+                                  className="ops-subtabs"
+                                  role="tablist"
+                                  aria-label={`${g.name} ops`}
+                                >
                                   {(
                                     [
                                       ["members", "Members"],
@@ -952,9 +1034,7 @@ export function AgentsView({
                                       role="tab"
                                       aria-selected={panel === key}
                                       className={`ops-subtab ${panel === key ? "active" : ""}`}
-                                      onClick={() =>
-                                        setOpsPanel((m) => ({ ...m, [g.id]: key }))
-                                      }
+                                      onClick={() => setOpsPanel((m) => ({ ...m, [g.id]: key }))}
                                     >
                                       {label}
                                       {key === "members" ? (
@@ -987,18 +1067,28 @@ export function AgentsView({
                                                 <span style={{ fontSize: 12.5 }}>
                                                   {m.name}
                                                   {low ? (
-                                                    <span className="pill warn" style={{ marginLeft: 6 }}>
+                                                    <span
+                                                      className="pill warn"
+                                                      style={{ marginLeft: 6 }}
+                                                    >
                                                       <i /> low
                                                     </span>
                                                   ) : null}
                                                 </span>
                                                 <span className="row" style={{ gap: 8 }}>
-                                                  <span className="mono faint" style={{ fontSize: 11.5 }}>
+                                                  <span
+                                                    className="mono faint"
+                                                    style={{ fontSize: 11.5 }}
+                                                  >
                                                     {fmt(String(bal))}
                                                   </span>
                                                   <Button
                                                     variant="bare"
-                                                    style={{ fontSize: 11, padding: 0, minWidth: 0 }}
+                                                    style={{
+                                                      fontSize: 11,
+                                                      padding: 0,
+                                                      minWidth: 0,
+                                                    }}
                                                     disabled={locked}
                                                     onClick={() =>
                                                       void act("Remove from label", async () => {
@@ -1006,7 +1096,9 @@ export function AgentsView({
                                                           `/v1/guardian/agent-groups/${g.id}/unassign`,
                                                           {
                                                             method: "POST",
-                                                            body: JSON.stringify({ agentIds: [m.id] }),
+                                                            body: JSON.stringify({
+                                                              agentIds: [m.id],
+                                                            }),
                                                           },
                                                         );
                                                         await refresh();
@@ -1025,7 +1117,10 @@ export function AgentsView({
                                       )}
                                     </div>
                                     {ungrouped.length > 0 && (
-                                      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                                      <div
+                                        className="row"
+                                        style={{ gap: 8, flexWrap: "wrap", marginTop: 10 }}
+                                      >
                                         <select
                                           id={`assign-${g.id}`}
                                           defaultValue=""
@@ -1044,7 +1139,7 @@ export function AgentsView({
                                           size="sm"
                                           disabled={locked}
                                           onClick={() =>
-                                            void act("Assign to ops label", async () => {
+                                            void act("Assign to agent group", async () => {
                                               const el = document.getElementById(
                                                 `assign-${g.id}`,
                                               ) as HTMLSelectElement | null;
@@ -1059,7 +1154,9 @@ export function AgentsView({
                                               );
                                               const d = await res.json();
                                               if (!res.ok) {
-                                                throw new Error(d.error?.message ?? JSON.stringify(d));
+                                                throw new Error(
+                                                  d.error?.message ?? JSON.stringify(d),
+                                                );
                                               }
                                               if (el) el.value = "";
                                               await refresh();
@@ -1071,7 +1168,10 @@ export function AgentsView({
                                         </Button>
                                       </div>
                                     )}
-                                    <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 12 }}>
+                                    <div
+                                      className="row"
+                                      style={{ gap: 6, flexWrap: "wrap", marginTop: 12 }}
+                                    >
                                       <Button
                                         variant="destructive"
                                         size="sm"
@@ -1082,11 +1182,16 @@ export function AgentsView({
                                               `/v1/guardian/agent-groups/${g.id}/freeze`,
                                               {
                                                 method: "POST",
-                                                body: JSON.stringify({ reason: "ops_label_kill_switch" }),
+                                                body: JSON.stringify({
+                                                  reason: "ops_label_kill_switch",
+                                                }),
                                               },
                                             );
                                             const d = await res.json();
-                                            if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                                            if (!res.ok)
+                                              throw new Error(
+                                                d.error?.message ?? JSON.stringify(d),
+                                              );
                                             await refresh();
                                             return `Froze ${d.frozen?.length ?? 0} agent(s) under ${g.name}.`;
                                           })
@@ -1105,7 +1210,10 @@ export function AgentsView({
                                               { method: "POST", body: "{}" },
                                             );
                                             const d = await res.json();
-                                            if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                                            if (!res.ok)
+                                              throw new Error(
+                                                d.error?.message ?? JSON.stringify(d),
+                                              );
                                             await refresh();
                                             return `Unfroze ${d.unfrozen?.length ?? 0} agent(s).`;
                                           })
@@ -1118,10 +1226,13 @@ export function AgentsView({
                                         size="sm"
                                         disabled={locked}
                                         onClick={() =>
-                                          void act("Archive ops label", async () => {
-                                            await gFetch(`/v1/guardian/agent-groups/${g.id}/archive`, {
-                                              method: "POST",
-                                            });
+                                          void act("Archive agent group", async () => {
+                                            await gFetch(
+                                              `/v1/guardian/agent-groups/${g.id}/archive`,
+                                              {
+                                                method: "POST",
+                                              },
+                                            );
                                             await refresh();
                                             return `${g.name} archived.`;
                                           })
@@ -1135,8 +1246,12 @@ export function AgentsView({
 
                                 {panel === "fund" && (
                                   <div className="ops-pane">
-                                    <p className="faint" style={{ fontSize: 12, margin: "0 0 10px" }}>
-                                      One-shot stipend to every member from a budget or the org vault.
+                                    <p
+                                      className="faint"
+                                      style={{ fontSize: 12, margin: "0 0 10px" }}
+                                    >
+                                      One-time allocation to every member from a budget or the
+                                      organization vault.
                                     </p>
                                     <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                                       <select
@@ -1147,7 +1262,7 @@ export function AgentsView({
                                         onChange={(e) =>
                                           setFundFrom((m) => ({ ...m, [g.id]: e.target.value }))
                                         }
-                                        title="Where the stipend comes from"
+                                        title="Where the allocation comes from"
                                       >
                                         <option value="org">From org vault</option>
                                         {budgets.map((b) => (
@@ -1196,7 +1311,10 @@ export function AgentsView({
                                               },
                                             );
                                             const d = await res.json();
-                                            if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
+                                            if (!res.ok)
+                                              throw new Error(
+                                                d.error?.message ?? JSON.stringify(d),
+                                              );
                                             await refresh();
                                             return `Funded ${d.funded?.length ?? 0} agents · $${d.amountUsdcEach} each from ${d.sourceLabel} ($${d.totalUsdc} total).`;
                                           })
@@ -1231,7 +1349,9 @@ export function AgentsView({
                                               );
                                               const d = await res.json();
                                               if (!res.ok) {
-                                                throw new Error(d.error?.message ?? JSON.stringify(d));
+                                                throw new Error(
+                                                  d.error?.message ?? JSON.stringify(d),
+                                                );
                                               }
                                               await refresh();
                                               if (enabled && d.toppedUp > 0) {
@@ -1244,7 +1364,7 @@ export function AgentsView({
                                           }
                                           aria-label="Toggle auto-fund"
                                         />
-                                        Auto-fund when stipend is low
+                                        Auto-allocate when available capacity is low
                                       </label>
                                       {linkedBudget ? (
                                         <span className="pill mute">
@@ -1267,7 +1387,10 @@ export function AgentsView({
                                         }))
                                       }
                                     />
-                                    <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                                    <div
+                                      className="row"
+                                      style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}
+                                    >
                                       <Button
                                         size="sm"
                                         disabled={locked || !linkedBudget}
@@ -1287,10 +1410,13 @@ export function AgentsView({
                                             );
                                             const d = await res.json();
                                             if (!res.ok) {
-                                              throw new Error(d.error?.message ?? JSON.stringify(d));
+                                              throw new Error(
+                                                d.error?.message ?? JSON.stringify(d),
+                                              );
                                             }
                                             await refresh();
-                                            const n = typeof d.toppedUp === "number" ? d.toppedUp : 0;
+                                            const n =
+                                              typeof d.toppedUp === "number" ? d.toppedUp : 0;
                                             return n > 0
                                               ? `Saved — topped up ${n} agent(s) immediately (below $${draft.thresholdUsdc} → +$${draft.topUpUsdc}).`
                                               : `Auto-fund: if below $${draft.thresholdUsdc} → top up $${draft.topUpUsdc} from budget.`;
@@ -1299,7 +1425,10 @@ export function AgentsView({
                                       >
                                         Save rule
                                       </Button>
-                                      <span className="faint" style={{ fontSize: 11.5, alignSelf: "center" }}>
+                                      <span
+                                        className="faint"
+                                        style={{ fontSize: 11.5, alignSelf: "center" }}
+                                      >
                                         Runs on console refresh when enabled.
                                       </span>
                                     </div>
@@ -1363,7 +1492,9 @@ export function AgentsView({
                       </td>
                       <td>
                         {!s.revokedAt && (
-                          <Button variant="ghost" size="sm"
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             disabled={locked}
                             onClick={() =>
                               void act("Revoke session", async () => {

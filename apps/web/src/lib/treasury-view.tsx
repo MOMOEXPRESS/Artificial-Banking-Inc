@@ -699,17 +699,23 @@ export function TreasuryView({
           </div>
 
           {assetId === "asset_usdc" && (
-            <div className="card">
+            <div className="card onchain-status-card">
               <div className="card-head">
                 <div>
-                  <h2 style={{ margin: 0 }}>On-chain (Base)</h2>
-                  <div className="sub">
-                    Real USDC at this vault on {onchain?.networkName ?? "Base Sepolia"}. Deposits
-                    auto-credit into the spendable ledger when you open Fund (and every ~25s while
-                    this tab is open).
+                  <div className="row" style={{ gap: 8 }}>
+                    <h2 style={{ margin: 0 }}>{onchain?.networkName ?? "Base Sepolia"}</h2>
+                    <span className={`pill ${onchain?.ok ? "ok" : "warn"}`}>
+                      <i /> {onchain?.ok ? "Connected" : "Checking"}
+                    </span>
                   </div>
+                  <div className="sub">Vault balance and settlement health.</div>
                 </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div className="onchain-actions">
+                  {onchain?.explorerAddress ? (
+                    <a href={onchain.explorerAddress} target="_blank" rel="noreferrer">
+                      View on Basescan
+                    </a>
+                  ) : null}
                   <Button
                     variant="ghost"
                     size="sm"
@@ -717,31 +723,6 @@ export function TreasuryView({
                     onClick={() => void refreshOnchain()}
                   >
                     {onchainBusy ? "Checking…" : "Refresh"}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={onchainBusy || locked}
-                    onClick={() =>
-                      void act("Force deposit re-scan", async () => {
-                        setOnchainBusy(true);
-                        try {
-                          const res = await gFetch("/v1/guardian/treasury/onchain/sync", {
-                            method: "POST",
-                          });
-                          const j = await res.json();
-                          if (!res.ok) throw new Error(j.error?.message ?? "Sync failed");
-                          setOnchain(j.onchain ?? null);
-                          await refresh();
-                          await refreshOnchain();
-                          return j.note ?? `Credited ${j.creditedCount ?? 0} deposit(s).`;
-                        } finally {
-                          setOnchainBusy(false);
-                        }
-                      })
-                    }
-                  >
-                    Force re-scan
                   </Button>
                 </div>
               </div>
@@ -757,85 +738,41 @@ export function TreasuryView({
 
               <div className="wallet-onchain-stats">
                 <div>
-                  <span className="faint">On-chain USDC</span>
-                  <b>{onchain?.onchainBalanceUsdc ?? "—"}</b>
+                  <span className="faint">Vault USDC</span>
+                  <b>{onchain?.onchainBalanceUsdc ?? "—"} USDC</b>
                 </div>
                 <div>
-                  <span className="faint">Ledger (spendable)</span>
+                  <span className="faint">Ready to spend</span>
                   <b>{fmt(wallets?.org.availableUsdc)}</b>
                 </div>
                 <div>
-                  <span className="faint">ETH (gas)</span>
+                  <span className="faint">Network gas</span>
                   <b style={{ color: onchain?.hasGas ? undefined : "var(--amber, var(--warn))" }}>
                     {onchain?.nativeBalanceEth != null ? `${onchain.nativeBalanceEth} ETH` : "—"}
                     {onchain && !onchain.hasGas ? " · needed" : ""}
                   </b>
                 </div>
-                <div>
-                  <span className="faint">Network</span>
-                  <b>
-                    {onchain?.networkName ?? "—"}
-                    {onchain?.chainId ? ` · ${onchain.chainId}` : ""}
-                  </b>
-                </div>
               </div>
 
               {backing && (
-                <div
-                  className={`banner ${backing.checked && !backing.ok ? "warn" : ""}`}
-                  style={{ marginTop: 12 }}
-                >
-                  <span className="txt">
+                <div className={`onchain-health ${backing.checked && !backing.ok ? "warn" : ""}`}>
+                  <Icon name={backing.checked && backing.ok ? "check" : "alert"} size={15} />
+                  <div>
                     <b>
                       {!backing.checked
-                        ? "Backing unknown"
+                        ? "Balance not verified"
                         : backing.ok
-                          ? "Books match the chain"
-                          : `Drift ${backing.driftUsdc} USDC`}
+                          ? "Vault and records match"
+                          : `Balance difference: ${backing.driftUsdc} USDC`}
                     </b>
-                    <span>
-                      {!backing.checked ? (
-                        (backing.error ??
-                        "The vault could not be read, so this is unverified rather than clean.")
-                      ) : backing.ok ? (
-                        <>
-                          Vault holds {backing.onchainUsdc}, books expect {backing.expectedUsdc}.
-                          {backing.ledgerMode === "sandbox" &&
-                            ` ${backing.unbackedUsdc} of the ledger is simulated and excluded.`}
-                        </>
-                      ) : (
-                        <>
-                          Vault holds {backing.onchainUsdc} but the books expect{" "}
-                          {backing.expectedUsdc}.{" "}
-                          {Number(backing.driftUsdc) < 0
-                            ? "Money left without the ledger recording it."
-                            : "Funds arrived that the ledger has not credited."}
-                        </>
-                      )}
-                    </span>
-                  </span>
+                    {!backing.checked && backing.error ? <span>{backing.error}</span> : null}
+                  </div>
                 </div>
               )}
 
-              <p className="faint" style={{ fontSize: 12, marginTop: 10, lineHeight: 1.5 }}>
-                Agent pays to an allowlisted wallet broadcast real USDC from this vault — fund{" "}
-                <b>USDC</b> and a little <b>ETH</b> for gas, Sync, then Policy → address allowlist →
-                Playground “On-chain wallet pay” (or curl / demo-agent).
-              </p>
-
-              {onchain?.explorerAddress ? (
-                <p className="faint" style={{ fontSize: 12, marginTop: 8 }}>
-                  <a href={onchain.explorerAddress} target="_blank" rel="noreferrer">
-                    Open vault on Basescan
-                  </a>
-                  {" · "}
-                  USDC {onchain.usdcContract?.slice(0, 8)}…
-                </p>
-              ) : null}
-
               {(onchain?.transfers?.length ?? 0) > 0 && (
-                <div style={{ marginTop: 14 }}>
-                  <b style={{ fontSize: 13 }}>Detected on chain</b>
+                <details className="onchain-details">
+                  <summary>Recent deposits ({onchain!.transfers!.length})</summary>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
                     {onchain!.transfers!.slice(0, 6).map((t) => (
                       <div key={`${t.txHash}-${t.logIndex}`} className="wallet-tx-row">
@@ -856,8 +793,48 @@ export function TreasuryView({
                       </div>
                     ))}
                   </div>
-                </div>
+                </details>
               )}
+
+              <details className="onchain-details">
+                <summary>Technical details</summary>
+                <div className="onchain-technical-grid">
+                  <span>Network</span>
+                  <b>
+                    {onchain?.networkName ?? "—"}
+                    {onchain?.chainId ? ` · ${onchain.chainId}` : ""}
+                  </b>
+                  <span>USDC contract</span>
+                  <code>{onchain?.usdcContract ?? "—"}</code>
+                  <span>Records expect</span>
+                  <b>{backing?.expectedUsdc ?? "—"} USDC</b>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={onchainBusy || locked}
+                  onClick={() =>
+                    void act("Re-scan deposits", async () => {
+                      setOnchainBusy(true);
+                      try {
+                        const res = await gFetch("/v1/guardian/treasury/onchain/sync", {
+                          method: "POST",
+                        });
+                        const j = await res.json();
+                        if (!res.ok) throw new Error(j.error?.message ?? "Sync failed");
+                        setOnchain(j.onchain ?? null);
+                        await refresh();
+                        await refreshOnchain();
+                        return j.note ?? `Credited ${j.creditedCount ?? 0} deposit(s).`;
+                      } finally {
+                        setOnchainBusy(false);
+                      }
+                    })
+                  }
+                >
+                  Re-scan deposits
+                </Button>
+              </details>
             </div>
           )}
 
@@ -1144,7 +1121,7 @@ export function TreasuryView({
                     await refresh();
                     return (
                       `Budget ${j.budget.name} created` +
-                      (j.opsLabel ? ` · ops label “${j.opsLabel.name}” ready under Agents` : "")
+                      (j.opsLabel ? ` · agent group “${j.opsLabel.name}” ready under Agents` : "")
                     );
                   })
                 }

@@ -22,6 +22,7 @@ import type { Policy } from "./policy-view";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
+import { explainApiResponse, relatedConsoleViews } from "./scenario-result";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
 const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
@@ -52,8 +53,8 @@ const SCENARIO_GROUPS: {
   },
   {
     id: "ops",
-    label: "Operations & integrations",
-    description: "Deployment checks, webhooks, and multi-agent workflows.",
+    label: "Connected workflows",
+    description: "Webhooks, service connections, and coordinated agent work.",
     icon: "sliders",
   },
 ];
@@ -340,7 +341,7 @@ export function Playground({
                     { value: "commerce", label: "Payments" },
                     { value: "governance", label: "Controls" },
                     { value: "security", label: "Security" },
-                    { value: "ops", label: "Operations" },
+                    { value: "ops", label: "Workflows" },
                   ] as const
                 }
               />
@@ -681,49 +682,83 @@ export function Playground({
               </div>
             ) : (
               <div className="steps" ref={stepsRef}>
-                {steps.map((s, i) => (
-                  <div
-                    key={s.id + i}
-                    className={`step ${s.status === "done" ? "done" : s.status === "running" ? "run" : s.status === "blocked" ? "block" : s.status === "failed" ? "fail" : ""}`}
-                  >
-                    <div className="bullet">
-                      {s.status === "running" ? (
-                        <span className="spinner" />
-                      ) : s.status === "done" ? (
-                        <Icon name="check" size={13} />
-                      ) : s.status === "blocked" ? (
-                        <Icon name="clock" size={13} />
-                      ) : s.status === "failed" ? (
-                        <Icon name="x" size={13} />
-                      ) : (
-                        i + 1
-                      )}
+                {steps.map((s, i) => {
+                  const result = s.output ? explainApiResponse(s.output, s.summary) : null;
+                  const related = relatedConsoleViews(s);
+                  return (
+                    <div
+                      key={s.id + i}
+                      className={`step ${s.status === "done" ? "done" : s.status === "running" ? "run" : s.status === "blocked" ? "block" : s.status === "failed" ? "fail" : ""}`}
+                    >
+                      <div className="bullet">
+                        {s.status === "running" ? (
+                          <span className="spinner" />
+                        ) : s.status === "done" ? (
+                          <Icon name="check" size={13} />
+                        ) : s.status === "blocked" ? (
+                          <Icon name="clock" size={13} />
+                        ) : s.status === "failed" ? (
+                          <Icon name="x" size={13} />
+                        ) : (
+                          i + 1
+                        )}
+                      </div>
+                      <div className="sbody">
+                        <b>{s.title}</b>
+                        {s.status === "running" ? (
+                          <div className="thinking">
+                            <span className="bar" /> {s.detail}
+                          </div>
+                        ) : s.summary ? (
+                          <p className="sum">{s.summary}</p>
+                        ) : (
+                          <p>{s.detail}</p>
+                        )}
+                        {s.output && result && (
+                          <>
+                            <button
+                              className="step-toggle"
+                              onClick={() =>
+                                setShownRaw((r) => ({ ...r, [s.id + i]: !r[s.id + i] }))
+                              }
+                            >
+                              {shownRaw[s.id + i] ? "▾ hide explanation" : "▸ explain this result"}
+                            </button>
+                            {shownRaw[s.id + i] && (
+                              <div className="step-explanation">
+                                <span>In plain English</span>
+                                <b>{result.headline}</b>
+                                {result.facts.length > 0 && (
+                                  <ul>
+                                    {result.facts.map((fact) => (
+                                      <li key={fact}>{fact}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                                <details className="developer-response">
+                                  <summary>Developer response (JSON)</summary>
+                                  <div className="out">{s.output}</div>
+                                </details>
+                              </div>
+                            )}
+                          </>
+                        )}
+                        {related.length > 0 && s.status !== "running" && (
+                          <div className="step-related">
+                            <span>This action also updated</span>
+                            <div>
+                              {related.map((item) => (
+                                <button key={item.view} onClick={() => setView(item.view)}>
+                                  {item.label} <Icon name="arrowRight" size={11} />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="sbody">
-                      <b>{s.title}</b>
-                      {s.status === "running" ? (
-                        <div className="thinking">
-                          <span className="bar" /> {s.detail}
-                        </div>
-                      ) : s.summary ? (
-                        <p className="sum">{s.summary}</p>
-                      ) : (
-                        <p>{s.detail}</p>
-                      )}
-                      {s.output && (
-                        <>
-                          <button
-                            className="step-toggle"
-                            onClick={() => setShownRaw((r) => ({ ...r, [s.id + i]: !r[s.id + i] }))}
-                          >
-                            {shownRaw[s.id + i] ? "▾ hide API response" : "▸ inspect API response"}
-                          </button>
-                          {shownRaw[s.id + i] && <div className="out">{s.output}</div>}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

@@ -2183,6 +2183,90 @@ tbody tr:hover {
   animation: fade-up 0.18s ease both;
 }
 
+.step-explanation {
+  display: flex;
+  max-width: 720px;
+  gap: 6px;
+  margin-top: 9px;
+  padding: 12px 13px;
+  flex-direction: column;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 10px;
+  background: var(--color-surface-3);
+}
+
+.step-explanation > span,
+.step-related > span {
+  color: var(--color-fg-faint);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.step-explanation > b {
+  font-size: 12.5px !important;
+}
+
+.step-explanation ul {
+  display: grid;
+  gap: 4px;
+  margin: 2px 0 0;
+  padding-left: 17px;
+  color: var(--color-fg-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.developer-response {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.developer-response summary,
+.onchain-details summary {
+  color: var(--color-fg-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.developer-response .out {
+  max-height: 180px;
+}
+
+.step-related {
+  display: flex;
+  gap: 7px;
+  margin-top: 9px;
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.step-related > div {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.step-related button {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-fg-secondary);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.step-related button:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+
 /* Live "thinking" line that fades out once the step resolves */
 .thinking {
   font-size: 12px;
@@ -8628,7 +8712,7 @@ button.user-chip {
 
 .wallet-onchain-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 4px;
 }
@@ -8646,6 +8730,94 @@ button.user-chip {
 .wallet-onchain-stats b {
   font-size: 15px;
   font-variant-numeric: tabular-nums;
+}
+
+.onchain-status-card {
+  display: flex;
+  gap: 14px;
+  flex-direction: column;
+}
+
+.onchain-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.onchain-actions a {
+  color: var(--color-fg-muted);
+  font-size: 11px;
+}
+
+.onchain-health {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-success) 28%, var(--color-border));
+  border-radius: 9px;
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.onchain-health.warn {
+  border-color: color-mix(in srgb, var(--color-warning) 35%, var(--color-border));
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+.onchain-health > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.onchain-health b {
+  font-size: 12px;
+}
+
+.onchain-health span {
+  margin-top: 2px;
+  color: var(--color-fg-muted);
+  font-size: 10.5px;
+}
+
+.onchain-details {
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.onchain-technical-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 14px;
+  margin: 12px 0;
+  font-size: 11px;
+}
+
+.onchain-technical-grid span {
+  color: var(--color-fg-faint);
+}
+
+.onchain-technical-grid code {
+  overflow: hidden;
+  color: var(--color-fg-secondary);
+  font-family: var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-roster-table {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.agent-roster-table table {
+  min-width: 720px;
 }
 
 .wallet-tx-row {
@@ -8692,12 +8864,40 @@ button.user-chip {
   .vault-assets-panel {
     padding: 18px;
   }
-
 }
 
 @media (max-width: 720px) {
   .wallet-onchain-stats {
     grid-template-columns: 1fr;
+  }
+
+  .agents-page,
+  .agents-page > .grid,
+  .agents-page .card {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .agents-page > .card-head {
+    align-items: stretch;
+  }
+
+  .agents-page > .card-head [data-slot="tabs"] {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .agents-page .card-head > .row {
+    width: 100%;
+  }
+
+  .agents-page .card-head > .row input {
+    min-width: 0;
+    flex: 1 1 180px;
+  }
+
+  .agent-roster-table {
+    max-width: calc(100vw - 66px);
   }
 }
 

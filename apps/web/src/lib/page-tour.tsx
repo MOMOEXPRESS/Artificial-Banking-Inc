@@ -16,9 +16,9 @@ const TIPS: Record<string, string[]> = {
   ],
   agents: [
     "Open an agent profile for session keys, wallet balance, and freeze controls.",
-    "Ops labels are optional tags for freeze/bulk fund — money lives in Treasury budgets.",
+    "Agent groups organize shared controls and default budget access — money stays in Treasury.",
     "Rotate an agent API key anytime from the agent profile if a key may have leaked.",
-    "Create agents here first — fund them from a budget under Treasury → Budgets → Move.",
+    "Create agents here first, then connect them to a budget under Treasury → Budgets → Move.",
     "Prefer writer-finance and writer-research over one agent in many money pools.",
   ],
   payments: [
@@ -141,7 +141,9 @@ export function PageTour({ view }: { view: string }) {
             {body}
           </p>
         </div>
-        {tips.length > 1 && <div key={`bar-${view}-${index}`} className="page-tip-bar" aria-hidden />}
+        {tips.length > 1 && (
+          <div key={`bar-${view}-${index}`} className="page-tip-bar" aria-hidden />
+        )}
       </div>
     </div>
   );
