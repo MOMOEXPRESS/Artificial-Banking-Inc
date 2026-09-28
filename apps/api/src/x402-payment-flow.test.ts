@@ -157,8 +157,10 @@ it("replays one x402 settlement without a second seller request or ledger postin
   assert.equal(sellerChallenges, 1);
   assert.equal(sellerPaidRequests, 1, "one facilitator-style paid request for both API calls");
   const balances = store.getAccountMap(org.id);
-  assert.equal(balances.get(`agent:${agent.agentId}:available`)?.balanceMicro, 90_000n);
-  assert.equal(balances.get(`agent:${agent.agentId}:held`)?.balanceMicro, 0n);
+  const groupId = store.listAgentGroupIdsAnyOrg(agent.agentId)[0];
+  const budgetId = store.getAgentGroupAnyOrg(groupId)?.budgetId;
+  assert.equal(balances.get(`dept:${budgetId}:available`)?.balanceMicro, 90_000n);
+  assert.equal(balances.get(`dept:${budgetId}:held`)?.balanceMicro, 0n);
   const finalRecon = store.reconcileOrgUncached(org.id);
   assert.equal(finalRecon.ok, true, JSON.stringify(finalRecon.drift));
   assert.equal(finalRecon.journalsReplayed, firstRecon.journalsReplayed);

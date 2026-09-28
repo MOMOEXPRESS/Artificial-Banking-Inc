@@ -1,4 +1,4 @@
-import { LEGAL_FOOTER, accountId, formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/common";
+import { LEGAL_FOOTER, formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/common";
 import {
   DevLocalProvider,
   SelfCustodyVaultProvider,
@@ -6,7 +6,7 @@ import {
   getCustodyProvider,
   setCustodyProvider,
 } from "@policyvault/custody";
-import { recogniseRevenue, transferAvailable } from "@policyvault/ledger";
+import { recogniseRevenue } from "@policyvault/ledger";
 import { evaluatePolicy, matchedAutomationRules } from "@policyvault/policy";
 import cors from "cors";
 import express from "express";
@@ -16,6 +16,7 @@ import { x402Client, x402HTTPClient } from "@x402/core/client";
 import type { PaymentRequired } from "@x402/core/types";
 import {
   APPROVAL_TTL_MINUTES,
+  agentFundingContext,
   executeIntent,
   id,
   recordDecision,
@@ -1646,33 +1647,12 @@ app.get(
 app.post(
   "/v1/guardian/allocate",
   guardianRoute(
-    (org, req, res) => {
-      const body = z
-        .object({
-          agentId: z.string(),
-          amountUsdc: z.string(),
-        })
-        .parse(req.body);
-      const agent = scopedStore(org.id).getAgent(body.agentId);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      const amount = parseUsdcToMicro(body.amountUsdc);
-      try {
-        store.applyEntries(org.id, [
-          transferAvailable({
-            orgId: org.id,
-            journalId: id("j"),
-            fromAvailableId: accountId("org", org.id),
-            toAvailableId: accountId("agent", body.agentId),
-            amountMicro: amount,
-            memo: "allocate_stipend",
-          }),
-        ]);
-        res.json({ ok: true, amountUsdc: body.amountUsdc });
-      } catch (e) {
-        res.status(400).json({ error: { code: "INSUFFICIENT_STIPEND", message: String(e) } });
-      }
+    (_org, _req, res) => {
+      res.status(410).json({ error: {
+        code: "INDIVIDUAL_AGENT_FUNDS_REMOVED",
+        message: "Agents do not receive individual funds. Fund their group budget instead.",
+        successor: "/v1/guardian/agent-groups/:id/fund",
+      } });
     },
     { ownerOnly: true },
   ),
@@ -1686,56 +1666,12 @@ app.post(
 app.post(
   "/v1/guardian/reclaim",
   guardianRoute(
-    (org, req, res) => {
-      const body = z
-        .object({
-          agentId: z.string(),
-          /** Omit to sweep the agent's entire available balance. */
-          amountUsdc: z.string().optional(),
-        })
-        .parse(req.body);
-      const agent = scopedStore(org.id).getAgent(body.agentId);
-      if (!agent) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      const accounts = store.getAccountMap(org.id);
-      const available = accounts.get(accountId("agent", body.agentId))?.balanceMicro ?? 0n;
-      const held = accounts.get(accountId("agent", body.agentId, "held"))?.balanceMicro ?? 0n;
-      const amount = body.amountUsdc ? parseUsdcToMicro(body.amountUsdc) : available;
-
-      if (amount <= 0n) {
-        return res.status(400).json({
-          error: { code: "VALIDATION_ERROR", message: "Nothing available to reclaim" },
-        });
-      }
-      if (amount > available) {
-        return res.status(400).json({
-          error: {
-            code: "INSUFFICIENT_STIPEND",
-            message: `Agent has ${formatMicroToUsdc(available)} available${
-              held > 0n
-                ? ` (${formatMicroToUsdc(held)} is held mid-payment and cannot be reclaimed)`
-                : ""
-            }`,
-          },
-        });
-      }
-
-      store.applyEntries(org.id, [
-        transferAvailable({
-          orgId: org.id,
-          journalId: id("j"),
-          fromAvailableId: accountId("agent", body.agentId),
-          toAvailableId: accountId("org", org.id),
-          amountMicro: amount,
-          memo: "reclaim_stipend",
-        }),
-      ]);
-      res.json({
-        ok: true,
-        amountUsdc: formatMicroToUsdc(amount),
-        agentRemainingUsdc: formatMicroToUsdc(available - amount),
-      });
+    (_org, _req, res) => {
+      res.status(410).json({ error: {
+        code: "INDIVIDUAL_AGENT_FUNDS_REMOVED",
+        message: "Agents do not own balances. Move money out of the group budget in Treasury.",
+        successor: "/v1/guardian/wallets/move",
+      } });
     },
     { ownerOnly: true },
   ),
@@ -1749,64 +1685,12 @@ app.post(
 app.post(
   "/v1/guardian/transfer",
   guardianRoute(
-    (org, req, res) => {
-      const body = z
-        .object({
-          fromAgentId: z.string(),
-          toAgentId: z.string(),
-          amountUsdc: z.string().optional(),
-        })
-        .parse(req.body);
-      if (body.fromAgentId === body.toAgentId) {
-        return res.status(400).json({
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Source and destination are the same agent",
-          },
-        });
-      }
-      const from = scopedStore(org.id).getAgent(body.fromAgentId);
-      const to = scopedStore(org.id).getAgent(body.toAgentId);
-      if (!from || !to) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
-      }
-      const accounts = store.getAccountMap(org.id);
-      const available = accounts.get(accountId("agent", body.fromAgentId))?.balanceMicro ?? 0n;
-      const held = accounts.get(accountId("agent", body.fromAgentId, "held"))?.balanceMicro ?? 0n;
-      const amount = body.amountUsdc ? parseUsdcToMicro(body.amountUsdc) : available;
-
-      if (amount <= 0n) {
-        return res
-          .status(400)
-          .json({ error: { code: "VALIDATION_ERROR", message: "Nothing available to move" } });
-      }
-      if (amount > available) {
-        return res.status(400).json({
-          error: {
-            code: "INSUFFICIENT_STIPEND",
-            message: `${from.name} has ${formatMicroToUsdc(available)} available${
-              held > 0n ? ` (${formatMicroToUsdc(held)} held mid-payment cannot be moved)` : ""
-            }`,
-          },
-        });
-      }
-
-      store.applyEntries(org.id, [
-        transferAvailable({
-          orgId: org.id,
-          journalId: id("j"),
-          fromAvailableId: accountId("agent", body.fromAgentId),
-          toAvailableId: accountId("agent", body.toAgentId),
-          amountMicro: amount,
-          memo: "transfer_stipend",
-        }),
-      ]);
-      res.json({
-        ok: true,
-        amountUsdc: formatMicroToUsdc(amount),
-        from: from.name,
-        to: to.name,
-      });
+    (_org, _req, res) => {
+      res.status(410).json({ error: {
+        code: "INDIVIDUAL_AGENT_FUNDS_REMOVED",
+        message: "Agent-to-agent transfers no longer exist. Reassign agents or move group budgets.",
+        successor: "/v1/guardian/wallets/move",
+      } });
     },
     { ownerOnly: true },
   ),
@@ -2250,15 +2134,26 @@ app.get("/v1/agent/budget", (req, res) => {
   const auth = authAgent(req);
   if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
   if (!requireAgentScope(auth, "read", res)) return;
+  const funding = agentFundingContext(auth.agentId, auth.orgId);
+  if (!funding) {
+    return res.status(409).json({
+      error: {
+        code: "AGENT_GROUP_REQUIRED",
+        message: "This agent is not assigned to an active group budget.",
+      },
+    });
+  }
   const map = store.getAccountMap(auth.orgId);
-  const av = map.get(`agent:${auth.agentId}:available`);
-  const held = map.get(`agent:${auth.agentId}:held`);
+  const av = map.get(funding.availableId);
+  const held = map.get(funding.heldId);
   const rules = rulesFor(auth.agentId, auth.orgId);
   const spent = store.spentLast24h(auth.agentId);
   const remaining = rules.dailyMaxMicro - spent;
   res.json({
     agentId: auth.agentId,
     agentName: scopedStore(auth.orgId).getAgent(auth.agentId)?.name ?? auth.agentId,
+    group: { id: funding.group.id, name: funding.group.name },
+    budget: { id: funding.budget.id, name: funding.budget.name },
     availableUsdc: formatMicroToUsdc(av?.balanceMicro ?? 0n),
     heldUsdc: formatMicroToUsdc(held?.balanceMicro ?? 0n),
     dailyRemainingUsdc: formatMicroToUsdc(remaining < 0n ? 0n : remaining),

@@ -385,7 +385,7 @@ export function registerTreasuryRoutes(
         error: {
           code: "DEPRECATED",
           message:
-            "Shared pools are legacy. Create a budget with POST /v1/guardian/budgets, then move funds to agents.",
+            "Shared pools are legacy. Create a group budget, then assign agents to its group.",
           successor: "/v1/guardian/budgets",
         },
       });
@@ -447,6 +447,15 @@ export function registerTreasuryRoutes(
           assetId: z.string().default(USDC_ASSET_ID),
         })
         .parse(req.body);
+
+      if (body.from.scope === "agent" || body.to.scope === "agent") {
+        return res.status(410).json({
+          error: {
+            code: "INDIVIDUAL_AGENT_FUNDS_REMOVED",
+            message: "Agents do not own wallets. Move funds to or between group budgets instead.",
+          },
+        });
+      }
 
       if (body.from.scope === body.to.scope && body.from.id === body.to.id) {
         return res.status(400).json({

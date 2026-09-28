@@ -13,8 +13,7 @@ import { transferAvailable } from "@policyvault/ledger";
 import type express from "express";
 import { z } from "zod";
 import { burnForecast } from "../analytics.js";
-import { runAutoFundSweep } from "../auto-fund.js";
-import { id } from "../engine.js";
+import { agentFundingContext, id } from "../engine.js";
 import { notify } from "../platform/notifier.js";
 import { recordObs } from "../platform/observability.js";
 import { scopedStore, store, type OrgRow } from "../store.js";
@@ -44,12 +43,23 @@ function identityOf(agent: {
 }
 
 function balOf(orgId: string, agentId: string) {
+  const funding = agentFundingContext(agentId, orgId);
+  if (!funding) {
+    return {
+      availableUsdc: "0",
+      heldUsdc: "0",
+      group: null,
+      budget: null,
+    };
+  }
   const accounts = store.getAccountMap(orgId);
-  const available = accounts.get(accountId("agent", agentId))?.balanceMicro ?? 0n;
-  const held = accounts.get(accountId("agent", agentId, "held"))?.balanceMicro ?? 0n;
+  const available = accounts.get(funding.availableId)?.balanceMicro ?? 0n;
+  const held = accounts.get(funding.heldId)?.balanceMicro ?? 0n;
   return {
     availableUsdc: formatMicroToUsdc(available),
     heldUsdc: formatMicroToUsdc(held),
+    group: { id: funding.group.id, name: funding.group.name },
+    budget: { id: funding.budget.id, name: funding.budget.name },
   };
 }
 
@@ -113,9 +123,19 @@ export function registerAgentRoutes(
         const body = z
           .object({
             name: z.string().min(1).max(80),
+            groupId: z.string().min(1),
             profile: z.record(z.unknown()).optional(),
           })
           .parse(req.body);
+        const group = scopedStore(org.id).getAgentGroup(body.groupId);
+        if (!group || group.status !== "active" || !group.budgetId) {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Choose an active agent group with a linked budget before creating an agent.",
+            },
+          });
+        }
         if (body.profile) {
           const err = validateProfileHints(org, body.profile);
           if (err) {
@@ -123,12 +143,14 @@ export function registerAgentRoutes(
           }
         }
         const { agentId, apiKey } = store.createAgent(org.id, body.name);
+        store.addAgentToGroup(org.id, agentId, group.id);
         if (body.profile) store.setAgentProfile(agentId, body.profile);
         const agent = scopedStore(org.id).getAgent(agentId)!;
         recordObs({ name: "agent.created", orgId: org.id, agentId });
         res.status(201).json({
           agentId,
           apiKey,
+          group: { id: group.id, name: group.name, budgetId: group.budgetId },
           identity: identityOf(agent),
           note: "Store this API key now — it is not shown again. Use as Bearer token for /v1/agent routes.",
         });
@@ -361,12 +383,6 @@ export function registerAgentRoutes(
   app.get(
     "/v1/guardian/agent-groups",
     guardianRoute((org, _req, res) => {
-      // Opportunistic sweep so Vercel embed (no setInterval) still top-ups.
-      try {
-        runAutoFundSweep();
-      } catch (e) {
-        console.error("auto-fund sweep failed:", e);
-      }
       const agentsById = new Map(store.listAgents(org.id).map((a) => [a.id, a]));
       res.json({
         groups: store.listAgentGroups(org.id).map((g) => {
@@ -390,8 +406,12 @@ export function registerAgentRoutes(
     guardianRoute(
       (org, req, res) => {
         const body = z.object({ name: z.string().min(1).max(80) }).parse(req.body);
-        const group = store.createAgentGroup(org.id, body.name);
-        res.status(201).json({ group });
+        const budget = store.createDepartment(org.id, body.name);
+        const group = store.createAgentGroup(org.id, body.name, budget.id);
+        res.status(201).json({
+          group,
+          budget: { ...budget, availableUsdc: "0", heldUsdc: "0" },
+        });
       },
       { ownerOnly: true },
     ),
@@ -405,8 +425,16 @@ export function registerAgentRoutes(
         if (!group) {
           return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
         }
+        const members = scopedStore(org.id).listGroupMemberIds(group.id);
+        if (members.length) {
+          return res.status(409).json({
+            error: {
+              code: "GROUP_HAS_AGENTS",
+              message: "Move every agent to another group before archiving this group.",
+            },
+          });
+        }
         store.setAgentGroupStatus(group.id, "archived");
-        store.clearGroupMembers(group.id);
         res.json({ ok: true, group: { ...group, status: "archived" as const } });
       },
       { ownerOnly: true },
@@ -426,6 +454,9 @@ export function registerAgentRoutes(
         for (const agentId of body.agentIds) {
           const agent = scopedStore(org.id).getAgent(agentId);
           if (!agent) continue;
+          for (const existingGroupId of scopedStore(org.id).listAgentGroupIds(agent.id)) {
+            if (existingGroupId !== group.id) store.removeAgentFromGroup(agent.id, existingGroupId);
+          }
           store.addAgentToGroup(org.id, agent.id, group.id);
           assigned.push(agent.id);
         }
@@ -443,15 +474,13 @@ export function registerAgentRoutes(
         if (!group) {
           return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
         }
-        const body = z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
-        const removed: string[] = [];
-        for (const agentId of body.agentIds) {
-          const agent = scopedStore(org.id).getAgent(agentId);
-          if (!agent) continue;
-          store.removeAgentFromGroup(agent.id, group.id);
-          removed.push(agent.id);
-        }
-        res.json({ ok: true, groupId: group.id, removed });
+        z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
+        res.status(409).json({
+          error: {
+            code: "AGENT_GROUP_REQUIRED",
+            message: "An agent must always belong to a funded group. Assign it to another group instead.",
+          },
+        });
       },
       { ownerOnly: true },
     ),
@@ -509,7 +538,7 @@ export function registerAgentRoutes(
     ),
   );
 
-  /** Split an equal stipend across group members from org vault or a budget. */
+  /** Fund the group's linked budget. Agents receive authority, never individual balances. */
   app.post(
     "/v1/guardian/agent-groups/:id/fund",
     guardianRoute(
@@ -520,89 +549,57 @@ export function registerAgentRoutes(
         }
         const body = z
           .object({
-            amountUsdcEach: z.string(),
-            fromScope: z.enum(["org", "department"]).default("org"),
-            fromId: z.string().optional(),
+            amountUsdc: z.string(),
           })
           .parse(req.body);
-        const each = parseUsdcToMicro(body.amountUsdcEach);
-        if (each <= 0n) {
+        const amount = parseUsdcToMicro(body.amountUsdc);
+        if (amount <= 0n) {
           return res
             .status(400)
             .json({ error: { code: "VALIDATION_ERROR", message: "amount must be positive" } });
         }
-        const memberIds = new Set(scopedStore(org.id).listGroupMemberIds(group.id));
-        const members = store
-          .listAgents(org.id)
-          .filter((a) => memberIds.has(a.id) && a.status !== "archived");
-        if (!members.length) {
-          return res
-            .status(400)
-            .json({ error: { code: "VALIDATION_ERROR", message: "group has no members" } });
+        if (!group.budgetId) {
+          return res.status(400).json({
+            error: { code: "VALIDATION_ERROR", message: "This group has no linked budget." },
+          });
         }
-        const total = each * BigInt(members.length);
-
-        let fromAvailableId: string;
-        let sourceLabel: string;
-        if (body.fromScope === "department") {
-          if (!body.fromId) {
-            return res.status(400).json({
-              error: {
-                code: "VALIDATION_ERROR",
-                message: "fromId (budget id) is required when fromScope is department",
-              },
-            });
-          }
-          const dept = scopedStore(org.id).getDepartment(body.fromId);
-          if (!dept) {
-            return res.status(404).json({ error: { code: "NOT_FOUND", message: "budget" } });
-          }
-          fromAvailableId = accountId("department", dept.id);
-          sourceLabel = `${dept.name} budget`;
-        } else {
-          fromAvailableId = accountId("org", org.id);
-          sourceLabel = "org vault";
+        const budget = scopedStore(org.id).getDepartment(group.budgetId);
+        if (!budget) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "group budget" } });
         }
-
+        const fromAvailableId = accountId("org", org.id);
         const sourceAvail = store.getAccountMap(org.id).get(fromAvailableId)?.balanceMicro ?? 0n;
-        if (total > sourceAvail) {
+        if (amount > sourceAvail) {
           return res.status(400).json({
             error: {
-              code: "INSUFFICIENT_STIPEND",
-              message: `Need $${formatMicroToUsdc(total)} total ($${formatMicroToUsdc(each)} × ${members.length} agents) from ${sourceLabel}; ${sourceLabel} has $${formatMicroToUsdc(sourceAvail)}`,
+              code: "INSUFFICIENT_FUNDS",
+              message: `The organization vault has $${formatMicroToUsdc(sourceAvail)} available.`,
             },
           });
         }
-        const funded: string[] = [];
-        for (const agent of members) {
-          store.applyEntries(org.id, [
-            transferAvailable({
-              orgId: org.id,
-              journalId: id("j"),
-              fromAvailableId,
-              toAvailableId: accountId("agent", agent.id),
-              amountMicro: each,
-              memo: `group_fund:${group.id}:${body.fromScope}`,
-            }),
-          ]);
-          funded.push(agent.id);
-        }
+        store.applyEntries(org.id, [
+          transferAvailable({
+            orgId: org.id,
+            journalId: id("j"),
+            fromAvailableId,
+            toAvailableId: accountId("department", budget.id),
+            amountMicro: amount,
+            memo: `group_budget_fund:${group.id}`,
+          }),
+        ]);
         res.json({
           ok: true,
           groupId: group.id,
-          funded,
-          amountUsdcEach: body.amountUsdcEach,
-          totalUsdc: formatMicroToUsdc(total),
-          fromScope: body.fromScope,
-          fromId: body.fromId ?? org.id,
-          sourceLabel,
+          budgetId: budget.id,
+          amountUsdc: formatMicroToUsdc(amount),
+          sourceLabel: "organization vault",
         });
       },
       { ownerOnly: true },
     ),
   );
 
-  /** Configure proactive top-up when member stipends fall below a threshold. */
+  /** Legacy endpoint retained as an explicit migration error. Group budgets need no member top-ups. */
   app.patch(
     "/v1/guardian/agent-groups/:id/auto-fund",
     guardianRoute(
@@ -611,49 +608,13 @@ export function registerAgentRoutes(
         if (!group || group.status !== "active") {
           return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
         }
-        const body = z
-          .object({
-            enabled: z.boolean(),
-            thresholdUsdc: z.string().default("5"),
-            topUpUsdc: z.string().default("25"),
-            minIntervalMinutes: z
-              .number()
-              .int()
-              .min(1)
-              .max(7 * 24 * 60)
-              .default(5),
-          })
-          .parse(req.body);
-        if (body.enabled && !group.budgetId) {
-          return res.status(400).json({
-            error: {
-              code: "VALIDATION_ERROR",
-              message:
-                "Link this ops label to a Treasury budget before enabling auto-fund (create the budget first).",
-            },
-          });
-        }
-        const topUp = parseUsdcToMicro(body.topUpUsdc);
-        if (body.enabled && topUp <= 0n) {
-          return res.status(400).json({
-            error: { code: "VALIDATION_ERROR", message: "topUpUsdc must be positive" },
-          });
-        }
-        const config = {
-          enabled: body.enabled,
-          thresholdUsdc: body.thresholdUsdc,
-          topUpUsdc: body.topUpUsdc,
-          minIntervalMinutes: body.minIntervalMinutes,
-        };
-        store.setAgentGroupAutoFund(group.id, config);
-        // Apply immediately so "save rule" / toggle doesn't wait for a timer.
-        let sweep = { toppedUp: 0 };
-        try {
-          sweep = runAutoFundSweep({ force: true });
-        } catch (e) {
-          console.error("auto-fund sweep failed:", e);
-        }
-        res.json({ ok: true, groupId: group.id, autoFund: config, toppedUp: sweep.toppedUp });
+        store.setAgentGroupAutoFund(group.id, null);
+        res.status(410).json({
+          error: {
+            code: "INDIVIDUAL_AGENT_FUNDS_REMOVED",
+            message: "Auto-funding individual agents has been removed. Fund the group's shared budget instead.",
+          },
+        });
       },
       { ownerOnly: true },
     ),

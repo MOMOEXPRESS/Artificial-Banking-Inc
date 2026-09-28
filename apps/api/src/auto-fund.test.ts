@@ -67,12 +67,12 @@ describe("runAutoFundSweep", () => {
     assert.equal(before, parseUsdcToMicro("1"));
 
     const { toppedUp } = runAutoFundSweep({ force: true });
-    assert.equal(toppedUp, 1);
+    assert.equal(toppedUp, 0, "individual auto-funding is intentionally disabled");
 
     const after =
       store.getAccountMap(demo.orgId).get(accountId("agent", demo.researcherAgentId))
         ?.balanceMicro ?? 0n;
-    assert.equal(after, parseUsdcToMicro("26"));
+    assert.equal(after, parseUsdcToMicro("1"));
 
     // Agent cooldown: second forced sweep should no-op (minIntervalMinutes).
     assert.equal(runAutoFundSweep({ force: true }).toppedUp, 0);

@@ -50,6 +50,69 @@ export function scopedIdempotencyKey(agentId: string, key: string): string {
 }
 
 /**
+ * Resolve the one shared budget an agent is authorized to spend from.
+ * Money remains in the group's budget accounts; the agent contributes identity,
+ * policy, limits and audit attribution only.
+ */
+export function agentFundingContext(agentId: string, orgId: string) {
+  let groups = scopedStore(orgId)
+    .listAgentGroupIds(agentId)
+    .map((groupId) => scopedStore(orgId).getAgentGroup(groupId))
+    .filter((group): group is NonNullable<typeof group> => Boolean(group))
+    .filter((group) => group.status === "active" && Boolean(group.budgetId))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  let group = groups[0];
+  if (!group) {
+    // One-time compatibility migration for organizations created before group
+    // budgets became mandatory. New agents can only be created through the
+    // group-aware route, but old agents must not be frozen by an upgrade.
+    const agent = scopedStore(orgId).getAgent(agentId);
+    if (!agent) return undefined;
+    const budget = store.createDepartment(orgId, `${agent.name} budget`);
+    group = store.createAgentGroup(orgId, `${agent.name} group`, budget.id);
+    store.addAgentToGroup(orgId, agentId, group.id);
+
+    const accounts = store.getAccountMap(orgId);
+    const legacyAvailableId = accountId("agent", agentId, "available");
+    const legacyHeldId = accountId("agent", agentId, "held");
+    const available = accounts.get(legacyAvailableId)?.balanceMicro ?? 0n;
+    const held = accounts.get(legacyHeldId)?.balanceMicro ?? 0n;
+    const lines: JournalEntry["lines"] = [];
+    if (available !== 0n) {
+      lines.push(
+        { accountId: legacyAvailableId, deltaMicro: -available },
+        { accountId: accountId("department", budget.id, "available"), deltaMicro: available },
+      );
+    }
+    if (held !== 0n) {
+      lines.push(
+        { accountId: legacyHeldId, deltaMicro: -held },
+        { accountId: accountId("department", budget.id, "held"), deltaMicro: held },
+      );
+    }
+    if (lines.length) {
+      store.applyEntries(orgId, [{
+        id: id("j"),
+        orgId,
+        memo: `migrate_agent_balance:${agentId}`,
+        createdAt: new Date().toISOString(),
+        lines,
+      }]);
+    }
+    groups = [group];
+  }
+  if (!group.budgetId) return undefined;
+  const budget = scopedStore(orgId).getDepartment(group.budgetId);
+  if (!budget || budget.status !== "active") return undefined;
+  return {
+    group,
+    budget,
+    availableId: accountId("department", budget.id, "available"),
+    heldId: accountId("department", budget.id, "held"),
+  };
+}
+
+/**
  * Resolve the policy an agent is actually under, and say which layer each
  * value came from.
  *
@@ -70,7 +133,7 @@ export function rulesFor(agentId: string, orgId: string, destination?: string): 
   const org = store.getOrg(orgId)!;
   const { effective } = resolvedPolicyFor(agentId, orgId);
   const orgAgentIds = store.listAgents(orgId).map((a) => a.id);
-  const availableId = accountId("agent", agentId, "available");
+  const funding = agentFundingContext(agentId, orgId);
   return {
     ...effective,
     knownCounterparties: [
@@ -114,9 +177,11 @@ export function rulesFor(agentId: string, orgId: string, destination?: string): 
         : store.counterpartyStats(orgId, destination),
     paysLastMinute: store.paysLastMinute(agentId),
     // Archived agents are non-spendable — same deny path as freeze.
-    agentFrozen: agent.status === "frozen" || agent.status === "archived",
+    agentFrozen: agent.status === "frozen" || agent.status === "archived" || !funding,
     orgFrozen: org.status === "frozen",
-    walletBalanceMicro: store.getAccountMap(orgId).get(availableId)?.balanceMicro ?? 0n,
+    walletBalanceMicro: funding
+      ? (store.getAccountMap(orgId).get(funding.availableId)?.balanceMicro ?? 0n)
+      : 0n,
   };
 }
 
@@ -160,8 +225,22 @@ export type ExecResult =
  * - otherwise → transfer-mock (vendor strings / offline demo)
  */
 export async function executeIntent(input: ExecInput): Promise<ExecResult> {
-  const agentAvailableId = accountId("agent", input.agentId, "available");
-  const agentHeldId = accountId("agent", input.agentId, "held");
+  const funding = agentFundingContext(input.agentId, input.orgId);
+  if (!funding) {
+    return {
+      ok: false,
+      status: 409,
+      payload: {
+        intentId: input.intentId,
+        error: {
+          code: "AGENT_GROUP_REQUIRED",
+          message: "This agent is not connected to an active funded group budget.",
+        },
+      },
+    };
+  }
+  const agentAvailableId = funding.availableId;
+  const agentHeldId = funding.heldId;
   const externalId = `org:${input.orgId}:external`;
 
   if (input.tool === "escrow_lock") {
@@ -963,23 +1042,27 @@ export function settleEscrow(
   try {
     let newState: EscrowRow["state"];
     if (action === "release") {
+      const payeeFunding = agentFundingContext(escrow.payeeAgentId, escrow.orgId);
+      if (!payeeFunding) throw new Error("Payee agent has no active group budget");
       store.applyEntries(escrow.orgId, [
         releaseEscrow({
           orgId: escrow.orgId,
           journalId: id("j"),
           escrowAccountId,
-          payeeAvailableId: `agent:${escrow.payeeAgentId}:available`,
+          payeeAvailableId: payeeFunding.availableId,
           amountMicro: escrow.amountMicro,
         }),
       ]);
       newState = "released";
     } else {
+      const payerFunding = agentFundingContext(escrow.payerAgentId, escrow.orgId);
+      if (!payerFunding) throw new Error("Payer agent has no active group budget");
       store.applyEntries(escrow.orgId, [
         refundEscrow({
           orgId: escrow.orgId,
           journalId: id("j"),
           escrowAccountId,
-          payerAvailableId: `agent:${escrow.payerAgentId}:available`,
+          payerAvailableId: payerFunding.availableId,
           amountMicro: escrow.amountMicro,
           reason: action === "timeout_refund" ? "timeout_refund" : "refund",
         }),

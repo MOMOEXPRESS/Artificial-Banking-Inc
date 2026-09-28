@@ -150,7 +150,7 @@ export function AiEgressPanel({
         {MODES.map((m) => (
           <label
             key={m.value}
-            className="between"
+            className="between ai-egress-choice"
             style={{
               gap: 12,
               alignItems: "flex-start",

@@ -173,9 +173,7 @@ export function TreasuryView({
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
-  const [moveIntent, setMoveIntent] = useState<
-    "budget" | "allocate" | "reclaim" | "transfer" | "custom"
-  >("allocate");
+  const [moveIntent, setMoveIntent] = useState<"budget" | "custom">("budget");
   const [copied, setCopied] = useState(false);
   const [holdings, setHoldings] = useState<
     {
@@ -338,7 +336,7 @@ export function TreasuryView({
 
   useEffect(() => {
     if (!wallets || from || to) return;
-    applyIntent("allocate");
+    applyIntent("budget");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once when wallets first arrive
   }, [wallets]);
 
@@ -370,16 +368,6 @@ export function TreasuryView({
         ref: { scope: "department", id: d.id },
       });
     }
-    for (const a of wallets.agents) {
-      allTargets.push({
-        key: `agent:${a.id}`,
-        label: `Agent · ${a.name} · ${fmt(a.availableUsdc)}`,
-        short: a.name,
-        bal: a.availableUsdc,
-        kind: "agent",
-        ref: { scope: "agent", id: a.id },
-      });
-    }
     for (const s of wallets.shared) {
       allTargets.push({
         key: `shared:${s.id}`,
@@ -393,21 +381,11 @@ export function TreasuryView({
   }
 
   const fromChoices =
-    moveIntent === "allocate"
-      ? allTargets.filter((t) => t.kind === "org" || t.kind === "department" || t.kind === "shared")
-      : moveIntent === "budget"
-        ? allTargets.filter((t) => t.kind === "org")
-        : moveIntent === "reclaim" || moveIntent === "transfer"
-          ? allTargets.filter((t) => t.kind === "agent")
-          : allTargets;
+    moveIntent === "budget" ? allTargets.filter((t) => t.kind === "org") : allTargets;
   const toChoices =
-    moveIntent === "allocate" || moveIntent === "transfer"
-      ? allTargets.filter((t) => t.kind === "agent" && t.key !== from)
-      : moveIntent === "budget"
-        ? allTargets.filter((t) => t.kind === "department")
-        : moveIntent === "reclaim"
-          ? allTargets.filter((t) => t.kind === "org" || t.kind === "department")
-          : allTargets.filter((t) => t.key !== from);
+    moveIntent === "budget"
+      ? allTargets.filter((t) => t.kind === "department")
+      : allTargets.filter((t) => t.key !== from);
 
   const fromWallet = allTargets.find((t) => t.key === from);
   const toWallet = allTargets.find((t) => t.key === to);
@@ -423,27 +401,6 @@ export function TreasuryView({
       setFrom(src?.key ?? "");
       setTo(dest?.key ?? "");
       return;
-    }
-    if (intent === "allocate") {
-      const src =
-        allTargets.find((t) => t.kind === "department" && Number(t.bal) > 0) ??
-        allTargets.find((t) => t.kind === "org");
-      const dest = allTargets.find((t) => t.kind === "agent" && t.key !== src?.key);
-      setFrom(src?.key ?? "");
-      setTo(dest?.key ?? "");
-      return;
-    }
-    if (intent === "reclaim") {
-      const src = allTargets.find((t) => t.kind === "agent" && Number(t.bal) > 0);
-      const dest = allTargets.find((t) => t.kind === "org");
-      setFrom(src?.key ?? "");
-      setTo(dest?.key ?? "");
-      return;
-    }
-    if (intent === "transfer") {
-      const agents = allTargets.filter((t) => t.kind === "agent");
-      setFrom(agents[0]?.key ?? "");
-      setTo(agents[1]?.key ?? "");
     }
   };
 
@@ -553,8 +510,8 @@ export function TreasuryView({
           value={fmt(forecast?.totalLiquidUsdc)}
           foot={
             Number(forecast?.sharedAvailableUsdc ?? 0) > 0
-              ? "org + budgets + agents + legacy pools"
-              : "org + budgets + agents"
+              ? "vault + group budgets + legacy pools"
+              : "vault + group budgets"
           }
         />
         <Stat
@@ -563,14 +520,14 @@ export function TreasuryView({
           foot={vault ? `${vault.slice(0, 8)}…${vault.slice(-4)}` : "no address"}
         />
         <Stat
-          label="In budgets"
+          label="Group budgets"
           value={fmt(forecast?.deptAvailableUsdc)}
-          foot="not spendable until funded to agents"
+          foot="shared authority for connected agents"
         />
         <Stat
-          label="With agents"
-          value={fmt(forecast?.agentAvailableUsdc)}
-          foot={`${wallets?.agents.length ?? 0} spend wallets`}
+          label="Connected agents"
+          value={String(wallets?.agents.length ?? 0)}
+          foot="agents use group budgets, not personal balances"
         />
       </div>
 
@@ -590,7 +547,7 @@ export function TreasuryView({
               <div className="vault-total-label">Spendable balance</div>
               <div className="vault-total-value">{fmt(wallets?.org.availableUsdc)}</div>
               <p className="vault-total-note">
-                USDC available to allocate across budgets and agent wallets.
+                USDC available to allocate across group budgets.
               </p>
 
               <div className="vault-selected-asset">
@@ -633,7 +590,7 @@ export function TreasuryView({
               </div>
             </section>
 
-            <section className="vault-assets-panel" aria-labelledby="vault-assets-title">
+            <section className="vault-assets-panel compact" aria-labelledby="vault-assets-title">
               <div className="vault-assets-heading">
                 <div>
                   <span className="vault-assets-eyebrow">Portfolio</span>
@@ -643,58 +600,56 @@ export function TreasuryView({
                   {visibleHoldings.length} {visibleHoldings.length === 1 ? "asset" : "assets"}
                 </span>
               </div>
-              <p className="vault-assets-copy">
-                Choose an asset to inspect its balance, network activity, and funding controls.
-              </p>
-
-              <div className="vault-asset-grid" aria-label="Vault assets">
-                {visibleHoldings.map((h) => {
-                  const active = h.id === assetId;
-                  const n = Number(
-                    h.id === "asset_usdc" ? (wallets?.org.availableUsdc ?? h.balance) : h.balance,
-                  );
-                  return (
-                    <button
-                      key={h.id}
-                      type="button"
-                      className={`vault-asset-tile ${active ? "active" : ""}`}
-                      onClick={() => setAssetId(h.id)}
-                      aria-pressed={active}
-                    >
-                      <span className="vault-asset-tile-top">
+              <details className="vault-asset-picker">
+                <summary>
+                  <span className={`wallet-asset-icon ${activeHolding?.symbol.toLowerCase()}`}>
+                    {activeHolding?.symbol.slice(0, 1) ?? "U"}
+                  </span>
+                  <span className="vault-picker-copy">
+                    <b>{activeHolding?.symbol ?? "USDC"}</b>
+                    <small>{activeHolding?.chain ?? "—"}</small>
+                  </span>
+                  <span className="vault-picker-balance mono">
+                    {Number.isNaN(activeBalanceNumber)
+                      ? activeBalance
+                      : activeBalanceNumber.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+                  </span>
+                  <Icon name="chevronDown" size={15} />
+                </summary>
+                <div className="vault-asset-menu" aria-label="Available vault assets">
+                  {visibleHoldings.map((h) => {
+                    const active = h.id === assetId;
+                    const n = Number(
+                      h.id === "asset_usdc" ? (wallets?.org.availableUsdc ?? h.balance) : h.balance,
+                    );
+                    return (
+                      <button
+                        key={h.id}
+                        type="button"
+                        className={active ? "active" : ""}
+                        onClick={(event) => {
+                          setAssetId(h.id);
+                          event.currentTarget.closest("details")?.removeAttribute("open");
+                        }}
+                      >
                         <span className={`wallet-asset-icon ${h.symbol.toLowerCase()}`} aria-hidden>
                           {h.symbol.slice(0, 1)}
                         </span>
-                        {active ? <Icon name="check" size={16} /> : null}
-                      </span>
-                      <span className="vault-asset-name">
-                        <b>{h.symbol}</b>
-                        <small>{h.id === "asset_usdc" ? "Spend rail" : "Vault holding"}</small>
-                      </span>
-                      <span className="vault-asset-amount mono">
-                        {Number.isNaN(n)
-                          ? h.balance
-                          : n.toLocaleString(undefined, { maximumFractionDigits: 8 })}
-                      </span>
-                      <span className="vault-asset-network">
-                        {h.chain}
-                        {h.id !== "asset_usdc" && h.backing
-                          ? h.backing.kind === "chain"
-                            ? " · On-chain"
-                            : " · Recorded"
-                          : ""}
-                      </span>
-                      {/* A recorded balance the chain disagrees with is the
-                        multi-asset form of drift — flag it on the tile. */}
-                      {h.drift && Number(h.drift) !== 0 ? (
-                        <span className="pill warn vault-asset-drift">
-                          <i /> drift {h.drift}
+                        <span className="vault-picker-copy">
+                          <b>{h.symbol}</b>
+                          <small>{h.chain}</small>
                         </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
+                        <span className="vault-picker-balance mono">
+                          {Number.isNaN(n)
+                            ? h.balance
+                            : n.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+                        </span>
+                        {active ? <Icon name="check" size={15} /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </details>
             </section>
           </div>
 
@@ -704,8 +659,18 @@ export function TreasuryView({
                 <div>
                   <div className="row" style={{ gap: 8 }}>
                     <h2 style={{ margin: 0 }}>{onchain?.networkName ?? "Base Sepolia"}</h2>
-                    <span className={`pill ${onchain?.ok ? "ok" : "warn"}`}>
-                      <i /> {onchain?.ok ? "Connected" : "Checking"}
+                    <span
+                      className={`pill ${onchainBusy ? "mute" : onchain?.ok ? "ok" : "warn"}`}
+                      title={onchain?.error ? "The latest chain balance check failed." : undefined}
+                    >
+                      <i />{" "}
+                      {onchainBusy
+                        ? "Checking"
+                        : onchain?.ok
+                          ? "Up to date"
+                          : onchain?.error
+                            ? "Chain read failed"
+                            : "Not checked"}
                     </span>
                   </div>
                   <div className="sub">Vault balance and settlement health.</div>
@@ -726,15 +691,6 @@ export function TreasuryView({
                   </Button>
                 </div>
               </div>
-
-              {onchain?.error && !onchain.ok ? (
-                <div className="banner" style={{ marginBottom: 10 }}>
-                  <span className="txt">
-                    <b>Chain read failed</b>
-                    <span>{onchain.error}</span>
-                  </span>
-                </div>
-              ) : null}
 
               <div className="wallet-onchain-stats">
                 <div>
@@ -765,7 +721,9 @@ export function TreasuryView({
                           ? "Vault and records match"
                           : `Balance difference: ${backing.driftUsdc} USDC`}
                     </b>
-                    {!backing.checked && backing.error ? <span>{backing.error}</span> : null}
+                    {!backing.checked && backing.error ? (
+                      <span>Unable to verify the chain balance right now.</span>
+                    ) : null}
                   </div>
                 </div>
               )}
@@ -1069,7 +1027,7 @@ export function TreasuryView({
             </div>
             <span className="treasury-scope-line" />
             <div className="treasury-scope-node">
-              <Icon name="robot" size={14} /> Agents
+              <Icon name="robot" size={14} /> Agent access
             </div>
             <span className="treasury-scope-line" />
             <div className="treasury-scope-node">
@@ -1081,10 +1039,9 @@ export function TreasuryView({
             <span className="txt">
               <b>How money works</b>
               <span>
-                Budgets are cost centers (Finance, Research) — they hold money, they are not teams.
-                Fund an agent&apos;s own wallet from a budget, then the agent pays under policy.
-                Prefer <span className="mono">writer-finance</span> and{" "}
-                <span className="mono">writer-research</span> over one agent in many pools.
+                Each agent belongs to one funded group. The group&apos;s linked budget holds the money;
+                agents receive permission to spend from it under policy and never own a personal
+                balance.
               </span>
             </span>
           </div>
@@ -1094,7 +1051,8 @@ export function TreasuryView({
               <div>
                 <h2>Budgets</h2>
                 <div className="sub">
-                  Money envelopes only — no membership. Create Finance, Research, Engineering…
+                  Each budget is linked to an agent group. Fund the budget once, then its agents
+                  spend from that shared authority.
                 </div>
               </div>
             </div>
@@ -1165,8 +1123,8 @@ export function TreasuryView({
                 <div>
                   <h2>Legacy shared pools</h2>
                   <div className="sub">
-                    Not spendable and not required anymore. Move any balance into a Budget (or an
-                    agent), then ignore these.
+                    Not spendable and not required anymore. Move any balance into a group budget,
+                    then ignore these.
                   </div>
                 </div>
               </div>
@@ -1193,43 +1151,6 @@ export function TreasuryView({
             </div>
           )}
 
-          <div className="card">
-            <div className="card-head">
-              <div>
-                <h2>Agent wallets</h2>
-                <div className="sub">
-                  The only balances agents can spend from · {wallets?.asset.symbol ?? "USDC"} (
-                  {wallets?.asset.chain ?? "—"})
-                </div>
-              </div>
-            </div>
-            {(wallets?.agents.length ?? 0) === 0 ? (
-              <Empty icon="robot">No agents yet — create some under Agents.</Empty>
-            ) : (
-              <div className="treasury-tile-grid agents">
-                {(wallets?.agents ?? []).map((a) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    className="treasury-tile"
-                    onClick={() => {
-                      setTo(`agent:${a.id}`);
-                      selectTab("move");
-                    }}
-                  >
-                    <span className="treasury-tile-icon">
-                      <Icon name="robot" size={14} />
-                    </span>
-                    <span className="treasury-tile-name">{a.name}</span>
-                    <span className="treasury-tile-amt mono">{fmt(a.availableUsdc)}</span>
-                    <span className={`pill ${a.status === "frozen" ? "bad" : "ok"}`}>
-                      <i /> {a.status}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
         </>
       )}
 
@@ -1243,7 +1164,7 @@ export function TreasuryView({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <h2 style={{ margin: "0 0 6px" }}>Move funds</h2>
                 <div className="sub" style={{ margin: 0 }}>
-                  Vault → budget → agent stipend. Large amounts may park for approval.
+                  Vault → group budget. Large amounts may park for approval.
                 </div>
               </div>
             </div>
@@ -1252,9 +1173,6 @@ export function TreasuryView({
               {(
                 [
                   { id: "budget", label: "Fill budget", hint: "Vault → budget pool" },
-                  { id: "allocate", label: "Fund agent", hint: "Budget / vault → stipend" },
-                  { id: "reclaim", label: "Pull back", hint: "Agent → vault / budget" },
-                  { id: "transfer", label: "Peer move", hint: "Agent ↔ agent" },
                   { id: "custom", label: "Custom", hint: "Any wallet pair" },
                 ] as const
               ).map((opt) => (
@@ -1394,13 +1312,7 @@ export function TreasuryView({
                 <Icon name="swap" size={13} />{" "}
                 {moveIntent === "budget"
                   ? "Fill budget"
-                  : moveIntent === "allocate"
-                    ? "Fund agent"
-                    : moveIntent === "reclaim"
-                      ? "Pull back"
-                      : moveIntent === "transfer"
-                        ? "Transfer"
-                        : "Execute move"}
+                  : "Execute move"}
               </Button>
               {fromWallet && toWallet && amount.trim() && (
                 <span className="move-summary faint">
@@ -1424,7 +1336,7 @@ export function TreasuryView({
             </div>
             {moves.length === 0 ? (
               <Empty icon="swap">
-                No moves yet — fund an agent from a budget to start the trail.
+                No moves yet — fund a group budget to start the trail.
               </Empty>
             ) : (
               <div className="move-history-list">

@@ -1,123 +1,168 @@
-# ABI next build plan
+# ABI next-build plan
 
-Updated: 2026-09-22. This plan reflects the deployed console, the x402 V2 Base
-Sepolia proof, and the owner's requirement to keep the demo free and use only
-valueless testnet tokens. It supersedes the immediate priorities in the July
-roadmap and the 2026-09-21 audit; those documents remain useful historical audits.
+## Product boundary
 
-## The product we are building
+ABI is the financial control plane between autonomous software and money.
 
-ABI gives organizations a controlled way to let AI agents buy API resources:
-the agent requests a payment, ABI evaluates deterministic policy, people review
-exceptions, x402 settles with a seller, and a ledger and receipt explain what
-happened. The first buyer and merchant experience is **Base Sepolia test USDC**.
-Base Sepolia is a test network, not a currency or a production payment option.
+- The organization owns the treasury.
+- A group owns a shared budget envelope.
+- An agent receives authority to request spending from that budget under its own policy.
+- The agent never owns funds or a private key.
+- ABI decides, holds, approves, settles, reconciles, and explains each action.
 
-## What is already demonstrated
+The current console is primarily the **buyer/operator side**. The seller product should be a separate Merchant Gateway workspace sharing identity, organization, audit, and design foundations.
 
-| Capability                | Current evidence                                                                                                                                                      | Limit                                                                                     |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Console and account login | Deployed Vercel console and persistent API                                                                                                                            | Keep testing new user sign-in and demo flows                                              |
-| Agent control path        | Policy, approval re-check, idempotency, ledger, scoped keys                                                                                                           | Compliance screening remains a stub                                                       |
-| x402 V2 payment           | A 0.01 test USDC payment with an authentic [BaseScan transaction](https://sepolia.basescan.org/tx/0x5a923e17847112d5bb9a521946cd834d54a09954bdee1ef94b5599de746c7f3c) | One funded external proof, not a production reliability record                            |
-| Merchant Gateway          | Create seller profile, check unpaid x402 V2 challenge, show verified configuration                                                                                    | Verification checks endpoint configuration, not seller legal identity or wallet ownership |
-| Developer entry           | REST, MCP, TypeScript SDK and examples                                                                                                                                | SDK has not been published to npm                                                         |
-| Browser secrets           | Account sessions use httpOnly cookies; old key login stays in memory                                                                                                  | Legacy key flow still needs a deliberate migration path                                   |
+## Recommended order
 
-See [the proof record](X402-BASE-SEPOLIA-PROOF.md) for the exact transaction,
-buyer/seller addresses, and remaining live checks.
+### 1. Finish the authority model and migration
 
-## Recommended sequence
+Goal: make “treasury → group budget → agent policy → payment” the only valid money path.
 
-### 1. Finish the testnet payment proof — now
+- Migrate any legacy agent balances into chosen group budgets.
+- Require exactly one primary funded group for every active agent.
+- Treat labels/tags separately from funding groups so one concept does not serve two jobs.
+- Remove legacy agent allocation, reclaim, transfer, and auto-fund APIs after a deprecation window.
+- Show the affected group budget and policy on every request, approval, payment, and audit event.
+- Add regression tests for allow, deny, review, held funds, refunds, reassignment, and concurrent agents sharing one budget.
 
-- **Done:** x402 V2 buyer/seller, external facilitator, authentic hash, and
-  receipt in Transactions.
-- **In progress:** automated HTTP payment regression that proves a repeated
-  idempotency key makes one seller request and one ledger posting; ledger
-  genesis replay agrees after the payment. The test uses a synthetic local
-  seller receipt and must never be reported as an on-chain transaction.
-- **Still needed:** repeat the payment once on a funded _new_ test organization,
-  replay the same key, verify that no second BaseScan transfer appears, then
-  record a post-payment ledger reconciliation. The earlier demo credentials
-  were retired. Do not regenerate or expose secrets just to tick a checkbox.
-- **Gate:** documented transaction, idempotency, books, and a failed price or
-  policy case, each with a trace a reviewer can reproduce.
+This phase should be completed before adding custody because the custody provider must implement a stable authority model.
 
-### 2. Make the Merchant Gateway usable by another seller
+### 2. Organization onboarding, profile, and real identity
 
-- Turn today's Settings form and sample seller into a concise self-service
-  flow: endpoint URL, payout address, network, test price, challenge check,
-  actionable error, and a copyable seller integration example.
-- Give the seller a reusable x402 middleware/config example and a checklist
-  for successful HTTP 402, fulfillment, receipt, and failure handling.
-- Expose seller activity and the authentic transaction hash in a merchant
-  view. Keep seller identity verification and payout-wallet ownership as
-  explicit later controls; the current verifier proves protocol configuration.
-- **Gate:** an independent test seller can configure an endpoint and receive a
-  test USDC payment without editing ABI source.
+Goal: turn account creation into a trustworthy organization setup flow.
 
-### 3. Harden the production foundation before real funds
+Onboarding steps:
 
-- Move signing to a real managed custody or noncustodial wallet integration;
-  document the legal/operating model with counsel before choosing. An app key
-  encrypted at rest is still application-managed custody.
-- Move from single-instance SQLite to transactional Postgres with a migration,
-  idempotent outbox/jobs, backups, and recovery drills. Neon may be evaluated
-  for the database; a database service does not replace the persistent API.
-- Add real compliance screening, incident response, reconciliation alerts,
-  secret rotation, and fund-flow limits. Prove failure and restart behavior.
-- **Gate:** independent review and operational controls before live USDC or
-  customer balances. This phase is a future funding/partner track, not a
-  prerequisite for the free YC testnet demonstration.
+1. Personal identity: name, verified email, password or passkey.
+2. Organization: legal/display name, website, country, timezone, organization type, intended use.
+3. Workspace: buyer, seller, or both.
+4. Team: invite members and choose roles.
+5. Security: MFA/passkey, recovery codes, session review.
+6. Treasury mode: sandbox first; live activation remains gated.
+7. First group budget, first policy, and first agent.
 
-### 4. Add the features that demonstrate ABI's advantage
+Organization profile:
 
-- Show the exact policy trace beside every payment and approval; make policy
-  simulation and replay obvious before changing limits.
-- **Done in this block:** shared rolling 24h per-merchant endpoint ceilings,
-  configured under Policy → Budgets. They aggregate settled ABI spend across
-  agents, reserve headroom for payments in progress, and recheck approvals.
-  Merchant registration does not grant permission: the agent's allowlist remains
-  separate. These ceilings do not include payments outside ABI.
-- Still needed: clearer approval/payment policy traces, recurring payments
-  with human exception handling, and receipt/search workflows.
-- Publish the TypeScript SDK after its public API is stable; add a minimal
-  Python client for agent teams. Offer a small MCP or ChatGPT-driven demo that
-  proposes spending but never holds the wallet key.
-- **Gate:** a new operator can explain who spent, why ABI allowed it, who
-  approved it if needed, and where the seller received the funds.
+- Logo, display name, legal name, website, description.
+- Country, timezone, default currency display, notification preferences.
+- Organization ID, environment, plan, verification/live status.
+- Members, invitations, roles, authentication methods, active sessions.
+- Separate dangerous-actions area for ownership transfer, export, freeze, and deletion.
 
-### 5. Privacy and accessibility in each product block
+Authentication work:
 
-- Keep guardian, agent, signing, and webhook secrets out of persistent browser
-  storage. Make account-cookie login the default and remove old key persistence
-  only with a migration that preserves access to existing test organizations.
-- Keep model egress opt-in; redact sensitive data from logs and responses;
-  add retention and export/deletion controls as the product starts collecting
-  more customer data.
-- Check keyboard access, screen reader names and states, contrast, reduced
-  motion, and small-screen layout for each new workflow. Use task-based manual
-  tests, not only automated accessibility scans.
+- Verified email, password reset, secure session cookies, session rotation and revocation.
+- Passkeys or OAuth, MFA and step-up authentication for sensitive actions.
+- Organization invitations and role-based access control.
+- Rate limits, lockout/abuse protection, security audit events and recovery flows.
 
-### 6. Scale when real usage requires it
+Most of this can be built locally and tested on free tiers. Production email delivery, SMS-based MFA, higher-volume identity services, and monitoring may create operating cost; the architecture should not require a paid identity vendor to begin.
 
-- Keep one authority for policy + ledger decisions; make each settlement
-  recoverable, idempotent, and observable across retries.
-- Separate API, job runner, database, custody provider, and seller adapter
-  behind stable interfaces; add transactional outbox and durable queues when
-  multi-instance deployment is needed.
-- Load-test actual money paths and fault-inject API, custody, facilitator,
-  RPC, and database failures before adding replicas or new chains.
+### 3. Settings redesign and language system
 
-## First working block
+Goal: make settings calm, predictable, and understandable, using the structural strengths of ChatGPT settings without copying its branding.
 
-1. Add the automated x402 HTTP replay and ledger-conformance regression.
-2. Publish this current plan and update historical docs to point here.
-3. Build the seller-facing onboarding and activity slice next.
-4. Schedule the two remaining **live** proof checks only when a funded,
-   disposable Base Sepolia organization is available; the test is free but
-   requires fresh credentials and faucet tokens.
+- A narrow settings navigation column and one focused content panel.
+- Sections: General, Organization profile, Members & roles, Security, Notifications, Environments, Integrations, Merchant Gateway, Billing/plan, Data & privacy, Developer, Danger zone.
+- One topic per screen; progressive disclosure for advanced fields.
+- Persistent save state, validation next to fields, and clear consequences before sensitive changes.
+- Responsive full-screen settings navigation on mobile.
 
-This order turns the verified payment into a repeatable product experience
-while preserving a clean line between the testnet demo and a real-money launch.
+Copy system:
+
+- Create one terminology glossary and ban ambiguous synonyms.
+- Prefer human outcomes: “Needs approval” over raw state names; “Group budget” over “department wallet”; “Payment request” over “intent” in the UI.
+- Every empty state should say what this area is, why it matters, and the next action.
+- Every cross-page action should provide a direct result link, for example: “Approval created — View approval.”
+- Keep raw API errors in developer logs; show concise, actionable messages to operators.
+- Audit landing page, onboarding, navigation, Overview, Money, Agents, Controls, Developers, Merchant Gateway, and Settings as one copy pass.
+
+### 4. Merchant Gateway seller workspace
+
+Goal: let a seller expose an API or digital resource that agents can purchase through x402 and let the seller operate the resulting business.
+
+Seller navigation:
+
+- Overview: sales, successful payments, failed requests, settlement state.
+- Products: protected endpoints/resources, descriptions, access terms.
+- Pricing: fixed, usage-based, subscription/access-pass, and quote-required models.
+- x402 tester: make a request, inspect the 402 challenge, payment proof, and unlocked response.
+- Payments: receipts, payer agent/organization metadata where permitted, transaction hash, refunds.
+- Customers & agreements: allowlists, negotiated prices, limits and service terms.
+- Settlement: destination wallet, network/asset, reconciliation, export.
+- Developers: server SDK, middleware snippets, webhook keys, logs.
+- Settings: seller profile, branding, notifications, compliance information.
+
+Merchant onboarding:
+
+1. Create seller profile.
+2. Add a resource or API endpoint.
+3. Choose price and access duration.
+4. Connect settlement destination.
+5. Install ABI middleware or use the hosted gateway.
+6. Pass a sandbox 402 test.
+7. Publish to an optional ABI service directory.
+
+Keep buyer and seller navigation separate, with a workspace switcher for organizations using both. Do not overload the buyer console with seller operations.
+
+### 5. Coinbase CDP managed custody through a provider interface
+
+Goal: replace application-managed signing without making ABI dependent on one vendor.
+
+- Keep a `WalletProvider` boundary for create wallet, get address/balance, sign/submit transaction, estimate fees, and fetch receipt.
+- Implement Coinbase CDP as the first managed provider.
+- Preserve a local/test provider for deterministic tests.
+- Map ABI organizations/groups to provider wallet/account identifiers without exposing keys to browsers or agents.
+- Add idempotency keys, webhook verification, transaction state reconciliation, provider outage handling, and a provider migration/export strategy.
+- Prove Base Sepolia end to end before any mainnet activation.
+
+Provider fees and production usage are an operational dependency, not a reason to block the earlier product work. Confirm current pricing and account requirements immediately before integration.
+
+### 6. Production payment foundation
+
+Goal: make a real payment safe to retry, explain, and reconcile.
+
+- PostgreSQL with migrations and tenant isolation.
+- Durable job queue for settlement, receipt confirmation, webhook delivery, and recovery.
+- Idempotency across request, approval, signing, broadcasting, and ledger posting.
+- Formal state machine for proposed, denied, awaiting approval, authorized, submitted, confirmed, failed, reversed, and refunded.
+- Real x402 V2 buyer and seller interoperability tests.
+- Canonical Base transaction hash and explorer link.
+- Ledger-to-chain reconciliation and visible exception queue.
+- Structured logs, traces, metrics, alerts, uptime checks, backups and restore drills.
+- Emergency organization/group/agent freezes and custody-provider circuit breaker.
+
+### 7. Privacy, accessibility, and launch hardening
+
+- No guardian, agent, session, or custody secrets in persistent browser storage.
+- Encrypt sensitive values at rest; minimize retention and redact logs.
+- Data export/deletion and organization retention controls.
+- Keyboard-complete operation, screen-reader names, focus management, reduced-motion mode, contrast checks and responsive tables.
+- Threat model, dependency and secret scans, penetration test, incident runbooks and disaster recovery.
+- Reconcile product claims, API reference, SDK examples and deployment documentation with proven behavior.
+
+## Near-term delivery blocks
+
+| Block | Deliverable | Paid dependency required? |
+| --- | --- | --- |
+| A | Group-budget migration, tests, cross-page links | No |
+| B | Organization profile, onboarding schema, settings shell | No |
+| C | Terminology glossary and full product copy pass | No |
+| D | Seller workspace shell and sandbox Merchant Gateway flow | No |
+| E | Production authentication hardening | Not necessarily; some delivery/scale services may cost |
+| F | Coinbase CDP provider and Base Sepolia proof | Account/provider requirements must be verified |
+| G | PostgreSQL, queues, observability and live reconciliation | Can start free; production capacity costs later |
+
+## Definition of the next convincing demo
+
+1. A verified user creates an organization.
+2. The organization creates and funds a Research group budget.
+3. It creates an agent in that group and gives the agent a policy.
+4. An external agent reaches a seller resource and receives an x402 challenge.
+5. ABI evaluates the group budget and agent policy and returns allow, review, or deny in plain language.
+6. If allowed, managed custody submits Base Sepolia USDC.
+7. The seller unlocks the resource.
+8. Buyer and seller consoles show the same authentic transaction hash and reconciled receipt.
+9. The audit trail explains who requested, what policy decided, which budget paid, and what was delivered.
+
+That demo proves ABI's complete thesis without requiring mainnet funds.

@@ -75,8 +75,13 @@ function fixture() {
   return { org, agent };
 }
 
-const balanceOf = (orgId: string, agentId: string) =>
-  store.getAccountMap(orgId).get(`agent:${agentId}:available`)?.balanceMicro ?? 0n;
+const balanceOf = (orgId: string, agentId: string) => {
+  const groupId = store.listAgentGroupIdsAnyOrg(agentId)[0];
+  const group = groupId ? store.getAgentGroupAnyOrg(groupId) : undefined;
+  return group?.budgetId
+    ? (store.getAccountMap(orgId).get(`dept:${group.budgetId}:available`)?.balanceMicro ?? 0n)
+    : (store.getAccountMap(orgId).get(`agent:${agentId}:available`)?.balanceMicro ?? 0n);
+};
 
 type PayBody = {
   replayed?: boolean;
@@ -254,7 +259,7 @@ describe("guardian route authorization", () => {
       body: JSON.stringify({ agentId: b.agent.agentId, amountUsdc: "10" }),
     });
 
-    assert.equal(res.status, 404, "cross-tenant target must not resolve");
+    assert.equal(res.status, 410, "legacy individual funding is unavailable for every tenant");
     assert.equal(balanceOf(b.org.id, b.agent.agentId), 300_000_000n);
   });
 });

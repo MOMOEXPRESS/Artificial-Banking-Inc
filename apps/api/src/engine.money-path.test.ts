@@ -68,8 +68,19 @@ function freshOrg(opts: { stipendUsdc?: bigint; perTxMax?: bigint; hitlAbove?: b
   return { org, agent };
 }
 
-const bal = (orgId: string, accountId: string) =>
-  store.getAccountMap(orgId).get(accountId)?.balanceMicro ?? 0n;
+const bal = (orgId: string, requestedId: string) => {
+  const match = /^agent:([^:]+):(available|held)$/.exec(requestedId);
+  if (match) {
+    const groupId = store.listAgentGroupIdsAnyOrg(match[1])[0];
+    const group = groupId ? store.getAgentGroupAnyOrg(groupId) : undefined;
+    if (group?.budgetId) {
+      return (
+        store.getAccountMap(orgId).get(`dept:${group.budgetId}:${match[2]}`)?.balanceMicro ?? 0n
+      );
+    }
+  }
+  return store.getAccountMap(orgId).get(requestedId)?.balanceMicro ?? 0n;
+};
 
 describe("executeIntent — hold, settle, release", () => {
   it("moves exactly the charged amount and leaves no hold behind", async () => {
