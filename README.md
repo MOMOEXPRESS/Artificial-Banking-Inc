@@ -263,11 +263,13 @@ curl -s http://localhost:8787/v1/agent/budget \
   -H "Authorization: Bearer pv_agent_..."
 ```
 
-Three integration surfaces, one key:
+Four integration surfaces, one policy engine:
 
 - **REST** — the calls above; OpenAPI at `GET /v1/openapi.json`
 - **TypeScript SDK** — `new PolicyVaultClient({ baseUrl, apiKey })`
 - **MCP** — `apps/mcp-server` exposes the verbs as tools for agent runtimes
+- **Remote MCP** — a revocable sandbox session URL connects ChatGPT developer
+  mode to ABI; see [`docs/CHATGPT-REMOTE-MCP.md`](docs/CHATGPT-REMOTE-MCP.md)
 
 A full runnable loop lives in `apps/demo-agent`:
 
