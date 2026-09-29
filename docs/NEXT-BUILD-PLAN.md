@@ -18,6 +18,16 @@ The current console is primarily the **buyer/operator side**. The seller product
 
 Goal: make “treasury → group budget → agent policy → payment” the only valid money path.
 
+Progress: budget resolution now fails closed when an agent has no funded group,
+has an archived/unfunded membership, or has multiple memberships that could
+select a budget. The compatibility migration creates a group only for a legacy
+agent with a remaining individual balance. Historical balances remain in the
+ledger; the remaining migration and attribution work below is still open.
+Reassignment now blocks pending approvals, unsettled payments, locked escrow,
+and held funds; it transfers a legacy available balance to the selected budget
+with a balanced journal. The owner can edit an organization profile in Settings.
+These changes do not complete the authority model or production launch gates.
+
 - Migrate any legacy agent balances into chosen group budgets.
 - Require exactly one primary funded group for every active agent.
 - Treat labels/tags separately from funding groups so one concept does not serve two jobs.

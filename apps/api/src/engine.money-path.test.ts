@@ -284,6 +284,9 @@ describe("settleEscrow — compare-and-swap before the ledger", () => {
   async function lockedEscrow() {
     const { org, agent } = freshOrg();
     const payee = store.createAgent(org.id, "Worker");
+    const payeeBudget = store.createDepartment(org.id, "Worker budget");
+    const payeeGroup = store.createAgentGroup(org.id, "Worker group", payeeBudget.id);
+    store.addAgentToGroup(org.id, payee.agentId, payeeGroup.id);
     const result = await executeIntent({
       orgId: org.id,
       agentId: agent.agentId,

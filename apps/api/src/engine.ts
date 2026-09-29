@@ -55,12 +55,14 @@ export function scopedIdempotencyKey(agentId: string, key: string): string {
  * policy, limits and audit attribution only.
  */
 export function agentFundingContext(agentId: string, orgId: string) {
-  let groups = scopedStore(orgId)
-    .listAgentGroupIds(agentId)
+  const groupIds = scopedStore(orgId).listAgentGroupIds(agentId);
+  const groups = groupIds
     .map((groupId) => scopedStore(orgId).getAgentGroup(groupId))
     .filter((group): group is NonNullable<typeof group> => Boolean(group))
-    .filter((group) => group.status === "active" && Boolean(group.budgetId))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    .filter((group) => group.status === "active" && Boolean(group.budgetId));
+  // A membership must never silently select a different money source. This
+  // includes stale/archived memberships and multiple funded groups.
+  if (groupIds.length > 0 && (groupIds.length !== 1 || groups.length !== 1)) return undefined;
   let group = groups[0];
   if (!group) {
     // One-time compatibility migration for organizations created before group
@@ -68,15 +70,17 @@ export function agentFundingContext(agentId: string, orgId: string) {
     // group-aware route, but old agents must not be frozen by an upgrade.
     const agent = scopedStore(orgId).getAgent(agentId);
     if (!agent) return undefined;
-    const budget = store.createDepartment(orgId, `${agent.name} budget`);
-    group = store.createAgentGroup(orgId, `${agent.name} group`, budget.id);
-    store.addAgentToGroup(orgId, agentId, group.id);
-
     const accounts = store.getAccountMap(orgId);
     const legacyAvailableId = accountId("agent", agentId, "available");
     const legacyHeldId = accountId("agent", agentId, "held");
     const available = accounts.get(legacyAvailableId)?.balanceMicro ?? 0n;
     const held = accounts.get(legacyHeldId)?.balanceMicro ?? 0n;
+    // Only a funded pre-migration agent needs this compatibility path. A new
+    // unassigned agent must remain unable to spend or mint a funding context.
+    if (available <= 0n && held <= 0n) return undefined;
+    const budget = store.createDepartment(orgId, `${agent.name} budget`);
+    group = store.createAgentGroup(orgId, `${agent.name} group`, budget.id);
+    store.addAgentToGroup(orgId, agentId, group.id);
     const lines: JournalEntry["lines"] = [];
     if (available !== 0n) {
       lines.push(
@@ -99,7 +103,6 @@ export function agentFundingContext(agentId: string, orgId: string) {
         lines,
       }]);
     }
-    groups = [group];
   }
   if (!group.budgetId) return undefined;
   const budget = scopedStore(orgId).getDepartment(group.budgetId);

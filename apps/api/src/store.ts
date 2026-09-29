@@ -26,7 +26,7 @@ import type {
   SessionKeyRecord,
   WalletScope,
 } from "@policyvault/common";
-import { agentApiKeyIsLive, formatMicroToUsdc } from "@policyvault/common";
+import { accountId, agentApiKeyIsLive, formatMicroToUsdc } from "@policyvault/common";
 import { hashSecret, isHashedSecret, lookupHash } from "./secrets.js";
 import { localSellersAllowed } from "./outbound-url.js";
 import { decryptSecret, encryptSecret, isEncrypted } from "./auth/key-encryption.js";
@@ -1878,6 +1878,17 @@ export const store = {
       JSON.stringify(settings),
       orgId,
     );
+  },
+
+  setOrgName(orgId: string, name: string): void {
+    db.prepare("UPDATE orgs SET name = ? WHERE id = ?").run(name, orgId);
+  },
+
+  setOrgProfile(orgId: string, name: string, settings: OrgSettings): void {
+    db.transaction(() => {
+      this.setOrgSettings(orgId, settings);
+      this.setOrgName(orgId, name);
+    })();
   },
 
   upsertMerchant(input: {
@@ -3875,6 +3886,79 @@ export const store = {
       `INSERT OR IGNORE INTO agent_group_members (org_id, agent_id, group_id, created_at)
        VALUES (?, ?, ?, ?)`,
     ).run(orgId, agentId, groupId, nowIso());
+  },
+
+  /** Move an agent's authority to one budget, carrying only unspent legacy funds.
+   * A pending commitment must settle against its original budget first.
+   */
+  reassignAgentGroup(orgId: string, agentId: string, groupId: string): "ok" | "busy" | "invalid" {
+    return db.transaction(() => {
+      const agent = this.getAgentAnyOrg(agentId);
+      const target = this.getAgentGroupAnyOrg(groupId);
+      if (
+        !agent ||
+        agent.orgId !== orgId ||
+        !target ||
+        target.orgId !== orgId ||
+        target.status !== "active" ||
+        !target.budgetId ||
+        this.getDepartmentAnyOrg(target.budgetId)?.status !== "active"
+      )
+        return "invalid";
+
+      const pending = db
+        .prepare(
+          "SELECT 1 FROM approvals WHERE org_id = ? AND agent_id = ? AND status IN ('pending', 'resolving') LIMIT 1",
+        )
+        .get(orgId, agentId);
+      const escrow = db
+        .prepare(
+          "SELECT 1 FROM escrows WHERE org_id = ? AND (payer_agent_id = ? OR payee_agent_id = ?) AND state IN ('locked', 'settling') LIMIT 1",
+        )
+        .get(orgId, agentId, agentId);
+      const settlement = db
+        .prepare(
+          "SELECT 1 FROM settlement_attempts WHERE org_id = ? AND agent_id = ? AND state IN ('pending', 'broadcast', 'needs_review') LIMIT 1",
+        )
+        .get(orgId, agentId);
+      const accounts = this.getAccountMap(orgId);
+      const sourceGroups = this.listAgentGroupIdsAnyOrg(agentId)
+        .map((sourceId) => this.getAgentGroupAnyOrg(sourceId))
+        .filter((source): source is AgentGroupRecord => Boolean(source));
+      const hasHeld = [
+        accountId("agent", agentId, "held"),
+        ...sourceGroups
+          .filter((source) => source.budgetId)
+          .map((source) => accountId("department", source.budgetId!, "held")),
+      ].some((account) => (accounts.get(account)?.balanceMicro ?? 0n) > 0n);
+      if (pending || escrow || settlement || hasHeld) return "busy";
+
+      const legacyId = accountId("agent", agentId, "available");
+      const legacy = accounts.get(legacyId)?.balanceMicro ?? 0n;
+      if (legacy < 0n) return "busy";
+      if (legacy > 0n)
+        this.applyEntries(orgId, [
+          {
+            id: id("j"),
+            orgId,
+            memo: `migrate_agent_balance:${agentId}:${groupId}`,
+            createdAt: nowIso(),
+            lines: [
+              { accountId: legacyId, deltaMicro: -legacy },
+              {
+                accountId: accountId("department", target.budgetId!, "available"),
+                deltaMicro: legacy,
+              },
+            ],
+          },
+        ]);
+      db.prepare("DELETE FROM agent_group_members WHERE org_id = ? AND agent_id = ?").run(
+        orgId,
+        agentId,
+      );
+      this.addAgentToGroup(orgId, agentId, groupId);
+      return "ok";
+    })();
   },
 
   removeAgentFromGroup(agentId: string, groupId: string): void {
