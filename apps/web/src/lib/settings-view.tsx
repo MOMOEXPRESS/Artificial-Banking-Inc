@@ -61,6 +61,13 @@ type MerchantPayment = {
 
 const SECTIONS = [
   {
+    key: "profile",
+    label: "Organization profile",
+    icon: "shield",
+    group: "Launch",
+    description: "Identity, location, and how this workspace uses ABI.",
+  },
+  {
     key: "golive",
     label: "Go live",
     icon: "shield",
@@ -187,6 +194,17 @@ export function SettingsView({
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [inviteRole, setInviteRole] = useState<"approver" | "viewer">("approver");
   const [orgSettings, setOrgSettings] = useState<Record<string, unknown>>({});
+  const [profile, setProfile] = useState({
+    displayName: "",
+    legalName: "",
+    website: "",
+    description: "",
+    country: "",
+    timezone: "UTC",
+    organizationType: "other",
+    intendedUse: "",
+    workspace: "buyer",
+  });
   const [planDraft, setPlanDraft] = useState("");
   const [treasuryHitlDraft, setTreasuryHitlDraft] = useState("50");
   const [compliance, setCompliance] = useState<{
@@ -241,9 +259,21 @@ export function SettingsView({
     }
   };
 
+  const loadProfile = async () => {
+    try {
+      const response = await gFetch("/v1/guardian/organization-profile");
+      if (!response.ok) return;
+      const data = await response.json();
+      setProfile((previous) => ({ ...previous, ...data.profile }));
+    } catch {
+      /* The current profile can be reloaded on the next visit. */
+    }
+  };
+
   const go = (s: Section) => {
     setSection(s);
     if (s === "team" || s === "recurring") void loadTeam();
+    if (s === "profile") void loadProfile();
     if (s === "org" || s === "merchants" || s === "golive") void loadPlatform();
   };
 
@@ -409,6 +439,131 @@ export function SettingsView({
             <p>{activeSection.description}</p>
           </div>
         </section>
+        {section === "profile" && (
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <h2>Organization profile</h2>
+                <div className="sub">
+                  This information describes the organization that owns the treasury.
+                </div>
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="profile-display">Display name</label>
+              <input
+                id="profile-display"
+                value={profile.displayName}
+                disabled={readOnly}
+                onChange={(event) => setProfile({ ...profile, displayName: event.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="profile-legal">Legal name</label>
+              <input
+                id="profile-legal"
+                value={profile.legalName}
+                disabled={readOnly}
+                onChange={(event) => setProfile({ ...profile, legalName: event.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="profile-website">Website</label>
+              <input
+                id="profile-website"
+                type="url"
+                placeholder="https://example.com"
+                value={profile.website}
+                disabled={readOnly}
+                onChange={(event) => setProfile({ ...profile, website: event.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="profile-country">Country</label>
+              <input
+                id="profile-country"
+                value={profile.country}
+                disabled={readOnly}
+                onChange={(event) => setProfile({ ...profile, country: event.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="profile-timezone">Timezone</label>
+              <input
+                id="profile-timezone"
+                value={profile.timezone}
+                disabled={readOnly}
+                onChange={(event) => setProfile({ ...profile, timezone: event.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="profile-type">Organization type</label>
+              <select
+                id="profile-type"
+                value={profile.organizationType}
+                disabled={readOnly}
+                onChange={(event) =>
+                  setProfile({ ...profile, organizationType: event.target.value })
+                }
+              >
+                <option value="company">Company</option>
+                <option value="individual">Individual</option>
+                <option value="nonprofit">Nonprofit</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="profile-workspace">Workspace</label>
+              <select
+                id="profile-workspace"
+                value={profile.workspace}
+                disabled={readOnly}
+                onChange={(event) => setProfile({ ...profile, workspace: event.target.value })}
+              >
+                <option value="buyer">Buyer</option>
+                <option value="seller">Seller</option>
+                <option value="both">Buyer and seller</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="profile-description">Description</label>
+              <textarea
+                id="profile-description"
+                value={profile.description}
+                disabled={readOnly}
+                onChange={(event) => setProfile({ ...profile, description: event.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="profile-use">Intended use</label>
+              <textarea
+                id="profile-use"
+                value={profile.intendedUse}
+                disabled={readOnly}
+                onChange={(event) => setProfile({ ...profile, intendedUse: event.target.value })}
+              />
+            </div>
+            <Button
+              size="sm"
+              disabled={busy || readOnly || !profile.displayName.trim()}
+              onClick={() =>
+                void act("Save profile", async () => {
+                  const response = await gFetch("/v1/guardian/organization-profile", {
+                    method: "PATCH",
+                    body: JSON.stringify(profile),
+                  });
+                  const data = await response.json();
+                  if (!response.ok)
+                    throw new Error(data.error?.message ?? "Could not save profile");
+                  setProfile(data.profile);
+                  return "Organization profile saved.";
+                })
+              }
+            >
+              Save profile
+            </Button>
+          </div>
+        )}
         {section === "golive" && (
           <>
             <div className="card">

@@ -19,6 +19,59 @@ export function registerPlatformRoutes(
 ): void {
   const { guardianRoute } = deps;
 
+  const profileSchema = z.object({
+    displayName: z.string().trim().min(1).max(80),
+    legalName: z.string().trim().max(160).default(""),
+    website: z
+      .union([
+        z.literal(""),
+        z
+          .string()
+          .url()
+          .max(300)
+          .refine((url) => /^https:\/\//i.test(url), "Use an HTTPS website"),
+      ])
+      .default(""),
+    description: z.string().trim().max(1000).default(""),
+    country: z.string().trim().max(80).default(""),
+    timezone: z.string().trim().max(100).default("UTC"),
+    organizationType: z.enum(["company", "individual", "nonprofit", "other"]).default("other"),
+    intendedUse: z.string().trim().max(500).default(""),
+    workspace: z.enum(["buyer", "seller", "both"]).default("buyer"),
+  });
+
+  app.get(
+    "/v1/guardian/organization-profile",
+    guardianRoute((org, _req, res) => {
+      res.json({
+        orgId: org.id,
+        status: org.status,
+        environment: store.getOrgLedgerMode(org.id),
+        profile: {
+          displayName: org.name,
+          ...(org.settings.profile &&
+          typeof org.settings.profile === "object" &&
+          !Array.isArray(org.settings.profile)
+            ? org.settings.profile
+            : {}),
+        },
+      });
+    }),
+  );
+
+  app.patch(
+    "/v1/guardian/organization-profile",
+    guardianRoute(
+      (org, req, res) => {
+        const profile = profileSchema.parse(req.body);
+        store.setOrgProfile(org.id, profile.displayName, { ...org.settings, profile });
+        recordObs({ name: "org.profile_updated", orgId: org.id });
+        res.json({ ok: true, orgId: org.id, profile });
+      },
+      { ownerOnly: true },
+    ),
+  );
+
   // ----------------------------------------------------------- Enterprise
   app.get(
     "/v1/guardian/settings",
@@ -34,13 +87,16 @@ export function registerPlatformRoutes(
 
   app.patch(
     "/v1/guardian/settings",
-    guardianRoute((org, req, res) => {
-      const body = z.object({ settings: z.record(z.unknown()) }).parse(req.body);
-      const next = { ...org.settings, ...body.settings };
-      store.setOrgSettings(org.id, next);
-      recordObs({ name: "org.settings_updated", orgId: org.id });
-      res.json({ ok: true, settings: next });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const body = z.object({ settings: z.record(z.unknown()) }).parse(req.body);
+        const next = { ...org.settings, ...body.settings };
+        store.setOrgSettings(org.id, next);
+        recordObs({ name: "org.settings_updated", orgId: org.id });
+        res.json({ ok: true, settings: next });
+      },
+      { ownerOnly: true },
+    ),
   );
 
   // ------------------------------------------------------------- Security
@@ -122,12 +178,15 @@ export function registerPlatformRoutes(
   // ----------------------------------------------------------- Ecosystem
   app.delete(
     "/v1/guardian/merchants/:id",
-    guardianRoute((org, req, res) => {
-      const ok = store.deleteMerchant(org.id, req.params.id);
-      if (!ok) {
-        return res.status(404).json({ error: { code: "NOT_FOUND", message: "merchant" } });
-      }
-      res.json({ ok: true });
-    }, { ownerOnly: true }),
+    guardianRoute(
+      (org, req, res) => {
+        const ok = store.deleteMerchant(org.id, req.params.id);
+        if (!ok) {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "merchant" } });
+        }
+        res.json({ ok: true });
+      },
+      { ownerOnly: true },
+    ),
   );
 }

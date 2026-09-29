@@ -132,7 +132,8 @@ export function registerAgentRoutes(
           return res.status(400).json({
             error: {
               code: "VALIDATION_ERROR",
-              message: "Choose an active agent group with a linked budget before creating an agent.",
+              message:
+                "Choose an active agent group with a linked budget before creating an agent.",
             },
           });
         }
@@ -446,19 +447,36 @@ export function registerAgentRoutes(
     guardianRoute(
       (org, req, res) => {
         const group = scopedStore(org.id).getAgentGroup(req.params.id);
-        if (!group || group.status !== "active") {
+        if (
+          !group ||
+          group.status !== "active" ||
+          !group.budgetId ||
+          scopedStore(org.id).getDepartment(group.budgetId)?.status !== "active"
+        ) {
           return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
         }
         const body = z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
+        const invalid = body.agentIds.filter((agentId) => !scopedStore(org.id).getAgent(agentId));
+        if (invalid.length)
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Every agent must belong to this organization.",
+            },
+          });
         const assigned: string[] = [];
         for (const agentId of body.agentIds) {
-          const agent = scopedStore(org.id).getAgent(agentId);
-          if (!agent) continue;
-          for (const existingGroupId of scopedStore(org.id).listAgentGroupIds(agent.id)) {
-            if (existingGroupId !== group.id) store.removeAgentFromGroup(agent.id, existingGroupId);
-          }
-          store.addAgentToGroup(org.id, agent.id, group.id);
-          assigned.push(agent.id);
+          const result = store.reassignAgentGroup(org.id, agentId, group.id);
+          if (result !== "ok")
+            return res.status(409).json({
+              error: {
+                code: "GROUP_REASSIGNMENT_BLOCKED",
+                message:
+                  "Resolve pending approvals, escrow, and payment holds before moving this agent.",
+              },
+              assigned,
+            });
+          assigned.push(agentId);
         }
         res.json({ ok: true, groupId: group.id, assigned });
       },
@@ -478,7 +496,8 @@ export function registerAgentRoutes(
         res.status(409).json({
           error: {
             code: "AGENT_GROUP_REQUIRED",
-            message: "An agent must always belong to a funded group. Assign it to another group instead.",
+            message:
+              "An agent must always belong to a funded group. Assign it to another group instead.",
           },
         });
       },
@@ -612,7 +631,8 @@ export function registerAgentRoutes(
         res.status(410).json({
           error: {
             code: "INDIVIDUAL_AGENT_FUNDS_REMOVED",
-            message: "Auto-funding individual agents has been removed. Fund the group's shared budget instead.",
+            message:
+              "Auto-funding individual agents has been removed. Fund the group's shared budget instead.",
           },
         });
       },
