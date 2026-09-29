@@ -27,7 +27,12 @@ const { executeIntent, resolveApproval, settleEscrow, rulesFor, id } = await imp
 const { setCustodyProvider, DevLocalProvider } = await import("@policyvault/custody");
 
 // The engine asks for a custody provider on the escrow/compliance path.
-setCustodyProvider(new DevLocalProvider(() => null, async () => "0x" as `0x${string}`));
+setCustodyProvider(
+  new DevLocalProvider(
+    () => null,
+    async () => "0x" as `0x${string}`,
+  ),
+);
 
 after(() => {
   try {
@@ -43,6 +48,8 @@ const PAYEE = "0x1111111111111111111111111111111111111111";
 function freshOrg(opts: { stipendUsdc?: bigint; perTxMax?: bigint; hitlAbove?: bigint } = {}) {
   const org = store.createOrg("Money Path Co", 1_000_000_000n);
   const agent = store.createAgent(org.id, "Spender");
+  const budget = store.createDepartment(org.id, "Payment budget");
+  assert.equal(store.assignAgentBudget(org.id, agent.agentId, budget.id), "ok");
   const t = store.getPolicyTemplate(org.id);
   store.setPolicyTemplate(org.id, {
     ...t,
@@ -61,7 +68,7 @@ function freshOrg(opts: { stipendUsdc?: bigint; perTxMax?: bigint; hitlAbove?: b
       createdAt: new Date().toISOString(),
       lines: [
         { accountId: `org:${org.id}:available`, deltaMicro: -(opts.stipendUsdc ?? 200_000_000n) },
-        { accountId: `agent:${agent.agentId}:available`, deltaMicro: opts.stipendUsdc ?? 200_000_000n },
+        { accountId: `dept:${budget.id}:available`, deltaMicro: opts.stipendUsdc ?? 200_000_000n },
       ],
     },
   ]);
@@ -71,12 +78,9 @@ function freshOrg(opts: { stipendUsdc?: bigint; perTxMax?: bigint; hitlAbove?: b
 const bal = (orgId: string, requestedId: string) => {
   const match = /^agent:([^:]+):(available|held)$/.exec(requestedId);
   if (match) {
-    const groupId = store.listAgentGroupIdsAnyOrg(match[1])[0];
-    const group = groupId ? store.getAgentGroupAnyOrg(groupId) : undefined;
-    if (group?.budgetId) {
-      return (
-        store.getAccountMap(orgId).get(`dept:${group.budgetId}:${match[2]}`)?.balanceMicro ?? 0n
-      );
+    const assigned = store.getAgentAnyOrg(match[1])?.budgetId;
+    if (assigned) {
+      return store.getAccountMap(orgId).get(`dept:${assigned}:${match[2]}`)?.balanceMicro ?? 0n;
     }
   }
   return store.getAccountMap(orgId).get(requestedId)?.balanceMicro ?? 0n;
@@ -285,6 +289,7 @@ describe("settleEscrow — compare-and-swap before the ledger", () => {
     const { org, agent } = freshOrg();
     const payee = store.createAgent(org.id, "Worker");
     const payeeBudget = store.createDepartment(org.id, "Worker budget");
+    assert.equal(store.assignAgentBudget(org.id, payee.agentId, payeeBudget.id), "ok");
     const payeeGroup = store.createAgentGroup(org.id, "Worker group", payeeBudget.id);
     store.addAgentToGroup(org.id, payee.agentId, payeeGroup.id);
     const result = await executeIntent({

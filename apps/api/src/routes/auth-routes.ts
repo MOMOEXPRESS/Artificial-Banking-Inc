@@ -22,6 +22,7 @@ import { signupTokenProblem } from "../auth/signup-token.js";
 import { assertAuthRuntimeReady } from "../auth/key-encryption.js";
 
 const INVITE_TTL_MS = 7 * 24 * 3600_000;
+const VERIFY_EMAIL_TTL_MS = 24 * 60 * 60_000;
 
 function asyncRoute(
   handler: (req: express.Request, res: express.Response) => Promise<unknown>,
@@ -41,7 +42,34 @@ export function currentUser(req: express.Request): { user: UserRow; sessionId: s
 }
 
 function userView(user: UserRow) {
-  return { id: user.id, email: user.email, name: user.name, createdAt: user.createdAt };
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    createdAt: user.createdAt,
+    emailVerified: Boolean(user.emailVerifiedAt),
+  };
+}
+
+async function sendVerificationEmail(email: string, name: string, token: string): Promise<boolean> {
+  if (process.env.NODE_ENV === "test") return false;
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) return false;
+  const consoleUrl = (process.env.ABI_CONSOLE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const link = `${consoleUrl}/console?verify=${encodeURIComponent(token)}`;
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      from: process.env.ABI_NOTIFY_EMAIL_FROM ?? "ABI <onboarding@resend.dev>",
+      to: [email],
+      subject: "Verify your ABI account",
+      text: `Hi ${name},\n\nVerify your ABI account: ${link}\n\nThis link expires in 24 hours. If you did not create this account, ignore this email.`,
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error(`Verification email delivery failed (${response.status}).`);
+  return true;
 }
 
 /**
@@ -59,107 +87,184 @@ export function registerAuthRoutes(app: express.Express) {
    * Gated the same way org creation is: this mints an owner. Roadmap P3-T5
    * adds email verification, at which point the token gate can relax.
    */
-  app.post("/v1/auth/signup", asyncRoute(async (req, res) => {
-    const gate = signupTokenProblem(req);
-    if (gate) {
-      return res.status(403).json({ error: { code: "UNAUTHORIZED", message: gate } });
-    }
+  app.post(
+    "/v1/auth/signup",
+    asyncRoute(async (req, res) => {
+      const gate = signupTokenProblem(req);
+      if (gate) {
+        return res.status(403).json({ error: { code: "UNAUTHORIZED", message: gate } });
+      }
 
-    const body = z
-      .object({
-        email: emailSchema,
-        name: z.string().min(1).max(80),
-        password: z.string(),
-        orgName: z.string().min(1).max(80).optional(),
-        /** Accept an invitation instead of creating a new org. */
-        invitationToken: z.string().optional(),
-      })
-      .parse(req.body);
+      const body = z
+        .object({
+          email: emailSchema,
+          name: z.string().min(1).max(80),
+          password: z.string(),
+          orgName: z.string().min(1).max(80).optional(),
+          /** Accept an invitation instead of creating a new org. */
+          invitationToken: z.string().optional(),
+        })
+        .parse(req.body);
 
-    const pwProblem = passwordProblem(body.password);
-    if (pwProblem) {
-      return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: pwProblem } });
-    }
+      const pwProblem = passwordProblem(body.password);
+      if (pwProblem) {
+        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: pwProblem } });
+      }
+      if (process.env.NODE_ENV === "production" && !process.env.RESEND_API_KEY?.trim()) {
+        return res.status(503).json({
+          error: {
+            code: "EMAIL_DELIVERY_UNAVAILABLE",
+            message: "Account verification email is not configured.",
+          },
+        });
+      }
 
-    const invitation = body.invitationToken
-      ? store.findLiveInvitationByToken(body.invitationToken)
-      : undefined;
-    if (body.invitationToken && !invitation) {
-      return res.status(400).json({
-        error: { code: "INVALID_INVITATION", message: "That invitation is invalid or expired." },
+      const invitation = body.invitationToken
+        ? store.findLiveInvitationByToken(body.invitationToken)
+        : undefined;
+      if (body.invitationToken && !invitation) {
+        return res.status(400).json({
+          error: { code: "INVALID_INVITATION", message: "That invitation is invalid or expired." },
+        });
+      }
+      if (invitation && invitation.email !== body.email.trim().toLowerCase()) {
+        return res.status(400).json({
+          error: {
+            code: "INVALID_INVITATION",
+            message: "This invitation was issued to a different email address.",
+          },
+        });
+      }
+
+      // Check secret-dependent org and session operations before committing a user.
+      // This prevents a configuration error from leaving an orphan account.
+      assertAuthRuntimeReady();
+
+      const created = store.createUser({
+        email: body.email,
+        name: body.name,
+        passwordHash: await hashPassword(body.password),
       });
-    }
-    if (invitation && invitation.email !== body.email.trim().toLowerCase()) {
+      if ("conflict" in created) {
+        return res.status(409).json({
+          error: { code: "EMAIL_IN_USE", message: "An account with that email already exists." },
+        });
+      }
+
+      let orgId: string;
+      let role: GuardianRoleName;
+      if (invitation) {
+        orgId = invitation.orgId;
+        role = invitation.role;
+        store.markInvitationAccepted(invitation.id);
+      } else {
+        const org = store.createOrg(body.orgName?.trim() || `${body.name}'s organization`, 0n);
+        orgId = org.id;
+        role = "owner";
+      }
+      store.addMembership(created.id, orgId, role);
+      const verificationToken = newToken();
+      store.createEmailVerification(created.id, verificationToken, VERIFY_EMAIL_TTL_MS);
+      let delivered = false;
+      try {
+        delivered = await sendVerificationEmail(created.email, created.name, verificationToken);
+      } catch (error) {
+        console.error("verification email delivery failed:", error);
+      }
+      res.status(201).json({
+        user: userView(created),
+        org: { id: orgId, role },
+        verificationRequired: true,
+        emailSent: delivered,
+        ...(process.env.NODE_ENV !== "production" && !delivered
+          ? { devVerificationToken: verificationToken }
+          : {}),
+        note: "Verify your email before signing in. The link expires in 24 hours.",
+      });
+    }),
+  );
+
+  app.post("/v1/auth/email/verify", (req, res) => {
+    const body = z.object({ token: z.string().min(1) }).parse(req.body);
+    const user = store.consumeEmailVerification(body.token);
+    if (!user) {
       return res.status(400).json({
         error: {
-          code: "INVALID_INVITATION",
-          message: "This invitation was issued to a different email address.",
+          code: "INVALID_TOKEN",
+          message: "That verification link is invalid, used, or expired.",
         },
       });
     }
-
-    // Check secret-dependent org and session operations before committing a user.
-    // This prevents a configuration error from leaving an orphan account.
-    assertAuthRuntimeReady();
-
-    const created = store.createUser({
-      email: body.email,
-      name: body.name,
-      passwordHash: await hashPassword(body.password),
-    });
-    if ("conflict" in created) {
-      return res.status(409).json({
-        error: { code: "EMAIL_IN_USE", message: "An account with that email already exists." },
-      });
-    }
-
-    let orgId: string;
-    let role: GuardianRoleName;
-    if (invitation) {
-      orgId = invitation.orgId;
-      role = invitation.role;
-      store.markInvitationAccepted(invitation.id);
-    } else {
-      const org = store.createOrg(body.orgName?.trim() || `${body.name}'s organization`, 0n);
-      orgId = org.id;
-      role = "owner";
-    }
-    store.addMembership(created.id, orgId, role);
-
-    issueSession(res, created, req);
-    res.status(201).json({
-      user: userView(created),
-      org: { id: orgId, role },
-      note: "Signed in. Agent API keys are issued separately from the console.",
-    });
-  }));
-
-  app.post("/v1/auth/login", asyncRoute(async (req, res) => {
-    const body = z.object({ email: emailSchema, password: z.string() }).parse(req.body);
-    const found = store.findUserCredentialsByEmail(body.email);
-
-    if (!found) {
-      // Spend comparable time on the miss so response latency does not reveal
-      // whether the account exists.
-      await verifyPassword(body.password, "s2:16384:8:1:00:00");
-      return res.status(401).json(LOGIN_FAILED);
-    }
-    if (found.disabled) return res.status(401).json(LOGIN_FAILED);
-    if (!(await verifyPassword(body.password, found.passwordHash))) {
-      return res.status(401).json(LOGIN_FAILED);
-    }
-
-    store.markUserLogin(found.user.id);
-    issueSession(res, found.user, req);
+    issueSession(res, user, req);
     res.json({
-      user: userView(found.user),
-      orgs: store.listMembershipsForUser(found.user.id).map((m) => ({
-        id: m.orgId,
-        name: m.orgName,
-        role: m.role,
-      })),
+      user: userView(user),
+      orgs: store
+        .listMembershipsForUser(user.id)
+        .map((m) => ({ id: m.orgId, name: m.orgName, role: m.role })),
     });
-  }));
+  });
+
+  app.post(
+    "/v1/auth/email/resend",
+    asyncRoute(async (req, res) => {
+      const body = z.object({ email: emailSchema }).parse(req.body);
+      const found = store.findUserCredentialsByEmail(body.email);
+      let devVerificationToken: string | undefined;
+      if (found && !found.disabled && !found.user.emailVerifiedAt) {
+        const token = newToken();
+        store.revokeEmailVerifications(found.user.id);
+        store.createEmailVerification(found.user.id, token, VERIFY_EMAIL_TTL_MS);
+        let delivered = false;
+        try {
+          delivered = await sendVerificationEmail(found.user.email, found.user.name, token);
+        } catch (error) {
+          console.error("verification email delivery failed:", error);
+        }
+        if (!delivered) res.setHeader("x-abi-email-delivery", "unavailable");
+        if (process.env.NODE_ENV !== "production" && !delivered) devVerificationToken = token;
+      }
+      res.json({
+        ok: true,
+        note: "If an unverified account exists for that address, a verification link is on its way.",
+        ...(devVerificationToken ? { devVerificationToken } : {}),
+      });
+    }),
+  );
+
+  app.post(
+    "/v1/auth/login",
+    asyncRoute(async (req, res) => {
+      const body = z.object({ email: emailSchema, password: z.string() }).parse(req.body);
+      const found = store.findUserCredentialsByEmail(body.email);
+
+      if (!found) {
+        // Spend comparable time on the miss so response latency does not reveal
+        // whether the account exists.
+        await verifyPassword(body.password, "s2:16384:8:1:00:00");
+        return res.status(401).json(LOGIN_FAILED);
+      }
+      if (found.disabled) return res.status(401).json(LOGIN_FAILED);
+      if (!(await verifyPassword(body.password, found.passwordHash))) {
+        return res.status(401).json(LOGIN_FAILED);
+      }
+      if (!found.user.emailVerifiedAt) {
+        return res.status(403).json({
+          error: { code: "EMAIL_NOT_VERIFIED", message: "Verify your email before signing in." },
+        });
+      }
+
+      store.markUserLogin(found.user.id);
+      issueSession(res, found.user, req);
+      res.json({
+        user: userView(found.user),
+        orgs: store.listMembershipsForUser(found.user.id).map((m) => ({
+          id: m.orgId,
+          name: m.orgName,
+          role: m.role,
+        })),
+      });
+    }),
+  );
 
   app.post("/v1/auth/logout", (req, res) => {
     const token = parseCookies(req)[SESSION_COOKIE];
@@ -182,30 +287,33 @@ export function registerAuthRoutes(app: express.Express) {
     });
   });
 
-  app.post("/v1/auth/change-password", asyncRoute(async (req, res) => {
-    const me = currentUser(req);
-    if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
-    const body = z
-      .object({ currentPassword: z.string(), newPassword: z.string() })
-      .parse(req.body);
+  app.post(
+    "/v1/auth/change-password",
+    asyncRoute(async (req, res) => {
+      const me = currentUser(req);
+      if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+      const body = z
+        .object({ currentPassword: z.string(), newPassword: z.string() })
+        .parse(req.body);
 
-    const found = store.findUserCredentialsByEmail(me.user.email);
-    if (!found || !(await verifyPassword(body.currentPassword, found.passwordHash))) {
-      return res.status(403).json({
-        error: { code: "UNAUTHORIZED", message: "Current password is incorrect." },
-      });
-    }
-    const problem = passwordProblem(body.newPassword);
-    if (problem) {
-      return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: problem } });
-    }
+      const found = store.findUserCredentialsByEmail(me.user.email);
+      if (!found || !(await verifyPassword(body.currentPassword, found.passwordHash))) {
+        return res.status(403).json({
+          error: { code: "UNAUTHORIZED", message: "Current password is incorrect." },
+        });
+      }
+      const problem = passwordProblem(body.newPassword);
+      if (problem) {
+        return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: problem } });
+      }
 
-    // Revokes every session, including this one — changing a password must not
-    // leave a stolen session alive.
-    store.setUserPassword(me.user.id, await hashPassword(body.newPassword));
-    clearSessionCookies(res);
-    res.json({ ok: true, note: "Password changed. All sessions signed out — sign in again." });
-  }));
+      // Revokes every session, including this one — changing a password must not
+      // leave a stolen session alive.
+      store.setUserPassword(me.user.id, await hashPassword(body.newPassword));
+      clearSessionCookies(res);
+      res.json({ ok: true, note: "Password changed. All sessions signed out — sign in again." });
+    }),
+  );
 
   // -------------------------------------------------------------- invitations
 
@@ -214,7 +322,10 @@ export function registerAuthRoutes(app: express.Express) {
     const gate = requireOwner(req, res);
     if (!gate) return;
     const body = z
-      .object({ email: emailSchema, role: z.enum(["approver", "viewer", "owner"]).default("approver") })
+      .object({
+        email: emailSchema,
+        role: z.enum(["approver", "viewer", "owner"]).default("approver"),
+      })
       .parse(req.body);
 
     const token = newToken();
@@ -227,7 +338,12 @@ export function registerAuthRoutes(app: express.Express) {
       ttlMs: INVITE_TTL_MS,
     });
     res.status(201).json({
-      invitation: { id: invitation.id, email: invitation.email, role: invitation.role, expiresAt: invitation.expiresAt },
+      invitation: {
+        id: invitation.id,
+        email: invitation.email,
+        role: invitation.role,
+        expiresAt: invitation.expiresAt,
+      },
       // Shown once. Email delivery is roadmap P3-T5; until then the inviter
       // passes this along out of band.
       invitationToken: token,

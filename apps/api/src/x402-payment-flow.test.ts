@@ -48,9 +48,10 @@ const seller = createServer((req, res) => {
       {
         scheme: "exact",
         network: "eip155:84532",
-        asset: req.url === "/wrong-token"
-          ? "0x0000000000000000000000000000000000000001"
-          : "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        asset:
+          req.url === "/wrong-token"
+            ? "0x0000000000000000000000000000000000000001"
+            : "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
         amount: "10000",
         payTo: PAY_TO,
         maxTimeoutSeconds: 120,
@@ -157,8 +158,7 @@ it("replays one x402 settlement without a second seller request or ledger postin
   assert.equal(sellerChallenges, 1);
   assert.equal(sellerPaidRequests, 1, "one facilitator-style paid request for both API calls");
   const balances = store.getAccountMap(org.id);
-  const groupId = store.listAgentGroupIdsAnyOrg(agent.agentId)[0];
-  const budgetId = store.getAgentGroupAnyOrg(groupId)?.budgetId;
+  const budgetId = store.getAgentAnyOrg(agent.agentId)?.budgetId;
   assert.equal(balances.get(`dept:${budgetId}:available`)?.balanceMicro, 90_000n);
   assert.equal(balances.get(`dept:${budgetId}:held`)?.balanceMicro, 0n);
   const finalRecon = store.reconcileOrgUncached(org.id);
@@ -238,10 +238,18 @@ it("verifies the seller challenge and scopes merchant activity to its organizati
   const fakeToken = await fetch(`${buyerBase}/v1/guardian/merchant-gateway/onboard`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ label: "Wrong token", endpoint: `${sellerBase}/wrong-token`, payoutAddress: PAY_TO, priceUsdc: "0.01" }),
+    body: JSON.stringify({
+      label: "Wrong token",
+      endpoint: `${sellerBase}/wrong-token`,
+      payoutAddress: PAY_TO,
+      priceUsdc: "0.01",
+    }),
   });
   assert.equal(fakeToken.status, 201);
   const badMerchant = (await fakeToken.json()) as { merchant: { id: string } };
-  const rejected = await fetch(`${buyerBase}/v1/guardian/merchant-gateway/${badMerchant.merchant.id}/verify`, { method: "POST", headers });
+  const rejected = await fetch(
+    `${buyerBase}/v1/guardian/merchant-gateway/${badMerchant.merchant.id}/verify`,
+    { method: "POST", headers },
+  );
   assert.equal(rejected.status, 422, "matching price and wallet must not verify a non-USDC asset");
 });

@@ -21,16 +21,16 @@ The effective permission is the intersection of those layers. A lower layer may 
 
 The interface name is **Agent groups** (previously “Ops labels”). A group organizes agents for shared operational controls, such as:
 
-- assigning a default budget context;
+- organizing agents by operational function;
 - freezing a team during an incident;
 - applying the same restrictive capability profile;
 - viewing and reporting team activity.
 
-A group is not a wallet, budget, or independent source of policy. An agent may belong to several groups, but every paid action must name one budget. If several groups could supply a budget, the task must select one explicitly rather than letting ABI guess.
+A group is not a wallet, budget, or independent source of policy. An agent may belong to several groups, while spending authority is assigned directly to one active budget. Group labels never select or change that assignment. A task or session may narrow the agent's assigned budget access, but cannot expand it.
 
 ## Payment flow
 
-1. The agent asks to perform an action and supplies a budget or task context.
+1. The agent asks to perform an action under its assigned budget and supplies any required task context.
 2. ABI calculates remaining budget capacity; it does not transfer money to the agent.
 3. ABI intersects organization, budget, agent, and task rules.
 4. ABI allows, denies, or creates a human approval request.
@@ -61,10 +61,10 @@ Examples:
 The current implementation holds ledger balances in agent accounts and calls them stipends. Replace that behavior in stages so existing records remain auditable:
 
 1. **Language and navigation** — replace “stipend,” “fund agent,” and “agent wallet balance” with “budget access,” “assign budget,” and “spending capacity.” Keep legacy balances visibly marked during migration.
-2. **Explicit budget context** — require every new paid intent to include a `budgetId`; allow a clearly marked compatibility fallback only for old clients.
-3. **Authorization accounting** — reserve and spend against the budget account. Keep the agent ID as attribution, not as the source of funds.
+2. **Explicit budget authority** — store one `budgetId` on each agent; allow a clearly marked compatibility fallback only when old group links identify one unambiguous active budget.
+3. **Authorization accounting** — reserve and spend against the assigned budget account. Keep the agent ID as attribution, not as the source of funds.
 4. **API revision** — return `budgetAccess`, `remainingCapacity`, and `effectivePolicy`; deprecate `/v1/agent/budget` fields that imply agent ownership.
-5. **Ledger migration** — move unused agent allocations back into their source budget or the organization vault with balanced migration journals.
+5. **Ledger migration** — move unused agent allocations into the assigned budget with balanced migration journals. Ambiguous legacy assignments require an owner to assign a budget before spending.
 6. **Remove compatibility mode** — reject payments without budget context after SDKs and integrations have migrated.
 
 Do not delete or rewrite historical journals. Historical agent balances should remain explainable as the previous funding model.

@@ -97,7 +97,16 @@ async function newAccount(jar: Jar) {
     jar,
     body: { email, name: "MFA User", password: PASSWORD, orgName: "MFA Co" },
   });
-  const body = (await res.json()) as { org: { id: string }; user: { id: string } };
+  const body = (await res.json()) as {
+    org: { id: string };
+    user: { id: string };
+    devVerificationToken: string;
+  };
+  await call("/v1/auth/email/verify", {
+    method: "POST",
+    jar,
+    body: { token: body.devVerificationToken },
+  });
   return { email, orgId: body.org.id, userId: body.user.id };
 }
 
@@ -185,7 +194,11 @@ describe("MFA enrolment", () => {
     const jar = new Jar();
     await newAccount(jar);
     await call("/v1/auth/mfa/enroll", { method: "POST", jar });
-    const res = await call("/v1/auth/mfa/confirm", { method: "POST", jar, body: { code: "000000" } });
+    const res = await call("/v1/auth/mfa/confirm", {
+      method: "POST",
+      jar,
+      body: { code: "000000" },
+    });
     assert.equal(res.status, 400);
   });
 
@@ -280,7 +293,10 @@ describe("step-up on high-value approvals", () => {
       body: { approve: true },
     });
     assert.equal(res.status, 403);
-    assert.equal(((await res.json()) as { error: { code: string } }).error.code, "STEP_UP_REQUIRED");
+    assert.equal(
+      ((await res.json()) as { error: { code: string } }).error.code,
+      "STEP_UP_REQUIRED",
+    );
     assert.equal(store.getApproval(approval.id, orgId)?.status, "pending", "must stay parked");
   });
 
@@ -364,7 +380,10 @@ describe("step-up on high-value approvals", () => {
     const { recoveryCodes } = await enableMfa(jar);
     const code = recoveryCodes[0]!;
 
-    assert.equal((await call("/v1/auth/step-up", { method: "POST", jar, body: { code } })).status, 200);
+    assert.equal(
+      (await call("/v1/auth/step-up", { method: "POST", jar, body: { code } })).status,
+      200,
+    );
     // Single use: the same slip of paper must not work twice.
     assert.equal(
       (await call("/v1/auth/step-up", { method: "POST", jar, body: { code } })).status,
@@ -395,7 +414,10 @@ describe("password reset", () => {
     const { email } = await newAccount(jar);
     assert.equal((await call("/v1/guardian/org", { jar })).status, 200);
 
-    const request = await call("/v1/auth/password-reset/request", { method: "POST", body: { email } });
+    const request = await call("/v1/auth/password-reset/request", {
+      method: "POST",
+      body: { email },
+    });
     const token = ((await request.json()) as { devResetToken: string }).devResetToken;
     assert.ok(token, "dev builds return the token since email is not configured");
 
@@ -411,7 +433,8 @@ describe("password reset", () => {
 
     // Old password dead, new one works.
     assert.equal(
-      (await call("/v1/auth/login", { method: "POST", body: { email, password: PASSWORD } })).status,
+      (await call("/v1/auth/login", { method: "POST", body: { email, password: PASSWORD } }))
+        .status,
       401,
     );
     const fresh = new Jar();
@@ -436,7 +459,10 @@ describe("password reset", () => {
   it("rejects a weak new password and an unknown token", async () => {
     const jar = new Jar();
     const { email } = await newAccount(jar);
-    const request = await call("/v1/auth/password-reset/request", { method: "POST", body: { email } });
+    const request = await call("/v1/auth/password-reset/request", {
+      method: "POST",
+      body: { email },
+    });
     const token = ((await request.json()) as { devResetToken: string }).devResetToken;
 
     assert.equal(

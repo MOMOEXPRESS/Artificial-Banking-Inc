@@ -86,6 +86,7 @@ model Agents {
   name String
   status String @default("active")
   apiKey String @map("api_key")
+  budgetId String? @map("budget_id")
   profileJson String? @map("profile_json")
   @@index([orgId])
   @@unique([apiKey])
@@ -188,6 +189,17 @@ model Departments {
   createdAt String @map("created_at")
   @@index([orgId])
   @@map("departments")
+}
+
+model EmailVerifications {
+  id String @id
+  userId String @map("user_id") // -> users.id
+  tokenHash String @map("token_hash")
+  createdAt String @map("created_at")
+  expiresAt String @map("expires_at")
+  usedAt String? @map("used_at")
+  @@unique([tokenHash])
+  @@map("email_verifications")
 }
 
 model Escrows {
@@ -589,6 +601,7 @@ model Users {
   name String
   passwordHash String @map("password_hash")
   createdAt String @map("created_at")
+  emailVerifiedAt String? @map("email_verified_at")
   lastLoginAt String? @map("last_login_at")
   disabledAt String? @map("disabled_at")
   @@unique([email])

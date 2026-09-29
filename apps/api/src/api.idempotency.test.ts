@@ -76,10 +76,9 @@ function fixture() {
 }
 
 const balanceOf = (orgId: string, agentId: string) => {
-  const groupId = store.listAgentGroupIdsAnyOrg(agentId)[0];
-  const group = groupId ? store.getAgentGroupAnyOrg(groupId) : undefined;
-  return group?.budgetId
-    ? (store.getAccountMap(orgId).get(`dept:${group.budgetId}:available`)?.balanceMicro ?? 0n)
+  const budgetId = store.getAgentAnyOrg(agentId)?.budgetId;
+  return budgetId
+    ? (store.getAccountMap(orgId).get(`dept:${budgetId}:available`)?.balanceMicro ?? 0n)
     : (store.getAccountMap(orgId).get(`agent:${agentId}:available`)?.balanceMicro ?? 0n);
 };
 
@@ -240,7 +239,10 @@ describe("guardian route authorization", () => {
 
     const res = await fetch(`${base}/v1/guardian/allocate`, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${viewer.guardianKey}` },
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${viewer.guardianKey}`,
+      },
       body: JSON.stringify({ agentId: agent.agentId, amountUsdc: "10" }),
     });
 

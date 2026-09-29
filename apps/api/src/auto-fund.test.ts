@@ -43,15 +43,15 @@ describe("runAutoFundSweep", () => {
     ]);
     const group = store.createAgentGroup(demo.orgId, "Finance", budget.id);
     store.addAgentToGroup(demo.orgId, demo.researcherAgentId, group.id);
-    // Drain researcher to $1 (bootstrap seed was $40 stipend).
+    // Legacy balance stays inert under the direct-budget authority model.
     store.applyEntries(demo.orgId, [
       transferAvailable({
         orgId: demo.orgId,
         journalId: id("j"),
-        fromAvailableId: accountId("agent", demo.researcherAgentId),
-        toAvailableId: accountId("org", demo.orgId),
-        amountMicro: parseUsdcToMicro("39"),
-        memo: "drain",
+        fromAvailableId: accountId("org", demo.orgId),
+        toAvailableId: accountId("agent", demo.researcherAgentId),
+        amountMicro: parseUsdcToMicro("1"),
+        memo: "legacy_test_balance",
       }),
     ]);
     store.setAgentGroupAutoFund(group.id, {

@@ -94,7 +94,7 @@ function downloadKeysFile(session: Session, kind: "real" | "demo") {
 }
 
 type Phase = "ready" | "keys";
-type LoginMode = "signin" | "signup" | "key" | "demo" | "reset";
+type LoginMode = "signin" | "signup" | "key" | "demo" | "reset" | "verify";
 type ApiStatus =
   | { state: "checking" | "ready" }
   | {
@@ -127,6 +127,9 @@ export function Login({
   const [resetSent, setResetSent] = useState<string | null>(null);
   const [resetToken, setResetToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [verifyToken, setVerifyToken] = useState("");
+  const [verificationEmail, setVerificationEmail] = useState("");
+  const [verificationMessage, setVerificationMessage] = useState("");
 
   // The emailed link lands on /console?reset=<token>. Without this the link
   // opened a normal sign-in screen and the token was silently ignored.
@@ -137,6 +140,12 @@ export function Login({
       setResetToken(token);
       setMode("reset");
     }
+    const verify = new URLSearchParams(window.location.search).get("verify");
+    if (verify) {
+      setVerifyToken(verify);
+      setMode("verify");
+      setVerificationMessage("Verifying your email address…");
+    }
   }, []);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>("ready");
@@ -144,6 +153,53 @@ export function Login({
   const [pendingKind, setPendingKind] = useState<"real" | "demo">("real");
   const [savedAck, setSavedAck] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!verifyToken) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("verify");
+    window.history.replaceState(null, "", url.toString());
+    let cancelled = false;
+    void (async () => {
+      setBusy(true);
+      try {
+        const response = await fetch(`${API}/v1/auth/email/verify`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: verifyToken }),
+        });
+        if (!response.ok) throw new Error(await readApiError(response));
+        const data = (await response.json()) as {
+          user: { id: string; email: string; name: string };
+          orgs: { id: string; name: string; role: string }[];
+        };
+        if (!cancelled && data.orgs[0]) {
+          onLogin({
+            mode: "session",
+            guardianKey: "",
+            orgId: data.orgs[0].id,
+            user: data.user,
+            agentKeys: [],
+          });
+          setToast("Email verified. You’re signed in.", "ok");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setVerificationMessage(
+            `Verification failed: ${String(error)}. Request a fresh link below.`,
+          );
+          setMode("verify");
+        }
+      } finally {
+        if (!cancelled) setBusy(false);
+        setVerifyToken("");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [verifyToken, onLogin, setToast]);
 
   useEffect(() => {
     if (!copied) return;
@@ -162,15 +218,13 @@ export function Login({
         setApiStatus({ state: "ready" });
         return;
       }
-      const payload = (await res.json().catch(() => null)) as
-        | {
-            error?: {
-              code?: string;
-              message?: string;
-              setup?: { missing?: string; where?: string; example?: string; docs?: string };
-            };
-          }
-        | null;
+      const payload = (await res.json().catch(() => null)) as {
+        error?: {
+          code?: string;
+          message?: string;
+          setup?: { missing?: string; where?: string; example?: string; docs?: string };
+        };
+      } | null;
       setApiStatus({
         state: "error",
         code: payload?.error?.code ?? `HTTP_${res.status}`,
@@ -316,17 +370,88 @@ export function Login({
       const d = (await res.json()) as {
         user: { id: string; email: string; name: string };
         org: { id: string; role: string };
+        emailSent?: boolean;
+        verificationRequired?: boolean;
+        devVerificationToken?: string;
       };
-      onLogin({
-        mode: "session",
-        guardianKey: "",
-        orgId: d.org.id,
-        user: d.user,
-        agentKeys: [],
-      });
-      setToast(`Welcome. You are ${d.org.role} of this organization.`, "ok");
+      setVerificationEmail(email.trim());
+      if (d.devVerificationToken) {
+        const verified = await fetch(`${API}/v1/auth/email/verify`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: d.devVerificationToken }),
+        });
+        if (!verified.ok) throw new Error(await readApiError(verified));
+        onLogin({
+          mode: "session",
+          guardianKey: "",
+          orgId: d.org.id,
+          user: d.user,
+          agentKeys: [],
+        });
+        setToast(`Welcome. You are ${d.org.role} of this organization.`, "ok");
+        return;
+      }
+      setMode("verify");
+      setVerificationMessage(
+        d.emailSent
+          ? `We sent a verification link to ${email.trim()}. Open it to finish creating your account.`
+          : `Your account is ready for verification, but the email could not be sent. Request a fresh link below.`,
+      );
+      setToast(
+        d.emailSent
+          ? "Check your email to finish setting up your account."
+          : "Verification email needs to be resent.",
+        "info",
+      );
+      return;
     } catch (e) {
       setToast(`Sign up failed: ${String(e)}`, "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resendVerification() {
+    if (!verificationEmail.trim()) return;
+    setBusy(true);
+    try {
+      const response = await fetch(`${API}/v1/auth/email/resend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: verificationEmail.trim() }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response));
+      const data = (await response.json()) as { note?: string; devVerificationToken?: string };
+      if (data.devVerificationToken) {
+        const verified = await fetch(`${API}/v1/auth/email/verify`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: data.devVerificationToken }),
+        });
+        if (!verified.ok) throw new Error(await readApiError(verified));
+        const session = (await verified.json()) as {
+          user: { id: string; email: string; name: string };
+          orgs: { id: string; name: string; role: string }[];
+        };
+        if (session.orgs[0]) {
+          onLogin({
+            mode: "session",
+            guardianKey: "",
+            orgId: session.orgs[0].id,
+            user: session.user,
+            agentKeys: [],
+          });
+          return;
+        }
+      }
+      setVerificationMessage(
+        data.note ?? "If an unverified account exists, a fresh link is on its way.",
+      );
+    } catch (error) {
+      setVerificationMessage(`Could not resend the link: ${String(error)}`);
     } finally {
       setBusy(false);
     }
@@ -446,8 +571,8 @@ export function Login({
         {showLogin && (
           <div className="login-card">
             <p className="login-sub">
-              Policy-controlled USDC wallets for AI agents. Sign in with your account, or create
-              one — agent API keys are issued separately, inside the console.
+              Policy-controlled USDC wallets for AI agents. Sign in with your account, or create one
+              — agent API keys are issued separately, inside the console.
             </p>
 
             <div className="login-mode-row" role="tablist" aria-label="How to enter">
@@ -494,7 +619,9 @@ export function Login({
                     placeholder="••••••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && email.trim() && password && void signIn()}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && email.trim() && password && void signIn()
+                    }
                   />
                 </div>
                 <button
@@ -558,6 +685,39 @@ export function Login({
               </>
             )}
 
+            {mode === "verify" && (
+              <>
+                <h2 style={{ margin: "8px 0" }}>Verify your email</h2>
+                <p className="faint" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+                  {verificationMessage || `We’ll send a verification link to ${verificationEmail}.`}
+                </p>
+                <div className="field">
+                  <label>Email</label>
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    value={verificationEmail}
+                    onChange={(event) => setVerificationEmail(event.target.value)}
+                  />
+                </div>
+                <button
+                  style={{ width: "100%" }}
+                  disabled={busy || !verificationEmail.trim()}
+                  onClick={() => void resendVerification()}
+                >
+                  Resend verification link
+                </button>
+                <button
+                  className="bare"
+                  style={{ fontSize: 11.5, marginTop: 12 }}
+                  disabled={busy}
+                  onClick={() => setMode("signin")}
+                >
+                  Back to sign in
+                </button>
+              </>
+            )}
+
             {mode === "signup" && (
               <>
                 <div className="field">
@@ -606,7 +766,9 @@ export function Login({
                     placeholder="paste to join an existing org instead"
                     value={inviteToken}
                     onChange={(e) => setInviteToken(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && email.trim() && password && void signUp()}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && email.trim() && password && void signUp()
+                    }
                   />
                 </div>
                 <button
@@ -780,11 +942,7 @@ function KeyRevealCard({
       </div>
 
       <label className="login-keys-ack">
-        <input
-          type="checkbox"
-          checked={savedAck}
-          onChange={(e) => setSavedAck(e.target.checked)}
-        />
+        <input type="checkbox" checked={savedAck} onChange={(e) => setSavedAck(e.target.checked)} />
         <span>I’ve saved these keys in a password manager or the downloaded file.</span>
       </label>
 
@@ -792,8 +950,7 @@ function KeyRevealCard({
         Enter console
       </button>
       <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.6 }}>
-        Clearing this site’s browser data signs you out. You’ll need the guardian key to get back
-        in
+        Clearing this site’s browser data signs you out. You’ll need the guardian key to get back in
         {kind === "demo" ? " — or launch a new demo org (that resets the float)." : "."}
       </p>
     </div>

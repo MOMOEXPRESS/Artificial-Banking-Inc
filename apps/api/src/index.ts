@@ -851,7 +851,7 @@ const ALLOW_DEMO_SEED =
   process.env.POLICYVAULT_ALLOW_BOOTSTRAP === "1" ||
   (process.env.NODE_ENV !== "production" && process.env.POLICYVAULT_ALLOW_BOOTSTRAP !== "0");
 
-app.post("/v1/demo/bootstrap", (req, res) => {
+app.post("/v1/demo/bootstrap", async (req, res) => {
   if (!ALLOW_DEMO_SEED) {
     return res.status(403).json({
       error: {
@@ -868,6 +868,7 @@ app.post("/v1/demo/bootstrap", (req, res) => {
     const demo = store.seedDemoOrg();
     res.json({
       ...demo,
+      vaultAddress: store.getVaultAddress(demo.orgId),
       legal: LEGAL_FOOTER,
       note: "Demo org seeded. agentApiKey = agent Bearer token; guardianKey = guardian Bearer token. Existing organizations were not modified.",
     });
@@ -901,7 +902,7 @@ const ALLOW_PUBLIC_ORG_CREATE =
   (process.env.NODE_ENV !== "production" &&
     process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE !== "0");
 
-app.post("/v1/guardian/orgs", (req, res) => {
+app.post("/v1/guardian/orgs", async (req, res) => {
   if (!ALLOW_PUBLIC_ORG_CREATE) {
     return res.status(403).json({
       error: {
@@ -1648,11 +1649,13 @@ app.post(
   "/v1/guardian/allocate",
   guardianRoute(
     (_org, _req, res) => {
-      res.status(410).json({ error: {
-        code: "INDIVIDUAL_AGENT_FUNDS_REMOVED",
-        message: "Agents do not receive individual funds. Fund their group budget instead.",
-        successor: "/v1/guardian/agent-groups/:id/fund",
-      } });
+      res.status(410).json({
+        error: {
+          code: "INDIVIDUAL_AGENT_FUNDS_REMOVED",
+          message: "Agents do not receive individual funds. Fund their group budget instead.",
+          successor: "/v1/guardian/agent-groups/:id/fund",
+        },
+      });
     },
     { ownerOnly: true },
   ),
@@ -1667,11 +1670,13 @@ app.post(
   "/v1/guardian/reclaim",
   guardianRoute(
     (_org, _req, res) => {
-      res.status(410).json({ error: {
-        code: "INDIVIDUAL_AGENT_FUNDS_REMOVED",
-        message: "Agents do not own balances. Move money out of the group budget in Treasury.",
-        successor: "/v1/guardian/wallets/move",
-      } });
+      res.status(410).json({
+        error: {
+          code: "INDIVIDUAL_AGENT_FUNDS_REMOVED",
+          message: "Agents do not own balances. Move money out of the group budget in Treasury.",
+          successor: "/v1/guardian/wallets/move",
+        },
+      });
     },
     { ownerOnly: true },
   ),
@@ -1686,11 +1691,14 @@ app.post(
   "/v1/guardian/transfer",
   guardianRoute(
     (_org, _req, res) => {
-      res.status(410).json({ error: {
-        code: "INDIVIDUAL_AGENT_FUNDS_REMOVED",
-        message: "Agent-to-agent transfers no longer exist. Reassign agents or move group budgets.",
-        successor: "/v1/guardian/wallets/move",
-      } });
+      res.status(410).json({
+        error: {
+          code: "INDIVIDUAL_AGENT_FUNDS_REMOVED",
+          message:
+            "Agent-to-agent transfers no longer exist. Reassign agents or move group budgets.",
+          successor: "/v1/guardian/wallets/move",
+        },
+      });
     },
     { ownerOnly: true },
   ),
@@ -2152,7 +2160,13 @@ app.get("/v1/agent/budget", (req, res) => {
   res.json({
     agentId: auth.agentId,
     agentName: scopedStore(auth.orgId).getAgent(auth.agentId)?.name ?? auth.agentId,
-    group: { id: funding.group.id, name: funding.group.name },
+    groups: scopedStore(auth.orgId)
+      .listAgentGroupIds(auth.agentId)
+      .map((groupId) => {
+        const group = scopedStore(auth.orgId).getAgentGroup(groupId);
+        return group ? { id: group.id, name: group.name } : null;
+      })
+      .filter((group): group is { id: string; name: string } => Boolean(group)),
     budget: { id: funding.budget.id, name: funding.budget.name },
     availableUsdc: formatMicroToUsdc(av?.balanceMicro ?? 0n),
     heldUsdc: formatMicroToUsdc(held?.balanceMicro ?? 0n),

@@ -64,14 +64,7 @@ export const ETH_ASSET_ID = "asset_eth";
 
 /** Notification channels — in-app + Telegram today; others are extension slots. */
 export type NotificationChannel =
-  | "in_app"
-  | "telegram"
-  | "email"
-  | "slack"
-  | "discord"
-  | "push"
-  | "sms"
-  | "webhook";
+  "in_app" | "telegram" | "email" | "slack" | "discord" | "push" | "sms" | "webhook";
 
 export type WebhookEventName =
   | "payment.succeeded"
@@ -132,19 +125,19 @@ export interface AgentProfileHints {
   reputationScore?: number;
 }
 
-/** Org-scoped ops label (freeze / bulk fund roster). Optional link to a Treasury budget. */
+/** Org-scoped descriptive/ops label. Spending authority is assigned directly to agents. */
 export interface AgentGroupRecord {
   id: string;
   orgId: string;
   name: string;
   status: "active" | "archived";
   createdAt: string;
-  /** When set, bulk fund / auto-fund defaults to this budget envelope. */
+  /** Legacy bulk-funding association, retained for compatibility. */
   budgetId?: string;
   autoFund?: AutoFundConfig;
 }
 
-/** Proactive top-up when a labeled agent's stipend falls below threshold. */
+/** Legacy proactive top-up configuration for a labeled agent roster. */
 export interface AutoFundConfig {
   enabled: boolean;
   /** Top up when agent available USDC is strictly below this. */
@@ -253,7 +246,11 @@ export const LEGAL_FOOTER =
   "Artificial Banking Incorporated is software for policy-gated agent treasuries. Not a bank. Not FDIC insured. Not investment advice. Operators remain responsible for agent spend.";
 
 /** Stable account id helpers — keep every future wallet scope on this scheme. */
-export function accountId(scope: WalletScope, ownerId: string, kind: "available" | "held" = "available"): string {
+export function accountId(
+  scope: WalletScope,
+  ownerId: string,
+  kind: "available" | "held" = "available",
+): string {
   const prefix =
     scope === "org"
       ? "org"

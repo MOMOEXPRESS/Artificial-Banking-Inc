@@ -16,6 +16,7 @@ type AgentRow = {
   availableUsdc?: string;
   heldUsdc?: string;
   spent24hUsdc?: string;
+  budget?: { id: string; name: string } | null;
   groupIds?: string[];
   groupNames?: string[];
 };
@@ -100,6 +101,8 @@ export function AgentsView({
 
   const [newName, setNewName] = useState("");
   const [newGroupId, setNewGroupId] = useState("");
+  const [newBudgetId, setNewBudgetId] = useState("");
+  const [editBudgetId, setEditBudgetId] = useState("");
   const [groupName, setGroupName] = useState("");
   const [rename, setRename] = useState("");
   const [tags, setTags] = useState("");
@@ -117,7 +120,14 @@ export function AgentsView({
 
   const [rosterReady, setRosterReady] = useState(false);
   const [fundAmounts, setFundAmounts] = useState<Record<string, string>>({});
-  const [budgets, setBudgets] = useState<{ id: string; name: string; availableUsdc: string }[]>([]);
+  const [budgets, setBudgets] = useState<
+    {
+      id: string;
+      name: string;
+      status: string;
+      availableUsdc: string;
+    }[]
+  >([]);
   /** Which ops-label cards are expanded — collapsed by default to cut clutter. */
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   /** Per-label sub-panel (Payments-style) so expanded cards stay short. */
@@ -180,6 +190,7 @@ export function AgentsView({
       setTags(Array.isArray(profile.tags) ? (profile.tags as string[]).join(", ") : "");
       setRuntime(typeof profile.runtime === "string" ? profile.runtime : "");
       setOwnerId(typeof profile.ownerGuardianId === "string" ? profile.ownerGuardianId : "owner");
+      setEditBudgetId((d.budget as { id?: string } | null)?.id ?? "");
       setEditGroupIds(groups.filter((g) => g.members.some((m) => m.id === id)).map((g) => g.id));
     },
     [gFetch, agents, groups, onContextChange],
@@ -191,10 +202,14 @@ export function AgentsView({
 
   const createAgent = () =>
     act("Create agent", async () => {
-      if (!newGroupId) throw new Error("Choose an agent group first");
+      if (!newBudgetId) throw new Error("Choose a spending budget first");
       const res = await gFetch("/v1/guardian/agents", {
         method: "POST",
-        body: JSON.stringify({ name: newName.trim(), groupId: newGroupId }),
+        body: JSON.stringify({
+          name: newName.trim(),
+          budgetId: newBudgetId,
+          groupIds: newGroupId ? [newGroupId] : [],
+        }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
@@ -256,14 +271,29 @@ export function AgentsView({
                   onChange={(e) => setNewName(e.target.value)}
                 />
                 <select
-                  value={newGroupId}
-                  disabled={locked || groups.filter((g) => g.status === "active" && g.budgetId).length === 0}
-                  onChange={(e) => setNewGroupId(e.target.value)}
-                  aria-label="Agent group"
+                  value={newBudgetId}
+                  disabled={locked || budgets.filter((b) => b.status !== "archived").length === 0}
+                  onChange={(e) => setNewBudgetId(e.target.value)}
+                  aria-label="Agent spending budget"
                 >
-                  <option value="">Choose group…</option>
+                  <option value="">Choose budget…</option>
+                  {budgets
+                    .filter((b) => b.status !== "archived")
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                </select>
+                <select
+                  value={newGroupId}
+                  disabled={locked || groups.filter((g) => g.status === "active").length === 0}
+                  onChange={(e) => setNewGroupId(e.target.value)}
+                  aria-label="Optional agent group label"
+                >
+                  <option value="">No group label</option>
                   {groups
-                    .filter((g) => g.status === "active" && g.budgetId)
+                    .filter((g) => g.status === "active")
                     .map((g) => (
                       <option key={g.id} value={g.id}>
                         {g.name}
@@ -272,32 +302,18 @@ export function AgentsView({
                 </select>
                 <Button
                   size="sm"
-                  disabled={locked || !newName.trim() || !newGroupId}
+                  disabled={locked || !newName.trim() || !newBudgetId}
                   onClick={() => void createAgent()}
                 >
                   Create
                 </Button>
               </div>
             </div>
-            {groups.filter((g) => g.status === "active" && g.budgetId).length === 0 ? (
+            {budgets.filter((b) => b.status !== "archived").length === 0 ? (
               <div className="agent-create-group">
-                <span>No funded group structure yet. Create one before adding an agent.</span>
-                <div className="row" style={{ gap: 8 }}>
-                  <input
-                    value={groupName}
-                    disabled={readOnly}
-                    onChange={(e) => setGroupName(e.target.value)}
-                    placeholder="Research"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={locked || !groupName.trim()}
-                    onClick={() => void createGroup()}
-                  >
-                    Create group
-                  </Button>
-                </div>
+                <span>
+                  No active budgets yet. Create a budget in Treasury before adding an agent.
+                </span>
               </div>
             ) : null}
             {agents.length === 0 ? (
@@ -315,7 +331,7 @@ export function AgentsView({
                       <th>Name</th>
                       <th>Status</th>
                       <th>Group</th>
-                      <th>Group budget</th>
+                      <th>Assigned budget</th>
                       <th>24h</th>
                       <th>Key</th>
                       <th />
@@ -342,7 +358,9 @@ export function AgentsView({
                         <td className="faint">
                           {a.groupNames?.length ? a.groupNames.join(", ") : "—"}
                         </td>
-                        <td className="mono">{fmt(a.availableUsdc)}</td>
+                        <td className="mono">
+                          {a.budget?.name ?? "Unassigned"} · {fmt(a.availableUsdc)}
+                        </td>
                         <td className="mono faint">{fmt(a.spent24hUsdc)}</td>
                         <td className="faint">{a.apiKeyLive ? "live" : "revoked"}</td>
                         <td>
@@ -555,6 +573,50 @@ export function AgentsView({
                     className="muted"
                     style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
                   >
+                    Spending budget
+                    <select
+                      value={editBudgetId}
+                      disabled={readOnly}
+                      onChange={(e) => setEditBudgetId(e.target.value)}
+                    >
+                      <option value="">Choose budget…</option>
+                      {budgets
+                        .filter((b) => b.status !== "archived")
+                        .map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={
+                      locked ||
+                      !editBudgetId ||
+                      editBudgetId === (detail?.budget as { id?: string } | null)?.id
+                    }
+                    onClick={() =>
+                      void act("Assign spending budget", async () => {
+                        const res = await gFetch(`/v1/guardian/agents/${selected}/budget`, {
+                          method: "POST",
+                          body: JSON.stringify({ budgetId: editBudgetId }),
+                        });
+                        const d = await res.json();
+                        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
+                        await refresh();
+                        await loadDetail(selected!);
+                        return "Spending budget assigned. Agent group labels were left unchanged.";
+                      })
+                    }
+                  >
+                    Assign budget
+                  </Button>
+                  <label
+                    className="muted"
+                    style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
+                  >
                     Agent groups
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
                       {groups
@@ -578,7 +640,7 @@ export function AgentsView({
                         ))}
                       {!groups.some((g) => g.status === "active") && (
                         <span className="faint">
-                          No groups yet — create a budget or group first.
+                          No group labels yet — create one if you want to organize this agent.
                         </span>
                       )}
                     </div>
@@ -922,9 +984,7 @@ export function AgentsView({
             </span>
           </div>
           {groups.length === 0 ? (
-            <Empty icon="robot">
-              No agent groups yet. Create one before creating an agent.
-            </Empty>
+            <Empty icon="robot">No agent groups yet. Create one before creating an agent.</Empty>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {groups.map((g) => {
@@ -1155,8 +1215,9 @@ export function AgentsView({
                                       className="faint"
                                       style={{ fontSize: 12, margin: "0 0 10px" }}
                                     >
-                                      Add USDC from the organization vault to this group&apos;s shared
-                                      budget. Members spend from this budget under their own policies.
+                                      Add USDC from the organization vault to this group&apos;s
+                                      shared budget. Members spend from this budget under their own
+                                      policies.
                                     </p>
                                     <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                                       <input
@@ -1203,7 +1264,6 @@ export function AgentsView({
                                     </div>
                                   </div>
                                 )}
-
                               </>
                             );
                           })()}

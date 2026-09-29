@@ -51,64 +51,46 @@ export function scopedIdempotencyKey(agentId: string, key: string): string {
 
 /**
  * Resolve the one shared budget an agent is authorized to spend from.
- * Money remains in the group's budget accounts; the agent contributes identity,
+ * Money remains in the assigned budget accounts; the agent contributes identity,
  * policy, limits and audit attribution only.
  */
 export function agentFundingContext(agentId: string, orgId: string) {
-  const groupIds = scopedStore(orgId).listAgentGroupIds(agentId);
-  const groups = groupIds
-    .map((groupId) => scopedStore(orgId).getAgentGroup(groupId))
-    .filter((group): group is NonNullable<typeof group> => Boolean(group))
-    .filter((group) => group.status === "active" && Boolean(group.budgetId));
-  // A membership must never silently select a different money source. This
-  // includes stale/archived memberships and multiple funded groups.
-  if (groupIds.length > 0 && (groupIds.length !== 1 || groups.length !== 1)) return undefined;
-  let group = groups[0];
-  if (!group) {
-    // One-time compatibility migration for organizations created before group
-    // budgets became mandatory. New agents can only be created through the
-    // group-aware route, but old agents must not be frozen by an upgrade.
-    const agent = scopedStore(orgId).getAgent(agentId);
-    if (!agent) return undefined;
-    const accounts = store.getAccountMap(orgId);
-    const legacyAvailableId = accountId("agent", agentId, "available");
-    const legacyHeldId = accountId("agent", agentId, "held");
-    const available = accounts.get(legacyAvailableId)?.balanceMicro ?? 0n;
-    const held = accounts.get(legacyHeldId)?.balanceMicro ?? 0n;
-    // Only a funded pre-migration agent needs this compatibility path. A new
-    // unassigned agent must remain unable to spend or mint a funding context.
-    if (available <= 0n && held <= 0n) return undefined;
-    const budget = store.createDepartment(orgId, `${agent.name} budget`);
-    group = store.createAgentGroup(orgId, `${agent.name} group`, budget.id);
-    store.addAgentToGroup(orgId, agentId, group.id);
-    const lines: JournalEntry["lines"] = [];
-    if (available !== 0n) {
-      lines.push(
-        { accountId: legacyAvailableId, deltaMicro: -available },
-        { accountId: accountId("department", budget.id, "available"), deltaMicro: available },
-      );
-    }
-    if (held !== 0n) {
-      lines.push(
-        { accountId: legacyHeldId, deltaMicro: -held },
-        { accountId: accountId("department", budget.id, "held"), deltaMicro: held },
-      );
-    }
-    if (lines.length) {
-      store.applyEntries(orgId, [{
-        id: id("j"),
-        orgId,
-        memo: `migrate_agent_balance:${agentId}`,
-        createdAt: new Date().toISOString(),
-        lines,
-      }]);
+  let agent = scopedStore(orgId).getAgent(agentId);
+  if (!agent) return undefined;
+
+  // Compatibility: migrate an old, singly-funded group assignment into the
+  // agent's explicit budget field. Group labels never choose a budget for new
+  // agents, and ambiguous old assignments fail closed.
+  if (!agent.budgetId) {
+    const groups = scopedStore(orgId)
+      .listAgentGroupIds(agentId)
+      .map((groupId) => scopedStore(orgId).getAgentGroup(groupId))
+      .filter((group): group is NonNullable<typeof group> => Boolean(group))
+      .filter((group) => group.status === "active" && Boolean(group.budgetId));
+    if (groups.length === 1 && groups[0]?.budgetId) {
+      const result = store.assignAgentBudget(orgId, agentId, groups[0].budgetId);
+      if (result !== "ok") return undefined;
+      agent = scopedStore(orgId).getAgent(agentId);
     }
   }
-  if (!group.budgetId) return undefined;
-  const budget = scopedStore(orgId).getDepartment(group.budgetId);
+
+  // Last-resort one-time migration for old stipend-only agents without a
+  // linked group. New, unfunded agents remain unable to spend.
+  if (!agent?.budgetId) {
+    const accounts = store.getAccountMap(orgId);
+    const available = accounts.get(accountId("agent", agentId, "available"))?.balanceMicro ?? 0n;
+    if (available > 0n) {
+      if (!agent) return undefined;
+      const budget = store.createDepartment(orgId, `${agent.name} budget`);
+      if (store.assignAgentBudget(orgId, agentId, budget.id) !== "ok") return undefined;
+      agent = scopedStore(orgId).getAgent(agentId);
+    }
+  }
+
+  if (!agent?.budgetId) return undefined;
+  const budget = scopedStore(orgId).getDepartment(agent.budgetId);
   if (!budget || budget.status !== "active") return undefined;
   return {
-    group,
     budget,
     availableId: accountId("department", budget.id, "available"),
     heldId: accountId("department", budget.id, "held"),
@@ -1046,7 +1028,7 @@ export function settleEscrow(
     let newState: EscrowRow["state"];
     if (action === "release") {
       const payeeFunding = agentFundingContext(escrow.payeeAgentId, escrow.orgId);
-      if (!payeeFunding) throw new Error("Payee agent has no active group budget");
+      if (!payeeFunding) throw new Error("Payee agent has no active assigned budget");
       store.applyEntries(escrow.orgId, [
         releaseEscrow({
           orgId: escrow.orgId,
@@ -1059,7 +1041,7 @@ export function settleEscrow(
       newState = "released";
     } else {
       const payerFunding = agentFundingContext(escrow.payerAgentId, escrow.orgId);
-      if (!payerFunding) throw new Error("Payer agent has no active group budget");
+      if (!payerFunding) throw new Error("Payer agent has no active assigned budget");
       store.applyEntries(escrow.orgId, [
         refundEscrow({
           orgId: escrow.orgId,

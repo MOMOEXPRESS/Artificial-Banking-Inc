@@ -40,6 +40,7 @@ export interface UserRow {
   name: string;
   createdAt: string;
   lastLoginAt?: string;
+  emailVerifiedAt?: string;
 }
 
 export interface MembershipRow {
@@ -100,6 +101,8 @@ export interface AgentRow {
   name: string;
   status: AgentStatus;
   apiKey: string;
+  /** The single budget this agent is authorized to spend from. Groups are labels only. */
+  budgetId?: string;
   /** Extensible profile for groups, ownership, reputation, runtime metadata. */
   profile: Record<string, unknown>;
 }
@@ -122,8 +125,6 @@ export interface ChatMessageRow {
   meta?: Record<string, unknown>;
   createdAt: string;
 }
-
-
 
 export interface DecisionRow {
   intentId: string;
@@ -492,7 +493,8 @@ CREATE TABLE IF NOT EXISTS agents (
   org_id TEXT NOT NULL REFERENCES orgs(id),
   name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
-  api_key TEXT NOT NULL UNIQUE
+  api_key TEXT NOT NULL UNIQUE,
+  budget_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_agents_org ON agents(org_id);
 CREATE TABLE IF NOT EXISTS vaults (
@@ -893,6 +895,7 @@ CREATE INDEX IF NOT EXISTS idx_session_keys_token ON session_keys(token);
 for (const migration of [
   "ALTER TABLE agent_groups ADD COLUMN budget_id TEXT",
   "ALTER TABLE agent_groups ADD COLUMN auto_fund_json TEXT",
+  "ALTER TABLE agents ADD COLUMN budget_id TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -900,6 +903,41 @@ for (const migration of [
     /* column already exists */
   }
 }
+
+// Treat accounts from before email verification as verified; newly created
+// accounts must complete verification before signing in.
+try {
+  db.exec("ALTER TABLE users ADD COLUMN email_verified_at TEXT");
+  db.exec("UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL");
+} catch {
+  /* column already exists */
+}
+
+// Separate an agent's single funding assignment from its many descriptive
+// group memberships. Migrate only when active legacy group links resolve to
+// one distinct active budget; ambiguous agents fail closed.
+db.exec(`
+UPDATE agents
+SET budget_id = (
+  SELECT MIN(g.budget_id)
+  FROM agent_group_members m
+  JOIN agent_groups g ON g.id = m.group_id AND g.org_id = m.org_id
+  JOIN departments d ON d.id = g.budget_id AND d.org_id = g.org_id
+  WHERE m.agent_id = agents.id AND m.org_id = agents.org_id
+    AND g.status = 'active' AND d.status = 'active'
+  GROUP BY m.agent_id
+  HAVING COUNT(DISTINCT g.budget_id) = 1
+)
+WHERE budget_id IS NULL
+  AND (
+    SELECT COUNT(DISTINCT g.budget_id)
+    FROM agent_group_members m
+    JOIN agent_groups g ON g.id = m.group_id AND g.org_id = m.org_id
+    JOIN departments d ON d.id = g.budget_id AND d.org_id = g.org_id
+    WHERE m.agent_id = agents.id AND m.org_id = agents.org_id
+      AND g.status = 'active' AND d.status = 'active'
+  ) = 1;
+`);
 
 migrateSecretsAtRest();
 
@@ -941,9 +979,30 @@ migrateSecretsAtRest();
   );
   const stamp = new Date().toISOString();
   // Spend rail (ledger) — Base Sepolia USDC by default; CHAIN=base uses mainnet USDC elsewhere.
-  seed.run("asset_usdc", "USDC", 6, "base-sepolia", "0x036CbD53842c5426634e7929541eC2318f3dCF7e", stamp);
-  seed.run("asset_usdt", "USDT", 6, "ethereum", "0xdAC17F958D2ee523a2206206994597C13D831ec7", stamp);
-  seed.run("asset_eurc", "EURC", 6, "base-sepolia", "0x808456652fdb597867f384939655eD02696bA000", stamp);
+  seed.run(
+    "asset_usdc",
+    "USDC",
+    6,
+    "base-sepolia",
+    "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    stamp,
+  );
+  seed.run(
+    "asset_usdt",
+    "USDT",
+    6,
+    "ethereum",
+    "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    stamp,
+  );
+  seed.run(
+    "asset_eurc",
+    "EURC",
+    6,
+    "base-sepolia",
+    "0x808456652fdb597867f384939655eD02696bA000",
+    stamp,
+  );
   seed.run("asset_eth", "ETH", 18, "ethereum", null, stamp);
   seed.run("asset_btc", "BTC", 8, "bitcoin", null, stamp);
   seed.run("asset_sol", "SOL", 9, "solana", null, stamp);
@@ -1025,6 +1084,7 @@ CREATE TABLE IF NOT EXISTS users (
   name TEXT NOT NULL,
   password_hash TEXT NOT NULL,
   created_at TEXT NOT NULL,
+  email_verified_at TEXT,
   last_login_at TEXT,
   disabled_at TEXT
 );
@@ -1097,6 +1157,16 @@ CREATE INDEX IF NOT EXISTS idx_recovery_codes_user ON user_recovery_codes(user_i
 -- Password reset. Tokens are hashed, single-use and short-lived; a forgotten
 -- password previously meant a permanently lost organization.
 CREATE TABLE IF NOT EXISTS password_resets (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at TEXT
+);
+
+-- Verification tokens are one-time and stored only as hashes.
+CREATE TABLE IF NOT EXISTS email_verifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
   token_hash TEXT NOT NULL UNIQUE,
@@ -1224,7 +1294,6 @@ installPrepareRevisionHook(db);
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;
 
-
 function rowToOrg(r: Row): OrgRow {
   let settings: OrgSettings = {};
   if (typeof r.settings_json === "string" && r.settings_json) {
@@ -1258,6 +1327,7 @@ function rowToAgent(r: Row): AgentRow {
     name: r.name,
     status: r.status,
     apiKey: r.api_key,
+    budgetId: (r.budget_id as string | null) ?? undefined,
     profile,
   };
 }
@@ -1413,6 +1483,7 @@ function rowToUser(r: Row): UserRow {
     name: String(r.name),
     createdAt: String(r.created_at),
     lastLoginAt: r.last_login_at ? String(r.last_login_at) : undefined,
+    emailVerifiedAt: r.email_verified_at ? String(r.email_verified_at) : undefined,
   };
 }
 
@@ -1532,18 +1603,7 @@ export const store = {
       const ledgerMode = depositMicro > 0n ? "sandbox" : "live";
       db.prepare(
         "INSERT INTO orgs (id, name, status, guardian_key, deposit_micro, ledger_mode, unbacked_micro) VALUES (?, ?, 'active', ?, ?, ?, ?)",
-      ).run(
-        orgId,
-        name,
-        guardianKeyHash,
-        depositMicro.toString(),
-        ledgerMode,
-        "0",
-      );
-      // Self-custody: a real EVM keypair generated locally so payments can be
-      // signed. Encrypted at rest under ABI_KEK, bound to this org id so a
-      // ciphertext cannot be replayed into another org's row. Managed custody
-      // (roadmap P4-T1) removes the key from this process entirely.
+      ).run(orgId, name, guardianKeyHash, depositMicro.toString(), ledgerMode, "0");
       const privateKey = generatePrivateKey();
       const address = privateKeyToAccount(privateKey).address;
       db.prepare("INSERT INTO vaults (org_id, address, private_key) VALUES (?, ?, ?)").run(
@@ -1601,14 +1661,14 @@ export const store = {
   },
 
   // ---------------------------------------------------------------- agents
-  createAgent(orgId: string, name: string): { agentId: string; apiKey: string } {
+  createAgent(orgId: string, name: string, budgetId?: string): { agentId: string; apiKey: string } {
     const agentId = id("agt");
     const apiKey = `pv_agent_${randomBytes(12).toString("hex")}`;
     const apiKeyHash = hashSecret(apiKey);
     const tx = db.transaction(() => {
       db.prepare(
-        "INSERT INTO agents (id, org_id, name, status, api_key) VALUES (?, ?, ?, 'active', ?)",
-      ).run(agentId, orgId, name, apiKeyHash);
+        "INSERT INTO agents (id, org_id, name, status, api_key, budget_id) VALUES (?, ?, ?, 'active', ?, ?)",
+      ).run(agentId, orgId, name, apiKeyHash, budgetId ?? null);
       db.prepare(
         "INSERT INTO accounts (id, org_id, kind, agent_id, balance_micro) VALUES (?, ?, 'agent_available', ?, '0')",
       ).run(`agent:${agentId}:available`, orgId, agentId);
@@ -1731,9 +1791,12 @@ export const store = {
 
   getVaultAddress(orgId: string): string | undefined {
     const r = db.prepare("SELECT address FROM vaults WHERE org_id = ?").get(orgId) as
-      | Row
-      | undefined;
-    return r?.address;
+      Row | undefined;
+    return r?.address || undefined;
+  },
+
+  setVaultAddress(orgId: string, address: `0x${string}`): void {
+    db.prepare("UPDATE vaults SET address = ? WHERE org_id = ?").run(address, orgId);
   },
 
   /** Dev-custody signing key. Never expose via any HTTP surface. */
@@ -1746,10 +1809,16 @@ export const store = {
    */
   getVaultPrivateKey(orgId: string): `0x${string}` | undefined {
     const r = db.prepare("SELECT private_key FROM vaults WHERE org_id = ?").get(orgId) as
-      | Row
-      | undefined;
+      Row | undefined;
     if (!r?.private_key) return undefined;
     return decryptSecret(String(r.private_key), orgId) as `0x${string}`;
+  },
+
+  hasLocalVaultKey(orgId: string): boolean {
+    const r = db.prepare("SELECT private_key FROM vaults WHERE org_id = ?").get(orgId) as
+      | { private_key: string | null }
+      | undefined;
+    return Boolean(r?.private_key);
   },
 
   // -------------------------------------------------------------- accounts
@@ -1811,8 +1880,7 @@ export const store = {
   // ---------------------------------------------------------------- policy
   getPolicyTemplate(orgId: string): PolicyRulesTemplate {
     const r = db.prepare("SELECT rules_json FROM policies WHERE org_id = ?").get(orgId) as
-      | Row
-      | undefined;
+      Row | undefined;
     if (!r) return templateSoloSwarm();
     return JSON.parse(r.rules_json, (_k, v) =>
       typeof v === "string" && v.startsWith("bigint:") ? BigInt(v.slice(7)) : v,
@@ -1850,9 +1918,7 @@ export const store = {
   listPolicyVersions(orgId: string, limit = 20): PolicyVersionRow[] {
     return (
       db
-        .prepare(
-          "SELECT * FROM policy_versions WHERE org_id = ? ORDER BY created_at DESC LIMIT ?",
-        )
+        .prepare("SELECT * FROM policy_versions WHERE org_id = ? ORDER BY created_at DESC LIMIT ?")
         .all(orgId, limit) as Row[]
     ).map((r) => ({
       id: r.id as string,
@@ -1907,10 +1973,15 @@ export const store = {
       const category = input.category ?? existing.category ?? undefined;
       const meta =
         input.meta ??
-        (existing.meta_json ? (JSON.parse(existing.meta_json as string) as Record<string, unknown>) : undefined);
-      db.prepare(
-        "UPDATE merchants SET label = ?, category = ?, meta_json = ? WHERE id = ?",
-      ).run(label ?? null, category ?? null, meta ? JSON.stringify(meta) : null, existing.id);
+        (existing.meta_json
+          ? (JSON.parse(existing.meta_json as string) as Record<string, unknown>)
+          : undefined);
+      db.prepare("UPDATE merchants SET label = ?, category = ?, meta_json = ? WHERE id = ?").run(
+        label ?? null,
+        category ?? null,
+        meta ? JSON.stringify(meta) : null,
+        existing.id,
+      );
       return {
         id: existing.id as string,
         orgId: input.orgId,
@@ -1942,18 +2013,18 @@ export const store = {
   },
 
   listMerchants(orgId: string): MerchantRecord[] {
-    return (db.prepare("SELECT * FROM merchants WHERE org_id = ? ORDER BY key").all(orgId) as Row[]).map(
-      (r) => ({
-        id: r.id as string,
-        orgId: r.org_id as string,
-        key: r.key as string,
-        label: (r.label as string | null) ?? undefined,
-        category: (r.category as string | null) ?? undefined,
-        meta: r.meta_json
-          ? (JSON.parse(r.meta_json as string) as Record<string, unknown>)
-          : undefined,
-      }),
-    );
+    return (
+      db.prepare("SELECT * FROM merchants WHERE org_id = ? ORDER BY key").all(orgId) as Row[]
+    ).map((r) => ({
+      id: r.id as string,
+      orgId: r.org_id as string,
+      key: r.key as string,
+      label: (r.label as string | null) ?? undefined,
+      category: (r.category as string | null) ?? undefined,
+      meta: r.meta_json
+        ? (JSON.parse(r.meta_json as string) as Record<string, unknown>)
+        : undefined,
+    }));
   },
 
   deleteMerchant(orgId: string, merchantIdOrKey: string): boolean {
@@ -1984,9 +2055,7 @@ export const store = {
       asset_dai: 6,
     };
     return (
-      db
-        .prepare("SELECT * FROM assets WHERE org_id IS NULL OR org_id = ?")
-        .all(orgId) as Row[]
+      db.prepare("SELECT * FROM assets WHERE org_id IS NULL OR org_id = ?").all(orgId) as Row[]
     )
       .map((r) => ({
         id: r.id as string,
@@ -2083,9 +2152,7 @@ export const store = {
   }[] {
     return (
       db
-        .prepare(
-          "SELECT * FROM vault_asset_events WHERE org_id = ? ORDER BY at DESC LIMIT ?",
-        )
+        .prepare("SELECT * FROM vault_asset_events WHERE org_id = ? ORDER BY at DESC LIMIT ?")
         .all(orgId, limit) as Row[]
     ).map((r) => ({
       id: r.id as string,
@@ -2222,7 +2289,8 @@ export const store = {
   },
 
   getSharedWalletAnyOrg(walletId: string): SharedWalletRow | undefined {
-    const r = db.prepare("SELECT * FROM shared_wallets WHERE id = ?").get(walletId) as Row | undefined;
+    const r = db.prepare("SELECT * FROM shared_wallets WHERE id = ?").get(walletId) as
+      Row | undefined;
     if (!r) return undefined;
     const members = (
       db
@@ -2278,7 +2346,8 @@ export const store = {
   },
 
   getTreasuryMoveAnyOrg(moveId: string): TreasuryMoveRow | undefined {
-    const r = db.prepare("SELECT * FROM treasury_moves WHERE id = ?").get(moveId) as Row | undefined;
+    const r = db.prepare("SELECT * FROM treasury_moves WHERE id = ?").get(moveId) as
+      Row | undefined;
     return r ? rowToTreasuryMove(r) : undefined;
   },
 
@@ -2290,7 +2359,9 @@ export const store = {
           )
           .all(orgId, status) as Row[])
       : (db
-          .prepare("SELECT * FROM treasury_moves WHERE org_id = ? ORDER BY created_at DESC LIMIT 100")
+          .prepare(
+            "SELECT * FROM treasury_moves WHERE org_id = ? ORDER BY created_at DESC LIMIT 100",
+          )
           .all(orgId) as Row[]);
     return rows.map(rowToTreasuryMove);
   },
@@ -2365,9 +2436,7 @@ export const store = {
 
   hasOnchainDeposit(orgId: string, txHash: string, logIndex: number): boolean {
     const r = db
-      .prepare(
-        "SELECT id FROM onchain_deposits WHERE org_id = ? AND tx_hash = ? AND log_index = ?",
-      )
+      .prepare("SELECT id FROM onchain_deposits WHERE org_id = ? AND tx_hash = ? AND log_index = ?")
       .get(orgId, txHash.toLowerCase(), logIndex);
     return Boolean(r);
   },
@@ -2504,7 +2573,14 @@ export const store = {
         // funds — so they are encrypted exactly like the active one.
         db.prepare(
           "INSERT INTO vault_key_archive (id, org_id, address, private_key, retired_at, reason) VALUES (?, ?, ?, ?, ?, ?)",
-        ).run(archiveId, orgId, previousAddress, encryptSecret(previousKey, orgId), nowIso(), reason);
+        ).run(
+          archiveId,
+          orgId,
+          previousAddress,
+          encryptSecret(previousKey, orgId),
+          nowIso(),
+          reason,
+        );
       }
       db.prepare("UPDATE vaults SET address = ?, private_key = ? WHERE org_id = ?").run(
         address,
@@ -2546,6 +2622,44 @@ export const store = {
     return row;
   },
 
+  createEmailVerification(userId: string, token: string, ttlMs: number): void {
+    db.prepare(
+      "INSERT INTO email_verifications (id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(
+      id("ev"),
+      userId,
+      hashSecret(token),
+      nowIso(),
+      new Date(Date.now() + ttlMs).toISOString(),
+    );
+  },
+
+  consumeEmailVerification(token: string): UserRow | undefined {
+    return db.transaction(() => {
+      const now = nowIso();
+      const row = db
+        .prepare(
+          "SELECT id, user_id FROM email_verifications WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
+        )
+        .get(hashSecret(token), now) as Row | undefined;
+      if (!row) return undefined;
+      const claimed = db
+        .prepare("UPDATE email_verifications SET used_at = ? WHERE id = ? AND used_at IS NULL")
+        .run(now, row.id);
+      if (claimed.changes !== 1) return undefined;
+      db.prepare(
+        "UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?",
+      ).run(now, row.user_id);
+      return this.getUser(String(row.user_id));
+    })();
+  },
+
+  revokeEmailVerifications(userId: string): void {
+    db.prepare(
+      "UPDATE email_verifications SET used_at = COALESCE(used_at, ?) WHERE user_id = ?",
+    ).run(nowIso(), userId);
+  },
+
   getUser(userId: string): UserRow | undefined {
     const r = db.prepare("SELECT * FROM users WHERE id = ?").get(userId) as Row | undefined;
     return r ? rowToUser(r) : undefined;
@@ -2556,8 +2670,7 @@ export const store = {
     email: string,
   ): { user: UserRow; passwordHash: string; disabled: boolean } | undefined {
     const r = db.prepare("SELECT * FROM users WHERE email = ?").get(email.trim().toLowerCase()) as
-      | Row
-      | undefined;
+      Row | undefined;
     if (!r) return undefined;
     return {
       user: rowToUser(r),
@@ -2770,9 +2883,9 @@ export const store = {
    * omits inherits the organization default.
    */
   getAgentPolicyOverrideAnyOrg(agentId: string): PolicyOverride | null {
-    const r = db.prepare("SELECT rules_json FROM agent_policies WHERE agent_id = ?").get(agentId) as
-      | Row
-      | undefined;
+    const r = db
+      .prepare("SELECT rules_json FROM agent_policies WHERE agent_id = ?")
+      .get(agentId) as Row | undefined;
     if (!r?.rules_json) return null;
     try {
       return JSON.parse(String(r.rules_json), (_k, v) =>
@@ -2793,9 +2906,7 @@ export const store = {
     override: PolicyOverride,
     updatedBy?: string,
   ): void {
-    const json = JSON.stringify(override, (_k, v) =>
-      typeof v === "bigint" ? `bigint:${v}` : v,
-    );
+    const json = JSON.stringify(override, (_k, v) => (typeof v === "bigint" ? `bigint:${v}` : v));
     db.prepare(
       `INSERT INTO agent_policies (agent_id, org_id, rules_json, updated_at, updated_by)
        VALUES (?, ?, ?, ?, ?)
@@ -2878,11 +2989,7 @@ export const store = {
    * velocity window, which is why pay_events are now retained for
    * PAY_EVENT_RETENTION_MS rather than 24 hours.
    */
-  spentSince(
-    agentId: string,
-    sinceMs: number,
-    opts?: { category?: string },
-  ): MicroUsdc {
+  spentSince(agentId: string, sinceMs: number, opts?: { category?: string }): MicroUsdc {
     const category = opts?.category?.trim().toLowerCase();
     const rows = category
       ? (db
@@ -3003,7 +3110,13 @@ export const store = {
     if (outcome.state === "settled") {
       db.prepare(
         "UPDATE settlement_attempts SET state = 'settled', rail = ?, charged_micro = ?, tx_hash = COALESCE(?, tx_hash), updated_at = ? WHERE intent_id = ?",
-      ).run(outcome.rail, outcome.chargedMicro.toString(), outcome.txHash ?? null, nowIso(), intentId);
+      ).run(
+        outcome.rail,
+        outcome.chargedMicro.toString(),
+        outcome.txHash ?? null,
+        nowIso(),
+        intentId,
+      );
       return;
     }
     db.prepare(
@@ -3020,8 +3133,7 @@ export const store = {
 
   getSettlement(intentId: string): SettlementRow | undefined {
     const r = db.prepare("SELECT * FROM settlement_attempts WHERE intent_id = ?").get(intentId) as
-      | Row
-      | undefined;
+      Row | undefined;
     return r ? rowToSettlement(r) : undefined;
   },
 
@@ -3076,9 +3188,7 @@ export const store = {
     bumpRevision();
   },
 
-  getMfa(
-    userId: string,
-  ): { secret: string; confirmed: boolean; lastStep?: number } | undefined {
+  getMfa(userId: string): { secret: string; confirmed: boolean; lastStep?: number } | undefined {
     const r = db.prepare("SELECT * FROM user_mfa WHERE user_id = ?").get(userId) as Row | undefined;
     if (!r) return undefined;
     return {
@@ -3165,10 +3275,9 @@ export const store = {
     const expiresAt = new Date(Date.now() + ttlMs).toISOString();
     // One live reset per user: issuing a new link invalidates the old one.
     const tx = db.transaction(() => {
-      db.prepare("UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL").run(
-        nowIso(),
-        userId,
-      );
+      db.prepare(
+        "UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at IS NULL",
+      ).run(nowIso(), userId);
       db.prepare(
         "INSERT INTO password_resets (id, user_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
       ).run(id("pwr"), userId, hashSecret(token), nowIso(), expiresAt);
@@ -3204,9 +3313,9 @@ export const store = {
     const nowStr = now.toISOString();
     const expires = new Date(now.getTime() + ttlMs).toISOString();
     const tx = db.transaction(() => {
-      const row = db.prepare("SELECT holder, expires_at FROM job_locks WHERE name = ?").get(name) as
-        | Row
-        | undefined;
+      const row = db
+        .prepare("SELECT holder, expires_at FROM job_locks WHERE name = ?")
+        .get(name) as Row | undefined;
       if (row && String(row.expires_at) > nowStr && String(row.holder) !== holder) return false;
       db.prepare(
         `INSERT INTO job_locks (name, holder, acquired_at, expires_at) VALUES (?, ?, ?, ?)
@@ -3226,7 +3335,10 @@ export const store = {
 
   /** Test-only: write a raw override so the corrupt-row path can be exercised. */
   setAgentPolicyRawForTests(agentId: string, rulesJson: string): void {
-    db.prepare('UPDATE agent_policies SET rules_json = ? WHERE agent_id = ?').run(rulesJson, agentId);
+    db.prepare("UPDATE agent_policies SET rules_json = ? WHERE agent_id = ?").run(
+      rulesJson,
+      agentId,
+    );
   },
 
   /** Test-only: re-open the database so boot migrations run again. */
@@ -3307,9 +3419,7 @@ export const store = {
   listChatMessages(orgId: string, limit = 100): ChatMessageRow[] {
     return (
       db
-        .prepare(
-          "SELECT * FROM chat_messages WHERE org_id = ? ORDER BY created_at ASC LIMIT ?",
-        )
+        .prepare("SELECT * FROM chat_messages WHERE org_id = ? ORDER BY created_at ASC LIMIT ?")
         .all(orgId, limit) as Row[]
     ).map((r) => ({
       id: r.id as string,
@@ -3331,11 +3441,9 @@ export const store = {
     messageId: string,
     patch: Record<string, unknown>,
   ): ChatMessageRow | null {
-    const row = (
-      db
-        .prepare("SELECT * FROM chat_messages WHERE id = ? AND org_id = ?")
-        .get(messageId, orgId) as Row | undefined
-    );
+    const row = db
+      .prepare("SELECT * FROM chat_messages WHERE id = ? AND org_id = ?")
+      .get(messageId, orgId) as Row | undefined;
     if (!row) return null;
     const prev = row.meta_json
       ? (JSON.parse(row.meta_json as string) as Record<string, unknown>)
@@ -3358,8 +3466,11 @@ export const store = {
     };
   },
 
-
-  addAbiMemory(orgId: string, fact: string, source = "guardian"): { id: string; fact: string; createdAt: string } {
+  addAbiMemory(
+    orgId: string,
+    fact: string,
+    source = "guardian",
+  ): { id: string; fact: string; createdAt: string } {
     const clean = fact.trim().slice(0, 500);
     const row = { id: id("mem"), fact: clean, createdAt: nowIso() };
     db.prepare(
@@ -3368,7 +3479,10 @@ export const store = {
     return row;
   },
 
-  listAbiMemories(orgId: string, limit = 20): { id: string; fact: string; source?: string; createdAt: string }[] {
+  listAbiMemories(
+    orgId: string,
+    limit = 20,
+  ): { id: string; fact: string; source?: string; createdAt: string }[] {
     return (
       db
         .prepare(
@@ -3383,8 +3497,16 @@ export const store = {
     }));
   },
 
-  searchAbiMemories(orgId: string, query: string, limit = 10): { id: string; fact: string; createdAt: string }[] {
-    const q = query.trim().toLowerCase().replace(/[?!.]+$/g, "").trim();
+  searchAbiMemories(
+    orgId: string,
+    query: string,
+    limit = 10,
+  ): { id: string; fact: string; createdAt: string }[] {
+    const q = query
+      .trim()
+      .toLowerCase()
+      .replace(/[?!.]+$/g, "")
+      .trim();
     const all = this.listAbiMemories(orgId, 50);
     if (!q || q.length < 2) return all.slice(0, limit);
     return all.filter((m) => m.fact.toLowerCase().includes(q)).slice(0, limit);
@@ -3459,9 +3581,7 @@ export const store = {
    * in every reader.
    */
   reversePayByRef(ref: string): { removed: number; amountMicro: MicroUsdc } {
-    const rows = db
-      .prepare("SELECT amount_micro FROM pay_events WHERE ref = ?")
-      .all(ref) as Row[];
+    const rows = db.prepare("SELECT amount_micro FROM pay_events WHERE ref = ?").all(ref) as Row[];
     if (!rows.length) return { removed: 0, amountMicro: 0n };
     db.prepare("DELETE FROM pay_events WHERE ref = ?").run(ref);
     return {
@@ -3563,10 +3683,9 @@ export const store = {
   },
 
   getEscrow(escrowId: string, orgId: string): EscrowRow | undefined {
-    const r = db.prepare("SELECT * FROM escrows WHERE id = ? AND org_id = ?").get(
-      escrowId,
-      orgId,
-    ) as Row | undefined;
+    const r = db
+      .prepare("SELECT * FROM escrows WHERE id = ? AND org_id = ?")
+      .get(escrowId, orgId) as Row | undefined;
     return r ? rowToEscrow(r) : undefined;
   },
 
@@ -3638,18 +3757,15 @@ export const store = {
   },
 
   getApproval(approvalId: string, orgId: string): ApprovalRow | undefined {
-    const r = db.prepare("SELECT * FROM approvals WHERE id = ? AND org_id = ?").get(
-      approvalId,
-      orgId,
-    ) as Row | undefined;
+    const r = db
+      .prepare("SELECT * FROM approvals WHERE id = ? AND org_id = ?")
+      .get(approvalId, orgId) as Row | undefined;
     return r ? rowToApproval(r) : undefined;
   },
 
   /** Cross-org lookup — used only by trusted internal surfaces (Telegram ops bot). */
   getApprovalAnyOrg(approvalId: string): ApprovalRow | undefined {
-    const r = db.prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as
-      | Row
-      | undefined;
+    const r = db.prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as Row | undefined;
     return r ? rowToApproval(r) : undefined;
   },
 
@@ -3712,10 +3828,9 @@ export const store = {
 
   // ----------------------------------------------------------- idempotency
   getIdempotent(orgId: string, key: string): unknown | undefined {
-    const r = db.prepare("SELECT response_json FROM idempotency WHERE org_id = ? AND key = ?").get(
-      orgId,
-      key,
-    ) as Row | undefined;
+    const r = db
+      .prepare("SELECT response_json FROM idempotency WHERE org_id = ? AND key = ?")
+      .get(orgId, key) as Row | undefined;
     return r ? JSON.parse(r.response_json) : undefined;
   },
 
@@ -3730,9 +3845,11 @@ export const store = {
    */
   reserveIdempotent(orgId: string, key: string): boolean {
     try {
-      db.prepare(
-        "INSERT INTO idempotency (org_id, key, response_json) VALUES (?, ?, ?)",
-      ).run(orgId, key, JSON.stringify({ status: "in_flight", at: nowIso() }));
+      db.prepare("INSERT INTO idempotency (org_id, key, response_json) VALUES (?, ?, ?)").run(
+        orgId,
+        key,
+        JSON.stringify({ status: "in_flight", at: nowIso() }),
+      );
       return true;
     } catch {
       return false; // UNIQUE(org_id, key) violated — someone else owns it
@@ -3776,9 +3893,7 @@ export const store = {
 
   listDecisionsForAgent(orgId: string, agentId: string, limit = 50): DecisionRow[] {
     const rows = db
-      .prepare(
-        "SELECT * FROM decisions WHERE org_id = ? AND agent_id = ? ORDER BY id DESC LIMIT ?",
-      )
+      .prepare("SELECT * FROM decisions WHERE org_id = ? AND agent_id = ? ORDER BY id DESC LIMIT ?")
       .all(orgId, agentId, limit) as Row[];
     return rows.map((r) => ({
       intentId: r.intent_id,
@@ -3835,6 +3950,66 @@ export const store = {
     db.prepare("UPDATE agent_groups SET budget_id = ? WHERE id = ?").run(budgetId, groupId);
   },
 
+  /** Assign an agent to its one spending budget. Label membership is independent. */
+  assignAgentBudget(orgId: string, agentId: string, budgetId: string): "ok" | "busy" | "invalid" {
+    return db.transaction(() => {
+      const agent = this.getAgentAnyOrg(agentId);
+      const budget = this.getDepartmentAnyOrg(budgetId);
+      if (
+        !agent ||
+        agent.orgId !== orgId ||
+        !budget ||
+        budget.orgId !== orgId ||
+        budget.status !== "active"
+      )
+        return "invalid";
+      if (agent.budgetId === budgetId) return "ok";
+      const pendingApproval = db
+        .prepare(
+          "SELECT 1 FROM approvals WHERE org_id = ? AND agent_id = ? AND status IN ('pending', 'resolving') LIMIT 1",
+        )
+        .get(orgId, agentId);
+      const pendingEscrow = db
+        .prepare(
+          "SELECT 1 FROM escrows WHERE org_id = ? AND (payer_agent_id = ? OR payee_agent_id = ?) AND state IN ('locked', 'settling') LIMIT 1",
+        )
+        .get(orgId, agentId, agentId);
+      const pendingSettlement = db
+        .prepare(
+          "SELECT 1 FROM settlement_attempts WHERE org_id = ? AND agent_id = ? AND state IN ('pending', 'broadcast', 'needs_review') LIMIT 1",
+        )
+        .get(orgId, agentId);
+      const accounts = this.getAccountMap(orgId);
+      const legacyHeld = accounts.get(accountId("agent", agentId, "held"))?.balanceMicro ?? 0n;
+      if (pendingApproval || pendingEscrow || pendingSettlement || legacyHeld > 0n) return "busy";
+      const legacyId = accountId("agent", agentId, "available");
+      const legacyAvailable = accounts.get(legacyId)?.balanceMicro ?? 0n;
+      if (legacyAvailable < 0n) return "busy";
+      if (legacyAvailable > 0n)
+        this.applyEntries(orgId, [
+          {
+            id: id("j"),
+            orgId,
+            memo: `migrate_agent_balance:${agentId}:${budgetId}`,
+            createdAt: nowIso(),
+            lines: [
+              { accountId: legacyId, deltaMicro: -legacyAvailable },
+              {
+                accountId: accountId("department", budgetId, "available"),
+                deltaMicro: legacyAvailable,
+              },
+            ],
+          },
+        ]);
+      db.prepare("UPDATE agents SET budget_id = ? WHERE id = ? AND org_id = ?").run(
+        budgetId,
+        agentId,
+        orgId,
+      );
+      return "ok";
+    })();
+  },
+
   findAgentGroupByBudget(orgId: string, budgetId: string): AgentGroupRecord | undefined {
     const r = db
       .prepare(
@@ -3888,77 +4063,20 @@ export const store = {
     ).run(orgId, agentId, groupId, nowIso());
   },
 
-  /** Move an agent's authority to one budget, carrying only unspent legacy funds.
-   * A pending commitment must settle against its original budget first.
-   */
-  reassignAgentGroup(orgId: string, agentId: string, groupId: string): "ok" | "busy" | "invalid" {
-    return db.transaction(() => {
-      const agent = this.getAgentAnyOrg(agentId);
-      const target = this.getAgentGroupAnyOrg(groupId);
-      if (
-        !agent ||
-        agent.orgId !== orgId ||
-        !target ||
-        target.orgId !== orgId ||
-        target.status !== "active" ||
-        !target.budgetId ||
-        this.getDepartmentAnyOrg(target.budgetId)?.status !== "active"
-      )
-        return "invalid";
-
-      const pending = db
-        .prepare(
-          "SELECT 1 FROM approvals WHERE org_id = ? AND agent_id = ? AND status IN ('pending', 'resolving') LIMIT 1",
-        )
-        .get(orgId, agentId);
-      const escrow = db
-        .prepare(
-          "SELECT 1 FROM escrows WHERE org_id = ? AND (payer_agent_id = ? OR payee_agent_id = ?) AND state IN ('locked', 'settling') LIMIT 1",
-        )
-        .get(orgId, agentId, agentId);
-      const settlement = db
-        .prepare(
-          "SELECT 1 FROM settlement_attempts WHERE org_id = ? AND agent_id = ? AND state IN ('pending', 'broadcast', 'needs_review') LIMIT 1",
-        )
-        .get(orgId, agentId);
-      const accounts = this.getAccountMap(orgId);
-      const sourceGroups = this.listAgentGroupIdsAnyOrg(agentId)
-        .map((sourceId) => this.getAgentGroupAnyOrg(sourceId))
-        .filter((source): source is AgentGroupRecord => Boolean(source));
-      const hasHeld = [
-        accountId("agent", agentId, "held"),
-        ...sourceGroups
-          .filter((source) => source.budgetId)
-          .map((source) => accountId("department", source.budgetId!, "held")),
-      ].some((account) => (accounts.get(account)?.balanceMicro ?? 0n) > 0n);
-      if (pending || escrow || settlement || hasHeld) return "busy";
-
-      const legacyId = accountId("agent", agentId, "available");
-      const legacy = accounts.get(legacyId)?.balanceMicro ?? 0n;
-      if (legacy < 0n) return "busy";
-      if (legacy > 0n)
-        this.applyEntries(orgId, [
-          {
-            id: id("j"),
-            orgId,
-            memo: `migrate_agent_balance:${agentId}:${groupId}`,
-            createdAt: nowIso(),
-            lines: [
-              { accountId: legacyId, deltaMicro: -legacy },
-              {
-                accountId: accountId("department", target.budgetId!, "available"),
-                deltaMicro: legacy,
-              },
-            ],
-          },
-        ]);
-      db.prepare("DELETE FROM agent_group_members WHERE org_id = ? AND agent_id = ?").run(
-        orgId,
-        agentId,
-      );
-      this.addAgentToGroup(orgId, agentId, groupId);
-      return "ok";
-    })();
+  /** Add a descriptive group label without changing spending authority. */
+  assignAgentGroupLabel(orgId: string, agentId: string, groupId: string): "ok" | "invalid" {
+    const agent = this.getAgentAnyOrg(agentId);
+    const group = this.getAgentGroupAnyOrg(groupId);
+    if (
+      !agent ||
+      agent.orgId !== orgId ||
+      !group ||
+      group.orgId !== orgId ||
+      group.status !== "active"
+    )
+      return "invalid";
+    this.addAgentToGroup(orgId, agentId, groupId);
+    return "ok";
   },
 
   removeAgentFromGroup(agentId: string, groupId: string): void {
@@ -4014,7 +4132,10 @@ export const store = {
     );
   },
 
-  listAutoFundRuns(orgId: string, limit = 40): {
+  listAutoFundRuns(
+    orgId: string,
+    limit = 40,
+  ): {
     id: string;
     groupId: string;
     agentId: string;
@@ -4023,9 +4144,7 @@ export const store = {
   }[] {
     return (
       db
-        .prepare(
-          "SELECT * FROM auto_fund_runs WHERE org_id = ? ORDER BY at DESC LIMIT ?",
-        )
+        .prepare("SELECT * FROM auto_fund_runs WHERE org_id = ? ORDER BY at DESC LIMIT ?")
         .all(orgId, limit) as Row[]
     ).map((r) => ({
       id: r.id as string,
@@ -4080,17 +4199,15 @@ export const store = {
   },
 
   listSessionKeys(orgId: string, agentId?: string): Omit<SessionKeyRecord, "token">[] {
-    const rows = (
-      agentId
-        ? (db
-            .prepare(
-              "SELECT * FROM session_keys WHERE org_id = ? AND agent_id = ? ORDER BY created_at DESC",
-            )
-            .all(orgId, agentId) as Row[])
-        : (db
-            .prepare("SELECT * FROM session_keys WHERE org_id = ? ORDER BY created_at DESC")
-            .all(orgId) as Row[])
-    );
+    const rows = agentId
+      ? (db
+          .prepare(
+            "SELECT * FROM session_keys WHERE org_id = ? AND agent_id = ? ORDER BY created_at DESC",
+          )
+          .all(orgId, agentId) as Row[])
+      : (db
+          .prepare("SELECT * FROM session_keys WHERE org_id = ? ORDER BY created_at DESC")
+          .all(orgId) as Row[]);
     return rows.map((r) => ({
       id: r.id as string,
       orgId: r.org_id as string,
@@ -4114,9 +4231,7 @@ export const store = {
 
   revokeAllSessionKeys(agentId: string): number {
     const info = db
-      .prepare(
-        "UPDATE session_keys SET revoked_at = ? WHERE agent_id = ? AND revoked_at IS NULL",
-      )
+      .prepare("UPDATE session_keys SET revoked_at = ? WHERE agent_id = ? AND revoked_at IS NULL")
       .run(nowIso(), agentId);
     return info.changes;
   },
@@ -4143,10 +4258,9 @@ export const store = {
   },
 
   deleteWebhook(webhookId: string, orgId: string): boolean {
-    const info = db.prepare("DELETE FROM webhooks WHERE id = ? AND org_id = ?").run(
-      webhookId,
-      orgId,
-    );
+    const info = db
+      .prepare("DELETE FROM webhooks WHERE id = ? AND org_id = ?")
+      .run(webhookId, orgId);
     return info.changes > 0;
   },
 
@@ -4173,7 +4287,14 @@ export const store = {
         `INSERT INTO webhook_deliveries (org_id, webhook_id, event, payload_json, url, status, attempts, created_at)
          VALUES (?, ?, ?, ?, ?, 'pending', 0, ?)`,
       )
-      .run(args.orgId, args.webhookId, args.event, JSON.stringify(args.payload), args.url, nowIso());
+      .run(
+        args.orgId,
+        args.webhookId,
+        args.event,
+        JSON.stringify(args.payload),
+        args.url,
+        nowIso(),
+      );
     return Number(info.lastInsertRowid);
   },
 
@@ -4183,7 +4304,13 @@ export const store = {
   ): void {
     db.prepare(
       "UPDATE webhook_deliveries SET status = ?, attempts = ?, last_error = ?, delivered_at = ? WHERE id = ?",
-    ).run(fields.status, fields.attempts, fields.lastError ?? null, fields.deliveredAt ?? null, deliveryId);
+    ).run(
+      fields.status,
+      fields.attempts,
+      fields.lastError ?? null,
+      fields.deliveredAt ?? null,
+      deliveryId,
+    );
   },
 
   listDeliveries(orgId: string, limit = 50): WebhookDeliveryRow[] {
@@ -4203,9 +4330,17 @@ export const store = {
   listJournals(
     orgId: string,
     limit = 100,
-  ): { id: string; intentId?: string; memo: string; createdAt: string; lines: { accountId: string; deltaMicro: string }[] }[] {
+  ): {
+    id: string;
+    intentId?: string;
+    memo: string;
+    createdAt: string;
+    lines: { accountId: string; deltaMicro: string }[];
+  }[] {
     const rows = db
-      .prepare("SELECT * FROM journals WHERE org_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?")
+      .prepare(
+        "SELECT * FROM journals WHERE org_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+      )
       .all(orgId, limit) as Row[];
     return rows.map((r) => ({
       id: r.id,
@@ -4262,8 +4397,7 @@ export const store = {
     if (!row) return null;
     const role = patch.role ?? row.role;
     if (role === "owner") return null; // secondary guardians cannot become owner
-    const conditions =
-      patch.conditions === null ? undefined : (patch.conditions ?? row.conditions);
+    const conditions = patch.conditions === null ? undefined : (patch.conditions ?? row.conditions);
     db.prepare(
       "UPDATE guardians SET role = ?, conditions_json = ? WHERE id = ? AND org_id = ?",
     ).run(role, conditions ? JSON.stringify(conditions) : null, guardianId, orgId);
@@ -4349,17 +4483,16 @@ export const store = {
 
   listSubscriptions(orgId: string): SubscriptionRow[] {
     return (
-      db.prepare("SELECT * FROM subscriptions WHERE org_id = ? ORDER BY created_at DESC").all(
-        orgId,
-      ) as Row[]
+      db
+        .prepare("SELECT * FROM subscriptions WHERE org_id = ? ORDER BY created_at DESC")
+        .all(orgId) as Row[]
     ).map(rowToSub);
   },
 
   getSubscription(subId: string, orgId: string): SubscriptionRow | undefined {
-    const r = db.prepare("SELECT * FROM subscriptions WHERE id = ? AND org_id = ?").get(
-      subId,
-      orgId,
-    ) as Row | undefined;
+    const r = db
+      .prepare("SELECT * FROM subscriptions WHERE id = ? AND org_id = ?")
+      .get(subId, orgId) as Row | undefined;
     return r ? rowToSub(r) : undefined;
   },
 
@@ -4406,9 +4539,9 @@ export const store = {
     // — permanently, from the first successful charge onward. It stayed hidden
     // because the sweep that charges subscriptions never ran in production.
     const tx = db.transaction(() => {
-      const row = db.prepare("SELECT spent_micro FROM subscriptions WHERE id = ?").get(args.subId) as
-        | Row
-        | undefined;
+      const row = db
+        .prepare("SELECT spent_micro FROM subscriptions WHERE id = ?")
+        .get(args.subId) as Row | undefined;
       if (!row) return;
       const spent = parseMicroColumn(row.spent_micro) + args.chargedMicro;
       db.prepare(
@@ -4429,7 +4562,8 @@ export const store = {
     const n =
       row.number ??
       `INV-${new Date().getFullYear()}-${String(
-        (db.prepare("SELECT COUNT(*) AS n FROM invoices WHERE org_id = ?").get(row.orgId) as Row).n + 1,
+        (db.prepare("SELECT COUNT(*) AS n FROM invoices WHERE org_id = ?").get(row.orgId) as Row)
+          .n + 1,
       ).padStart(4, "0")}`;
     const full: InvoiceRow = { ...row, number: n };
     db.prepare(
@@ -4462,8 +4596,7 @@ export const store = {
 
   getInvoice(id: string, orgId: string): InvoiceRow | undefined {
     const r = db.prepare("SELECT * FROM invoices WHERE id = ? AND org_id = ?").get(id, orgId) as
-      | Row
-      | undefined;
+      Row | undefined;
     return r ? rowToInvoice(r) : undefined;
   },
 
@@ -4519,8 +4652,7 @@ export const store = {
 
   getRun(id: string, orgId: string): RunRow | undefined {
     const r = db.prepare("SELECT * FROM runs WHERE id = ? AND org_id = ?").get(id, orgId) as
-      | Row
-      | undefined;
+      Row | undefined;
     return r ? rowToRun(r) : undefined;
   },
 
@@ -4546,8 +4678,7 @@ export const store = {
     drift: { accountId: string; expectedMicro: string; actualMicro: string }[];
   } {
     const orgRow = db.prepare("SELECT deposit_micro FROM orgs WHERE id = ?").get(orgId) as
-      | Row
-      | undefined;
+      Row | undefined;
     const expected = new Map<string, bigint>();
     for (const account of this.getAccountMap(orgId).values()) {
       expected.set(account.id, 0n);
@@ -4561,7 +4692,10 @@ export const store = {
     for (const j of journals) {
       const lines = JSON.parse(j.lines_json) as { accountId: string; deltaMicro: string }[];
       for (const line of lines) {
-        expected.set(line.accountId, (expected.get(line.accountId) ?? 0n) + BigInt(line.deltaMicro));
+        expected.set(
+          line.accountId,
+          (expected.get(line.accountId) ?? 0n) + BigInt(line.deltaMicro),
+        );
       }
     }
     const drift: { accountId: string; expectedMicro: string; actualMicro: string }[] = [];
@@ -4602,8 +4736,7 @@ export const store = {
   /** Ledger money not backed by vault funds. See `unbacked_micro` migration. */
   getUnbackedMicro(orgId: string): bigint {
     const r = db.prepare("SELECT unbacked_micro FROM orgs WHERE id = ?").get(orgId) as
-      | Row
-      | undefined;
+      Row | undefined;
     return BigInt((r?.unbacked_micro as string | undefined) ?? "0");
   },
 
@@ -4626,8 +4759,7 @@ export const store = {
    * Subtracting the unbacked total leaves only money that really moved.
    */
   expectedOnchainMicro(orgId: string): bigint {
-    const external =
-      this.getAccountMap(orgId).get(`org:${orgId}:external`)?.balanceMicro ?? 0n;
+    const external = this.getAccountMap(orgId).get(`org:${orgId}:external`)?.balanceMicro ?? 0n;
     return -external - this.getUnbackedMicro(orgId);
   },
 
@@ -4752,7 +4884,7 @@ export const store = {
 
   /**
    * Create a fresh, self-contained demo organization with two agents and a
-   * seeded stipend. **Non-destructive** — existing organizations are untouched,
+   * seeded budget. **Non-destructive** — existing organizations are untouched,
    * so two people can try the demo without erasing each other.
    */
   seedDemoOrg() {
@@ -4768,19 +4900,23 @@ export const store = {
       });
       this.addKnownCounterparty(org.id, "localhost");
     }
-    const researcher = this.createAgent(org.id, "Researcher");
-    const writer = this.createAgent(org.id, "Writer");
-    // Pre-fund the Researcher with a stipend so the built-in "Research brief"
-    // mission has money to spend without an extra step for the user.
+    const researchBudget = this.createDepartment(org.id, "Research");
+    const researcher = this.createAgent(org.id, "Researcher", researchBudget.id);
+    const writer = this.createAgent(org.id, "Writer", researchBudget.id);
+    // Pre-fund the shared Research budget so the built-in "Research brief"
+    // mission has spending capacity without an extra setup step.
     this.applyEntries(org.id, [
       {
         id: id("j"),
         orgId: org.id,
-        memo: "seed_stipend",
+        memo: "seed_demo_budget",
         createdAt: new Date().toISOString(),
         lines: [
           { accountId: `org:${org.id}:available`, deltaMicro: -40_000_000n },
-          { accountId: `agent:${researcher.agentId}:available`, deltaMicro: 40_000_000n },
+          {
+            accountId: accountId("department", researchBudget.id, "available"),
+            deltaMicro: 40_000_000n,
+          },
         ],
       },
     ]);

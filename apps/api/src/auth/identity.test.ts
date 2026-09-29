@@ -102,6 +102,14 @@ async function signup(jar: Jar, email = uniqueEmail(), orgName = "Acme") {
     jar,
     body: { email, name: "Test User", password: PASSWORD, orgName },
   });
+  const body = (await res.clone().json()) as { devVerificationToken?: string };
+  if (body.devVerificationToken) {
+    await call("/v1/auth/email/verify", {
+      method: "POST",
+      jar,
+      body: { token: body.devVerificationToken },
+    });
+  }
   return { res, email };
 }
 
@@ -130,6 +138,44 @@ describe("password hashing", () => {
 });
 
 describe("signup and login", () => {
+  it("requires a one-time email verification before issuing a session", async () => {
+    const email = uniqueEmail();
+    const pendingJar = new Jar();
+    const created = await call("/v1/auth/signup", {
+      method: "POST",
+      jar: pendingJar,
+      body: { email, name: "Test User", password: PASSWORD, orgName: "Acme" },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(pendingJar.get("abi_session"), undefined);
+    const body = (await created.json()) as { devVerificationToken?: string };
+    assert.ok(body.devVerificationToken);
+
+    const blocked = await call("/v1/auth/login", {
+      method: "POST",
+      body: { email, password: PASSWORD },
+    });
+    assert.equal(blocked.status, 403);
+    assert.equal(
+      ((await blocked.json()) as { error: { code: string } }).error.code,
+      "EMAIL_NOT_VERIFIED",
+    );
+
+    const verifiedJar = new Jar();
+    const verified = await call("/v1/auth/email/verify", {
+      method: "POST",
+      jar: verifiedJar,
+      body: { token: body.devVerificationToken },
+    });
+    assert.equal(verified.status, 200);
+    assert.ok(verifiedJar.get("abi_session"));
+    const replay = await call("/v1/auth/email/verify", {
+      method: "POST",
+      body: { token: body.devVerificationToken },
+    });
+    assert.equal(replay.status, 400);
+  });
+
   it("creates an account, an org, and an owner membership", async () => {
     const jar = new Jar();
     const { res } = await signup(jar);
@@ -192,7 +238,11 @@ describe("signup and login", () => {
     const { email } = await signup(setup, uniqueEmail(), "Sign In Co");
 
     const jar = new Jar();
-    const res = await call("/v1/auth/login", { method: "POST", jar, body: { email, password: PASSWORD } });
+    const res = await call("/v1/auth/login", {
+      method: "POST",
+      jar,
+      body: { email, password: PASSWORD },
+    });
     assert.equal(res.status, 200);
     const body = (await res.json()) as { orgs: { name: string; role: string }[] };
     assert.equal(body.orgs.length, 1);
@@ -230,7 +280,11 @@ describe("sessions", () => {
 
     // A second, independent session for the same user.
     const other = new Jar();
-    await call("/v1/auth/login", { method: "POST", jar: other, body: { email, password: PASSWORD } });
+    await call("/v1/auth/login", {
+      method: "POST",
+      jar: other,
+      body: { email, password: PASSWORD },
+    });
     assert.equal((await call("/v1/guardian/org", { jar: other })).status, 200);
 
     const changed = await call("/v1/auth/change-password", {
@@ -275,7 +329,11 @@ describe("CSRF", () => {
   it("allows the same mutation when the header matches the cookie", async () => {
     const jar = new Jar();
     await signup(jar, uniqueEmail(), "CSRF OK Co");
-    const res = await call("/v1/guardian/freeze", { method: "POST", jar, body: { reason: "legit" } });
+    const res = await call("/v1/guardian/freeze", {
+      method: "POST",
+      jar,
+      body: { reason: "legit" },
+    });
     assert.equal(res.status, 200);
   });
 
@@ -314,7 +372,16 @@ describe("invitations and membership", () => {
       },
     });
     assert.equal(joined.status, 201);
-    assert.equal(((await joined.json()) as { org: { role: string } }).org.role, "viewer");
+    const joinedBody = (await joined.json()) as {
+      org: { role: string };
+      devVerificationToken: string;
+    };
+    assert.equal(joinedBody.org.role, "viewer");
+    await call("/v1/auth/email/verify", {
+      method: "POST",
+      jar: inviteeJar,
+      body: { token: joinedBody.devVerificationToken },
+    });
 
     // The role is enforced, not merely recorded: viewers cannot move money.
     const denied = await call("/v1/guardian/freeze", {
@@ -339,7 +406,12 @@ describe("invitations and membership", () => {
 
     const res = await call("/v1/auth/signup", {
       method: "POST",
-      body: { email: uniqueEmail(), name: "Wrong Person", password: PASSWORD, invitationToken: token },
+      body: {
+        email: uniqueEmail(),
+        name: "Wrong Person",
+        password: PASSWORD,
+        invitationToken: token,
+      },
     });
     assert.equal(res.status, 400);
   });

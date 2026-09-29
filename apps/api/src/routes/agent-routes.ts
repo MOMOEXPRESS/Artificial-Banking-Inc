@@ -48,7 +48,6 @@ function balOf(orgId: string, agentId: string) {
     return {
       availableUsdc: "0",
       heldUsdc: "0",
-      group: null,
       budget: null,
     };
   }
@@ -58,7 +57,6 @@ function balOf(orgId: string, agentId: string) {
   return {
     availableUsdc: formatMicroToUsdc(available),
     heldUsdc: formatMicroToUsdc(held),
-    group: { id: funding.group.id, name: funding.group.name },
     budget: { id: funding.budget.id, name: funding.budget.name },
   };
 }
@@ -123,18 +121,32 @@ export function registerAgentRoutes(
         const body = z
           .object({
             name: z.string().min(1).max(80),
-            groupId: z.string().min(1),
+            budgetId: z.string().min(1).optional(),
+            groupId: z.string().min(1).optional(),
+            groupIds: z.array(z.string().min(1)).optional(),
             profile: z.record(z.unknown()).optional(),
           })
           .parse(req.body);
-        const group = scopedStore(org.id).getAgentGroup(body.groupId);
-        if (!group || group.status !== "active" || !group.budgetId) {
+        const legacyGroup = body.groupId
+          ? scopedStore(org.id).getAgentGroup(body.groupId)
+          : undefined;
+        const budgetId = body.budgetId ?? legacyGroup?.budgetId;
+        const budget = budgetId ? scopedStore(org.id).getDepartment(budgetId) : undefined;
+        if (!budget || budget.status !== "active") {
           return res.status(400).json({
             error: {
               code: "VALIDATION_ERROR",
-              message:
-                "Choose an active agent group with a linked budget before creating an agent.",
+              message: "Choose an active budget before creating an agent.",
             },
+          });
+        }
+        const groupIds = [
+          ...new Set([...(body.groupIds ?? []), ...(body.groupId ? [body.groupId] : [])]),
+        ];
+        const groups = groupIds.map((groupId) => scopedStore(org.id).getAgentGroup(groupId));
+        if (groups.some((group) => !group || group.status !== "active")) {
+          return res.status(400).json({
+            error: { code: "VALIDATION_ERROR", message: "Choose active agent groups." },
           });
         }
         if (body.profile) {
@@ -143,15 +155,16 @@ export function registerAgentRoutes(
             return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: err } });
           }
         }
-        const { agentId, apiKey } = store.createAgent(org.id, body.name);
-        store.addAgentToGroup(org.id, agentId, group.id);
+        const { agentId, apiKey } = store.createAgent(org.id, body.name, budget.id);
+        for (const groupId of groupIds) store.addAgentToGroup(org.id, agentId, groupId);
         if (body.profile) store.setAgentProfile(agentId, body.profile);
         const agent = scopedStore(org.id).getAgent(agentId)!;
         recordObs({ name: "agent.created", orgId: org.id, agentId });
         res.status(201).json({
           agentId,
           apiKey,
-          group: { id: group.id, name: group.name, budgetId: group.budgetId },
+          budget: { id: budget.id, name: budget.name },
+          groups: groups.map((group) => ({ id: group!.id, name: group!.name })),
           identity: identityOf(agent),
           note: "Store this API key now — it is not shown again. Use as Bearer token for /v1/agent routes.",
         });
@@ -407,12 +420,8 @@ export function registerAgentRoutes(
     guardianRoute(
       (org, req, res) => {
         const body = z.object({ name: z.string().min(1).max(80) }).parse(req.body);
-        const budget = store.createDepartment(org.id, body.name);
-        const group = store.createAgentGroup(org.id, body.name, budget.id);
-        res.status(201).json({
-          group,
-          budget: { ...budget, availableUsdc: "0", heldUsdc: "0" },
-        });
+        const group = store.createAgentGroup(org.id, body.name);
+        res.status(201).json({ group });
       },
       { ownerOnly: true },
     ),
@@ -447,12 +456,7 @@ export function registerAgentRoutes(
     guardianRoute(
       (org, req, res) => {
         const group = scopedStore(org.id).getAgentGroup(req.params.id);
-        if (
-          !group ||
-          group.status !== "active" ||
-          !group.budgetId ||
-          scopedStore(org.id).getDepartment(group.budgetId)?.status !== "active"
-        ) {
+        if (!group || group.status !== "active") {
           return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
         }
         const body = z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
@@ -466,16 +470,7 @@ export function registerAgentRoutes(
           });
         const assigned: string[] = [];
         for (const agentId of body.agentIds) {
-          const result = store.reassignAgentGroup(org.id, agentId, group.id);
-          if (result !== "ok")
-            return res.status(409).json({
-              error: {
-                code: "GROUP_REASSIGNMENT_BLOCKED",
-                message:
-                  "Resolve pending approvals, escrow, and payment holds before moving this agent.",
-              },
-              assigned,
-            });
+          store.assignAgentGroupLabel(org.id, agentId, group.id);
           assigned.push(agentId);
         }
         res.json({ ok: true, groupId: group.id, assigned });
@@ -492,14 +487,39 @@ export function registerAgentRoutes(
         if (!group) {
           return res.status(404).json({ error: { code: "NOT_FOUND", message: "group" } });
         }
-        z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
-        res.status(409).json({
-          error: {
-            code: "AGENT_GROUP_REQUIRED",
-            message:
-              "An agent must always belong to a funded group. Assign it to another group instead.",
-          },
-        });
+        const body = z.object({ agentIds: z.array(z.string()).min(1) }).parse(req.body);
+        const invalid = body.agentIds.filter((agentId) => !scopedStore(org.id).getAgent(agentId));
+        if (invalid.length) return res.status(400).json({ error: { code: "VALIDATION_ERROR" } });
+        for (const agentId of body.agentIds) store.removeAgentFromGroup(agentId, group.id);
+        res.json({ ok: true, groupId: group.id, unassigned: body.agentIds });
+      },
+      { ownerOnly: true },
+    ),
+  );
+
+  /** Change the single budget authority without changing descriptive groups. */
+  app.post(
+    "/v1/guardian/agents/:id/budget",
+    guardianRoute(
+      (org, req, res) => {
+        const agent = scopedStore(org.id).getAgent(req.params.id);
+        if (!agent) return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
+        const body = z.object({ budgetId: z.string().min(1) }).parse(req.body);
+        const result = store.assignAgentBudget(org.id, agent.id, body.budgetId);
+        if (result === "invalid") {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "active budget" } });
+        }
+        if (result === "busy") {
+          return res.status(409).json({
+            error: {
+              code: "AGENT_BUDGET_REASSIGNMENT_BLOCKED",
+              message:
+                "Resolve this agent’s pending approvals, escrow, or settlement before changing its budget.",
+            },
+          });
+        }
+        const assigned = scopedStore(org.id).getAgent(agent.id)?.budgetId;
+        res.json({ ok: true, agentId: agent.id, budgetId: assigned });
       },
       { ownerOnly: true },
     ),
