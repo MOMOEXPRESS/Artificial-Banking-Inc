@@ -36,6 +36,7 @@ export function registerPlatformRoutes(
     country: z.string().trim().max(80).default(""),
     timezone: z.string().trim().max(100).default("UTC"),
     organizationType: z.enum(["company", "individual", "nonprofit", "other"]).default("other"),
+    defaultCurrencyDisplay: z.enum(["USD", "EUR"]).default("USD"),
     intendedUse: z.string().trim().max(500).default(""),
     workspace: z.enum(["buyer", "seller", "both"]).default("buyer"),
   });

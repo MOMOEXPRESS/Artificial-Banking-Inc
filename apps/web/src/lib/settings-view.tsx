@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Icon } from "./ui";
 import { AiEgressPanel } from "./ai-egress-panel";
 import { MfaPanel } from "./mfa-panel";
@@ -64,89 +64,89 @@ const SECTIONS = [
     key: "profile",
     label: "Organization profile",
     icon: "shield",
-    group: "Launch",
+    group: "Workspace",
     description: "Identity, location, and how this workspace uses ABI.",
   },
   {
     key: "golive",
     label: "Go live",
     icon: "shield",
-    group: "Launch",
+    group: "Finance",
     description: "Readiness, custody, network, and reconciliation.",
   },
   {
     key: "org",
-    label: "Org & compliance",
+    label: "Organization controls",
     icon: "shield",
-    group: "Launch",
-    description: "Organization defaults, compliance, and financial controls.",
+    group: "Workspace",
+    description: "Treasury approval limits, compliance screening, and system health.",
   },
   {
     key: "merchants",
     label: "Merchants",
     icon: "wallet",
-    group: "Launch",
+    group: "Finance",
     description: "Approved sellers, gateway profiles, and payout routes.",
   },
   {
     key: "team",
     label: "Team & quorum",
     icon: "check",
-    group: "Access",
+    group: "People & access",
     description: "People, roles, signing authority, and approval quorum.",
   },
   {
     key: "security",
     label: "Security",
     icon: "shield",
-    group: "Access",
+    group: "People & access",
     description: "Authentication, key posture, and incident controls.",
   },
   {
     key: "recurring",
     label: "Recurring spend",
     icon: "clock",
-    group: "Automation",
+    group: "Finance",
     description: "Standing financial commitments and scheduled controls.",
   },
   {
     key: "webhooks",
     label: "Webhooks",
     icon: "zap",
-    group: "Automation",
+    group: "Connections",
     description: "Delivery health and operational event routing.",
   },
   {
     key: "console",
-    label: "Console",
+    label: "Notifications & console",
     icon: "sliders",
-    group: "Experience",
-    description: "Console behavior and operator preferences.",
+    group: "Workspace",
+    description: "How this browser surfaces approvals and operator updates.",
   },
   {
     key: "ai",
     label: "AI & data",
     icon: "spark",
-    group: "Experience",
+    group: "Connections",
     description: "Assistant access, data boundaries, and model egress.",
   },
   {
     key: "connect",
     label: "Connect an agent",
     icon: "robot",
-    group: "Experience",
+    group: "Connections",
     description: "Give a runtime the minimum credentials and scopes it needs.",
   },
   {
     key: "danger",
     label: "Danger zone",
     icon: "alert",
-    group: "Advanced",
+    group: "People & access",
     description: "Organization-wide controls with irreversible consequences.",
   },
 ] as const;
 
-const SETTINGS_GROUPS = ["Launch", "Access", "Automation", "Experience", "Advanced"] as const;
+const SETTINGS_GROUPS = ["Workspace", "Finance", "People & access", "Connections"] as const;
 
 type Section = (typeof SECTIONS)[number]["key"];
 
@@ -187,13 +187,13 @@ export function SettingsView({
   onGoto?: (view: string) => void;
 }) {
   const readOnly = actorRole === "viewer";
-  const [section, setSection] = useState<Section>("golive");
+  const [section, setSection] = useState<Section>("profile");
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [quorum, setQuorum] = useState(1);
   const [newGuardian, setNewGuardian] = useState("");
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [showGuardianKey, setShowGuardianKey] = useState(false);
   const [inviteRole, setInviteRole] = useState<"approver" | "viewer">("approver");
-  const [orgSettings, setOrgSettings] = useState<Record<string, unknown>>({});
   const [profile, setProfile] = useState({
     displayName: "",
     legalName: "",
@@ -204,8 +204,14 @@ export function SettingsView({
     organizationType: "other",
     intendedUse: "",
     workspace: "buyer",
+    defaultCurrencyDisplay: "USD" as "USD" | "EUR",
   });
-  const [planDraft, setPlanDraft] = useState("");
+  const [profileMeta, setProfileMeta] = useState({
+    orgId: "",
+    environment: "",
+    status: "",
+    plan: "",
+  });
   const [treasuryHitlDraft, setTreasuryHitlDraft] = useState("50");
   const [compliance, setCompliance] = useState<{
     screener?: string;
@@ -248,8 +254,6 @@ export function SettingsView({
         gFetch("/v1/guardian/observability").then((r) => r.json()),
         gFetch("/v1/guardian/merchants").then((r) => r.json()),
       ]);
-      setOrgSettings(settings.settings ?? {});
-      setPlanDraft(String((settings.settings ?? {}).plan ?? ""));
       setTreasuryHitlDraft(String((settings.settings ?? {}).treasuryHitlUsdc ?? "50"));
       setCompliance(comp);
       setObs(ob);
@@ -259,16 +263,32 @@ export function SettingsView({
     }
   };
 
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     try {
-      const response = await gFetch("/v1/guardian/organization-profile");
+      const [response, settingsResponse] = await Promise.all([
+        gFetch("/v1/guardian/organization-profile"),
+        gFetch("/v1/guardian/settings"),
+      ]);
       if (!response.ok) return;
-      const data = await response.json();
+      const [data, settingsData] = await Promise.all([
+        response.json(),
+        settingsResponse.ok ? settingsResponse.json() : Promise.resolve(null),
+      ]);
       setProfile((previous) => ({ ...previous, ...data.profile }));
+      setProfileMeta({
+        orgId: data.orgId ?? "",
+        environment: data.environment ?? "",
+        status: data.status ?? "",
+        plan: settingsData?.settings?.plan ?? "",
+      });
     } catch {
       /* The current profile can be reloaded on the next visit. */
     }
-  };
+  }, [gFetch]);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
 
   const go = (s: Section) => {
     setSection(s);
@@ -299,7 +319,8 @@ export function SettingsView({
     ? `X402_SELLER_ADDRESS=${selectedMerchant.meta.gateway.payoutAddress ?? "0x..."}\nX402_PRICE_USDC=$${selectedMerchant.meta.gateway.priceUsdc ?? "0.01"}\nCHAIN=${selectedMerchant.meta.gateway.network === "eip155:8453" ? "base" : "base-sepolia"}\nX402_FACILITATOR_URL=https://x402.org/facilitator`
     : "";
 
-  const orgFrozen = org?.org.status === "frozen";
+  const currentOrgStatus = org?.org.status ?? profileMeta.status;
+  const orgFrozen = currentOrgStatus === "frozen";
   const activeSection = SECTIONS.find((item) => item.key === section) ?? SECTIONS[0];
 
   const toggleFreeze = () =>
@@ -405,11 +426,33 @@ export function SettingsView({
 
   return (
     <div className="set-grid console-page settings-page">
-      <nav className="set-nav">
+      <nav className="set-nav" aria-label="Settings sections">
         <div className="set-nav-head">
-          <span>Organization</span>
+          <span>Settings</span>
           <small>{actorRole}</small>
         </div>
+        <div className="set-nav-org" title={profile.displayName || org?.org.name || "Organization"}>
+          <span className="set-nav-org-mark" aria-hidden>
+            {(profile.displayName || org?.org.name || "O").trim().slice(0, 1).toUpperCase()}
+          </span>
+          <span>{profile.displayName || org?.org.name || "Your organization"}</span>
+        </div>
+        <select
+          className="settings-mobile-picker"
+          aria-label="Choose settings section"
+          value={section}
+          onChange={(event) => go(event.target.value as Section)}
+        >
+          {SETTINGS_GROUPS.map((group) => (
+            <optgroup key={group} label={group}>
+              {SECTIONS.filter((item) => item.group === group).map((item) => (
+                <option key={item.key} value={item.key}>
+                  {item.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
         {SETTINGS_GROUPS.map((group) => (
           <div className="set-nav-group" key={group}>
             <span className="set-nav-label">{group}</span>
@@ -428,120 +471,223 @@ export function SettingsView({
         ))}
       </nav>
 
-      <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+      <main className="settings-content">
         <section className="settings-section-summary">
-          <span className="settings-section-icon">
-            <Icon name={activeSection.icon} size={17} />
-          </span>
           <div>
             <div className="ops-eyebrow">{activeSection.group}</div>
-            <h3>{activeSection.label}</h3>
+            <h1>{activeSection.label}</h1>
             <p>{activeSection.description}</p>
           </div>
         </section>
         {section === "profile" && (
-          <div className="card">
-            <div className="card-head">
+          <div className="card settings-profile-card">
+            <div className="settings-profile-identity">
+              <span className="settings-profile-avatar" aria-hidden>
+                {(profile.displayName || org?.org.name || "O").trim().slice(0, 1).toUpperCase()}
+              </span>
+              <div className="settings-profile-identity-copy">
+                <strong>{profile.displayName || org?.org.name || "Your organization"}</strong>
+                <span>Organization workspace</span>
+              </div>
+              <span className={`pill ${orgFrozen ? "bad" : currentOrgStatus ? "ok" : "warn"}`}>
+                <i /> {currentOrgStatus || "loading"}
+              </span>
+            </div>
+
+            {readOnly && (
+              <div className="settings-readonly-note" role="status">
+                You can view this profile, but only an owner can change it.
+              </div>
+            )}
+
+            <div className="settings-profile-meta" aria-label="Workspace status">
               <div>
-                <h2>Organization profile</h2>
-                <div className="sub">
-                  This information describes the organization that owns the treasury.
+                <span>Organization ID</span>
+                <strong className="mono" title={profileMeta.orgId || undefined}>
+                  {profileMeta.orgId || "Loading…"}
+                </strong>
+              </div>
+              <div>
+                <span>Environment</span>
+                <strong>{profileMeta.environment || "—"}</strong>
+              </div>
+              <div>
+                <span>Organization status</span>
+                <strong>{profileMeta.status || "—"}</strong>
+              </div>
+              <div>
+                <span>Plan</span>
+                <strong>{profileMeta.plan || "Not set"}</strong>
+              </div>
+            </div>
+
+            <div className="settings-form-section">
+              <div className="settings-form-section-heading">
+                <h2>Organization details</h2>
+                <p>Display and operating details for this ABI workspace.</p>
+              </div>
+              <div className="settings-profile-fields">
+                <div className="field">
+                  <label htmlFor="profile-display">Organization name</label>
+                  <input
+                    id="profile-display"
+                    autoComplete="organization"
+                    value={profile.displayName}
+                    disabled={readOnly}
+                    onChange={(event) =>
+                      setProfile({ ...profile, displayName: event.target.value })
+                    }
+                    placeholder="Your organization"
+                    maxLength={80}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="profile-legal">
+                    Legal name <span>Optional</span>
+                  </label>
+                  <input
+                    id="profile-legal"
+                    autoComplete="organization"
+                    value={profile.legalName}
+                    disabled={readOnly}
+                    onChange={(event) => setProfile({ ...profile, legalName: event.target.value })}
+                    placeholder="Registered legal entity name"
+                    maxLength={160}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="profile-website">
+                    Website <span>Optional</span>
+                  </label>
+                  <input
+                    id="profile-website"
+                    type="url"
+                    autoComplete="url"
+                    placeholder="https://example.com"
+                    value={profile.website}
+                    disabled={readOnly}
+                    onChange={(event) => setProfile({ ...profile, website: event.target.value })}
+                    maxLength={300}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="profile-country">Country or region</label>
+                  <input
+                    id="profile-country"
+                    autoComplete="country-name"
+                    value={profile.country}
+                    disabled={readOnly}
+                    onChange={(event) => setProfile({ ...profile, country: event.target.value })}
+                    placeholder="Where your organization operates"
+                    maxLength={80}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="profile-timezone">Time zone</label>
+                  <input
+                    id="profile-timezone"
+                    value={profile.timezone}
+                    disabled={readOnly}
+                    onChange={(event) => setProfile({ ...profile, timezone: event.target.value })}
+                    placeholder="Europe/Paris"
+                    maxLength={100}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="profile-type">Organization type</label>
+                  <select
+                    id="profile-type"
+                    value={profile.organizationType}
+                    disabled={readOnly}
+                    onChange={(event) =>
+                      setProfile({ ...profile, organizationType: event.target.value })
+                    }
+                  >
+                    <option value="company">Company</option>
+                    <option value="individual">Individual</option>
+                    <option value="nonprofit">Nonprofit</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="profile-currency">Default display currency</label>
+                  <select
+                    id="profile-currency"
+                    value={profile.defaultCurrencyDisplay}
+                    disabled={readOnly}
+                    onChange={(event) =>
+                      setProfile({
+                        ...profile,
+                        defaultCurrencyDisplay: event.target.value as "USD" | "EUR",
+                      })
+                    }
+                  >
+                    <option value="USD">USD — US dollar</option>
+                    <option value="EUR">EUR — euro</option>
+                  </select>
+                  <p className="settings-field-help">
+                    Display preference only. Settlement still uses the asset and network shown on
+                    each payment.
+                  </p>
                 </div>
               </div>
             </div>
-            <div className="field">
-              <label htmlFor="profile-display">Display name</label>
-              <input
-                id="profile-display"
-                value={profile.displayName}
-                disabled={readOnly}
-                onChange={(event) => setProfile({ ...profile, displayName: event.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="profile-legal">Legal name</label>
-              <input
-                id="profile-legal"
-                value={profile.legalName}
-                disabled={readOnly}
-                onChange={(event) => setProfile({ ...profile, legalName: event.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="profile-website">Website</label>
-              <input
-                id="profile-website"
-                type="url"
-                placeholder="https://example.com"
-                value={profile.website}
-                disabled={readOnly}
-                onChange={(event) => setProfile({ ...profile, website: event.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="profile-country">Country</label>
-              <input
-                id="profile-country"
-                value={profile.country}
-                disabled={readOnly}
-                onChange={(event) => setProfile({ ...profile, country: event.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="profile-timezone">Timezone</label>
-              <input
-                id="profile-timezone"
-                value={profile.timezone}
-                disabled={readOnly}
-                onChange={(event) => setProfile({ ...profile, timezone: event.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="profile-type">Organization type</label>
-              <select
-                id="profile-type"
-                value={profile.organizationType}
-                disabled={readOnly}
-                onChange={(event) =>
-                  setProfile({ ...profile, organizationType: event.target.value })
-                }
-              >
-                <option value="company">Company</option>
-                <option value="individual">Individual</option>
-                <option value="nonprofit">Nonprofit</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="profile-workspace">Workspace</label>
-              <select
-                id="profile-workspace"
-                value={profile.workspace}
-                disabled={readOnly}
-                onChange={(event) => setProfile({ ...profile, workspace: event.target.value })}
-              >
-                <option value="buyer">Buyer</option>
-                <option value="seller">Seller</option>
-                <option value="both">Buyer and seller</option>
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="profile-description">Description</label>
-              <textarea
-                id="profile-description"
-                value={profile.description}
-                disabled={readOnly}
-                onChange={(event) => setProfile({ ...profile, description: event.target.value })}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="profile-use">Intended use</label>
-              <textarea
-                id="profile-use"
-                value={profile.intendedUse}
-                disabled={readOnly}
-                onChange={(event) => setProfile({ ...profile, intendedUse: event.target.value })}
-              />
+
+            <div className="settings-form-section">
+              <div className="settings-form-section-heading">
+                <h2>How you use ABI</h2>
+                <p>
+                  These details help describe your workspace; they do not change spending
+                  permissions.
+                </p>
+              </div>
+              <div className="settings-profile-fields settings-profile-fields-wide">
+                <div className="field">
+                  <label htmlFor="profile-workspace">Workspace role</label>
+                  <select
+                    id="profile-workspace"
+                    value={profile.workspace}
+                    disabled={readOnly}
+                    onChange={(event) => setProfile({ ...profile, workspace: event.target.value })}
+                  >
+                    <option value="buyer">Buying services</option>
+                    <option value="seller">Selling services</option>
+                    <option value="both">Buying and selling</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="profile-description">
+                    About the organization <span>Optional</span>
+                  </label>
+                  <textarea
+                    id="profile-description"
+                    value={profile.description}
+                    disabled={readOnly}
+                    onChange={(event) =>
+                      setProfile({ ...profile, description: event.target.value })
+                    }
+                    placeholder="A short description of your organization"
+                    maxLength={1000}
+                    rows={3}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="profile-use">
+                    Intended use <span>Optional</span>
+                  </label>
+                  <textarea
+                    id="profile-use"
+                    value={profile.intendedUse}
+                    disabled={readOnly}
+                    onChange={(event) =>
+                      setProfile({ ...profile, intendedUse: event.target.value })
+                    }
+                    placeholder="What your agents will use ABI to do"
+                    maxLength={500}
+                    rows={3}
+                  />
+                </div>
+              </div>
             </div>
             <Button
               size="sm"
@@ -556,11 +702,11 @@ export function SettingsView({
                   if (!response.ok)
                     throw new Error(data.error?.message ?? "Could not save profile");
                   setProfile(data.profile);
-                  return "Organization profile saved.";
+                  return "Organization profile updated.";
                 })
               }
             >
-              Save profile
+              Save changes
             </Button>
           </div>
         )}
@@ -704,24 +850,16 @@ export function SettingsView({
             <div className="card">
               <div className="card-head">
                 <div>
-                  <h2>Organization settings</h2>
+                  <h2>Treasury approval limit</h2>
                   <div className="sub">
-                    Feature flags and plan metadata stored in OrgSettings JSON
+                    Choose when a treasury move must wait for a guardian to review it.
                   </div>
                 </div>
               </div>
               <div className="field">
-                <label>Plan</label>
+                <label htmlFor="treasury-hitl">Require approval above (USDC)</label>
                 <input
-                  value={planDraft}
-                  disabled={readOnly}
-                  onChange={(e) => setPlanDraft(e.target.value)}
-                  placeholder="demo / growth / enterprise"
-                />
-              </div>
-              <div className="field">
-                <label>Treasury move approval threshold (USDC)</label>
-                <input
+                  id="treasury-hitl"
                   value={treasuryHitlDraft}
                   disabled={readOnly}
                   onChange={(e) => setTreasuryHitlDraft(e.target.value)}
@@ -729,15 +867,14 @@ export function SettingsView({
                   inputMode="decimal"
                 />
                 <p className="faint" style={{ margin: "6px 0 0", fontSize: 11.5, lineHeight: 1.5 }}>
-                  Moves above this amount park in Treasury → Move (multi-guardian queue) — not
-                  Payments → Approvals.
+                  Moves above this amount wait in Treasury → Move for guardian approval.
                 </p>
               </div>
               <Button
                 size="sm"
                 disabled={busy || readOnly}
                 onClick={() =>
-                  void act("Save settings", async () => {
+                  void act("Save approval limit", async () => {
                     const hitl = treasuryHitlDraft.trim();
                     if (hitl && (Number.isNaN(Number(hitl)) || Number(hitl) < 0)) {
                       throw new Error("Treasury HITL threshold must be a non-negative USDC amount");
@@ -746,25 +883,19 @@ export function SettingsView({
                       method: "PATCH",
                       body: JSON.stringify({
                         settings: {
-                          plan: planDraft.trim() || undefined,
                           treasuryHitlUsdc: hitl || "50",
                         },
                       }),
                     });
                     const d = await res.json();
                     if (!res.ok) throw new Error(d.error?.message ?? "failed");
-                    setOrgSettings(d.settings ?? {});
-                    setPlanDraft(String((d.settings ?? {}).plan ?? ""));
                     setTreasuryHitlDraft(String((d.settings ?? {}).treasuryHitlUsdc ?? "50"));
-                    return "Org settings saved.";
+                    return "Treasury approval limit saved.";
                   })
                 }
               >
-                Save settings
+                Save approval limit
               </Button>
-              <pre className="code" style={{ marginTop: 12, fontSize: 11 }}>
-                {JSON.stringify(orgSettings, null, 2)}
-              </pre>
             </div>
             <div className="card">
               <div className="card-head">
@@ -1354,72 +1485,70 @@ export function SettingsView({
         )}
 
         {section === "security" && (
-          <MfaPanel
-            gFetch={gFetch}
-            act={act}
-            locked={busy || actorRole === "viewer"}
-            isSessionUser={session.mode === "session"}
-          />
-        )}
-
-        {section === "ai" && (
-          <AiEgressPanel gFetch={gFetch} act={act} locked={busy || actorRole === "viewer"} />
-        )}
-
-        {section === "console" && (
-          <div className="card">
-            <div className="card-head">
-              <h2>Console behaviour</h2>
-            </div>
-            <div className="between" style={{ marginBottom: 16 }}>
-              <div style={{ minWidth: 0, paddingRight: 14 }}>
-                <b style={{ fontSize: 13, display: "block" }}>Jump me to approvals automatically</b>
-                <span className="muted" style={{ fontSize: 12, lineHeight: 1.55 }}>
-                  When an agent parks a payment, switch the console to Approvals instantly instead
-                  of only showing a banner.
-                </span>
+          <>
+            <MfaPanel
+              gFetch={gFetch}
+              act={act}
+              locked={busy || actorRole === "viewer"}
+              isSessionUser={session.mode === "session"}
+            />
+            <div className="card settings-credential-card">
+              <div className="card-head">
+                <div>
+                  <h2>Guardian credential</h2>
+                  <div className="sub">
+                    Authenticates this console and can approve spending or change organization
+                    controls.
+                  </div>
+                </div>
               </div>
-              <button
-                className={`switch ${prefs.autoJump ? "on" : ""}`}
-                onClick={() => savePrefs({ ...prefs, autoJump: !prefs.autoJump })}
-                aria-label="Toggle auto-jump"
-              />
-            </div>
-            <div className="field">
-              <label>Guardian key (this browser)</label>
-              <div className="code" style={{ wordBreak: "break-all", userSelect: "all" }}>
-                {session.guardianKey}
+              <div className="field">
+                <label htmlFor="guardian-key">Key for this browser</label>
+                <div className="settings-secret-row">
+                  <code id="guardian-key" className="code" aria-live="polite">
+                    {showGuardianKey ? session.guardianKey : "••••••••••••••••••••••••••••••••"}
+                  </code>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-pressed={showGuardianKey}
+                    onClick={() => setShowGuardianKey((visible) => !visible)}
+                  >
+                    {showGuardianKey ? "Hide" : "Reveal"}
+                  </Button>
+                </div>
+                <div className="hint">
+                  Stored in this browser session. Keep it private; anyone who has it can act as an
+                  owner.
+                </div>
               </div>
-              <div className="hint">
-                Held in this browser only. Copy or download a backup — the server cannot re-show it
-                later.
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() =>
-                  void navigator.clipboard.writeText(session.guardianKey).then(
-                    () => act("Copy guardian key", async () => "Guardian key copied."),
-                    () =>
-                      act("Copy guardian key", async () => {
-                        throw new Error("Clipboard blocked — select the key and copy manually.");
-                      }),
-                  )
-                }
-              >
-                Copy guardian key
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  const when = new Date().toISOString();
-                  const agents = session.agentKeys
-                    .map((a) => `### ${a.name}\n\n\`${a.key}\`\n\nAgent id: \`${a.agentId}\``)
-                    .join("\n\n");
-                  const md = `# Artificial Banking — org keys
+              <div className="settings-security-actions">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    void navigator.clipboard.writeText(session.guardianKey).then(
+                      () => act("Copy guardian key", async () => "Guardian key copied."),
+                      () =>
+                        act("Copy guardian key", async () => {
+                          throw new Error(
+                            "Clipboard blocked — reveal the key and copy it manually.",
+                          );
+                        }),
+                    )
+                  }
+                >
+                  Copy key
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const when = new Date().toISOString();
+                    const agents = session.agentKeys
+                      .map((a) => `### ${a.name}\n\n\`${a.key}\`\n\nAgent id: \`${a.agentId}\``)
+                      .join("\n\n");
+                    const md = `# Artificial Banking — key backup
 
 Generated: ${when}
 ${org?.org ? `Org: ${org.org.name}` : ""}
@@ -1432,25 +1561,48 @@ ${org?.org ? `Org: ${org.org.name}` : ""}
 
 ${agents || "_None saved in this browser session._"}
 `;
-                  const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `artificial-banking-keys-${when.slice(0, 10)}.md`;
-                  document.body.appendChild(a);
-                  a.click();
-                  a.remove();
-                  URL.revokeObjectURL(url);
-                  void act("Download keys", async () => "Downloaded keys markdown.");
-                }}
-              >
-                Download .md
-              </Button>
+                    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `abi-key-backup-${when.slice(0, 10)}.md`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(url);
+                    void act("Download key backup", async () => "Key backup downloaded.");
+                  }}
+                >
+                  Download key backup
+                </Button>
+              </div>
             </div>
-            <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.6 }}>
-              This key authenticates the console. Treat it like a root password — anyone holding it
-              can approve spending and change policy.
-            </p>
+          </>
+        )}
+
+        {section === "ai" && (
+          <AiEgressPanel gFetch={gFetch} act={act} locked={busy || actorRole === "viewer"} />
+        )}
+
+        {section === "console" && (
+          <div className="card">
+            <div className="card-head">
+              <h2>Approval alerts</h2>
+            </div>
+            <div className="between" style={{ marginBottom: 16 }}>
+              <div style={{ minWidth: 0, paddingRight: 14 }}>
+                <b style={{ fontSize: 13, display: "block" }}>Open Approvals automatically</b>
+                <span className="muted" style={{ fontSize: 12, lineHeight: 1.55 }}>
+                  When a payment needs review, take this browser to Approvals. This preference is
+                  saved on this browser only.
+                </span>
+              </div>
+              <button
+                className={`switch ${prefs.autoJump ? "on" : ""}`}
+                onClick={() => savePrefs({ ...prefs, autoJump: !prefs.autoJump })}
+                aria-label="Toggle auto-jump"
+              />
+            </div>
           </div>
         )}
 
@@ -1515,7 +1667,7 @@ ${agents || "_None saved in this browser session._"}
             )}
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }
