@@ -1816,8 +1816,7 @@ export const store = {
 
   hasLocalVaultKey(orgId: string): boolean {
     const r = db.prepare("SELECT private_key FROM vaults WHERE org_id = ?").get(orgId) as
-      | { private_key: string | null }
-      | undefined;
+      { private_key: string | null } | undefined;
     return Boolean(r?.private_key);
   },
 
@@ -2634,6 +2633,87 @@ export const store = {
     );
   },
 
+  /** Create the account, org or invitation membership, and verification token atomically. */
+  createAccountWithOrg(input: {
+    email: string;
+    name: string;
+    orgName?: string;
+    passwordHash: string;
+    invitationToken?: string;
+    verificationToken: string;
+    verificationTtlMs: number;
+  }):
+    | { status: "created"; user: UserRow; orgId: string; role: GuardianRoleName }
+    | { status: "conflict" }
+    | { status: "invalid_invitation" }
+    | { status: "email_mismatch" } {
+    try {
+      return db.transaction(() => {
+        const user = this.createUser(input);
+        if ("conflict" in user) return { status: "conflict" } as const;
+
+        let orgId: string;
+        let role: GuardianRoleName;
+        if (input.invitationToken) {
+          const invitation = this.findLiveInvitationByToken(input.invitationToken);
+          if (!invitation) throw new Error("SIGNUP_INVALID_INVITATION");
+          if (invitation.email !== user.email) throw new Error("SIGNUP_EMAIL_MISMATCH");
+          orgId = invitation.orgId;
+          role = invitation.role;
+          const updated = db
+            .prepare(
+              "UPDATE invitations SET accepted_at = ? WHERE id = ? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?",
+            )
+            .run(nowIso(), invitation.id, nowIso());
+          if (updated.changes !== 1) throw new Error("SIGNUP_INVALID_INVITATION");
+        } else {
+          const org = this.createOrg(
+            input.orgName?.trim() || `${input.name.trim()}'s organization`,
+            0n,
+          );
+          orgId = org.id;
+          role = "owner";
+        }
+        this.addMembership(user.id, orgId, role);
+        this.createEmailVerification(user.id, input.verificationToken, input.verificationTtlMs);
+        return { status: "created", user, orgId, role } as const;
+      })();
+    } catch (error) {
+      if (error instanceof Error && error.message === "SIGNUP_INVALID_INVITATION") {
+        return { status: "invalid_invitation" };
+      }
+      if (error instanceof Error && error.message === "SIGNUP_EMAIL_MISMATCH") {
+        return { status: "email_mismatch" };
+      }
+      throw error;
+    }
+  },
+
+  /** Add membership and consume an invitation as one atomic operation. */
+  acceptInvitationForUser(
+    userId: string,
+    email: string,
+    token: string,
+  ):
+    | { status: "accepted"; orgId: string; role: GuardianRoleName }
+    | { status: "invalid" }
+    | { status: "email_mismatch" } {
+    return db.transaction(() => {
+      const invitation = this.findLiveInvitationByToken(token);
+      if (!invitation) return { status: "invalid" } as const;
+      if (invitation.email !== email.trim().toLowerCase())
+        return { status: "email_mismatch" } as const;
+      const updated = db
+        .prepare(
+          "UPDATE invitations SET accepted_at = ? WHERE id = ? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?",
+        )
+        .run(nowIso(), invitation.id, nowIso());
+      if (updated.changes !== 1) return { status: "invalid" } as const;
+      this.addMembership(userId, invitation.orgId, invitation.role);
+      return { status: "accepted", orgId: invitation.orgId, role: invitation.role } as const;
+    })();
+  },
+
   consumeEmailVerification(token: string): UserRow | undefined {
     return db.transaction(() => {
       const now = nowIso();
@@ -2801,6 +2881,35 @@ export const store = {
       .get(hashSecret(token), nowIso()) as Row | undefined;
     if (!r) return undefined;
     return { user: rowToUser(r), sessionId: String(r.session_id) };
+  },
+
+  listUserSessions(userId: string): {
+    id: string;
+    createdAt: string;
+    expiresAt: string;
+    userAgent?: string;
+  }[] {
+    return (
+      db
+        .prepare(
+          "SELECT id, created_at, expires_at, user_agent FROM user_sessions WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ? ORDER BY created_at DESC",
+        )
+        .all(userId, nowIso()) as Row[]
+    ).map((row) => ({
+      id: String(row.id),
+      createdAt: String(row.created_at),
+      expiresAt: String(row.expires_at),
+      ...(row.user_agent ? { userAgent: String(row.user_agent) } : {}),
+    }));
+  },
+
+  revokeUserSession(userId: string, sessionId: string): boolean {
+    const result = db
+      .prepare(
+        "UPDATE user_sessions SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
+      )
+      .run(nowIso(), sessionId, userId);
+    return result.changes === 1;
   },
 
   revokeUserSessionByToken(token: string): void {

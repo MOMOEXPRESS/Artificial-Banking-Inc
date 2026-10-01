@@ -2,7 +2,7 @@ import { LEGAL_FOOTER, formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/
 import {
   DevLocalProvider,
   SelfCustodyVaultProvider,
-  cdpEnvConfigured,
+  onchainSignerConfigured,
   getCustodyProvider,
   setCustodyProvider,
 } from "@policyvault/custody";
@@ -272,10 +272,10 @@ registerNotifier("webhook", (payload) => {
       message: typedData.message as Parameters<typeof account.signTypedData>[0]["message"],
     });
   };
-  if (cdpEnvConfigured()) {
+  if (onchainSignerConfigured()) {
     setCustodyProvider(
       new SelfCustodyVaultProvider(lookup, sign, {
-        apiKeyId: process.env.CDP_API_KEY_ID!,
+        apiKeyId: process.env.CDP_API_KEY_ID,
         network: process.env.CHAIN === "base" ? "base" : "base-sepolia",
       }),
     );
@@ -284,7 +284,7 @@ registerNotifier("webhook", (payload) => {
         type: "abi.custody",
         provider: "self-custody",
         note:
-          "Production mode. Keys are held by this application, NOT by Coinbase CDP. " +
+          "On-chain mode. Keys are held by this application, NOT by Coinbase CDP. " +
           "Fund vaultAddress shown in Treasury → Fund.",
       }),
     );
@@ -336,9 +336,33 @@ function overLimit(key: string, limit: number, windowMs: number): boolean {
 }
 
 const SIGNUP_PATHS = new Set(["/v1/auth/signup", "/v1/guardian/orgs", "/v1/demo/bootstrap"]);
+const AUTH_LIMITS: Record<string, { ipLimit: number; accountLimit: number; windowMs: number }> = {
+  "/v1/auth/login": { ipLimit: 30, accountLimit: 20, windowMs: 15 * 60_000 },
+  "/v1/auth/email/resend": { ipLimit: 10, accountLimit: 5, windowMs: 60 * 60_000 },
+  "/v1/auth/password-reset/request": { ipLimit: 10, accountLimit: 5, windowMs: 60 * 60_000 },
+};
 
 app.use((req, res, next) => {
   if (req.path === "/health" || req.path === "/metrics") return next();
+
+  const authLimit = req.method === "POST" ? AUTH_LIMITS[req.path] : undefined;
+  if (authLimit) {
+    const ip = req.ip ?? "anon";
+    const rawEmail = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+    const identity = rawEmail ? hashSecret(rawEmail) : "invalid";
+    if (
+      overLimit(`auth-ip:${req.path}:${ip}`, authLimit.ipLimit, authLimit.windowMs) ||
+      overLimit(`auth-account:${req.path}:${identity}`, authLimit.accountLimit, authLimit.windowMs)
+    ) {
+      res.setHeader("Retry-After", String(Math.ceil(authLimit.windowMs / 1000)));
+      return res.status(429).json({
+        error: {
+          code: "RATE_LIMITED",
+          message: "Too many authentication requests. Try again later.",
+        },
+      });
+    }
+  }
 
   // Routes that mint a root credential are limited per IP per hour, so a token
   // leak or an open dev instance cannot be farmed for organizations.
@@ -850,6 +874,11 @@ app.get("/v1/openapi.json", (_req, res) => {
 const ALLOW_DEMO_SEED =
   process.env.POLICYVAULT_ALLOW_BOOTSTRAP === "1" ||
   (process.env.NODE_ENV !== "production" && process.env.POLICYVAULT_ALLOW_BOOTSTRAP !== "0");
+
+app.get("/v1/demo/status", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ enabled: ALLOW_DEMO_SEED && !signupTokenProblem(req) });
+});
 
 app.post("/v1/demo/bootstrap", async (req, res) => {
   if (!ALLOW_DEMO_SEED) {
@@ -1879,7 +1908,7 @@ app.get(
       /* unregistered */
     }
     const network = process.env.CHAIN === "base" ? "base" : "base-sepolia";
-    const productionMode = cdpEnvConfigured();
+    const onchainMode = onchainSignerConfigured();
     res.json({
       setup: {
         custody: custodyName,
@@ -1896,10 +1925,11 @@ app.get(
           custodyName === "self-custody"
             ? `onchain (self-custodied signer) · ${network}`
             : "mock (dev facilitator / transfer-mock)",
-        productionMode,
-        // Retained so older console builds keep rendering, but always false:
-        // no Coinbase integration exists in this codebase.
-        cdpApiKeyConfigured: productionMode,
+        onchainMode,
+        // Deprecated compatibility fields. Presence of these environment
+        // variables never means Coinbase API authentication or CDP custody.
+        productionMode: onchainMode,
+        cdpApiKeyConfigured: false,
         cdpWired: false,
         keysHashedAtRest: true,
         // AES-256-GCM under ABI_KEK, with the org id as authenticated data.
@@ -1909,8 +1939,8 @@ app.get(
         outboundTransactionsSerialized: true,
         note:
           custodyName === "dev-local"
-            ? "Dev custody. Set CDP_API_KEY_ID + CDP_API_KEY_SECRET to switch to production mode — still self-custodied."
-            : "Production mode, self-custodied. Managed custody (Coinbase CDP Server Wallets) is not yet implemented.",
+            ? "Dev-local signer. Set ABI_ONCHAIN_ENABLED=1 to enable the on-chain self-custody signer; this does not connect Coinbase CDP."
+            : "On-chain mode with application-managed self-custody. Managed custody (Coinbase CDP Server Wallets) is not implemented.",
         telegram: telegramEnabled,
         rateLimitPerMin: RATE_LIMIT_PER_MIN,
         approvalTtlMinutes: APPROVAL_TTL_MINUTES,

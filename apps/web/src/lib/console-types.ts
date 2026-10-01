@@ -118,8 +118,9 @@ export type Setup = {
   custodyModel?: string;
   managedCustodyProvider?: string | null;
   custodyDisclosure?: string;
-  /** CDP env vars present → production mode. Does NOT mean Coinbase custody. */
+  /** Legacy alias for the application-managed on-chain signer toggle. */
   productionMode?: boolean;
+  onchainMode?: boolean;
   vaultKeysEncryptedAtRest?: boolean;
   cdpApiKeyConfigured?: boolean;
   /** Kept for older builds; the API always returns false (no CDP integration). */

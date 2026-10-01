@@ -43,6 +43,19 @@ export default function DocsPage() {
           />
 
           <div className="mkt-prose">
+            <section id="chatgpt">
+              <h3>Connect ChatGPT in sandbox mode</h3>
+              <p>
+                In the console, open <strong>Agents</strong> and create or select an agent. Use the
+                ChatGPT developer-mode MCP URL shown there to add ABI as a custom connector. The URL
+                is a short-lived bearer credential: treat it like a password, share it only with
+                your ChatGPT account, and revoke the session in ABI when you are done. This proof
+                supports sandbox actions only; it does not authorize live-money settlement.
+              </p>
+              <Link className="btn-primary" href="/console?view=agents">
+                Open Agents <Icon name="arrowRight" size={14} />
+              </Link>
+            </section>
             <h3>How money moves</h3>
             <p>
               Every spend follows one path: the agent asks → we check your rules → we may screen the
@@ -50,7 +63,7 @@ export default function DocsPage() {
               with custody → we finalize and notify you.
             </p>
             <pre className="mkt-code mono">
-{`handleIntent → evaluatePolicy → executeIntent
+              {`handleIntent → evaluatePolicy → executeIntent
   → screenDestination
   → ledger hold
   → rails (x402 | transfer)

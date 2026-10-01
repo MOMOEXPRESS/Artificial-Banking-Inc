@@ -40,7 +40,7 @@ Track D  X marketing (product first, token second)
 | Cloudflare Pages `*.pages.dev` | Build may pass; `wrangler deploy` fails at monorepo root and runtime doesn’t match — don’t use |
 
 **Canonical URL (when deploy is Ready):**  
-https://artificial-banking-inc-gaia10.vercel.app
+https://artificial-banking-inc-web.vercel.app
 
 If that URL returns `x-vercel-error: NOT_FOUND`, there is no live production deployment — recreate / redeploy with the settings below (no `.com` needed).
 
@@ -60,7 +60,7 @@ If that URL returns `x-vercel-error: NOT_FOUND`, there is no live production dep
 7. **Deploy**
 8. **Settings → Deployment Protection** → turn **off** Vercel Authentication  
    (or run `VERCEL_TOKEN=… npm run vercel:harden` — see `docs/VERCEL.md`)
-9. Open the URL Vercel shows under **Domains** (usually `artificial-banking-inc-gaia10.vercel.app`)
+9. Open the current Production domain under **Domains** (currently `artificial-banking-inc-web.vercel.app`; re-check if project ownership changes)
 
 Bookmark whatever Domains lists as Production — that is your public link.
 
@@ -209,7 +209,7 @@ not a bank. not fdic. just controls between the model and the money.
 
 3/
 demo:
-https://artificial-banking-inc-gaia10.vercel.app
+https://artificial-banking-inc-web.vercel.app
 ```
 
 Hashtags: **none**, or one of `#AIAgents` / `#Base`.

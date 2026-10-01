@@ -21,64 +21,43 @@ const TIERS = [
   },
   {
     name: "Team",
-    price: "Contact",
-    note: "more than one approver",
+    price: "Not for sale yet",
+    note: "billing and entitlements are not enabled",
     points: [
       "Org vault + treasury budgets",
       "Multi-person approvals",
       "Signed webhooks",
       "Spend & vendor reports",
     ],
-    cta: "Talk to us",
-    href: "/about",
+    cta: "Explore current features",
+    href: "/docs",
     featured: false,
   },
   {
     name: "Enterprise",
-    price: "Custom",
-    note: "custody + compliance",
+    price: "Roadmap",
+    note: "availability and terms not defined",
     points: [
       "Managed custody (roadmap)",
       "Pluggable compliance checks (roadmap)",
       "SSO / SCIM (roadmap)",
       "Dedicated support",
     ],
-    cta: "Request access",
+    cta: "Read product status",
     href: "/about",
     featured: false,
   },
 ];
 
-type Cell = true | false | string;
-
-const COMPARE_ROWS: { feature: string; developer: Cell; team: Cell; enterprise: Cell }[] = [
-  { feature: "Demo org & playground", developer: true, team: true, enterprise: true },
-  { feature: "Policy simulator", developer: true, team: true, enterprise: true },
-  { feature: "x402 + mock rails", developer: true, team: true, enterprise: true },
-  { feature: "Production USDC settlement", developer: false, team: true, enterprise: true },
-  { feature: "Org vault & agent stipends", developer: false, team: true, enterprise: true },
-  { feature: "Multi-guardian quorum", developer: false, team: true, enterprise: true },
-  { feature: "Signed webhooks", developer: false, team: true, enterprise: true },
-  { feature: "Burn & vendor analytics", developer: false, team: true, enterprise: true },
-  { feature: "Managed custody", developer: false, team: "Roadmap", enterprise: "Roadmap" },
-  { feature: "Compliance screeners", developer: false, team: false, enterprise: "Roadmap" },
-  { feature: "SSO / SCIM", developer: false, team: false, enterprise: "Roadmap" },
-  { feature: "Dedicated support", developer: false, team: "Business hours", enterprise: true },
+const CAPABILITIES = [
+  ["Sandbox organization and playground", "Available in code; enabled by deployment configuration"],
+  ["Policy simulator, budgets, and approvals", "Available in code; test with sandbox data"],
+  ["x402 and mock payment rails", "Development rails; live behavior depends on provider setup"],
+  ["Base Sepolia settlement", "Testnet support; requires RPC and signer configuration"],
+  ["Coinbase CDP custody", "Not connected"],
+  ["Billing, plan gates, and paid support", "Not enabled"],
+  ["Compliance screening, SSO, and SCIM", "Roadmap; not available as a service"],
 ];
-
-function CompareCell({ value }: { value: Cell }) {
-  if (value === true) {
-    return (
-      <span className="mkt-compare-yes" title="Included">
-        <Icon name="check" size={14} />
-      </span>
-    );
-  }
-  if (value === false) {
-    return <span className="mkt-compare-no">—</span>;
-  }
-  return <span className="mkt-compare-note">{value}</span>;
-}
 
 export default function PricingPage() {
   return (
@@ -87,16 +66,13 @@ export default function PricingPage() {
         <div className="mkt-page-inner">
           <SectionHead
             eyebrow="Pricing"
-            title="Start free. Pay when you need production rails."
-            sub="No charge for people who only approve. You pay when agents need real settlement and team controls."
+            title="Explore ABI while we build."
+            sub="ABI is in pre-beta. These are indicative product areas, not purchasable plans: billing, tier entitlements, and live settlement are not enabled."
           />
 
           <div className="mkt-price-grid">
             {TIERS.map((t) => (
-              <article
-                key={t.name}
-                className={`mkt-price-card ${t.featured ? "is-featured" : ""}`}
-              >
+              <article key={t.name} className={`mkt-price-card ${t.featured ? "is-featured" : ""}`}>
                 <header>
                   <h3>{t.name}</h3>
                   <p className="mkt-price">
@@ -111,10 +87,7 @@ export default function PricingPage() {
                     </li>
                   ))}
                 </ul>
-                <Link
-                  className={t.featured ? "btn-primary" : "btn-ghost"}
-                  href={t.href}
-                >
+                <Link className={t.featured ? "btn-primary" : "btn-ghost"} href={t.href}>
                   {t.cta}
                 </Link>
               </article>
@@ -122,33 +95,24 @@ export default function PricingPage() {
           </div>
 
           <div className="mkt-compare">
-            <h3 className="mkt-compare-title">Compare plans</h3>
+            <h3 className="mkt-compare-title">Current capabilities and roadmap</h3>
             <p className="mkt-compare-sub">
-              What you get on Developer, Team, and Enterprise — and what you do not.
+              Availability is not enforced by subscription. Sandbox and testnet capabilities depend
+              on deployment configuration.
             </p>
             <div className="mkt-compare-wrap">
               <table className="mkt-compare-table">
                 <thead>
                   <tr>
                     <th scope="col">Capability</th>
-                    <th scope="col">Developer</th>
-                    <th scope="col">Team</th>
-                    <th scope="col">Enterprise</th>
+                    <th scope="col">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {COMPARE_ROWS.map((row) => (
-                    <tr key={row.feature}>
-                      <th scope="row">{row.feature}</th>
-                      <td>
-                        <CompareCell value={row.developer} />
-                      </td>
-                      <td>
-                        <CompareCell value={row.team} />
-                      </td>
-                      <td>
-                        <CompareCell value={row.enterprise} />
-                      </td>
+                  {CAPABILITIES.map(([feature, status]) => (
+                    <tr key={feature}>
+                      <th scope="row">{feature}</th>
+                      <td>{status}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -157,8 +121,9 @@ export default function PricingPage() {
           </div>
 
           <p className="mkt-fineprint">
-            Artificial Banking Incorporated is not a bank and does not hold customer deposits.
-            Settlement uses USDC on Base; operators remain responsible for agent spend.
+            Artificial Banking Incorporated is not a bank and does not hold customer deposits. ABI
+            is pre-beta. No subscription purchases or live custody service are offered through this
+            page.
           </p>
         </div>
       </section>

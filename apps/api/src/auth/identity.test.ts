@@ -274,6 +274,37 @@ describe("sessions", () => {
     assert.equal((await call("/v1/guardian/org", { jar })).status, 401);
   });
 
+  it("lists and revokes only this user's other active sessions", async () => {
+    const email = uniqueEmail();
+    const owner = new Jar();
+    await signup(owner, email, "Sessions Co");
+    const other = new Jar();
+    await call("/v1/auth/login", {
+      method: "POST",
+      jar: other,
+      body: { email, password: PASSWORD },
+    });
+
+    const listed = await call("/v1/auth/sessions", { jar: owner });
+    assert.equal(listed.status, 200);
+    const sessions = ((await listed.json()) as { sessions: { id: string; current: boolean }[] })
+      .sessions;
+    assert.equal(sessions.length, 2);
+    const current = sessions.find((session) => session.current);
+    const target = sessions.find((session) => !session.current);
+    assert.ok(current && target);
+    assert.equal(
+      (await call(`/v1/auth/sessions/${current.id}`, { method: "DELETE", jar: owner })).status,
+      400,
+      "the current browser must use Sign out rather than revoke itself",
+    );
+    assert.equal(
+      (await call(`/v1/auth/sessions/${target.id}`, { method: "DELETE", jar: owner })).status,
+      200,
+    );
+    assert.equal((await call("/v1/guardian/org", { jar: other })).status, 401);
+  });
+
   it("revokes every session when the password changes", async () => {
     const jar = new Jar();
     const { email } = await signup(jar, uniqueEmail(), "Rotate Co");

@@ -12,15 +12,10 @@ import type express from "express";
 import { z } from "zod";
 import { hashPassword, passwordProblem, verifyPassword } from "../auth/password.js";
 import { clearSessionCookies, newToken } from "../auth/session.js";
-import {
-  generateRecoveryCodes,
-  generateSecret,
-  otpauthUri,
-  verifyCode,
-} from "../auth/totp.js";
-import { notify } from "../platform/notifier.js";
+import { generateRecoveryCodes, generateSecret, otpauthUri, verifyCode } from "../auth/totp.js";
+import { sendEmail } from "../platform/email.js";
 import { store } from "../store.js";
-import { currentUser } from "./auth-routes.js";
+import { asyncRoute, currentUser } from "./auth-routes.js";
 
 /** How long a step-up lasts before a high-value approval needs it again. */
 export const STEP_UP_TTL_MS = Number(process.env.ABI_STEP_UP_TTL_MINUTES ?? 5) * 60_000;
@@ -75,7 +70,9 @@ export function registerMfaRoutes(app: express.Express) {
     }
     const check = verifyCode(mfa.secret, body.code, { lastUsedStep: mfa.lastStep });
     if (!check.ok) {
-      return res.status(400).json({ error: { code: "MFA_INVALID", message: "That code is not valid." } });
+      return res
+        .status(400)
+        .json({ error: { code: "MFA_INVALID", message: "That code is not valid." } });
     }
 
     store.confirmMfa(me.user.id, check.step);
@@ -101,7 +98,9 @@ export function registerMfaRoutes(app: express.Express) {
     // session would try, so re-prove the password.
     const found = store.findUserCredentialsByEmail(me.user.email);
     if (!found || !(await verifyPassword(body.password, found.passwordHash))) {
-      return res.status(403).json({ error: { code: "UNAUTHORIZED", message: "Password is incorrect." } });
+      return res
+        .status(403)
+        .json({ error: { code: "UNAUTHORIZED", message: "Password is incorrect." } });
     }
     store.disableMfa(me.user.id);
     res.json({ ok: true });
@@ -147,7 +146,9 @@ export function registerMfaRoutes(app: express.Express) {
       if (!check.ok) {
         // Fall back to a recovery code so a lost device is not a lockout.
         if (!store.useRecoveryCode(me.user.id, body.code)) {
-          return res.status(403).json({ error: { code: "MFA_INVALID", message: "That code is not valid." } });
+          return res
+            .status(403)
+            .json({ error: { code: "MFA_INVALID", message: "That code is not valid." } });
         }
       } else {
         store.recordMfaStep(me.user.id, check.step);
@@ -161,7 +162,9 @@ export function registerMfaRoutes(app: express.Express) {
       }
       const found = store.findUserCredentialsByEmail(me.user.email);
       if (!found || !(await verifyPassword(body.password, found.passwordHash))) {
-        return res.status(403).json({ error: { code: "UNAUTHORIZED", message: "Password is incorrect." } });
+        return res
+          .status(403)
+          .json({ error: { code: "UNAUTHORIZED", message: "Password is incorrect." } });
       }
     }
 
@@ -181,40 +184,43 @@ export function registerMfaRoutes(app: express.Express) {
    * Always answers 200, whether or not the address is registered — otherwise
    * this endpoint enumerates accounts.
    */
-  app.post("/v1/auth/password-reset/request", (req, res) => {
-    const body = z.object({ email: z.string().email().max(200) }).parse(req.body);
-    const found = store.findUserCredentialsByEmail(body.email);
+  app.post(
+    "/v1/auth/password-reset/request",
+    asyncRoute(async (req, res) => {
+      const body = z.object({ email: z.string().email().max(200) }).parse(req.body);
+      const found = store.findUserCredentialsByEmail(body.email);
 
-    if (found && !found.disabled) {
-      const token = newToken();
-      store.createPasswordReset(found.user.id, token, RESET_TTL_MS);
-      const link = `${(process.env.ABI_CONSOLE_URL ?? "http://localhost:3000").replace(/\/$/, "")}/console?reset=${token}`;
-      void notify(
-        {
-          kind: "info",
-          orgId: "",
-          title: "ABI password reset",
-          body: `Reset your password: ${link}\n\nThis link expires in one hour. If you did not ask for it, ignore this email.`,
-          meta: { email: found.user.email },
-        },
-        ["email"],
-      );
-      // Without an email provider configured the notifier only logs, so surface
-      // the token to the operator in development rather than silently failing.
-      if (process.env.NODE_ENV !== "production") {
-        return res.json({
-          ok: true,
-          devResetToken: token,
-          note: "Dev only: email is not configured, so the token is returned here.",
-        });
+      if (found && !found.disabled) {
+        const token = newToken();
+        store.createPasswordReset(found.user.id, token, RESET_TTL_MS);
+        const link = `${(process.env.ABI_CONSOLE_URL ?? "http://localhost:3000").replace(/\/$/, "")}/console?reset=${token}`;
+        let delivered = false;
+        try {
+          delivered = await sendEmail({
+            to: found.user.email,
+            subject: "Reset your ABI password",
+            text: `Reset your password: ${link}\n\nThis link expires in one hour. If you did not ask for it, ignore this email.`,
+          });
+        } catch (error) {
+          console.error("password reset email delivery failed:", error);
+        }
+        // Without an email provider configured the notifier only logs, so surface
+        // the token to the operator in development rather than silently failing.
+        if (process.env.NODE_ENV !== "production" && !delivered) {
+          return res.json({
+            ok: true,
+            devResetToken: token,
+            note: "Dev only: email is not configured, so the token is returned here.",
+          });
+        }
       }
-    }
 
-    res.json({
-      ok: true,
-      note: "If that address has an account, a reset link is on its way.",
-    });
-  });
+      res.json({
+        ok: true,
+        note: "If that address has an account, a reset link is on its way.",
+      });
+    }),
+  );
 
   app.post("/v1/auth/password-reset/confirm", async (req, res) => {
     const body = z.object({ token: z.string(), newPassword: z.string() }).parse(req.body);

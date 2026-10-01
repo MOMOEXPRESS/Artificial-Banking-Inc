@@ -60,9 +60,10 @@ function Hero() {
             Let AI agents pay for things — <em>without losing control.</em>
           </h1>
           <p className="hero-sub">
-            Artificial Banking Incorporated sits between your AI and your money. Each agent gets its
-            own wallet and budget. You set the rules. Anything large waits for a person. Payments
-            settle in USDC on Base.
+            ABI sits between an AI agent and company funds. Each agent receives a governed spending
+            budget from the organization vault. You set the rules; exceptions wait for a person.
+            Settlement depends on the configured payment rail: sandbox, Base Sepolia testnet, or a
+            separately configured live provider.
           </p>
           <div className="hero-ctas">
             <Link className="btn-primary" href="/console">
@@ -74,8 +75,8 @@ function Hero() {
           </div>
           <div className="hero-meta">
             <div>
-              <b>Base + USDC</b>
-              <span>where payments settle</span>
+              <b>Rail-aware</b>
+              <span>simulation, testnet, or live</span>
             </div>
             <div className="sep" />
             <div>
@@ -245,6 +246,9 @@ function ChatGPTIntegrationBand() {
           Scoped access <span aria-hidden>·</span> revocable session <span aria-hidden>·</span>{" "}
           sandbox only
         </p>
+        <Link className="btn-ghost" href="/docs#chatgpt">
+          View sandbox setup guide <Icon name="arrowRight" size={14} />
+        </Link>
       </div>
     </section>
   );
@@ -434,9 +438,9 @@ const FEATURES: {
 }[] = [
   {
     icon: "wallet",
-    title: "A wallet per agent",
-    lead: "Each agent gets its own budget — not one shared company card.",
-    body: "You fund the company vault once, then hand each agent what it can spend. Freeze one agent without stopping the rest. Balances and history stay attached to that agent.",
+    title: "A budget per agent",
+    lead: "Each agent gets a governed allowance from the organization vault.",
+    body: "You fund the organization vault, then assign each agent a spending budget. Freeze one agent without stopping the rest. Balances and history stay attached to that agent; the budget is not a separate wallet or custody account.",
     visual: {
       label: "Budget · ops-bot",
       lines: ["Available  $420.00", "On hold    $12.40", "Spent today  $38.10"],
@@ -466,10 +470,10 @@ const FEATURES: {
     icon: "swap",
     title: "Pay APIs automatically",
     lead: "Agents can pay services that charge per call — still under your rules.",
-    body: "We speak x402, the machine-payment standard. Rules still run first. When a payment clears, it settles as USDC on Base.",
+    body: "ABI supports x402 machine payments. Rules run first. The configured rail determines whether an action is simulated, sent on testnet, or eligible for live settlement.",
     visual: {
       label: "API payment",
-      lines: ["seller  data.example", "paid  $1.20 of $5", "rail  Base · USDC"],
+      lines: ["seller  data.example", "requested  $1.20 of $5", "rail  sandbox · sample USDC"],
     },
   },
   {
@@ -486,7 +490,7 @@ const FEATURES: {
     icon: "shield",
     title: "Keys stay out of the AI",
     lead: "The model can ask to spend. It never holds the wallet.",
-    body: "A dedicated signer moves the money, never the model. A kill switch can stop work in flight. Custody stays outside the prompt.",
+    body: "The model requests an action; ABI policy decides whether it can proceed. In the current self-custody mode, signing keys are held by the application. Coinbase CDP custody is not yet connected. A freeze can block further work.",
     visual: {
       label: "Who does what",
       lines: ["AI  asks only", "rules  decide", "signer  moves money"],
@@ -710,7 +714,7 @@ const ENTERPRISE_POINTS = [
   {
     icon: "zap",
     title: "Safe by default",
-    body: "The AI asks. Fixed rules decide. A separate signer moves the money.",
+    body: "The AI asks. ABI policy decides. The current signer is application-managed self-custody.",
   },
   {
     icon: "swap",

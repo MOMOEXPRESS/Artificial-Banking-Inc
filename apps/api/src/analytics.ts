@@ -79,9 +79,15 @@ export function simulatePolicy(
 
   const proposed = {
     ...base,
-    ...(change.perTxMaxUsdc !== undefined && { perTxMaxMicro: parseUsdcToMicro(change.perTxMaxUsdc) }),
-    ...(change.dailyMaxUsdc !== undefined && { dailyMaxMicro: parseUsdcToMicro(change.dailyMaxUsdc) }),
-    ...(change.hitlAboveUsdc !== undefined && { hitlAboveMicro: parseUsdcToMicro(change.hitlAboveUsdc) }),
+    ...(change.perTxMaxUsdc !== undefined && {
+      perTxMaxMicro: parseUsdcToMicro(change.perTxMaxUsdc),
+    }),
+    ...(change.dailyMaxUsdc !== undefined && {
+      dailyMaxMicro: parseUsdcToMicro(change.dailyMaxUsdc),
+    }),
+    ...(change.hitlAboveUsdc !== undefined && {
+      hitlAboveMicro: parseUsdcToMicro(change.hitlAboveUsdc),
+    }),
     ...(change.maxPaysPerMinute !== undefined && { maxPaysPerMinute: change.maxPaysPerMinute }),
     ...(change.newCounterpartyCooldownHours !== undefined && {
       newCounterpartyCooldownHours: change.newCounterpartyCooldownHours,
@@ -91,7 +97,8 @@ export function simulatePolicy(
     ...(change.vendorAllowlist && { vendorAllowlist: change.vendorAllowlist }),
     ...(change.blocklist && { blocklist: change.blocklist }),
     ...(change.hitlCategories && {
-      hitlCategories: change.hitlCategories as import("@policyvault/policy").PolicyTemplate["hitlCategories"],
+      hitlCategories:
+        change.hitlCategories as import("@policyvault/policy").PolicyTemplate["hitlCategories"],
     }),
     ...(change.quietHours !== undefined && {
       quietHours: change.quietHours ?? undefined,
@@ -182,7 +189,9 @@ export function simulatePolicy(
           : extraApprovals < 0
             ? `Roughly ${Math.abs(extraApprovals).toFixed(1)} fewer interruptions per day. `
             : "") +
-        (newlyBlocked > 0n ? `${usdText(newlyBlocked)} of past spend would have been stopped. ` : "") +
+        (newlyBlocked > 0n
+          ? `${usdText(newlyBlocked)} of past spend would have been stopped. `
+          : "") +
         (newlyAllowed > 0n ? `${usdText(newlyAllowed)} previously refused would now pass. ` : "");
 
   return {
@@ -219,20 +228,37 @@ export function vendorLedger(orgId: string): { vendors: VendorRow[]; concentrati
     const decisions = store.listDecisions(orgId, 1000);
     const template = store.getPolicyTemplate(orgId);
     const allow = new Set(
-      [...template.vendorAllowlist, ...template.domainAllowlist, ...template.addressAllowlist].map((v) =>
-        v.toLowerCase(),
+      [...template.vendorAllowlist, ...template.domainAllowlist, ...template.addressAllowlist].map(
+        (v) => v.toLowerCase(),
       ),
     );
 
     const map = new Map<
       string,
-      { total: bigint; payments: number; blocked: number; first: string; last: string; max: bigint; amounts: number[] }
+      {
+        total: bigint;
+        payments: number;
+        blocked: number;
+        first: string;
+        last: string;
+        max: bigint;
+        amounts: number[];
+      }
     >();
     for (const d of decisions) {
-      const key = d.destination.replace(/^https?:\/\//, "").split("/")[0].toLowerCase();
-      const e =
-        map.get(key) ??
-        { total: 0n, payments: 0, blocked: 0, first: d.at, last: d.at, max: 0n, amounts: [] };
+      const key = d.destination
+        .replace(/^https?:\/\//, "")
+        .split("/")[0]
+        .toLowerCase();
+      const e = map.get(key) ?? {
+        total: 0n,
+        payments: 0,
+        blocked: 0,
+        first: d.at,
+        last: d.at,
+        max: 0n,
+        amounts: [],
+      };
       const amt = parseUsdcToMicro(d.amountUsdc);
       if (d.outcome === "allow") {
         e.total += amt;
@@ -348,9 +374,7 @@ export function burnForecast(orgId: string): BurnForecast {
         ? "No spending in the last 24 hours — nothing to project from yet."
         : !projectable
           ? `Only ${recent.length} payment${recent.length === 1 ? "" : "s"} over ${
-              observedHours < 1 / 60
-                ? "a few seconds"
-                : `${Math.round(observedHours * 60)} minutes`
+              observedHours < 1 / 60 ? "a few seconds" : `${Math.round(observedHours * 60)} minutes`
             } — too short a window to project a rate from. Come back after an hour of real activity.`
           : `Projected from ${recent.length} payments observed over ${observedHours.toFixed(1)} hours.`,
     };
@@ -453,6 +477,8 @@ export interface JobEconomics {
   runs: {
     runId: string;
     title: string;
+    agentId?: string;
+    agentName?: string;
     costUsdc: string;
     revenueUsdc: string;
     marginUsdc: string;
@@ -483,10 +509,15 @@ export function jobEconomics(orgId: string): JobEconomics {
       return {
         runId: r.id,
         title: r.title,
+        agentId: r.agentId,
+        agentName: r.agentName,
         costUsdc: usd(r.costMicro),
         revenueUsdc: usd(revenue),
         marginUsdc: usd(margin),
-        multiple: r.costMicro > 0n && revenue > 0n ? Number((Number(revenue) / Number(r.costMicro)).toFixed(1)) : null,
+        multiple:
+          r.costMicro > 0n && revenue > 0n
+            ? Number((Number(revenue) / Number(r.costMicro)).toFixed(1))
+            : null,
         invoiceNumber: inv?.number,
         invoiceStatus: inv?.status,
         finishedAt: r.finishedAt,

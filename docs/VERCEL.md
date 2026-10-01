@@ -1,76 +1,31 @@
 # Vercel deploy (Console / Next.js)
 
-## Canonical URL (bookmark this)
+## Production URL
 
-**https://artificial-banking-inc-gaia10.vercel.app**
+**https://artificial-banking-inc-web.vercel.app** is the current production
+domain. Older `gaia10` and short aliases are stale and must not be used in
+launch material. Confirm the current domain under the Vercel project's
+**Settings → Domains** if the project is moved or renamed.
 
-Team projects always get `{project}-{team}.vercel.app`. These short names are
-**not** assigned to this project and will keep returning Vercel platform 404
-forever unless you claim them (usually impossible on a team) or add a **custom
-domain**:
+## Release checks
 
-| URL | Result |
-| --- | --- |
-| `https://artificial-banking-inc-gaia10.vercel.app` | Production alias — **use this** |
-| `https://artificial-banking-inc-git-main-gaia10.vercel.app` | `main` branch alias |
-| `https://artificial-banking-inc.vercel.app` | Platform `NOT_FOUND` (unassigned) |
-| `https://artificialbankinginc.vercel.app` | Platform `DEPLOYMENT_NOT_FOUND` (unassigned) |
+1. Open the project that owns the current production domain under Vercel
+   **Settings → Domains**. This repository has used more than one Vercel project
+   name, so verify the actual owner in the dashboard rather than assuming an old
+   team or project slug.
+2. Confirm the newest Production deployment points to the expected `main`
+   commit and has status **Ready**.
+3. If the app shows a Vercel sign-in wall, check Deployment Protection and
+   confirm the intended audience before changing it. Turning protection off is
+   an access-control change, not a routine 404 fix.
+4. The Next.js project root is `apps/web`; workspace packages outside that
+   directory must be included in the build.
+5. The API is a separate persistent service; use the `/abi-api` proxy and set
+   `ABI_API_ORIGIN` on the correct Vercel project.
 
-## Fix “404 NOT_FOUND” / login wall once
-
-There are **two** different failures people mix up:
-
-1. **Wrong hostname** → `x-vercel-error: NOT_FOUND` / `DEPLOYMENT_NOT_FOUND`  
-   You opened a short `*.vercel.app` that is not on the project. Open the
-   canonical URL above (or add your own domain under **Settings → Domains**).
-
-2. **Right hostname, Vercel login / “looks broken”** → Deployment Protection SSO  
-   The deploy is fine; anonymous visitors are sent to `vercel.com/login`.
-
-### One command (owner)
-
-```bash
-# https://vercel.com/account/tokens — scope: full account or the gaia10 team
-VERCEL_TOKEN=… npm run vercel:harden
-```
-
-That script:
-
-- Disables **Vercel Authentication** (`ssoProtection: null`) on project
-  `artificial-banking-inc` (team `gaia10`)
-- Lists assigned domains
-- Attempts to claim short aliases (usually rejected for team projects — OK)
-- Prints the canonical production URL
-
-### Dashboard click path (Root Directory is NOT a repo folder)
-
-“Root Directory” does **not** appear in GitHub / your file tree. It is a
-**Vercel Project Setting**. The value you type is the real monorepo path
-`apps/web` (that folder exists in the repo).
-
-Exact path in the Vercel UI:
-
-1. Open https://vercel.com and switch the team picker (top-left) to **gaia10**
-2. Click the project **artificial-banking-inc**
-3. Left sidebar → **Settings**
-4. Under Settings, open **Build and Deployment**  
-   (sometimes listed under **General** → scroll to *Build and Development Settings*)
-5. Scroll to **Root Directory** → **Edit**
-6. Enter: `apps/web`
-7. Leave **Include source files outside of the Root Directory in the Build Step** **checked** (on)
-8. **Save**
-9. Still under Settings → **Deployment Protection** → turn **off** Vercel Authentication
-10. **Deployments** → ⋯ on latest → **Redeploy**
-11. Open **https://artificial-banking-inc-gaia10.vercel.app**
-
-If you do not see **Root Directory**:
-
-- You may be on the **team** settings page, not the **project** settings page — go into the project first.
-- Or an old root `vercel.json` `"builds"` block is still on `main` (ignored Project Settings warning). Merge PR #21 / the branch that deleted root `vercel.json`, then refresh Settings.
-
-Optional CI: add repo secret `VERCEL_TOKEN`, then
-**Actions → Vercel harden → Run workflow** (also runs on pushes that touch the
-harden script). That API call sets Root Directory without using the UI.
+The legacy `scripts/vercel-harden.mjs` defaults refer to an older project and
+can disable Deployment Protection. Do not run it as a release step. Confirm the
+current domain and project in the dashboard first.
 
 ## Why builds used to 404 / red ✕ / “unused-build-settings”
 
@@ -97,31 +52,35 @@ Current setup (Project Settings **do** apply):
 
 Vercel **Production** only deploys the **Production Branch** (almost always `main`).
 
-| What you did | What Vercel did |
-| --- | --- |
-| Pushed / opened PRs on `cursor/…` branches | Preview deploys only (not Production) |
-| Clicked **Redeploy** on an old Production row | Rebuilt that **same old commit** |
-| Env vars changed, then Redeploy | Still the commit that row points at |
+| What you did                                  | What Vercel did                       |
+| --------------------------------------------- | ------------------------------------- |
+| Pushed / opened PRs on `cursor/…` branches    | Preview deploys only (not Production) |
+| Clicked **Redeploy** on an old Production row | Rebuilt that **same old commit**      |
+| Env vars changed, then Redeploy               | Still the commit that row points at   |
 
 **Fix:** merge the branch you want into `main` (or change Production Branch under **Settings → Git**). Then wait for a new Production deployment whose commit message matches the tip you expect (e.g. go-live / CDP Settings).
 
 Check: **Deployments** → filter **Production** → open the newest Ready row → confirm the **commit SHA / message** is today’s tip, not last week’s.
 
-## API on Vercel (Bootstrap works)
+## API proxy
 
-Vercel can run the **money API in-process** behind same-origin `/abi-api`
-(Next route embeds `@policyvault/api`, SQLite under `/tmp`). **Launch demo org /
-Bootstrap** works without a separate API host.
+Vercel hosts the console; it proxies `/abi-api/*` to a separate long-lived API.
+The API needs persistent storage. Without the upstream origin, the console
+returns `API_NOT_CONFIGURED` and account, demo, and payment workflows are not
+available.
 
-Optional: still set `ABI_API_ORIGIN` to point at a long-lived API (Docker / VPS)
-if you do not want the ephemeral `/tmp` demo database.
+| Name                            | When                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------- |
+| `ABI_API_ORIGIN`                | Required on Vercel; URL of the persistent API service                     |
+| `ABI_SIGNUP_TOKEN`              | Optional private registration gate; keep consistent across API and Vercel |
+| `POLICYVAULT_ALLOW_BOOTSTRAP=1` | Enable isolated demo-org creation; `0` disables it                        |
+| `ABI_KEY_PEPPER`                | Required on the API service for hashed credentials                        |
+| `ABI_KEK`                       | Required on the API service to encrypt vault keys at rest                 |
 
-| Name | When |
-| --- | --- |
-| *(none)* | Default on Vercel — embedded API, bootstrap enabled |
-| `ABI_API_ORIGIN` | Proxy to an external API instead of embedding |
-| `POLICYVAULT_ALLOW_BOOTSTRAP=0` | Disable demo bootstrap on the embedded API |
-| `ABI_KEY_PEPPER` | Recommended for any shared/prod deploy |
+The console calls `GET /abi-api/v1/demo/status` and hides the demo action when
+the deployment or registration gate disables it. Check API health, email
+delivery, persistent disk, and backups in the service dashboard; Vercel Ready
+alone does not verify those systems.
 
 Local / Cursor still uses `npm run dev:api` + proxy to `:8787` when not on Vercel.
 

@@ -485,3 +485,37 @@ describe("password reset", () => {
     );
   });
 });
+
+describe("atomic account creation", () => {
+  it("rolls back the new account when an invitation becomes invalid", () => {
+    const email = uniqueEmail();
+    const outcome = store.createAccountWithOrg({
+      email,
+      name: "Atomic User",
+      passwordHash: "test-hash",
+      invitationToken: "expired-or-unknown-token",
+      verificationToken: "verification-token",
+      verificationTtlMs: 60_000,
+    });
+    assert.deepEqual(outcome, { status: "invalid_invitation" });
+    assert.equal(store.findUserCredentialsByEmail(email), undefined);
+  });
+
+  it("creates a real organization, owner membership, and verification token together", () => {
+    const email = uniqueEmail();
+    const outcome = store.createAccountWithOrg({
+      email,
+      name: "Atomic User",
+      orgName: "Atomic Workspace",
+      passwordHash: "test-hash",
+      verificationToken: "atomic-verification-token",
+      verificationTtlMs: 60_000,
+    });
+    assert.equal(outcome.status, "created");
+    if (outcome.status !== "created") return;
+    assert.equal(outcome.role, "owner");
+    assert.equal(store.getMembership(outcome.user.id, outcome.orgId)?.role, "owner");
+    assert.equal(store.getOrg(outcome.orgId)?.name, "Atomic Workspace");
+    assert.equal(Boolean(store.consumeEmailVerification("atomic-verification-token")), true);
+  });
+});

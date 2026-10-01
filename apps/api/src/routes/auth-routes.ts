@@ -17,14 +17,15 @@ import {
   parseCookies,
   setSessionCookies,
 } from "../auth/session.js";
-import { store, type GuardianRoleName, type UserRow } from "../store.js";
+import { store, type UserRow } from "../store.js";
 import { signupTokenProblem } from "../auth/signup-token.js";
 import { assertAuthRuntimeReady } from "../auth/key-encryption.js";
+import { sendEmail } from "../platform/email.js";
 
 const INVITE_TTL_MS = 7 * 24 * 3600_000;
 const VERIFY_EMAIL_TTL_MS = 24 * 60 * 60_000;
 
-function asyncRoute(
+export function asyncRoute(
   handler: (req: express.Request, res: express.Response) => Promise<unknown>,
 ): express.RequestHandler {
   return (req, res, next) => {
@@ -52,24 +53,13 @@ function userView(user: UserRow) {
 }
 
 async function sendVerificationEmail(email: string, name: string, token: string): Promise<boolean> {
-  if (process.env.NODE_ENV === "test") return false;
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (!apiKey) return false;
   const consoleUrl = (process.env.ABI_CONSOLE_URL ?? "http://localhost:3000").replace(/\/$/, "");
   const link = `${consoleUrl}/console?verify=${encodeURIComponent(token)}`;
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      from: process.env.ABI_NOTIFY_EMAIL_FROM ?? "ABI <onboarding@resend.dev>",
-      to: [email],
-      subject: "Verify your ABI account",
-      text: `Hi ${name},\n\nVerify your ABI account: ${link}\n\nThis link expires in 24 hours. If you did not create this account, ignore this email.`,
-    }),
-    signal: AbortSignal.timeout(10_000),
+  return sendEmail({
+    to: email,
+    subject: "Verify your ABI account",
+    text: `Hi ${name},\n\nVerify your ABI account: ${link}\n\nThis link expires in 24 hours. If you did not create this account, ignore this email.`,
   });
-  if (!response.ok) throw new Error(`Verification email delivery failed (${response.status}).`);
-  return true;
 }
 
 /**
@@ -140,40 +130,47 @@ export function registerAuthRoutes(app: express.Express) {
       // This prevents a configuration error from leaving an orphan account.
       assertAuthRuntimeReady();
 
-      const created = store.createUser({
+      const verificationToken = newToken();
+      const created = store.createAccountWithOrg({
         email: body.email,
         name: body.name,
+        ...(body.orgName ? { orgName: body.orgName } : {}),
         passwordHash: await hashPassword(body.password),
+        ...(body.invitationToken ? { invitationToken: body.invitationToken } : {}),
+        verificationToken,
+        verificationTtlMs: VERIFY_EMAIL_TTL_MS,
       });
-      if ("conflict" in created) {
+      if (created.status === "conflict") {
         return res.status(409).json({
           error: { code: "EMAIL_IN_USE", message: "An account with that email already exists." },
         });
       }
-
-      let orgId: string;
-      let role: GuardianRoleName;
-      if (invitation) {
-        orgId = invitation.orgId;
-        role = invitation.role;
-        store.markInvitationAccepted(invitation.id);
-      } else {
-        const org = store.createOrg(body.orgName?.trim() || `${body.name}'s organization`, 0n);
-        orgId = org.id;
-        role = "owner";
+      if (created.status === "invalid_invitation") {
+        return res.status(400).json({
+          error: { code: "INVALID_INVITATION", message: "That invitation is invalid or expired." },
+        });
       }
-      store.addMembership(created.id, orgId, role);
-      const verificationToken = newToken();
-      store.createEmailVerification(created.id, verificationToken, VERIFY_EMAIL_TTL_MS);
+      if (created.status === "email_mismatch") {
+        return res.status(400).json({
+          error: {
+            code: "INVALID_INVITATION",
+            message: "This invitation was issued to a different email address.",
+          },
+        });
+      }
       let delivered = false;
       try {
-        delivered = await sendVerificationEmail(created.email, created.name, verificationToken);
+        delivered = await sendVerificationEmail(
+          created.user.email,
+          created.user.name,
+          verificationToken,
+        );
       } catch (error) {
         console.error("verification email delivery failed:", error);
       }
       res.status(201).json({
-        user: userView(created),
-        org: { id: orgId, role },
+        user: userView(created.user),
+        org: { id: created.orgId, role: created.role },
         verificationRequired: true,
         emailSent: delivered,
         ...(process.env.NODE_ENV !== "production" && !delivered
@@ -287,6 +284,31 @@ export function registerAuthRoutes(app: express.Express) {
     });
   });
 
+  app.get("/v1/auth/sessions", (req, res) => {
+    const me = currentUser(req);
+    if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+    res.json({
+      sessions: store.listUserSessions(me.user.id).map((session) => ({
+        ...session,
+        current: session.id === me.sessionId,
+      })),
+    });
+  });
+
+  app.delete("/v1/auth/sessions/:sessionId", (req, res) => {
+    const me = currentUser(req);
+    if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+    if (req.params.sessionId === me.sessionId) {
+      return res.status(400).json({
+        error: { code: "CURRENT_SESSION", message: "Use Sign out to end the current session." },
+      });
+    }
+    if (!store.revokeUserSession(me.user.id, req.params.sessionId)) {
+      return res.status(404).json({ error: { code: "NOT_FOUND" } });
+    }
+    res.json({ ok: true });
+  });
+
   app.post(
     "/v1/auth/change-password",
     asyncRoute(async (req, res) => {
@@ -318,38 +340,57 @@ export function registerAuthRoutes(app: express.Express) {
   // -------------------------------------------------------------- invitations
 
   /** Owner-only: invite a colleague to this org by email. */
-  app.post("/v1/auth/orgs/:orgId/invitations", (req, res) => {
-    const gate = requireOwner(req, res);
-    if (!gate) return;
-    const body = z
-      .object({
-        email: emailSchema,
-        role: z.enum(["approver", "viewer", "owner"]).default("approver"),
-      })
-      .parse(req.body);
+  app.post(
+    "/v1/auth/orgs/:orgId/invitations",
+    asyncRoute(async (req, res) => {
+      const gate = requireOwner(req, res);
+      if (!gate) return;
+      const body = z
+        .object({
+          email: emailSchema,
+          role: z.enum(["approver", "viewer", "owner"]).default("approver"),
+        })
+        .parse(req.body);
 
-    const token = newToken();
-    const invitation = store.createInvitation({
-      orgId: gate.orgId,
-      email: body.email,
-      role: body.role,
-      token,
-      invitedBy: gate.user.id,
-      ttlMs: INVITE_TTL_MS,
-    });
-    res.status(201).json({
-      invitation: {
-        id: invitation.id,
-        email: invitation.email,
-        role: invitation.role,
-        expiresAt: invitation.expiresAt,
-      },
-      // Shown once. Email delivery is roadmap P3-T5; until then the inviter
-      // passes this along out of band.
-      invitationToken: token,
-      note: "Shown once. The invitee signs up with this token to join the org.",
-    });
-  });
+      const token = newToken();
+      const invitation = store.createInvitation({
+        orgId: gate.orgId,
+        email: body.email,
+        role: body.role,
+        token,
+        invitedBy: gate.user.id,
+        ttlMs: INVITE_TTL_MS,
+      });
+      const consoleUrl = (process.env.ABI_CONSOLE_URL ?? "http://localhost:3000").replace(
+        /\/$/,
+        "",
+      );
+      const inviteLink = `${consoleUrl}/console?invite=${encodeURIComponent(token)}`;
+      let emailSent = false;
+      try {
+        emailSent = await sendEmail({
+          to: invitation.email,
+          subject: "You have been invited to an ABI organization",
+          text: `You were invited to join an ABI organization as ${invitation.role}.\n\nAccept the invitation and create or sign in to your account: ${inviteLink}\n\nThis link expires in seven days. If you did not expect this invitation, ignore this email.`,
+        });
+      } catch (error) {
+        console.error("invitation email delivery failed:", error);
+      }
+      res.status(201).json({
+        invitation: {
+          id: invitation.id,
+          email: invitation.email,
+          role: invitation.role,
+          expiresAt: invitation.expiresAt,
+        },
+        ...(!emailSent ? { invitationToken: token } : {}),
+        emailSent,
+        note: emailSent
+          ? "Invitation sent. The invitee can accept it with the invited email address."
+          : "Email is unavailable; share this invitation token securely with the invitee.",
+      });
+    }),
+  );
 
   app.get("/v1/auth/orgs/:orgId/invitations", (req, res) => {
     const gate = requireOwner(req, res);
@@ -372,13 +413,13 @@ export function registerAuthRoutes(app: express.Express) {
     if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
     const body = z.object({ invitationToken: z.string() }).parse(req.body);
 
-    const invitation = store.findLiveInvitationByToken(body.invitationToken);
-    if (!invitation) {
+    const result = store.acceptInvitationForUser(me.user.id, me.user.email, body.invitationToken);
+    if (result.status === "invalid") {
       return res.status(400).json({
         error: { code: "INVALID_INVITATION", message: "That invitation is invalid or expired." },
       });
     }
-    if (invitation.email !== me.user.email) {
+    if (result.status === "email_mismatch") {
       return res.status(403).json({
         error: {
           code: "INVALID_INVITATION",
@@ -386,9 +427,7 @@ export function registerAuthRoutes(app: express.Express) {
         },
       });
     }
-    store.addMembership(me.user.id, invitation.orgId, invitation.role);
-    store.markInvitationAccepted(invitation.id);
-    res.json({ ok: true, org: { id: invitation.orgId, role: invitation.role } });
+    res.json({ ok: true, org: { id: result.orgId, role: result.role } });
   });
 
   // ------------------------------------------------------------------ members

@@ -34,3 +34,19 @@ Before inviting external users, confirm persistent backups, account recovery,
 email delivery, monitoring, incident ownership, and payment review procedures.
 Configure all production-only values in the relevant hosting dashboards, and
 verify them there without copying their values into source control.
+
+## SQLite backup and restore drill
+
+For a self-hosted SQLite API, `npm run db:backup` takes a transactionally
+consistent snapshot with SQLite's online backup API and runs `PRAGMA
+quick_check` against the copy. It writes under `backups/` by default; set
+`ABI_BACKUP_DIR` to the mounted backup volume. The output file is created with
+owner-only permissions. Schedule this on the API host and encrypt/replicate the
+volume using the host's secret-management and backup service; a local file is
+not a durable off-site backup.
+
+To rehearse a restore, stop a staging API, copy the selected backup to an
+isolated staging data path, set `POLICYVAULT_DB` to that path, start the API,
+and run the reconciliation endpoint before any test payments. Keep the source
+and backup copies until the restored ledger and account counts match. Do not
+restore over production as part of a drill.

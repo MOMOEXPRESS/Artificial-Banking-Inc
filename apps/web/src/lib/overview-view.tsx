@@ -160,6 +160,46 @@ export function Overview({
         </div>
       </section>
 
+      {!readOnly && org?.ledgerMode === "sandbox" && decisions.length === 0 && (
+        <section className="card" aria-labelledby="first-safe-run-title">
+          <div className="card-head">
+            <div>
+              <div className="ops-eyebrow">First success · sandbox only</div>
+              <h3 id="first-safe-run-title">Run a payment through ABI safely</h3>
+              <p className="sub">
+                Create a sandbox agent, set a small cap and allowed destination, simulate a request,
+                then review the policy decision. This walkthrough never sends an on-chain payment.
+              </p>
+            </div>
+          </div>
+          <ol className="first-run-steps">
+            <li>
+              <b>1.</b> Agents — create or select a sandbox agent and assign a small budget.
+            </li>
+            <li>
+              <b>2.</b> Policies — set a low daily cap and allow one test vendor.
+            </li>
+            <li>
+              <b>3.</b> Playground — simulate a request to that vendor.
+            </li>
+            <li>
+              <b>4.</b> Approvals — review the reason; approve only if the request should pass.
+            </li>
+            <li>
+              <b>5.</b> Transactions — inspect the policy decision and audit receipt.
+            </li>
+          </ol>
+          <div className="ops-page-actions">
+            <Button variant="secondary" onClick={() => setView("agents")}>
+              Start with Agents <Icon name="arrowRight" size={13} />
+            </Button>
+            <Button onClick={() => setView("playground")}>
+              Open Playground <Icon name="arrowRight" size={13} />
+            </Button>
+          </div>
+        </section>
+      )}
+
       {attentionItems.length > 0 && (
         <section className="ops-priority" aria-labelledby="ops-priority-title">
           <div className="ops-priority-lead">

@@ -14,19 +14,30 @@ Longer context: `docs/LAUNCH.md`. This file is only the buttons.
 
 ---
 
-## 1. Production env (Vercel → Settings → Environment Variables → Production)
+## 1. Production environment
 
-| Key                                       | Value                                                                      |
-| ----------------------------------------- | -------------------------------------------------------------------------- |
-| `ABI_KEY_PEPPER`                          | long random string (required)                                              |
-| `POLICYVAULT_ALLOW_BOOTSTRAP`             | `0`                                                                        |
-| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE`     | `1` (so login **Create org** works; set `0` later if you want invite-only) |
-| `CHAIN`                                   | `base-sepolia`                                                             |
-| `ABI_KEK`                                 | 32 random bytes, base64; encrypts local vault keys. Back this up securely. |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | optional                                                                   |
-| `TELEGRAM_ALLOWED_USER_IDS`               | optional lock                                                              |
+Set API variables on the long-lived API host (for example, Render). The web
+project only proxies requests and must not be given the API's encryption key.
 
-Then **Deployments → … → Redeploy** (env only applies after a new deploy).
+| API host variable                          | Purpose                                                                           |
+| ------------------------------------------ | --------------------------------------------------------------------------------- |
+| `ABI_KEY_PEPPER`                           | Random secret for credential hashing                                              |
+| `ABI_KEK`                                  | 32 random bytes, base64; encrypts vault keys at rest; back it up securely         |
+| `CHAIN`                                    | `base-sepolia` for reviewed testnet flows                                         |
+| `ABI_ONCHAIN_ENABLED`                      | Optional `1` to enable application-managed self-custody signing; not Coinbase CDP |
+| `POLICYVAULT_ALLOW_BOOTSTRAP`              | `0` disables isolated demo org creation; set `1` only if desired                  |
+| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE`      | `1` enables public organization creation; leave off for invite-only deployment    |
+| `RESEND_API_KEY` / `ABI_NOTIFY_EMAIL_FROM` | Email verification, reset, and invitation delivery                                |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`  | Optional Telegram approvals                                                       |
+| `TELEGRAM_ALLOWED_USER_IDS`                | Optional Telegram user allowlist                                                  |
+
+On Vercel, set `ABI_API_ORIGIN` to the API's HTTPS URL. If registration is
+gated, set the same `ABI_SIGNUP_TOKEN` on the API and Vercel; the browser never
+receives it. Confirm service health, persistent disk, and email delivery in
+their provider dashboards.
+
+Restart or redeploy the API after changing its environment. Redeploy Vercel only
+after changing its own proxy or registration-gate variables.
 
 ---
 
@@ -39,7 +50,7 @@ Then **Deployments → … → Redeploy** (env only applies after a new deploy).
    - **Network** = `base-sepolia` (or `base` if you flipped)
 4. Confirm the warning says keys are encrypted with `ABI_KEK`, not managed by an HSM/MPC provider.
 
-Managed Coinbase CDP custody is not implemented. Setting CDP-named environment variables does not change the custody implementation.
+Managed Coinbase CDP custody is not implemented. `ABI_ONCHAIN_ENABLED=1` enables the application's self-custody signer. Legacy `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET` variables are accepted only as a compatibility toggle; ABI does not use them to authenticate with Coinbase.
 
 ---
 

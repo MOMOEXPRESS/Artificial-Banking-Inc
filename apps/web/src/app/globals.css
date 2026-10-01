@@ -11708,3 +11708,25 @@ button.sm.ghost.on {
     font-size: 12px;
   }
 }
+
+.first-run-steps {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 16px;
+  padding-left: 20px;
+  color: var(--muted, #64748b);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.first-run-steps b {
+  color: var(--fg, #0f172a);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chatgpt-integration-track {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

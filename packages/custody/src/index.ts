@@ -41,10 +41,13 @@ export class DevLocalProvider implements CustodyProvider {
   readonly name = "dev-local";
 
   constructor(
-    private readonly lookup: (orgId: string) =>
-      | { address: `0x${string}`; privateKey: `0x${string}`; network?: ChainNetwork }
-      | null,
-    private readonly sign: (privateKey: `0x${string}`, typedData: SignTypedDataArgs["typedData"]) => Promise<`0x${string}`>,
+    private readonly lookup: (
+      orgId: string,
+    ) => { address: `0x${string}`; privateKey: `0x${string}`; network?: ChainNetwork } | null,
+    private readonly sign: (
+      privateKey: `0x${string}`,
+      typedData: SignTypedDataArgs["typedData"],
+    ) => Promise<`0x${string}`>,
   ) {}
 
   async getAddress(orgId: string): Promise<CustodyAddress | null> {
@@ -105,14 +108,14 @@ export class SelfCustodyVaultProvider implements CustodyProvider {
   readonly name = "self-custody";
 
   constructor(
-    private readonly lookup: (orgId: string) =>
-      | { address: `0x${string}`; privateKey: `0x${string}`; network?: ChainNetwork }
-      | null,
+    private readonly lookup: (
+      orgId: string,
+    ) => { address: `0x${string}`; privateKey: `0x${string}`; network?: ChainNetwork } | null,
     private readonly sign: (
       privateKey: `0x${string}`,
       typedData: SignTypedDataArgs["typedData"],
     ) => Promise<`0x${string}`>,
-    readonly credentials: { apiKeyId: string; network?: ChainNetwork },
+    readonly credentials: { apiKeyId?: string; network?: ChainNetwork },
   ) {}
 
   async getAddress(orgId: string): Promise<CustodyAddress | null> {
@@ -133,14 +136,17 @@ export class SelfCustodyVaultProvider implements CustodyProvider {
 }
 
 /**
- * True when both CDP credentials are present. Today this only selects
- * {@link SelfCustodyVaultProvider} over {@link DevLocalProvider} — the
- * credentials are not used to call Coinbase. Renaming this to
- * `productionModeRequested` is deferred to P4-T1, when it will gain its real
- * meaning.
+ * Whether the application-managed signer is enabled. Legacy CDP credentials
+ * still toggle this for compatibility, but they are never used to call Coinbase.
  */
-export function cdpEnvConfigured(): boolean {
-  return Boolean(process.env.CDP_API_KEY_ID?.trim() && process.env.CDP_API_KEY_SECRET?.trim());
+export function onchainSignerConfigured(): boolean {
+  // ABI_ONCHAIN_ENABLED is the explicit self-custody switch. The CDP variable
+  // check remains temporarily for existing deployments, but those credentials
+  // are not used to authenticate with Coinbase or provide CDP custody.
+  return (
+    process.env.ABI_ONCHAIN_ENABLED === "1" ||
+    Boolean(process.env.CDP_API_KEY_ID?.trim() && process.env.CDP_API_KEY_SECRET?.trim())
+  );
 }
 
 let active: CustodyProvider | null = null;

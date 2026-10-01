@@ -54,6 +54,8 @@ export type Economics = {
   runs: {
     runId: string;
     title: string;
+    agentId?: string;
+    agentName?: string;
     costUsdc: string;
     revenueUsdc: string;
     marginUsdc: string;
@@ -237,7 +239,10 @@ export function InsightsView({
         />
       </div>
 
-      <div className="card-head" style={{ marginBottom: 12, padding: 0, border: "none", background: "transparent" }}>
+      <div
+        className="card-head"
+        style={{ marginBottom: 12, padding: 0, border: "none", background: "transparent" }}
+      >
         <SegTabs
           value={tab}
           onValueChange={(v) => setTab(v as typeof tab)}
@@ -265,246 +270,268 @@ export function InsightsView({
           seedKey={activitySeed?.key}
         />
       ) : (
-      <div className="card fill" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <div className="card-head">
-          <div>
-            <h2>
-              {tab === "economics"
-                ? "Does the work pay for itself?"
-                : tab === "vendors"
-                  ? "Who your agents buy from"
-                  : tab === "burn"
-                    ? "Where spending is heading"
-                    : "What looks unusual"}
-            </h2>
-            <div className="sub">
-              {tab === "economics"
-                ? "Every mission's cost against what it was billed for"
-                : tab === "vendors"
-                  ? `${vendors.length} counterparties · top vendor is ${concentration}% of spend`
-                  : tab === "burn"
-                    ? burn?.note
-                    : "Payments that passed policy but stand out — tighten a rule if warranted"}
+        <div
+          className="card fill"
+          style={{ display: "flex", flexDirection: "column", minHeight: 0 }}
+        >
+          <div className="card-head">
+            <div>
+              <h2>
+                {tab === "economics"
+                  ? "Does the work pay for itself?"
+                  : tab === "vendors"
+                    ? "Who your agents buy from"
+                    : tab === "burn"
+                      ? "Where spending is heading"
+                      : "What looks unusual"}
+              </h2>
+              <div className="sub">
+                {tab === "economics"
+                  ? "Mission cost, paid invoice value, and margin — grouped by agent"
+                  : tab === "vendors"
+                    ? `${vendors.length} counterparties · top vendor is ${concentration}% of spend`
+                    : tab === "burn"
+                      ? burn?.note
+                      : "Payments that passed policy but stand out — tighten a rule if warranted"}
+              </div>
             </div>
           </div>
-        </div>
 
-        {tab === "economics" &&
-          (!econ?.runs.length ? (
-            <Empty icon="book">
-              No missions run yet. Every completed run lands here with what it cost and what it
-              earned.
-            </Empty>
-          ) : (
-            <div className="tbl-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Deliverable</th>
-                    <th className="num">Cost</th>
-                    <th className="num">Billed</th>
-                    <th className="num">Margin</th>
-                    <th className="num">Return</th>
-                    <th>Invoice</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {econ.runs.map((r) => (
-                    <tr key={r.runId}>
-                      <td>
-                        {r.title}
-                        <div className="faint" style={{ fontSize: 11 }}>
-                          {r.finishedAt ? relTime(r.finishedAt) : "in flight"}
-                        </div>
-                      </td>
-                      <td className="num mono">{fmtUsd(r.costUsdc)}</td>
-                      <td className="num mono">{fmtUsd(r.revenueUsdc)}</td>
-                      <td
-                        className="num mono"
-                        style={{ color: Number(r.marginUsdc) >= 0 ? "var(--green)" : "var(--red)" }}
-                      >
-                        {fmtUsd(r.marginUsdc)}
-                      </td>
-                      <td className="num mono">{r.multiple ? `${r.multiple}×` : "—"}</td>
-                      <td>
-                        {r.invoiceNumber ? (
-                          <span className={`pill ${r.invoiceStatus === "paid" ? "ok" : "warn"}`}>
-                            {r.invoiceNumber}
-                          </span>
-                        ) : (
-                          <Button variant="bare" size="sm" onClick={() => setView("work")}>
-                            bill it
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))}
-
-        {tab === "vendors" &&
-          (!vendors.length ? (
-            <Empty icon="wallet">No counterparties yet.</Empty>
-          ) : (
-            <>
-              {concentration >= 60 && (
-                <div className="banner" style={{ marginBottom: 14 }}>
-                  <span className="ico">
-                    <Icon name="alert" size={16} />
-                  </span>
-                  <span className="txt">
-                    <b>Concentrated on one supplier</b>
-                    <span>
-                      {concentration}% of spend goes to {vendors[0].vendor}. An outage or price
-                      change there hits you hard.
-                    </span>
-                  </span>
-                </div>
-              )}
+          {tab === "economics" &&
+            (!econ?.runs.length ? (
+              <Empty icon="book">
+                No missions run yet. Every completed run lands here with what it cost and what it
+                earned.
+              </Empty>
+            ) : (
               <div className="tbl-wrap">
                 <table>
                   <thead>
                     <tr>
-                      <th>Vendor</th>
-                      <th>Status</th>
-                      <th className="num">Total</th>
-                      <th className="num">Payments</th>
-                      <th className="num">Avg</th>
-                      <th className="num">Largest</th>
-                      <th className="num">Blocked</th>
-                      <th>Share</th>
-                      <th>Recent</th>
+                      <th>Deliverable</th>
+                      <th>Agent</th>
+                      <th className="num">Cost</th>
+                      <th className="num">Billed</th>
+                      <th className="num">Margin</th>
+                      <th className="num">Return</th>
+                      <th>Invoice</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {vendors.map((v) => (
-                      <tr key={v.vendor}>
+                    {econ.runs.map((r) => (
+                      <tr key={r.runId}>
                         <td>
-                          {v.vendor}
+                          {r.title}
                           <div className="faint" style={{ fontSize: 11 }}>
-                            first seen {relTime(v.firstSeen)}
+                            {r.finishedAt ? relTime(r.finishedAt) : "in flight"}
                           </div>
                         </td>
+                        <td>{r.agentName ?? "Unassigned"}</td>
+                        <td className="num mono">{fmtUsd(r.costUsdc)}</td>
+                        <td className="num mono">{fmtUsd(r.revenueUsdc)}</td>
+                        <td
+                          className="num mono"
+                          style={{
+                            color: Number(r.marginUsdc) >= 0 ? "var(--green)" : "var(--red)",
+                          }}
+                        >
+                          {fmtUsd(r.marginUsdc)}
+                        </td>
+                        <td className="num mono">{r.multiple ? `${r.multiple}×` : "—"}</td>
                         <td>
-                          <span className={`pill ${v.allowlisted ? "ok" : "mute"}`}>
-                            {v.allowlisted ? "allowlisted" : "not listed"}
-                          </span>
-                        </td>
-                        <td className="num mono">{fmtUsd(v.totalUsdc)}</td>
-                        <td className="num mono">{v.payments}</td>
-                        <td className="num mono">{fmtUsd(v.avgUsdc)}</td>
-                        <td className="num mono">{fmtUsd(v.maxUsdc)}</td>
-                        <td className="num mono" style={{ color: v.blocked ? "var(--red)" : undefined }}>
-                          {v.blocked || "—"}
-                        </td>
-                        <td style={{ minWidth: 90 }}>
-                          <BarLine value={v.sharePct} max={100} />
-                          <span className="faint" style={{ fontSize: 10.5 }}>
-                            {v.sharePct}%
-                          </span>
-                        </td>
-                        <td style={{ width: 90 }}>
-                          {v.trend.length > 1 ? <Sparkline values={v.trend} /> : <span className="faint">—</span>}
+                          {r.invoiceNumber ? (
+                            <span className={`pill ${r.invoiceStatus === "paid" ? "ok" : "warn"}`}>
+                              {r.invoiceNumber}
+                            </span>
+                          ) : (
+                            <Button variant="bare" size="sm" onClick={() => setView("work")}>
+                              bill it
+                            </Button>
+                          )}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </>
-          ))}
+            ))}
 
-        {tab === "burn" &&
-          (!burn?.perAgent.length ? (
-            <Empty icon="clock">No agents to project.</Empty>
-          ) : (
-            <div className="tbl-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Agent</th>
-                    <th className="num">Burn / hour</th>
-                    <th className="num">Spent today</th>
-                    <th>Against cap</th>
-                    <th>Hits cap</th>
-                    <th className="num">Balance</th>
-                    <th>Runs dry</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {burn.perAgent.map((a) => (
-                    <tr key={a.agentId}>
-                      <td>{a.name}</td>
-                      <td className="num mono">{fmtUsd(a.burnPerHourUsdc)}</td>
-                      <td className="num mono">{fmtUsd(a.spentTodayUsdc)}</td>
-                      <td style={{ minWidth: 110 }}>
-                        <BarLine value={Number(a.spentTodayUsdc)} max={Number(a.dailyCapUsdc)} />
-                      </td>
-                      <td>
-                        {a.exhaustsAt ? (
-                          <span className="pill warn">
-                            <i /> in {a.hoursToCap}h
-                          </span>
-                        ) : (
-                          <span className="faint">not at this rate</span>
-                        )}
-                      </td>
-                      <td className="num mono">{fmtUsd(a.balanceUsdc)}</td>
-                      <td className="faint mono">
-                        {a.hoursToEmpty !== null ? `${a.hoursToEmpty}h` : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))}
-
-        {tab === "anomalies" &&
-          (!anomalies.length ? (
-            <Empty icon="shield">
-              Nothing unusual in {scanned} settled payments. Amounts, timing, counterparties and
-              bursts all look normal.
-            </Empty>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-              {anomalies.map((a) => (
-                <div
-                  key={a.intentId}
-                  className="card tight"
-                  style={{
-                    background: "var(--surface-3)",
-                    borderColor: a.score >= 70 ? "rgba(248,113,113,0.3)" : "rgba(251,191,36,0.25)",
-                  }}
-                >
-                  <div className="between" style={{ flexWrap: "wrap", gap: 10 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div className="row" style={{ gap: 8, marginBottom: 4 }}>
-                        <b style={{ fontSize: 14.5 }}>{fmtUsd(a.amountUsdc)}</b>
-                        <span className={`pill ${a.score >= 70 ? "bad" : "warn"}`}>
-                          score {a.score}
-                        </span>
-                        <span className="faint mono" style={{ fontSize: 11.5 }}>
-                          {a.agentName} → {a.destination.replace(/^https?:\/\//, "")}
-                        </span>
-                      </div>
-                      <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: "var(--muted)" }}>
-                        {a.signals.map((s, i) => (
-                          <li key={i}>{s}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    <span className="faint mono" style={{ fontSize: 11.5 }}>
-                      {relTime(a.at)}
+          {tab === "vendors" &&
+            (!vendors.length ? (
+              <Empty icon="wallet">No counterparties yet.</Empty>
+            ) : (
+              <>
+                {concentration >= 60 && (
+                  <div className="banner" style={{ marginBottom: 14 }}>
+                    <span className="ico">
+                      <Icon name="alert" size={16} />
+                    </span>
+                    <span className="txt">
+                      <b>Concentrated on one supplier</b>
+                      <span>
+                        {concentration}% of spend goes to {vendors[0].vendor}. An outage or price
+                        change there hits you hard.
+                      </span>
                     </span>
                   </div>
+                )}
+                <div className="tbl-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Vendor</th>
+                        <th>Status</th>
+                        <th className="num">Total</th>
+                        <th className="num">Payments</th>
+                        <th className="num">Avg</th>
+                        <th className="num">Largest</th>
+                        <th className="num">Blocked</th>
+                        <th>Share</th>
+                        <th>Recent</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {vendors.map((v) => (
+                        <tr key={v.vendor}>
+                          <td>
+                            {v.vendor}
+                            <div className="faint" style={{ fontSize: 11 }}>
+                              first seen {relTime(v.firstSeen)}
+                            </div>
+                          </td>
+                          <td>
+                            <span className={`pill ${v.allowlisted ? "ok" : "mute"}`}>
+                              {v.allowlisted ? "allowlisted" : "not listed"}
+                            </span>
+                          </td>
+                          <td className="num mono">{fmtUsd(v.totalUsdc)}</td>
+                          <td className="num mono">{v.payments}</td>
+                          <td className="num mono">{fmtUsd(v.avgUsdc)}</td>
+                          <td className="num mono">{fmtUsd(v.maxUsdc)}</td>
+                          <td
+                            className="num mono"
+                            style={{ color: v.blocked ? "var(--red)" : undefined }}
+                          >
+                            {v.blocked || "—"}
+                          </td>
+                          <td style={{ minWidth: 90 }}>
+                            <BarLine value={v.sharePct} max={100} />
+                            <span className="faint" style={{ fontSize: 10.5 }}>
+                              {v.sharePct}%
+                            </span>
+                          </td>
+                          <td style={{ width: 90 }}>
+                            {v.trend.length > 1 ? (
+                              <Sparkline values={v.trend} />
+                            ) : (
+                              <span className="faint">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              ))}
-            </div>
-          ))}
-      </div>
+              </>
+            ))}
+
+          {tab === "burn" &&
+            (!burn?.perAgent.length ? (
+              <Empty icon="clock">No agents to project.</Empty>
+            ) : (
+              <div className="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Agent</th>
+                      <th className="num">Burn / hour</th>
+                      <th className="num">Spent today</th>
+                      <th>Against cap</th>
+                      <th>Hits cap</th>
+                      <th className="num">Balance</th>
+                      <th>Runs dry</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {burn.perAgent.map((a) => (
+                      <tr key={a.agentId}>
+                        <td>{a.name}</td>
+                        <td className="num mono">{fmtUsd(a.burnPerHourUsdc)}</td>
+                        <td className="num mono">{fmtUsd(a.spentTodayUsdc)}</td>
+                        <td style={{ minWidth: 110 }}>
+                          <BarLine value={Number(a.spentTodayUsdc)} max={Number(a.dailyCapUsdc)} />
+                        </td>
+                        <td>
+                          {a.exhaustsAt ? (
+                            <span className="pill warn">
+                              <i /> in {a.hoursToCap}h
+                            </span>
+                          ) : (
+                            <span className="faint">not at this rate</span>
+                          )}
+                        </td>
+                        <td className="num mono">{fmtUsd(a.balanceUsdc)}</td>
+                        <td className="faint mono">
+                          {a.hoursToEmpty !== null ? `${a.hoursToEmpty}h` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+
+          {tab === "anomalies" &&
+            (!anomalies.length ? (
+              <Empty icon="shield">
+                Nothing unusual in {scanned} settled payments. Amounts, timing, counterparties and
+                bursts all look normal.
+              </Empty>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                {anomalies.map((a) => (
+                  <div
+                    key={a.intentId}
+                    className="card tight"
+                    style={{
+                      background: "var(--surface-3)",
+                      borderColor:
+                        a.score >= 70 ? "rgba(248,113,113,0.3)" : "rgba(251,191,36,0.25)",
+                    }}
+                  >
+                    <div className="between" style={{ flexWrap: "wrap", gap: 10 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="row" style={{ gap: 8, marginBottom: 4 }}>
+                          <b style={{ fontSize: 14.5 }}>{fmtUsd(a.amountUsdc)}</b>
+                          <span className={`pill ${a.score >= 70 ? "bad" : "warn"}`}>
+                            score {a.score}
+                          </span>
+                          <span className="faint mono" style={{ fontSize: 11.5 }}>
+                            {a.agentName} → {a.destination.replace(/^https?:\/\//, "")}
+                          </span>
+                        </div>
+                        <ul
+                          style={{
+                            margin: 0,
+                            paddingLeft: 16,
+                            fontSize: 12,
+                            color: "var(--muted)",
+                          }}
+                        >
+                          {a.signals.map((s, i) => (
+                            <li key={i}>{s}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <span className="faint mono" style={{ fontSize: 11.5 }}>
+                        {relTime(a.at)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+        </div>
       )}
     </div>
   );
@@ -679,15 +706,21 @@ export function PolicySimulator({
                       <td className="faint mono">{relTime(c.at)}</td>
                       <td>{c.agentName}</td>
                       <td className="num mono">{fmtUsd(c.amountUsdc)}</td>
-                      <td className="mono">{c.destination.replace(/^https?:\/\//, "").slice(0, 28)}</td>
+                      <td className="mono">
+                        {c.destination.replace(/^https?:\/\//, "").slice(0, 28)}
+                      </td>
                       <td>
-                        <span className={`pill ${c.from === "allow" ? "ok" : c.from === "deny" ? "bad" : "warn"}`}>
+                        <span
+                          className={`pill ${c.from === "allow" ? "ok" : c.from === "deny" ? "bad" : "warn"}`}
+                        >
                           {c.from}
                         </span>
                         <span className="faint" style={{ margin: "0 6px" }}>
                           →
                         </span>
-                        <span className={`pill ${c.to === "allow" ? "ok" : c.to === "deny" ? "bad" : "warn"}`}>
+                        <span
+                          className={`pill ${c.to === "allow" ? "ok" : c.to === "deny" ? "bad" : "warn"}`}
+                        >
                           {c.to}
                         </span>
                       </td>

@@ -17,6 +17,7 @@ export type Setup = {
   managedCustodyProvider?: string | null;
   custodyDisclosure?: string;
   productionMode?: boolean;
+  onchainMode?: boolean;
   vaultKeysEncryptedAtRest?: boolean;
   cdpApiKeyConfigured?: boolean;
   cdpWired?: boolean;
@@ -194,6 +195,14 @@ export function SettingsView({
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [showGuardianKey, setShowGuardianKey] = useState(false);
   const [inviteRole, setInviteRole] = useState<"approver" | "viewer">("approver");
+  const [accountInviteEmail, setAccountInviteEmail] = useState("");
+  const [accountInvitations, setAccountInvitations] = useState<
+    { id: string; email: string; role: string; createdAt: string; expiresAt: string }[]
+  >([]);
+  const [revealedInviteToken, setRevealedInviteToken] = useState<string | null>(null);
+  const [userSessions, setUserSessions] = useState<
+    { id: string; createdAt: string; expiresAt: string; userAgent?: string; current: boolean }[]
+  >([]);
   const [profile, setProfile] = useState({
     displayName: "",
     legalName: "",
@@ -290,6 +299,40 @@ export function SettingsView({
     void loadProfile();
   }, [loadProfile]);
 
+  const loadAccountInvitations = useCallback(async () => {
+    if (session.mode !== "session" || !profileMeta.orgId) return;
+    try {
+      const response = await gFetch(
+        `/v1/auth/orgs/${encodeURIComponent(profileMeta.orgId)}/invitations`,
+      );
+      if (!response.ok) return;
+      const data = (await response.json()) as { invitations?: typeof accountInvitations };
+      setAccountInvitations(data.invitations ?? []);
+    } catch {
+      /* account invitations are unavailable to legacy guardian-key sessions */
+    }
+  }, [gFetch, profileMeta.orgId, session.mode]);
+
+  useEffect(() => {
+    if (section === "team") void loadAccountInvitations();
+  }, [loadAccountInvitations, section]);
+
+  const loadUserSessions = useCallback(async () => {
+    if (session.mode !== "session") return;
+    try {
+      const response = await gFetch("/v1/auth/sessions");
+      if (!response.ok) return;
+      const data = (await response.json()) as { sessions?: typeof userSessions };
+      setUserSessions(data.sessions ?? []);
+    } catch {
+      /* sessions are available to signed-in account users only */
+    }
+  }, [gFetch, session.mode]);
+
+  useEffect(() => {
+    if (section === "security") void loadUserSessions();
+  }, [loadUserSessions, section]);
+
   const go = (s: Section) => {
     setSection(s);
     if (s === "team" || s === "recurring") void loadTeam();
@@ -350,6 +393,25 @@ export function SettingsView({
       return "Guardian invited — their key is shown once below.";
     });
 
+  const inviteAccountMember = () =>
+    act("Email invitation", async () => {
+      const res = await gFetch(
+        `/v1/auth/orgs/${encodeURIComponent(profileMeta.orgId)}/invitations`,
+        {
+          method: "POST",
+          body: JSON.stringify({ email: accountInviteEmail.trim(), role: inviteRole }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message ?? "Could not send invitation");
+      setRevealedInviteToken(data.invitationToken ?? null);
+      setAccountInviteEmail("");
+      await loadAccountInvitations();
+      return data.emailSent
+        ? `Invitation emailed to ${data.invitation.email}.`
+        : `Email delivery is unavailable. Share the token with ${data.invitation.email} securely.`;
+    });
+
   const setQuorumTo = (n: number) =>
     act("Quorum", async () => {
       const res = await gFetch("/v1/guardian/quorum", {
@@ -379,7 +441,7 @@ export function SettingsView({
         ? "Base Sepolia"
         : (setup?.network ?? "Base Sepolia");
 
-  const productionMode = !!setup?.productionMode;
+  const onchainMode = !!(setup?.onchainMode ?? setup?.productionMode);
 
   const golive = [
     {
@@ -391,17 +453,17 @@ export function SettingsView({
       body:
         `Vault keys are generated and held by this application — self-custody. They are not in ` +
         `Coinbase CDP, an HSM, or MPC custody. ${
-          productionMode
-            ? "Production mode is on, which changes the label only, not where the key lives."
+          onchainMode
+            ? "On-chain mode is enabled, but the key still lives in this application."
             : "Currently dev custody."
         } Treat this deployment accordingly until managed custody ships.`,
     },
     {
-      done: productionMode,
-      title: `On-chain settlement (${networkLabel})`,
-      body: productionMode
-        ? `Settling on ${networkLabel} from the self-custodied vault. Fund it with USDC + ETH (gas), Sync, allowlist your wallet, then agent pay.`
-        : `Handshake and policy are real. Fund the vault with ${networkLabel} USDC + ETH to settle on-chain.`,
+      done: onchainMode,
+      title: `On-chain signer configured (${networkLabel})`,
+      body: onchainMode
+        ? `Configuration is enabled for ${networkLabel}; this does not verify a successful payment. The signer remains application-managed self-custody.`
+        : `On-chain signing is disabled. Simulation and policy testing remain available.`,
     },
     {
       done: false,
@@ -421,6 +483,26 @@ export function SettingsView({
       body: recon?.ok
         ? `${recon.journalsReplayed} journal entries replayed, ${recon.accountsChecked} accounts, zero drift.`
         : "Reconciliation reports drift — investigate before trusting balances.",
+    },
+    {
+      done: false,
+      title: "Verify email delivery and account recovery",
+      body: "Send a verification and password reset email to a controlled test account. Confirm the links arrive, expire, and work before inviting users.",
+    },
+    {
+      done: false,
+      title: "Configure and test durable backups",
+      body: "Confirm the API host persists its database, take an encrypted backup, and rehearse restoring it into an isolated environment. This console cannot verify provider backup settings.",
+    },
+    {
+      done: false,
+      title: "Confirm monitoring and incident ownership",
+      body: "Set an alert recipient and on-call owner for API errors, settlement failures, and reconciliation drift; rehearse the recovery runbook before live funds.",
+    },
+    {
+      done: false,
+      title: "Review webhook delivery and key rotation",
+      body: "Verify signature checks and failed-delivery recovery in the receiver, then document a key rotation and revocation procedure.",
     },
   ];
 
@@ -764,7 +846,7 @@ export function SettingsView({
                 ["Custody model", setup?.custodyModel ?? "self-custody"],
                 ["Managed custody", setup?.managedCustodyProvider ?? "none"],
                 ["Vault keys encrypted at rest", setup?.vaultKeysEncryptedAtRest ? "yes" : "no"],
-                ["Mode", setup?.productionMode ? "production" : "dev"],
+                ["On-chain signing", onchainMode ? "enabled" : "disabled"],
                 ["Settlement", setup?.settlement ?? "—"],
                 ["Telegram", setup?.telegram ? "connected" : "not configured"],
                 ["Rate limit", `${setup?.rateLimitPerMin ?? "—"}/min per key`],
@@ -1342,6 +1424,84 @@ export function SettingsView({
 
         {section === "team" && (
           <>
+            {session.mode === "session" && actorRole === "owner" && (
+              <div className="card">
+                <div className="card-head">
+                  <div>
+                    <h2>Email invitations</h2>
+                    <div className="sub">
+                      Invite someone to join this organization with their own account.
+                    </div>
+                  </div>
+                </div>
+                <div className="row" style={{ flexWrap: "wrap" }}>
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    aria-label="Invitee email address"
+                    placeholder="name@company.com"
+                    value={accountInviteEmail}
+                    disabled={busy}
+                    onChange={(event) => setAccountInviteEmail(event.target.value)}
+                  />
+                  <select
+                    aria-label="Invitation role"
+                    value={inviteRole}
+                    disabled={busy}
+                    onChange={(event) => setInviteRole(event.target.value as "approver" | "viewer")}
+                  >
+                    <option value="approver">Approver</option>
+                    <option value="viewer">Viewer</option>
+                  </select>
+                  <Button
+                    size="sm"
+                    disabled={busy || !accountInviteEmail.includes("@")}
+                    onClick={() => void inviteAccountMember()}
+                  >
+                    <Icon name="plus" size={12} /> Send invitation
+                  </Button>
+                </div>
+                {revealedInviteToken && (
+                  <div className="code" style={{ marginTop: 12 }}>
+                    Email was unavailable. Copy this invitation token and send it through a secure
+                    channel:
+                    <div style={{ marginTop: 6, overflowWrap: "anywhere" }}>
+                      {revealedInviteToken}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      style={{ marginTop: 8 }}
+                      onClick={() => setRevealedInviteToken(null)}
+                    >
+                      I saved it
+                    </Button>
+                  </div>
+                )}
+                <div style={{ marginTop: 14 }}>
+                  {accountInvitations.length ? (
+                    accountInvitations.map((invitation) => {
+                      const expired = new Date(invitation.expiresAt).getTime() <= Date.now();
+                      return (
+                        <div className="kv" key={invitation.id}>
+                          <span className="k">
+                            {invitation.email} · {invitation.role}
+                          </span>
+                          <span className="v">
+                            {expired ? "expired" : "pending"} · expires{" "}
+                            {new Date(invitation.expiresAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="faint" style={{ fontSize: 11.5 }}>
+                      No pending account invitations.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="card">
               <div className="card-head">
                 <div>
@@ -1486,6 +1646,63 @@ export function SettingsView({
 
         {section === "security" && (
           <>
+            {session.mode === "session" && (
+              <div className="card">
+                <div className="card-head">
+                  <div>
+                    <h2>Signed-in sessions</h2>
+                    <div className="sub">
+                      Review active account sessions and revoke any you no longer recognize.
+                    </div>
+                  </div>
+                </div>
+                {userSessions.map((activeSession) => (
+                  <div className="kv" key={activeSession.id}>
+                    <span className="k">
+                      {activeSession.current
+                        ? "This session"
+                        : activeSession.userAgent || "Browser session"}
+                      <small style={{ display: "block" }}>
+                        Expires {new Date(activeSession.expiresAt).toLocaleString()}
+                      </small>
+                    </span>
+                    <span className="v">
+                      {activeSession.current ? (
+                        "Current"
+                      ) : (
+                        <Button
+                          variant="bare"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() =>
+                            void act("Revoke session", async () => {
+                              const response = await gFetch(
+                                `/v1/auth/sessions/${encodeURIComponent(activeSession.id)}`,
+                                { method: "DELETE" },
+                              );
+                              if (!response.ok)
+                                throw new Error(
+                                  (await response.json()).error?.message ??
+                                    "Could not revoke session",
+                                );
+                              await loadUserSessions();
+                              return "Session revoked.";
+                            })
+                          }
+                        >
+                          Revoke
+                        </Button>
+                      )}
+                    </span>
+                  </div>
+                ))}
+                {!userSessions.length && (
+                  <p className="faint" style={{ fontSize: 11.5 }}>
+                    No active account sessions found.
+                  </p>
+                )}
+              </div>
+            )}
             <MfaPanel
               gFetch={gFetch}
               act={act}

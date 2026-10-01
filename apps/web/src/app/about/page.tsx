@@ -28,8 +28,9 @@ export default function AboutPage() {
               approve big ones, and a record when something goes wrong.
             </p>
             <p>
-              ABI sits between the AI and the money. The model can ask to pay. Fixed rules and a
-              separate signer decide whether it happens. The keys never go into the chat prompt.
+              ABI sits between the AI and the money. The model can ask to pay; ABI policy decides
+              whether it can proceed. The current signer is application-managed self-custody, not
+              Coinbase CDP. Signing keys stay outside the chat prompt.
             </p>
           </div>
         </div>
@@ -39,7 +40,7 @@ export default function AboutPage() {
             n="01"
             title="What we are"
             lead="A place to hold company funds for agents, set rules, and approve big spends."
-            body="Wallets, spending rules, approvals, API payments (x402), and an audit log. You fund a vault, give agents budgets, and set what they must clear before a cent moves. Payments can settle as USDC on Base. The vault holds its own signing key, so keys stay out of your app and out of the model."
+            body="Organization vaults, agent budgets, spending rules, approvals, API payments (x402), and an audit log. Configure a payment rail before settlement; supported development flows include simulation and Base Sepolia. Signing keys are application-managed self-custody, not Coinbase CDP custody."
             flip={false}
             src="/about/we-are.webp"
             alt="AB vault mark with propose, authorize, and settle symbols"
@@ -106,7 +107,10 @@ function AboutPane({
   alt: string;
 }) {
   return (
-    <section className={`pane-block about-pane ${flip ? "pane-flip" : ""}`} aria-labelledby={`about-${n}`}>
+    <section
+      className={`pane-block about-pane ${flip ? "pane-flip" : ""}`}
+      aria-labelledby={`about-${n}`}
+    >
       <div className="pane-inner">
         <div className="pane-copy">
           <span className="pane-index">{n}</span>

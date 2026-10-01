@@ -48,6 +48,7 @@ function resolveOrigin(): string | null {
 const SIGNUP_PATHS = new Set([
   "v1/auth/signup",
   "v1/demo/bootstrap",
+  "v1/demo/status",
   "v1/guardian/orgs",
 ]);
 

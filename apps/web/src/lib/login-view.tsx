@@ -53,7 +53,7 @@ function keysMarkdown(session: Session, kind: "real" | "demo"): string {
 
 Generated: ${when}
 ${session.orgId ? `Org id: \`${session.orgId}\`` : ""}
-Kind: ${kind === "demo" ? "demo bootstrap (destructive wipe)" : "real organization"}
+Kind: ${kind === "demo" ? "isolated sandbox organization" : "real organization"}
 
 Treat these like root passwords. Anyone with the guardian key can approve spend and change policy.
 We cannot show them again from the server — only a hash is stored.
@@ -113,6 +113,7 @@ export function Login({
 }) {
   const [key, setKey] = useState("");
   const [apiStatus, setApiStatus] = useState<ApiStatus>({ state: "checking" });
+  const [demoAvailable, setDemoAvailable] = useState(false);
   const [orgName, setOrgName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -145,6 +146,11 @@ export function Login({
       setVerifyToken(verify);
       setMode("verify");
       setVerificationMessage("Verifying your email address…");
+    }
+    const invite = new URLSearchParams(window.location.search).get("invite");
+    if (invite) {
+      setInviteToken(invite);
+      setMode("signup");
     }
   }, []);
   const [busy, setBusy] = useState(false);
@@ -243,6 +249,21 @@ export function Login({
   useEffect(() => {
     void checkApi();
   }, [checkApi]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch(`${API}/v1/demo/status`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : { enabled: false }))
+      .then((data: { enabled?: boolean }) => {
+        if (!cancelled) setDemoAvailable(data.enabled === true);
+      })
+      .catch(() => {
+        if (!cancelled) setDemoAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function connect() {
     setBusy(true);
@@ -812,14 +833,17 @@ export function Login({
                 <Button
                   variant="ghost"
                   style={{ width: "100%" }}
-                  disabled={busy}
+                  disabled={busy || !demoAvailable}
                   onClick={() => void bootstrap()}
                 >
-                  Launch demo org with $100 float
+                  {demoAvailable
+                    ? "Launch isolated demo org with $100 sample balance"
+                    : "Demo unavailable on this deployment"}
                 </Button>
                 <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.55 }}>
-                  Resets local data and seeds Researcher + Writer with sample money. Side path for
-                  trying the rails — not your production org.
+                  Creates a separate sandbox organization with sample ledger funds. It does not
+                  reset or modify existing organizations. Demo access may be disabled by the
+                  deployment operator.
                 </p>
               </>
             )}
@@ -951,7 +975,9 @@ function KeyRevealCard({
       </button>
       <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.6 }}>
         Clearing this site’s browser data signs you out. You’ll need the guardian key to get back in
-        {kind === "demo" ? " — or launch a new demo org (that resets the float)." : "."}
+        {kind === "demo"
+          ? " — or create a separate demo organization with sample ledger funds."
+          : "."}
       </p>
     </div>
   );
