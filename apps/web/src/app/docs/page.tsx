@@ -44,13 +44,22 @@ export default function DocsPage() {
 
           <div className="mkt-prose">
             <section id="chatgpt">
-              <h3>Connect ChatGPT in sandbox mode</h3>
+              <h3>Connect your AI agent</h3>
               <p>
                 In the console, open <strong>Agents</strong> and create or select an agent. Use the
-                ChatGPT developer-mode MCP URL shown there to add ABI as a custom connector. The URL
-                is a short-lived bearer credential: treat it like a password, share it only with
-                your ChatGPT account, and revoke the session in ABI when you are done. This proof
-                supports sandbox actions only; it does not authorize live-money settlement.
+                remote MCP URL shown there to connect a compatible client, including ChatGPT
+                developer mode. The URL is a short-lived bearer credential: treat it like a
+                password, share it only with your chosen client, and revoke the session in ABI when
+                you are done. This proof supports sandbox actions only; it does not authorize
+                live-money settlement.
+              </p>
+              <p>
+                ABI is provider-independent. Agents that can call HTTP tools can use the agent API
+                with a scoped agent key. Local clients supporting MCP over stdio can run the bundled
+                MCP server. Remote clients must support MCP Streamable HTTP; their authentication
+                and connection settings vary. The hosted session-link connector is sandbox-only and
+                expires with its session. Persistent remote OAuth connections and individual
+                framework adapters are not implemented yet.
               </p>
               <Link className="btn-primary" href="/console?view=agents">
                 Open Agents <Icon name="arrowRight" size={14} />

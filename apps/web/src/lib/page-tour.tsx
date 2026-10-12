@@ -9,10 +9,11 @@ const EXIT_MS = 280;
 /** Multiple tips per console page — rotates in a reserved slot (no layout jump). */
 const TIPS: Record<string, string[]> = {
   overview: [
-    "Vault balance, agent spend, and where money went — deposit more under Treasury → Vault.",
-    "Use Move funds for treasury → agent, agent → treasury, or agent → agent transfers.",
-    "Freeze an agent from Overview when spend looks off — they stay frozen until you thaw.",
-    "Switch 24h / 7d / all time to change the spend window on the charts.",
+    "Create a budget in Treasury → Budgets. ABI also creates its linked ops group; add agents under Agents.",
+    "Fund a budget in Treasury → Move. Agents spend from that shared budget under policy.",
+    "Review policy limits and approved destinations before an agent starts spending.",
+    "Use Approvals for requests waiting on a person, and Transactions for recorded outcomes.",
+    "Daily agent spend shows approved activity by day. Freeze an agent under Agents if spending needs to stop.",
   ],
   agents: [
     "Open an agent profile for session keys, wallet balance, and freeze controls.",

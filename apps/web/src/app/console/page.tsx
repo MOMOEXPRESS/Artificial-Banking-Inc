@@ -10,6 +10,7 @@ import { PolicyView, type Policy } from "../../lib/policy-view";
 import { SettingsView } from "../../lib/settings-view";
 import { MISSIONS } from "../../lib/mission";
 import { PageTour } from "../../lib/page-tour";
+import { hasBudgetOpsSetup } from "../../lib/overview-setup";
 import { WorkView, type Invoice, type InvoiceStats, type Run, type Summary } from "../../lib/views";
 import { AgentsView } from "../../lib/agents-view";
 import { PaymentsView } from "../../lib/payments-view";
@@ -301,6 +302,9 @@ export default function Console() {
   const [view, setViewState] = useState<View>("overview");
   const [tabHint, setTabHint] = useState<string | null>(null);
   const [org, setOrg] = useState<OrgView | null>(null);
+  const [budgetOpsSetup, setBudgetOpsSetup] = useState<{ orgId: string; ready: boolean } | null>(
+    null,
+  );
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [escrows, setEscrows] = useState<Escrow[]>([]);
@@ -561,6 +565,8 @@ export default function Console() {
           "/v1/guardian/approvals",
           "/v1/guardian/activity?limit=80",
           "/v1/guardian/escrows",
+          "/v1/guardian/budgets",
+          "/v1/guardian/agent-groups",
         ].map((p) => gFetch(p)),
       );
       if (res[0].status === 401) {
@@ -568,7 +574,12 @@ export default function Console() {
         setToast("Guardian key rejected — signed out.", "err");
         return;
       }
-      const [o, ap, a, es] = await Promise.all(res.map((r) => r.json()));
+      const [o, ap, a, es, bu, gr] = await Promise.all(res.map((r) => r.json()));
+      setBudgetOpsSetup(
+        res[4].ok && res[5].ok && o.org?.id && Array.isArray(bu.budgets) && Array.isArray(gr.groups)
+          ? { orgId: o.org.id, ready: hasBudgetOpsSetup(bu.budgets, gr.groups) }
+          : null,
+      );
       setConnected(true);
       setIfChanged("org", o, setOrg);
       setIfChanged("approvals", ap.approvals ?? [], setApprovals);
@@ -1159,6 +1170,11 @@ export default function Console() {
                 {view === "overview" && (
                   <Overview
                     {...shared}
+                    budgetOpsReady={
+                      budgetOpsSetup && budgetOpsSetup.orgId === org?.org.id
+                        ? budgetOpsSetup.ready
+                        : null
+                    }
                     metrics={metrics}
                     decisions={decisions}
                     approvals={approvals}
