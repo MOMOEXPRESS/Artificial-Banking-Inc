@@ -546,9 +546,7 @@ export function TreasuryView({
 
               <div className="vault-total-label">Spendable balance</div>
               <div className="vault-total-value">{fmt(wallets?.org.availableUsdc)}</div>
-              <p className="vault-total-note">
-                USDC available to allocate across group budgets.
-              </p>
+              <p className="vault-total-note">USDC available to allocate across group budgets.</p>
 
               <div className="vault-selected-asset">
                 <span
@@ -695,17 +693,21 @@ export function TreasuryView({
               <div className="wallet-onchain-stats">
                 <div>
                   <span className="faint">Vault USDC</span>
-                  <b>{onchain?.onchainBalanceUsdc ?? "—"} USDC</b>
+                  <b>{onchain?.ok ? onchain.onchainBalanceUsdc : "—"} USDC</b>
                 </div>
                 <div>
-                  <span className="faint">Ready to spend</span>
+                  <span className="faint">
+                    {ledgerMode === "sandbox" ? "Sandbox book balance" : "Ledger available"}
+                  </span>
                   <b>{fmt(wallets?.org.availableUsdc)}</b>
                 </div>
                 <div>
                   <span className="faint">Network gas</span>
                   <b style={{ color: onchain?.hasGas ? undefined : "var(--amber, var(--warn))" }}>
-                    {onchain?.nativeBalanceEth != null ? `${onchain.nativeBalanceEth} ETH` : "—"}
-                    {onchain && !onchain.hasGas ? " · needed" : ""}
+                    {onchain?.ok && onchain.nativeBalanceEth != null
+                      ? `${onchain.nativeBalanceEth} ETH`
+                      : "—"}
+                    {onchain?.ok && !onchain.hasGas ? " · needed" : ""}
                   </b>
                 </div>
               </div>
@@ -1039,9 +1041,9 @@ export function TreasuryView({
             <span className="txt">
               <b>How money works</b>
               <span>
-                Each agent belongs to one funded group. The group&apos;s linked budget holds the money;
-                agents receive permission to spend from it under policy and never own a personal
-                balance.
+                Each agent belongs to one funded group. The group&apos;s linked budget holds the
+                money; agents receive permission to spend from it under policy and never own a
+                personal balance.
               </span>
             </span>
           </div>
@@ -1150,7 +1152,6 @@ export function TreasuryView({
               </div>
             </div>
           )}
-
         </>
       )}
 
@@ -1310,9 +1311,7 @@ export function TreasuryView({
                 }
               >
                 <Icon name="swap" size={13} />{" "}
-                {moveIntent === "budget"
-                  ? "Fill budget"
-                  : "Execute move"}
+                {moveIntent === "budget" ? "Fill budget" : "Execute move"}
               </Button>
               {fromWallet && toWallet && amount.trim() && (
                 <span className="move-summary faint">
@@ -1335,9 +1334,7 @@ export function TreasuryView({
               )}
             </div>
             {moves.length === 0 ? (
-              <Empty icon="swap">
-                No moves yet — fund a group budget to start the trail.
-              </Empty>
+              <Empty icon="swap">No moves yet — fund a group budget to start the trail.</Empty>
             ) : (
               <div className="move-history-list">
                 {moves.slice(0, 12).map((m) => (

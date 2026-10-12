@@ -553,7 +553,7 @@ export function SettingsView({
         ))}
       </nav>
 
-      <main className="settings-content">
+      <section className="settings-content" aria-label="Settings details">
         <section className="settings-section-summary">
           <div>
             <div className="ops-eyebrow">{activeSection.group}</div>
@@ -1884,7 +1884,7 @@ ${agents || "_None saved in this browser session._"}
             )}
           </div>
         )}
-      </main>
+      </section>
     </div>
   );
 }

@@ -56,14 +56,18 @@ describe("seedDemoOrg", () => {
     // The new org is genuinely separate...
     assert.notEqual(second.orgId, first.orgId);
     assert.ok(second.guardianKey.startsWith("pv_guardian_"));
-    assert.equal(store.listAgentGroups(second.orgId).length, 0);
+    assert.equal(store.listAgentGroups(second.orgId).length, 1);
+    const demoGroup = store.listAgentGroups(second.orgId)[0]!;
+    assert.equal(demoGroup.budgetId, store.getAgentAnyOrg(second.researcherAgentId)?.budgetId);
+    assert.equal(store.listGroupMemberIdsAnyOrg(demoGroup.id).length, 2);
+    assert.equal(second.orgAvailableUsdc, "60");
 
     // ...and the first org is completely untouched. This is the assertion that
     // would have caught the unauthenticated-wipe defect.
     assert.ok(store.getOrg(first.orgId), "first org must still exist");
     assert.equal(store.listAgents(first.orgId).length, 2);
-    assert.equal(store.listAgentGroups(first.orgId).length, 1);
-    assert.equal(store.listAgentGroups(first.orgId)[0]!.id, group.id);
+    assert.equal(store.listAgentGroups(first.orgId).length, 2);
+    assert.ok(store.listAgentGroups(first.orgId).some((entry) => entry.id === group.id));
     assert.equal(
       store.getAccountMap(first.orgId).get(`agent:${first.researcherAgentId}:available`)
         ?.balanceMicro,

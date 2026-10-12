@@ -694,6 +694,68 @@ body::after {
   margin-bottom: 14px;
 }
 
+.overview-guide .page-tip {
+  min-height: 136px;
+  padding: 18px 20px;
+  background: var(--color-surface);
+  border-radius: 12px;
+  box-shadow: none;
+  align-items: flex-start;
+}
+.overview-guide .page-tip-body p {
+  max-width: 720px;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.overview-guide .page-tip-title {
+  margin-bottom: 8px;
+}
+.overview-guide-actions {
+  margin-top: 10px;
+}
+.overview-guide-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.overview-guide-controls button {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-secondary);
+  border-radius: 7px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.overview-guide-controls button:hover,
+.overview-guide-controls button:focus-visible {
+  background: var(--color-surface-2);
+  outline: 2px solid var(--color-fg-muted);
+  outline-offset: 2px;
+}
+@media (max-width: 700px) {
+  .overview-guide .page-tip {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 14px;
+  }
+  .overview-guide .page-tip-body {
+    flex-basis: calc(100% - 44px);
+  }
+  .overview-guide-controls {
+    margin-left: 42px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-tip-text-in,
+  .page-tip-text-out,
+  .page-tip-bar {
+    animation: none;
+  }
+}
+
 .page-tip {
   position: relative;
   display: flex;
@@ -793,7 +855,7 @@ body::after {
   height: 2px;
   background: var(--color-fg-faint);
   transform-origin: left center;
-  animation: tip-bar 7s linear both;
+  animation: tip-bar 12s linear both;
 }
 
 @keyframes tip-bar {

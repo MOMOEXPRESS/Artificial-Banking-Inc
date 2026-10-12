@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Icon } from "./ui";
 
 const ROTATE_MS = 12000;
@@ -16,10 +16,10 @@ const TIPS: Record<string, string[]> = {
     "Daily agent spend shows approved activity by day. Freeze an agent under Agents if spending needs to stop.",
   ],
   agents: [
-    "Open an agent profile for session keys, wallet balance, and freeze controls.",
+    "Open an agent profile for session keys, shared budget authority, and freeze controls.",
     "Agent groups organize shared controls and default budget access — money stays in Treasury.",
     "Rotate an agent API key anytime from the agent profile if a key may have leaked.",
-    "Create agents here first, then connect them to a budget under Treasury → Budgets → Move.",
+    "Create a budget in Treasury, then select it when you create an agent.",
     "Prefer writer-finance and writer-research over one agent in many money pools.",
   ],
   payments: [
@@ -80,7 +80,7 @@ const TIPS: Record<string, string[]> = {
     "Filter by agent or outcome when debugging a refuse or review.",
   ],
   settings: [
-    "Go-live checklist splits Demo-ready vs Production — finish Demo without CDP first.",
+    "Go-live checks distinguish sandbox setup from on-chain readiness. Check the signer, network and funding before testing settlement.",
     "Merchant directory is labels only — Policy → Allowlists gates pay_api destinations.",
     "The org kill switch freezes all agent spend immediately.",
   ],
@@ -90,18 +90,31 @@ const TIPS: Record<string, string[]> = {
  * Always-on tip rail for console pages (Treasury excluded).
  * The card shell stays put — only the tip text crossfades.
  */
-export function PageTour({ view }: { view: string }) {
-  const tips = TIPS[view];
+export function PageTour({
+  view,
+  tipsOverride,
+  title = "Tip",
+  actions,
+  interactive = false,
+}: {
+  view: string;
+  tipsOverride?: readonly string[];
+  title?: string;
+  actions?: ReactNode;
+  interactive?: boolean;
+}) {
+  const tips = tipsOverride ?? TIPS[view];
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<"in" | "out">("in");
+  const [paused, setPaused] = useState(false);
 
   useEffect(() => {
     setIndex(0);
     setPhase("in");
-  }, [view]);
+  }, [view, tips]);
 
   useEffect(() => {
-    if (!tips || tips.length <= 1) return;
+    if (!tips || tips.length <= 1 || paused) return;
     let exitTimer = 0;
     const tick = window.setInterval(() => {
       setPhase("out");
@@ -114,21 +127,21 @@ export function PageTour({ view }: { view: string }) {
       window.clearInterval(tick);
       window.clearTimeout(exitTimer);
     };
-  }, [tips, view]);
+  }, [tips, view, paused, index]);
 
   if (!tips?.length) return null;
 
   const body = tips[index % tips.length];
 
   return (
-    <div className="page-tip-slot" aria-live="polite">
-      <div className="page-tip" role="status">
+    <div className={"page-tip-slot" + (interactive ? " overview-guide" : "")}>
+      <div className="page-tip">
         <span className="page-tip-icon" aria-hidden>
           <Icon name="spark" size={15} />
         </span>
         <div className="page-tip-body">
           <div className="page-tip-title">
-            Tip
+            {title}
             {tips.length > 1 && (
               <span className="page-tip-count">
                 {index + 1}/{tips.length}
@@ -136,13 +149,52 @@ export function PageTour({ view }: { view: string }) {
             )}
           </div>
           <p
+            aria-live={paused ? "polite" : "off"}
             key={`${view}-${index}`}
             className={`page-tip-text ${phase === "out" ? "page-tip-text-out" : "page-tip-text-in"}`}
           >
             {body}
           </p>
+          {actions && <div className="overview-guide-actions">{actions}</div>}
         </div>
-        {tips.length > 1 && (
+        {interactive && tips.length > 1 && (
+          <div className="overview-guide-controls">
+            <button
+              type="button"
+              aria-label="Previous tip"
+              onClick={() => {
+                setPaused(true);
+                setPhase("in");
+                setIndex((index + tips.length - 1) % tips.length);
+              }}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              aria-label={paused ? "Resume tips" : "Pause tips"}
+              aria-pressed={paused}
+              onClick={() => {
+                setPaused(!paused);
+                setPhase("in");
+              }}
+            >
+              {paused ? "Resume" : "Pause"}
+            </button>
+            <button
+              type="button"
+              aria-label="Next tip"
+              onClick={() => {
+                setPaused(true);
+                setPhase("in");
+                setIndex((index + 1) % tips.length);
+              }}
+            >
+              Next
+            </button>
+          </div>
+        )}
+        {tips.length > 1 && !paused && (
           <div key={`bar-${view}-${index}`} className="page-tip-bar" aria-hidden />
         )}
       </div>

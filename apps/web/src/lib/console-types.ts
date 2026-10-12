@@ -33,7 +33,15 @@ export type Prefs = { autoJump: boolean };
 export type OrgView = {
   org: { id: string; name: string; status: string; settings?: Record<string, unknown> };
   actor?: { role: "owner" | "approver" | "viewer"; guardianId: string };
-  agents: { id: string; name: string; status: string; spent24hUsdc: string }[];
+  agents: {
+    id: string;
+    name: string;
+    status: string;
+    spent24hUsdc: string;
+    availableUsdc?: string;
+    heldUsdc?: string;
+    budget?: { id: string; name: string } | null;
+  }[];
   dailyMaxUsdc: string;
   balances: { id: string; kind: string; agentId?: string; usdc: string }[];
   vaultAddress: string;
