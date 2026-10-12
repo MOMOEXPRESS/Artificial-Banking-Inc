@@ -836,7 +836,7 @@ export function AgentsView({
                     {revealedMcpUrl && (
                       <>
                         <div className="muted" style={{ fontSize: 12, margin: "12px 0 6px" }}>
-                          ChatGPT developer-mode MCP URL (Sandbox only)
+                          Remote MCP URL (sandbox only)
                         </div>
                         <code className="mono" style={{ wordBreak: "break-all", fontSize: 12 }}>
                           {revealedMcpUrl}
@@ -850,7 +850,8 @@ export function AgentsView({
                             Copy MCP URL
                           </Button>
                           <span className="muted" style={{ fontSize: 11.5 }}>
-                            Add as a no-auth custom app, then revoke this session after the test.
+                            Connect a compatible remote MCP client, including ChatGPT developer
+                            mode. This link expires with the session; revoke it after the test.
                           </span>
                         </div>
                       </>

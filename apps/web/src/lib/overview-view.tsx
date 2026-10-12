@@ -6,6 +6,7 @@ import { BarLine, Empty, Icon, fmtTime, fmtUsd } from "./ui";
 import type { Alert, Approval, Decision, Escrow, Metrics, Session, Shared } from "./console-types";
 import type { Policy } from "./policy-view";
 import { Button } from "@/components/ui/button";
+import { PageTour } from "./page-tour";
 
 export function Overview({
   org,
@@ -17,6 +18,7 @@ export function Overview({
   setView,
   alerts,
   readOnly,
+  budgetOpsReady,
 }: Shared & {
   metrics: Metrics | null;
   decisions: Decision[];
@@ -28,6 +30,7 @@ export function Overview({
   alerts: Alert[];
   summary: Summary | null;
   invStats: InvoiceStats | null;
+  budgetOpsReady: boolean | null;
 }) {
   const orgAvailable =
     org?.balances.find((balance) => balance.kind === "org_available")?.usdc ?? "0";
@@ -160,21 +163,25 @@ export function Overview({
         </div>
       </section>
 
-      {!readOnly && org?.ledgerMode === "sandbox" && decisions.length === 0 && (
+      <PageTour view="overview" />
+
+      {!readOnly && org?.ledgerMode === "sandbox" && budgetOpsReady === false && (
         <section className="card" aria-labelledby="first-safe-run-title">
           <div className="card-head">
             <div>
               <div className="ops-eyebrow">First success · sandbox only</div>
               <h3 id="first-safe-run-title">Run a payment through ABI safely</h3>
               <p className="sub">
-                Create a sandbox agent, set a small cap and allowed destination, simulate a request,
-                then review the policy decision. This walkthrough never sends an on-chain payment.
+                Create a budget and its linked ops group, add an agent, set a small cap and allowed
+                destination, simulate a request, then review the policy decision. This walkthrough
+                never sends an on-chain payment.
               </p>
             </div>
           </div>
           <ol className="first-run-steps">
             <li>
-              <b>1.</b> Agents — create or select a sandbox agent and assign a small budget.
+              <b>1.</b> Treasury — create a budget and its linked agent group, then add an agent
+              under Agents.
             </li>
             <li>
               <b>2.</b> Policies — set a low daily cap and allow one test vendor.
@@ -190,8 +197,8 @@ export function Overview({
             </li>
           </ol>
           <div className="ops-page-actions">
-            <Button variant="secondary" onClick={() => setView("agents")}>
-              Start with Agents <Icon name="arrowRight" size={13} />
+            <Button variant="secondary" onClick={() => setView("treasury", "wallets")}>
+              Create a budget <Icon name="arrowRight" size={13} />
             </Button>
             <Button onClick={() => setView("playground")}>
               Open Playground <Icon name="arrowRight" size={13} />
