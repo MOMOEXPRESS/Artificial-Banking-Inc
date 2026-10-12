@@ -716,7 +716,7 @@ export default function Console() {
     }
     const broke = (org?.agents ?? []).filter((ag) => {
       const bal = org?.balances.find((b) => b.kind === "agent_available" && b.agentId === ag.id);
-      return Number(bal?.usdc ?? 0) < 1 && ag.status === "active";
+      return Number(ag.availableUsdc ?? bal?.usdc ?? 0) <= 0 && ag.status === "active";
     });
     if (broke.length) {
       out.push({
@@ -989,9 +989,9 @@ export default function Console() {
                       {org?.actor?.role === "viewer"
                         ? "Viewer · read-only"
                         : org?.actor?.role === "approver"
-                          ? "Approver · live"
+                          ? "Approver · " + (org?.ledgerMode === "live" ? "live" : "sandbox")
                           : connected
-                            ? "Guardian · live"
+                            ? "Owner · " + (org?.ledgerMode === "live" ? "live" : "sandbox")
                             : "reconnecting…"}
                       {org?.org.status === "frozen" ? " · FROZEN" : ""}
                     </span>

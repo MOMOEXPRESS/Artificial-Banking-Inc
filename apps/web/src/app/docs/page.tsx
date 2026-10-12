@@ -61,6 +61,14 @@ export default function DocsPage() {
                 expires with its session. Persistent remote OAuth connections and individual
                 framework adapters are not implemented yet.
               </p>
+              <p>
+                Compatible clients include Claude Code, Cursor, Codex CLI, Gemini CLI and VS Code
+                Copilot. Agent frameworks can also integrate through MCP or the HTTP API.{" "}
+                <a href="https://github.com/MOMOEXPRESS/Artificial-Banking-Inc/blob/main/docs/AGENT-CONNECTIONS.md">
+                  Read the connection matrix and setup limits
+                </a>
+                .
+              </p>
               <Link className="btn-primary" href="/console?view=agents">
                 Open Agents <Icon name="arrowRight" size={14} />
               </Link>

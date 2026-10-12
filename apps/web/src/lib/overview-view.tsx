@@ -8,6 +8,20 @@ import type { Policy } from "./policy-view";
 import { Button } from "@/components/ui/button";
 import { PageTour } from "./page-tour";
 
+const FIRST_RUN_TIPS = [
+  "Start with a budget in Treasury. Its linked ops group keeps setup organized; agents receive permission to use the shared budget.",
+  "Add an agent and choose its spending budget. Keep the agent credential in your client, not in a prompt.",
+  "Set a spending cap and approved destinations in Policies. Save your rules before testing.",
+  "Simulate a small request in Playground first. Simulation moves no funds; submitting a payment is a separate action.",
+  "Review the decision in Transactions. Requests needing human approval appear in Approvals.",
+];
+const OPERATING_TIPS = [
+  "Select an agent in Playground and simulate a request against its current rules.",
+  "Check budget capacity in Treasury before submitting a payment. Agents share their assigned budget.",
+  "Open Approvals when a request needs a person. Authorizing a payment may move funds.",
+  "Use Transactions and Ledger to inspect decisions, settlements and accounting records.",
+];
+
 export function Overview({
   org,
   metrics,
@@ -34,7 +48,9 @@ export function Overview({
 }) {
   const orgAvailable =
     org?.balances.find((balance) => balance.kind === "org_available")?.usdc ?? "0";
-  const agentAvailable = metrics?.balancesUsdc?.agentAvailable ?? "0";
+  const budgetAvailable = (org?.balances ?? [])
+    .filter((balance) => balance.kind === "dept_available" || balance.kind === "shared_available")
+    .reduce((sum, balance) => sum + (Number(balance.usdc) || 0), 0);
   const held = metrics?.balancesUsdc?.escrow ?? "0";
   const pending = useMemo(
     () => approvals.filter((approval) => approval.status === "pending"),
@@ -163,49 +179,26 @@ export function Overview({
         </div>
       </section>
 
-      <PageTour view="overview" />
-
-      {!readOnly && org?.ledgerMode === "sandbox" && budgetOpsReady === false && (
-        <section className="card" aria-labelledby="first-safe-run-title">
-          <div className="card-head">
-            <div>
-              <div className="ops-eyebrow">First success · sandbox only</div>
-              <h3 id="first-safe-run-title">Run a payment through ABI safely</h3>
-              <p className="sub">
-                Create a budget and its linked ops group, add an agent, set a small cap and allowed
-                destination, simulate a request, then review the policy decision. This walkthrough
-                never sends an on-chain payment.
-              </p>
-            </div>
-          </div>
-          <ol className="first-run-steps">
-            <li>
-              <b>1.</b> Treasury — create a budget and its linked agent group, then add an agent
-              under Agents.
-            </li>
-            <li>
-              <b>2.</b> Policies — set a low daily cap and allow one test vendor.
-            </li>
-            <li>
-              <b>3.</b> Playground — simulate a request to that vendor.
-            </li>
-            <li>
-              <b>4.</b> Approvals — review the reason; approve only if the request should pass.
-            </li>
-            <li>
-              <b>5.</b> Transactions — inspect the policy decision and audit receipt.
-            </li>
-          </ol>
-          <div className="ops-page-actions">
-            <Button variant="secondary" onClick={() => setView("treasury", "wallets")}>
-              Create a budget <Icon name="arrowRight" size={13} />
+      <PageTour
+        view="overview"
+        interactive
+        title={budgetOpsReady === false ? "First success" : "Overview tips"}
+        tipsOverride={budgetOpsReady === false ? FIRST_RUN_TIPS : OPERATING_TIPS}
+        actions={
+          !readOnly ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                budgetOpsReady === false ? setView("treasury", "wallets") : setView("playground")
+              }
+            >
+              {budgetOpsReady === false ? "Set up a budget" : "Open Playground"}{" "}
+              <Icon name="arrowRight" size={13} />
             </Button>
-            <Button onClick={() => setView("playground")}>
-              Open Playground <Icon name="arrowRight" size={13} />
-            </Button>
-          </div>
-        </section>
-      )}
+          ) : undefined
+        }
+      />
 
       {attentionItems.length > 0 && (
         <section className="ops-priority" aria-labelledby="ops-priority-title">
@@ -251,8 +244,8 @@ export function Overview({
           <small>{isLive ? "Backed by the connected vault" : "Sandbox balance"}</small>
         </div>
         <div className="ops-balance-metric">
-          <span>Allocated to agents</span>
-          <b>{fmtUsd(agentAvailable)}</b>
+          <span>Shared budgets</span>
+          <b>{fmtUsd(String(budgetAvailable))}</b>
           <small>
             {activeAgents} active {activeAgents === 1 ? "agent" : "agents"}
           </small>

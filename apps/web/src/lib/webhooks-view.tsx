@@ -31,7 +31,8 @@ export function Webhooks({
 
   const del = (id: string) =>
     act("Delete", async () => {
-      await gFetch(`/v1/guardian/webhooks/${id}`, { method: "DELETE" });
+      const response = await gFetch(`/v1/guardian/webhooks/${id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Could not remove the endpoint. Refresh and try again.");
       return "Endpoint removed.";
     });
 
@@ -44,7 +45,10 @@ export function Webhooks({
 
   const rotate = (id: string) =>
     act("Rotate secret", async () => {
-      const res = await gFetch(`/v1/guardian/webhooks/${id}/rotate`, { method: "POST", body: "{}" });
+      const res = await gFetch(`/v1/guardian/webhooks/${id}/rotate`, {
+        method: "POST",
+        body: "{}",
+      });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d));
       setSecret(d.secret);
@@ -52,7 +56,10 @@ export function Webhooks({
     });
 
   const ok = deliveries.filter((d) => d.status === "delivered").length;
-  const rate = deliveries.length ? Math.round((ok / deliveries.length) * 100) : 100;
+  const completed = deliveries.filter(
+    (delivery) => delivery.status === "delivered" || delivery.status === "failed",
+  ).length;
+  const rate = completed ? Math.round((ok / completed) * 100) : null;
 
   return (
     <div className="console-page developer-page webhooks-page">
@@ -62,15 +69,20 @@ export function Webhooks({
           <span>
             When money moves (paid, denied, needs your approval, escrow locked…), ABI POSTs signed
             JSON to a URL you control — Slack adapter, CRM, books — so you don&apos;t sit in the
-            console. For a hands-on walkthrough, run Playground →{" "}
-            <b>Webhook ping (ops notify)</b>.
+            console. For a hands-on walkthrough, run Playground → <b>Webhook ping (ops notify)</b>.
           </span>
         </span>
       </div>
       <div className="grid g-4">
         <Stat label="Endpoints" value={String(webhooks.length)} foot="receiving money events" />
         <Stat label="Deliveries" value={String(deliveries.length)} foot="signed and retried 3×" />
-        <Stat label="Success rate" value={`${rate}%`} foot={`${ok} delivered`} delta={{ dir: rate === 100 ? "up" : "down", text: `${rate}%` }} />
+        <Stat
+          label="Success rate"
+          value={rate === null ? "—" : `${rate}%`}
+          foot={
+            completed ? `${ok} of ${completed} completed deliveries` : "No completed deliveries yet"
+          }
+        />
         <Stat
           label="Failed"
           value={String(deliveries.filter((d) => d.status === "failed").length)}
@@ -124,9 +136,15 @@ export function Webhooks({
         </div>
         {secret && (
           <div className="code" style={{ marginBottom: 14 }}>
-            Signing secret (shown once) — verify <b style={{ color: "var(--text)" }}>x-policyvault-signature</b> with it:
+            Signing secret (shown once) — verify{" "}
+            <b style={{ color: "var(--text)" }}>x-policyvault-signature</b> with it:
             <div style={{ marginTop: 6, color: "var(--accent)" }}>{secret}</div>
-            <Button variant="ghost" size="sm" style={{ marginTop: 9 }} onClick={() => setSecret(null)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              style={{ marginTop: 9 }}
+              onClick={() => setSecret(null)}
+            >
               I saved it
             </Button>
           </div>
@@ -152,13 +170,28 @@ export function Webhooks({
                     <td className="faint mono">{relTime(w.createdAt)}</td>
                     <td>
                       <div className="row" style={{ flexWrap: "nowrap" }}>
-                        <Button variant="ghost" size="sm" disabled={locked} onClick={() => void test(w.id)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={locked}
+                          onClick={() => void test(w.id)}
+                        >
                           Send test
                         </Button>
-                        <Button variant="ghost" size="sm" disabled={locked} onClick={() => void rotate(w.id)}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={locked}
+                          onClick={() => void rotate(w.id)}
+                        >
                           Rotate secret
                         </Button>
-                        <Button variant="destructive" size="sm" disabled={locked} onClick={() => void del(w.id)}>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          disabled={locked}
+                          onClick={() => void del(w.id)}
+                        >
                           Delete
                         </Button>
                       </div>
@@ -215,4 +248,3 @@ export function Webhooks({
     </div>
   );
 }
-

@@ -5010,8 +5010,11 @@ export const store = {
       this.addKnownCounterparty(org.id, "localhost");
     }
     const researchBudget = this.createDepartment(org.id, "Research");
+    const researchGroup = this.createAgentGroup(org.id, "Research", researchBudget.id);
     const researcher = this.createAgent(org.id, "Researcher", researchBudget.id);
     const writer = this.createAgent(org.id, "Writer", researchBudget.id);
+    this.addAgentToGroup(org.id, researcher.agentId, researchGroup.id);
+    this.addAgentToGroup(org.id, writer.agentId, researchGroup.id);
     // Pre-fund the shared Research budget so the built-in "Research brief"
     // mission has spending capacity without an extra setup step.
     this.applyEntries(org.id, [
@@ -5037,7 +5040,7 @@ export const store = {
       agentApiKey: researcher.apiKey,
       writerApiKey: writer.apiKey,
       vaultAddress: this.getVaultAddress(org.id)!,
-      orgAvailableUsdc: "100",
+      orgAvailableUsdc: "60",
     };
   },
 };

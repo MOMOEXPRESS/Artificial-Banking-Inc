@@ -841,6 +841,9 @@ app.get("/health", (_req, res) => {
   res.json({
     ok: true,
     service: "abi-api",
+    revision: /^[a-f0-9]{40}$/i.test(process.env.RENDER_GIT_COMMIT ?? "")
+      ? process.env.RENDER_GIT_COMMIT
+      : null,
     uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
     legal: LEGAL_FOOTER,
     telegram: telegramEnabled,
@@ -965,19 +968,32 @@ app.post("/v1/guardian/orgs", async (req, res) => {
 app.get(
   "/v1/guardian/org",
   guardianRoute((org, req, res) => {
-    const accounts = [...store.getAccountMap(org.id).values()];
     const agents = store.listAgents(org.id);
     const template = store.getPolicyTemplate(org.id);
     const actor = (req as express.Request & { guardianCtx?: GuardianCtx }).guardianCtx;
+    const agentViews = agents.map(({ apiKey: _, ...rest }) => {
+      const funding = agentFundingContext(rest.id, org.id);
+      const funds = store.getAccountMap(org.id);
+      return {
+        ...rest,
+        budgetId: funding?.budget.id ?? rest.budgetId,
+        availableUsdc: formatMicroToUsdc(
+          funding ? (funds.get(funding.availableId)?.balanceMicro ?? 0n) : 0n,
+        ),
+        heldUsdc: formatMicroToUsdc(funding ? (funds.get(funding.heldId)?.balanceMicro ?? 0n) : 0n),
+        budget: funding ? { id: funding.budget.id, name: funding.budget.name } : null,
+        spent24hUsdc: formatMicroToUsdc(store.spentLast24h(rest.id)),
+      };
+    });
+    // Funding resolution may migrate a legacy assignment; report the matching
+    // account snapshot rather than the pre-migration balances.
+    const accounts = [...store.getAccountMap(org.id).values()];
     res.json({
       org: { id: org.id, name: org.name, status: org.status, settings: org.settings },
       actor: actor
         ? { role: actor.role, guardianId: actor.guardianId }
         : { role: "owner", guardianId: "owner" },
-      agents: agents.map(({ apiKey: _, ...rest }) => ({
-        ...rest,
-        spent24hUsdc: formatMicroToUsdc(store.spentLast24h(rest.id)),
-      })),
+      agents: agentViews,
       dailyMaxUsdc: formatMicroToUsdc(template.dailyMaxMicro),
       balances: accounts.map((a) => ({
         id: a.id,
