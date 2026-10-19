@@ -201,7 +201,7 @@ export function AgentsView({
   }, [tab, selected, onContextChange]);
 
   const createAgent = () =>
-    act("Create agent", async () => {
+    act("Create API connection", async () => {
       if (!newBudgetId) throw new Error("Choose a spending budget first");
       const res = await gFetch("/v1/guardian/agents", {
         method: "POST",
@@ -216,7 +216,7 @@ export function AgentsView({
       onKeyRevealed?.({ agentId: d.agentId, name: newName.trim(), key: d.apiKey });
       setNewName("");
       await refresh();
-      return "Agent created — API key shown once.";
+      return "API connection created — save its API key now.";
     });
 
   const createGroup = () =>
@@ -239,15 +239,17 @@ export function AgentsView({
     <div className="console-page agents-page">
       <div className="card-head" style={{ marginBottom: 16 }}>
         <div>
-          <h2 style={{ margin: 0 }}>Agents</h2>
-          <div className="sub">Identity, groups, keys, sessions, freeze audit</div>
+          <h2 style={{ margin: 0 }}>API connections</h2>
+          <div className="sub">
+            API keys and sessions, with agent identities linked to budgets and audit history
+          </div>
         </div>
         <SegTabs
           value={tab}
           onValueChange={(v) => setTab(v as typeof tab)}
           items={
             [
-              { value: "roster", label: "Roster" },
+              { value: "roster", label: "API keys" },
               { value: "groups", label: "Agent groups" },
               { value: "sessions", label: "Sessions" },
               { value: "freezes", label: "Freezes" },
@@ -261,12 +263,13 @@ export function AgentsView({
           <div className="card">
             <div className="card-head">
               <div>
-                <h2>Roster</h2>
-                <div className="sub">{agents.length} agents</div>
+                <h2>API keys</h2>
+                <div className="sub">{agents.length} connections</div>
               </div>
               <div className="agent-create-controls">
                 <input
-                  placeholder="New agent name"
+                  placeholder="Connection name (e.g. research service)"
+                  aria-label="Connection name"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                 />
@@ -305,19 +308,22 @@ export function AgentsView({
                   disabled={locked || !newName.trim() || !newBudgetId}
                   onClick={() => void createAgent()}
                 >
-                  Create
+                  Create API key
                 </Button>
               </div>
             </div>
             {budgets.filter((b) => b.status !== "archived").length === 0 ? (
               <div className="agent-create-group">
                 <span>
-                  No active budgets yet. Create a budget in Treasury before adding an agent.
+                  No active budgets yet. Create a budget in Treasury before creating an API
+                  connection.
                 </span>
               </div>
             ) : null}
             {agents.length === 0 ? (
-              <Empty icon="robot">No agents yet — create one, then grant access to a budget.</Empty>
+              <Empty icon="robot">
+                No API connections yet. Choose a name and budget to create an API key.
+              </Empty>
             ) : (
               <div
                 className="agent-roster-table"
@@ -333,7 +339,7 @@ export function AgentsView({
                       <th>Group</th>
                       <th>Assigned budget</th>
                       <th>24h</th>
-                      <th>Key</th>
+                      <th>API key</th>
                       <th />
                     </tr>
                   </thead>
@@ -719,7 +725,7 @@ export function AgentsView({
                       })
                     }
                   >
-                    Revoke all keys
+                    Revoke API keys
                   </Button>
                   {selectedAgent?.status !== "archived" ? (
                     <Button
