@@ -23,7 +23,7 @@ export type ShortcutView =
 export const GO_MAP: { key: string; view: ShortcutView; label: string }[] = [
   { key: "o", view: "overview", label: "Overview" },
   { key: "t", view: "treasury", label: "Treasury" },
-  { key: "a", view: "agents", label: "Agents" },
+  { key: "a", view: "agents", label: "API connections" },
   { key: "p", view: "payments", label: "Payments" },
   { key: "m", view: "playground", label: "Playground (missions)" },
   { key: "c", view: "chat", label: "ABI Chat" },
@@ -129,13 +129,7 @@ export function useConsoleShortcuts(opts: {
 }
 
 /** Modal help sheet — lists `g X` map + global shortcuts. */
-export function KeyboardHelp({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+export function KeyboardHelp({ open, onClose }: { open: boolean; onClose: () => void }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -159,7 +153,9 @@ export function KeyboardHelp({
         <div className="pv-help-head">
           <div>
             <h2>Keyboard shortcuts</h2>
-            <p className="pv-help-sub">Press <kbd>?</kbd> anytime · Esc to close</p>
+            <p className="pv-help-sub">
+              Press <kbd>?</kbd> anytime · Esc to close
+            </p>
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>
             Close
