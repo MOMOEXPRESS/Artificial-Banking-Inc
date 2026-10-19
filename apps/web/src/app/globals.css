@@ -11792,3 +11792,558 @@ button.sm.ghost.on {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* ABI experience refresh: original control-layer scene and restrained auth. */
+.abi-hero {
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 75% 30%, #253b42 0, transparent 56%), #090e13;
+}
+.abi-hero .hero-inner {
+  position: relative;
+  gap: 32px;
+  padding-top: 70px;
+  padding-bottom: 70px;
+}
+.abi-hero .hero-copy h1 {
+  letter-spacing: -0.055em;
+}
+.abi-hero .hero-sub {
+  max-width: 520px;
+  line-height: 1.8;
+}
+.abi-control-scene {
+  position: relative;
+  width: 100%;
+  min-height: 510px;
+  isolation: isolate;
+  perspective: 1000px;
+}
+.abi-cube-stage {
+  position: absolute;
+  left: 50%;
+  top: 47%;
+  width: 160px;
+  height: 160px;
+  transform: translate(-50%, -50%);
+  perspective: 850px;
+}
+.abi-cube {
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transform: rotateX(-20deg) rotateY(-32deg);
+  animation: abi-cube-turn 22s ease-in-out infinite alternate;
+}
+.cube-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #a3cec877;
+  background: linear-gradient(135deg, #74978eec, #17272cec 55%, #8fa9a4e0);
+  box-shadow: inset 0 0 35px #d7fff51a;
+  backface-visibility: hidden;
+}
+.cube-face span {
+  font-size: 44px;
+  letter-spacing: -0.06em;
+  font-weight: 600;
+  color: #ecfff8;
+}
+.cube-face small {
+  margin-top: 6px;
+  font: 8px var(--mono);
+  letter-spacing: 0.2em;
+  color: #d4f5e9;
+}
+.cube-front {
+  transform: translateZ(80px);
+}
+.cube-back {
+  transform: rotateY(180deg) translateZ(80px);
+}
+.cube-left {
+  transform: rotateY(-90deg) translateZ(80px);
+}
+.cube-right {
+  transform: rotateY(90deg) translateZ(80px);
+}
+.cube-top {
+  transform: rotateX(90deg) translateZ(80px);
+}
+.cube-bottom {
+  transform: rotateX(-90deg) translateZ(80px);
+}
+@keyframes abi-cube-turn {
+  to {
+    transform: rotateX(-15deg) rotateY(35deg);
+  }
+}
+.abi-orbit {
+  position: absolute;
+  top: 18%;
+  left: 5%;
+  width: 90%;
+  height: 62%;
+  border: 1px solid #9fdbcc20;
+  border-radius: 50%;
+  transform: rotate(-32deg);
+  z-index: -1;
+}
+.orbit-two {
+  transform: rotate(32deg);
+  box-shadow: 0 0 100px #a3ecd310;
+}
+.abi-scene-tag {
+  position: absolute;
+  padding: 16px 18px;
+  border: 1px solid #b1cfc52e;
+  border-radius: 13px;
+  background: #0d191ee8;
+  color: #ebf8f3;
+  box-shadow: 0 12px 36px #0003;
+}
+.abi-scene-tag span {
+  display: block;
+  font: 9px var(--mono);
+  letter-spacing: 0.12em;
+  color: #93b0a7;
+  margin-bottom: 8px;
+}
+.abi-scene-tag b {
+  font-size: 12px;
+  font-weight: 500;
+}
+.abi-scene-tag i {
+  display: inline-block;
+  font: 9px var(--mono);
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: #8bd5af22;
+  color: #a2e5bf;
+  margin-left: 9px;
+}
+.scene-request {
+  top: 30px;
+  left: 0;
+}
+.scene-policy {
+  top: 145px;
+  right: -10px;
+}
+.scene-record {
+  bottom: 65px;
+  left: 15px;
+}
+.abi-scene-caption {
+  position: absolute;
+  bottom: 16px;
+  width: 100%;
+  text-align: center;
+  color: #94aba3;
+  font: 9px var(--mono);
+  letter-spacing: 0.16em;
+}
+.abi-ecosystem {
+  max-width: 1160px;
+  margin: auto;
+  padding: 100px 28px;
+}
+.abi-ecosystem-heading {
+  max-width: 670px;
+}
+.abi-ecosystem h2 {
+  font-size: clamp(32px, 4vw, 54px);
+  line-height: 1.12;
+  letter-spacing: -0.045em;
+  margin: 20px 0;
+}
+.abi-ecosystem p {
+  color: var(--color-fg-muted);
+  line-height: 1.8;
+}
+.abi-model-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 38px 0;
+}
+.abi-model {
+  padding: 26px 20px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-solid);
+  border-radius: 16px;
+}
+.abi-model > svg,
+.abi-model > img,
+.abi-code-mark {
+  height: 32px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+  object-position: left;
+  color: inherit;
+}
+.abi-model h3 {
+  font-size: 15px;
+  margin: 25px 0 8px;
+}
+.abi-model > span:last-child {
+  font-size: 11px;
+  color: var(--color-fg-muted);
+}
+.abi-code-mark {
+  font: 26px var(--mono);
+}
+.abi-rails {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  gap: 30px;
+  padding: 28px 0;
+  border-top: 1px solid var(--color-border);
+  margin-bottom: 22px;
+}
+.abi-rails small {
+  display: block;
+  color: var(--color-fg-muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.abi-rail-logos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 17px 0;
+}
+.abi-rail-logos > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+.login-wrap {
+  background: radial-gradient(ellipse at 10% 20%, #1d333c 0, transparent 55%), #0b1016;
+}
+.login-wrap .login-reveal {
+  width: min(460px, 100%);
+  gap: 30px;
+  transition: none;
+}
+.login-wrap.is-ready .login-brand-beat,
+.login-wrap.is-ready .login-card {
+  animation: none;
+}
+.login-card {
+  border-radius: 20px;
+  padding: 36px;
+  background: #111922;
+  border-color: #ffffff16;
+  box-shadow: 0 24px 80px #0004;
+}
+.auth-eyebrow {
+  color: #9fb2bd;
+  font: 10px var(--mono);
+  letter-spacing: 0.16em;
+}
+.auth-title {
+  font-size: 29px;
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+  margin: 12px 0;
+}
+.login-card .login-sub {
+  margin-bottom: 25px;
+}
+.login-mode-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.login-mode-btn {
+  padding: 11px 6px;
+}
+.auth-secondary-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 16px 0 25px;
+  color: #8dabb8;
+}
+.auth-secondary-links button {
+  font-size: 12px;
+}
+.auth-status {
+  font-size: 12px;
+  color: #c8e8dd;
+}
+.login-card .field input {
+  min-height: 46px;
+  border-radius: 8px;
+}
+.login-card .field label {
+  display: block;
+  margin-bottom: 8px;
+}
+.login-card .field {
+  margin-bottom: 18px;
+}
+@media (max-width: 800px) {
+  .abi-model-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .abi-rails {
+    grid-template-columns: 1fr;
+  }
+  .abi-control-scene {
+    min-height: 420px;
+    max-width: 530px;
+    margin: auto;
+  }
+  .scene-policy {
+    right: 0;
+    top: 130px;
+  }
+  .scene-request {
+    top: 5px;
+  }
+  .abi-hero .hero-inner {
+    padding-top: 40px;
+    padding-bottom: 30px;
+  }
+  .abi-ecosystem {
+    padding: 60px 22px;
+  }
+}
+@media (max-width: 480px) {
+  .abi-scene-tag {
+    padding: 12px;
+  }
+  .abi-scene-tag b {
+    font-size: 10px;
+  }
+  .scene-policy {
+    top: 280px;
+  }
+  .scene-record {
+    bottom: 48px;
+    left: 0;
+  }
+  .abi-control-scene {
+    min-height: 460px;
+  }
+  .abi-model {
+    padding: 22px 14px;
+  }
+  .login-card {
+    padding: 26px 22px;
+  }
+  .login-wrap {
+    padding-inline: 16px;
+  }
+  .auth-title {
+    font-size: 26px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .abi-cube {
+    animation: none;
+  }
+  .page-tip-text {
+    animation: none !important;
+    transition: none !important;
+  }
+  .page-tip-bar {
+    animation: none !important;
+  }
+}
+
+.auth-loading {
+  width: min(360px, 100%);
+  text-align: center;
+}
+.auth-loading h1 {
+  font-size: 25px;
+  letter-spacing: -0.04em;
+  margin-top: 18px;
+}
+.auth-loading p {
+  color: #9eb3bd;
+  font-size: 13px;
+}
+.auth-loading-line {
+  height: 2px;
+  margin: 25px auto;
+  width: 100px;
+  background: linear-gradient(90deg, #1d3036, #b4d7c6, #1d3036);
+}
+
+/* Liquid glass is scoped to the homepage; console contrast stays independent. */
+.liquid-home {
+  --ink: #edf5f2;
+  --ink-2: #bacbc8;
+  --ink-faint: #8da7a2;
+  --bg: #0a1218;
+  --color-ink: #edf5f2;
+  --color-ink-secondary: #bacbc8;
+  --color-fg: #edf5f2;
+  --color-fg-muted: #bacbc8;
+  --color-border: #cbe8df28;
+  --color-surface-solid: #182a32;
+  --color-accent: #a4e8d0;
+  --color-accent-hover: #d2faec;
+  background:
+    radial-gradient(ellipse 900px 900px at 95% 5%, #38616a80, transparent),
+    radial-gradient(ellipse 1000px 1400px at 0 37%, #2b4d5b80, transparent),
+    radial-gradient(ellipse 900px 1500px at 100% 72%, #30594c70, transparent), #0a1218;
+}
+.liquid-home .abi-hero {
+  background: transparent;
+}
+.liquid-home .hero-copy h1 em {
+  background-image: linear-gradient(110deg, #b7ead8, #d1e1ef 60%, #95cdbf);
+}
+.liquid-home .marketing-nav {
+  background: #0c1821b0;
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border-bottom: 1px solid #e2fff220;
+}
+.liquid-home .marketing-nav-inner {
+  background: transparent;
+  box-shadow: none;
+  border-color: transparent;
+}
+.liquid-home .marketing-links a {
+  color: #c2d5d1;
+}
+.liquid-home .marketing-links a.is-active {
+  color: #fff;
+  background: #d1f9ea12;
+}
+.liquid-home :is(.btn-primary-line, .btn-ghost, .partner-logo) {
+  color: #e2f5ec;
+  border-color: #d3f9eb35;
+  background: linear-gradient(130deg, #d3f9eb18, #d3f9eb05);
+  box-shadow: inset 0 1px #ffffff16;
+  backdrop-filter: blur(12px);
+}
+.liquid-home .btn-primary {
+  color: #0b221a;
+  background: linear-gradient(125deg, #dcf5e8, #a9cfbe);
+  box-shadow:
+    inset 0 1px #fff,
+    0 8px 30px #a3e8c31a;
+}
+.liquid-home
+  :is(.abi-model, .ent-card, .product-frame, .pane-frame, .cta-action-card, .metrics-strip) {
+  background: linear-gradient(130deg, #d3f9eb12, #b7dbe505 65%);
+  border: 1px solid #daf9ef25;
+  border-radius: 22px;
+  box-shadow:
+    inset 0 1px 0 #ffffff26,
+    inset 0 -1px 0 #ffffff06,
+    0 16px 44px #00000020;
+  backdrop-filter: blur(20px) saturate(130%);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+}
+.liquid-home
+  :is(
+    .pane-block,
+    .pane-block:nth-child(even),
+    .home-interstitial,
+    .pane-pair,
+    .metrics-band,
+    .trust-strip,
+    .cta-band,
+    .marketing-footer
+  ) {
+  background: transparent;
+  border-color: #dcf9ed18;
+}
+.liquid-home :is(.pane-frame-chrome, .product-frame-chrome) {
+  background: #dbf9ec07;
+  border-color: #dcf9ed15;
+  color: #bed3ce;
+}
+.liquid-home .metrics-strip {
+  padding: 24px;
+}
+.liquid-home .metric-inline {
+  border-color: #dcf9ed22;
+}
+.liquid-home
+  :is(
+    .pane-frame-lines,
+    .pane-frame-lines code,
+    .ent-card h3,
+    .product-frame h3,
+    .cta-action-title
+  ) {
+  color: #e1eee9;
+}
+.liquid-home :is(.ent-card p, .product-frame p, .cta-action-sub, .marketing-footer p) {
+  color: #b5cac4;
+}
+.liquid-home .home-interstitial-art {
+  background: #172d31;
+  border: 1px solid #daf9ef28;
+  box-shadow:
+    inset 0 1px #ffffff26,
+    0 20px 60px #0003;
+}
+.liquid-home .home-interstitial-img {
+  mix-blend-mode: luminosity;
+  opacity: 0.8;
+  filter: invert(0.88) hue-rotate(160deg);
+}
+.liquid-home .home-float-token {
+  opacity: 0.6;
+}
+.liquid-home .cta-lockup img,
+.liquid-home .marketing-footer .brand-mark {
+  filter: invert(1);
+}
+.liquid-home .eyebrow {
+  color: #bfe8da;
+  background: #d8ffee09;
+  border-color: #d8ffee26;
+}
+.liquid-home .eyebrow .dot {
+  background: #b3eed4;
+  box-shadow: 0 0 12px #b3eed444;
+}
+.liquid-home .abi-scene-tag {
+  background: linear-gradient(135deg, #c9f8e91c, #10252ebd);
+  backdrop-filter: blur(20px);
+  box-shadow:
+    inset 0 1px #ffffff26,
+    0 14px 40px #0003;
+}
+.liquid-home .cube-face {
+  background: linear-gradient(135deg, #b7e7db99, #335a6899 55%, #a2d3c966);
+  border-color: #e5fff888;
+  box-shadow: inset 0 0 40px #e5fff82e;
+}
+.liquid-home :is(a, button):focus-visible {
+  outline: 2px solid #bcf6df;
+  outline-offset: 5px;
+}
+@supports not (backdrop-filter: blur(10px)) {
+  .liquid-home
+    :is(.abi-model, .ent-card, .product-frame, .pane-frame, .cta-action-card, .marketing-nav) {
+    background: #172831;
+  }
+}
+@media (max-width: 760px) {
+  .liquid-home .marketing-links {
+    background: #13252df5;
+    border-color: #dcf9ed25;
+  }
+  .liquid-home .marketing-burger {
+    color: #e2f5ec;
+    background: #d3f9eb12;
+    border-color: #d3f9eb35;
+  }
+}
