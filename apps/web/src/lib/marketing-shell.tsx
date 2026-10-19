@@ -16,7 +16,7 @@ export function MarketingShell({
 }) {
   const navActive = active === "landing" ? "home" : active;
   return (
-    <div className="landing">
+    <div className={`landing${navActive === "home" ? " liquid-home" : ""}`}>
       <MarketingNav active={navActive} />
       {children}
       <MarketingFooter />
@@ -48,25 +48,43 @@ export function MarketingNav({
   }, [menuOpen]);
   const close = () => setMenuOpen(false);
   return (
-    <header className={`marketing-nav ${scrolled ? "on-scroll" : ""} ${menuOpen ? "menu-open" : ""}`}>
+    <header
+      className={`marketing-nav ${scrolled ? "on-scroll" : ""} ${menuOpen ? "menu-open" : ""}`}
+    >
       <div className="marketing-nav-inner">
         <Link href="/" aria-label="Artificial Banking Incorporated home" onClick={close}>
-          <ABWordmark size={26} tone="#0a0a0c" />
+          <ABWordmark size={26} tone={current === "home" ? "#fff" : "#0a0a0c"} />
         </Link>
         <nav className="marketing-links">
           <Link href="/" className={current === "home" ? "is-active" : undefined} onClick={close}>
             Home
           </Link>
-          <Link href="/console" className={current === "console" ? "is-active" : undefined} onClick={close}>
+          <Link
+            href="/console"
+            className={current === "console" ? "is-active" : undefined}
+            onClick={close}
+          >
             Console
           </Link>
-          <Link href="/docs" className={current === "docs" ? "is-active" : undefined} onClick={close}>
+          <Link
+            href="/docs"
+            className={current === "docs" ? "is-active" : undefined}
+            onClick={close}
+          >
             Docs
           </Link>
-          <Link href="/pricing" className={current === "pricing" ? "is-active" : undefined} onClick={close}>
+          <Link
+            href="/pricing"
+            className={current === "pricing" ? "is-active" : undefined}
+            onClick={close}
+          >
             Pricing
           </Link>
-          <Link href="/about" className={current === "about" ? "is-active" : undefined} onClick={close}>
+          <Link
+            href="/about"
+            className={current === "about" ? "is-active" : undefined}
+            onClick={close}
+          >
             About
           </Link>
           <a
@@ -103,8 +121,8 @@ export function MarketingFooter() {
         <div className="marketing-footer-brand">
           <ABWordmark size={28} tone="#fff" />
           <p>
-            Controls so AI agents can spend money — with budgets you set, approvals when it
-            matters, and a record you can show people.
+            Controls so AI agents can spend money — with budgets you set, approvals when it matters,
+            and a record you can show people.
           </p>
         </div>
         <div className="marketing-footer-cols">
