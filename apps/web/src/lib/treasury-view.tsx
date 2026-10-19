@@ -1081,7 +1081,9 @@ export function TreasuryView({
                     await refresh();
                     return (
                       `Budget ${j.budget.name} created` +
-                      (j.opsLabel ? ` · agent group “${j.opsLabel.name}” ready under Agents` : "")
+                      (j.opsLabel
+                        ? ` · agent group “${j.opsLabel.name}” ready under API connections`
+                        : "")
                     );
                   })
                 }
