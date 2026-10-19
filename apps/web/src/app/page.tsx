@@ -49,7 +49,7 @@ export default function HomePage() {
 
 function Hero() {
   return (
-    <section className="hero">
+    <section className="hero abi-hero">
       <div className="hero-halo" aria-hidden />
       <div className="hero-inner">
         <div className="hero-copy">
@@ -60,10 +60,8 @@ function Hero() {
             Let AI agents pay for things — <em>without losing control.</em>
           </h1>
           <p className="hero-sub">
-            ABI sits between an AI agent and company funds. Each agent receives a governed spending
-            budget from the organization vault. You set the rules; exceptions wait for a person.
-            Settlement depends on the configured payment rail: sandbox, Base Sepolia testnet, or a
-            separately configured live provider.
+            Give your agents a budget, not unlimited access. ABI checks each payment against your
+            rules, asks for approval when needed, and keeps a record of every decision.
           </p>
           <div className="hero-ctas">
             <Link className="btn-primary" href="/console">
@@ -98,94 +96,44 @@ function Hero() {
   );
 }
 
-/** Product-shaped hero frame — shows what the console looks like before Launch. */
+/** Original CSS scene: no copied video, no external runtime or video download. */
 function HeroGraphic() {
   return (
-    <div className="hero-graphic">
-      <div className="hero-graphic-frame">
-        <div className="hero-console-mock" aria-hidden>
-          <div className="hero-console-chrome">
-            <span className="hero-console-dot" />
-            <span className="hero-console-dot" />
-            <span className="hero-console-dot" />
-            <span>Console · Overview</span>
-          </div>
-          <div className="hero-console-body">
-            <div className="hero-console-rail">
-              <span className="on" />
-              <span />
-              <span />
-              <span />
-              <span />
+    <div
+      className="abi-control-scene"
+      role="img"
+      aria-label="ABI checks agent payment requests against budget and policy before authorizing payment and recording the result."
+    >
+      <div className="abi-orbit orbit-one" aria-hidden />
+      <div className="abi-orbit orbit-two" aria-hidden />
+      <div className="abi-cube-stage" aria-hidden>
+        <div className="abi-cube">
+          {["front", "back", "left", "right", "top", "bottom"].map((face) => (
+            <div key={face} className={`cube-face cube-${face}`}>
+              <span>ABI</span>
+              <small>CONTROL LAYER</small>
             </div>
-            <div className="hero-console-main">
-              <div className="hero-console-kpis">
-                <div className="hero-console-kpi">
-                  <span>Treasury</span>
-                  <b>$12,480</b>
-                </div>
-                <div className="hero-console-kpi">
-                  <span>Agents</span>
-                  <b>8 live</b>
-                </div>
-                <div className="hero-console-kpi">
-                  <span>Approvals</span>
-                  <b>2 open</b>
-                </div>
-              </div>
-              <div className="hero-console-card">
-                <div className="row">
-                  <span className="title">Recent activity</span>
-                  <span className="meta">live</span>
-                </div>
-                <p className="meta">ops-bot paid $1.20 · api.openai.com</p>
-                <div className="hero-console-pills">
-                  <i className="ok">allowed</i>
-                  <i className="warn">awaiting</i>
-                  <i>$45 pending</i>
-                </div>
-              </div>
-              <div className="hero-console-card">
-                <div className="row">
-                  <span className="title">Move funds</span>
-                  <span className="meta">you</span>
-                </div>
-                <p className="meta">
-                  Deposit · Withdraw · Give an agent budget — rules checked first.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="chip-float chip-a">
-          <span className="pill ok">
-            <i /> allowed
-          </span>
-          <span className="mono">$1.20 · paid</span>
-        </div>
-        <div className="chip-float chip-b">
-          <span className="pill warn">
-            <i /> awaiting approval
-          </span>
-          <span className="mono">$45 · api.openai.com</span>
-        </div>
-        <div className="chip-float chip-c">
-          <span className="pill bad">
-            <i /> blocked
-          </span>
-          <span className="mono">not on allowlist</span>
+          ))}
         </div>
       </div>
+      <div className="abi-scene-tag scene-request">
+        <span>01 / REQUEST</span>
+        <b>Research API · $2.40</b>
+      </div>
+      <div className="abi-scene-tag scene-policy">
+        <span>02 / POLICY</span>
+        <b>Within approved budget</b>
+        <i>ALLOW</i>
+      </div>
+      <div className="abi-scene-tag scene-record">
+        <span>03 / RECORD</span>
+        <b>Decision + payment receipt</b>
+      </div>
+      <span className="abi-scene-caption">ILLUSTRATIVE PAYMENT FLOW</span>
     </div>
   );
 }
 
-/**
- * Only technologies actually present in the codebase belong here. Coinbase CDP
- * and ERC-4337 were listed previously and are not implemented — CDP custody is
- * on the roadmap, account abstraction is not yet scoped. Do not re-add either
- * until there is shipping code behind it.
- */
 function TrustStrip() {
   return (
     <section className="trust-strip">
@@ -200,56 +148,71 @@ function TrustStrip() {
   );
 }
 
-/** A scoped sandbox connector currently available to ChatGPT clients. */
+/** Connection targets are explicitly separated from verified availability. */
 function ChatGPTIntegrationBand() {
-  const integrations = [{ key: "chatgpt", name: "ChatGPT", protocol: "Sandbox MCP" }];
-  const marks = Array.from({ length: 4 }, (_, index) => {
-    const integration = integrations[index % integrations.length];
-    return (
-      <span className="chatgpt-integration-mark" key={`${integration.key}-${index}`}>
-        <ChatGPTMark />
-        <span>{integration.name}</span>
-        <span className="chatgpt-integration-separator" aria-hidden>
-          ↗
-        </span>
-        <span className="chatgpt-integration-protocol">{integration.protocol}</span>
-      </span>
-    );
-  });
-
   return (
-    <section className="chatgpt-integration" aria-labelledby="chatgpt-integration-title">
-      <div className="chatgpt-integration-inner">
-        <div className="chatgpt-integration-copy">
-          <span className="eyebrow">
-            <span className="dot" /> AI CONNECTION
-          </span>
-          <h2 id="chatgpt-integration-title">Connect ChatGPT to ABI.</h2>
-          <p>
-            Give ChatGPT a scoped, revocable sandbox session to check spending capacity, simulate
-            ABI policies, and record payment requests.
-          </p>
-        </div>
-        <div
-          className="chatgpt-integration-ribbon"
-          aria-label="ChatGPT connected to ABI through sandbox MCP"
-        >
-          <div className="chatgpt-integration-track">
-            <div className="chatgpt-integration-group">{marks}</div>
-            <div className="chatgpt-integration-group" aria-hidden="true">
-              {marks}
-            </div>
-          </div>
-        </div>
-        <p className="chatgpt-integration-note">
-          <span className="chatgpt-integration-pulse" aria-hidden />
-          Scoped access <span aria-hidden>·</span> revocable session <span aria-hidden>·</span>{" "}
-          sandbox only
+    <section className="abi-ecosystem" aria-labelledby="agent-connection-title">
+      <div className="abi-ecosystem-heading">
+        <span className="eyebrow">YOUR AGENT. YOUR RULES.</span>
+        <h2 id="agent-connection-title">
+          One control layer.
+          <br />
+          More ways to connect.
+        </h2>
+        <p>
+          ABI is designed around agent identities and API access, rather than one AI model. Connect
+          software through REST or MCP, with a budget and an audit trail behind every request.
         </p>
-        <Link className="btn-ghost" href="/docs#chatgpt">
-          View sandbox setup guide <Icon name="arrowRight" size={14} />
-        </Link>
       </div>
+      <div className="abi-model-grid">
+        <div className="abi-model">
+          <ChatGPTMark />
+          <h3>ChatGPT</h3>
+          <span>Sandbox MCP available</span>
+        </div>
+        <div className="abi-model">
+          <Image src="/ecosystem/claude.svg" width={106} height={32} alt="Claude" />
+          <h3>Claude / Claude Code</h3>
+          <span>Planned client integration</span>
+        </div>
+        <div className="abi-model">
+          <Image src="/ecosystem/grok.svg" width={90} height={32} alt="Grok" />
+          <h3>Grok</h3>
+          <span>Planned client integration</span>
+        </div>
+        <div className="abi-model">
+          <span className="abi-code-mark" aria-hidden>
+            &lt;/&gt;
+          </span>
+          <h3>Your own agent</h3>
+          <span>REST API + TypeScript SDK</span>
+        </div>
+      </div>
+      <div className="abi-rails">
+        <div>
+          <span className="eyebrow">RAILS TODAY</span>
+          <p>USDC · Base Sepolia · x402</p>
+          <small>Testnet demonstrated. Live settlement requires a configured provider.</small>
+        </div>
+        <div>
+          <span className="eyebrow">ECOSYSTEM EXPLORATION</span>
+          <div className="abi-rail-logos">
+            {["Ethereum", "Solana", "Bitcoin", "Phantom"].map((name) => (
+              <span key={name}>
+                <Image src={`/ecosystem/${name.toLowerCase()}.svg`} width={24} height={24} alt="" />
+                {name}
+              </span>
+            ))}
+          </div>
+          <small>
+            Future possibilities, not supported integrations. Phantom is a wallet; the others are
+            networks.
+          </small>
+        </div>
+      </div>
+      <Link className="btn-ghost" href="/docs#chatgpt">
+        Explore connection guides <Icon name="arrowRight" size={14} />
+      </Link>
     </section>
   );
 }
