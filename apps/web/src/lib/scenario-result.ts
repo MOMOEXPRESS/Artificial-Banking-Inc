@@ -123,7 +123,8 @@ export function relatedConsoleViews(step: RunStep): RelatedConsoleView[] {
     add("treasury", "Treasury");
   if (/policy|simulate|allowlist|deny|denied|blocked|compliance|limit/.test(text))
     add("policy", "Policies");
-  if (/agent group|session key|freeze|unfreeze|rotate key/.test(text)) add("agents", "Agents");
+  if (/agent group|session key|freeze|unfreeze|rotate key/.test(text))
+    add("agents", "API connections");
   if (/deliverable|report|summary|research brief/.test(text)) add("work", "Work");
 
   return views.slice(0, 3);
