@@ -165,7 +165,7 @@ export function viewLabel(view: string): string {
   const map: Record<string, string> = {
     overview: "Overview",
     treasury: "Treasury",
-    agents: "Agents",
+    agents: "API connections",
     payments: "Payments",
     playground: "Playground",
     chat: "ABI Chat",
