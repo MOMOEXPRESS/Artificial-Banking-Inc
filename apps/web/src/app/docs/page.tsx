@@ -46,8 +46,8 @@ export default function DocsPage() {
             <section id="chatgpt">
               <h3>Connect your AI agent</h3>
               <p>
-                In the console, open <strong>Agents</strong> and create or select an agent. Use the
-                remote MCP URL shown there to connect a compatible client, including ChatGPT
+                In the console, open <strong>API connections</strong> and create or select an agent.
+                Use the remote MCP URL shown there to connect a compatible client, including ChatGPT
                 developer mode. The URL is a short-lived bearer credential: treat it like a
                 password, share it only with your chosen client, and revoke the session in ABI when
                 you are done. This proof supports sandbox actions only; it does not authorize
