@@ -66,7 +66,7 @@ We cannot show them again from the server — only a hash is stored.
 
 ${
   agents ||
-  "_No agents yet._ Create them in Console → Agents, then save each `pv_agent_…` key once."
+  "_No agents yet._ Create them in Console → API connections, then save each `pv_agent_…` key once."
 }
 
 ---
@@ -591,9 +591,24 @@ export function Login({
 
         {showLogin && (
           <div className="login-card">
+            <span className="auth-eyebrow">ABI CONSOLE</span>
+            <h1 className="auth-title">
+              {mode === "signup"
+                ? "Create your workspace"
+                : mode === "reset"
+                  ? "Reset your password"
+                  : mode === "verify"
+                    ? "Check your email"
+                    : mode === "key"
+                      ? "Use an admin key"
+                      : mode === "demo"
+                        ? "Explore the sandbox"
+                        : "Welcome back"}
+            </h1>
             <p className="login-sub">
-              Policy-controlled USDC wallets for AI agents. Sign in with your account, or create one
-              — agent API keys are issued separately, inside the console.
+              {mode === "signup"
+                ? "Set up your company’s financial controls for AI agents."
+                : "Your connections, budgets, and approvals in one place."}
             </p>
 
             <div className="login-mode-row" role="tablist" aria-label="How to enter">
@@ -601,8 +616,6 @@ export function Login({
                 [
                   ["signin", "Sign in"],
                   ["signup", "Create account"],
-                  ["key", "Use a key"],
-                  ["demo", "Demo"],
                 ] as const
               ).map(([id, label]) => (
                 <button
@@ -619,11 +632,32 @@ export function Login({
               ))}
             </div>
 
+            <div className="auth-secondary-links">
+              <button
+                type="button"
+                className="bare"
+                disabled={busy}
+                onClick={() => setMode("demo")}
+              >
+                Try sandbox
+              </button>
+              <span aria-hidden>·</span>
+              <button type="button" className="bare" disabled={busy} onClick={() => setMode("key")}>
+                Admin key access
+              </button>
+            </div>
+            {busy && (
+              <p className="auth-status" role="status">
+                Working securely…
+              </p>
+            )}
+
             {mode === "signin" && (
               <>
                 <div className="field">
-                  <label>Email</label>
+                  <label htmlFor={`auth-email-${mode}`}>Email</label>
                   <input
+                    id={`auth-email-${mode}`}
                     type="email"
                     autoComplete="username"
                     placeholder="you@company.com"
@@ -633,8 +667,9 @@ export function Login({
                   />
                 </div>
                 <div className="field">
-                  <label>Password</label>
+                  <label htmlFor={`auth-password-${mode}`}>Password</label>
                   <input
+                    id={`auth-password-${mode}`}
                     type="password"
                     autoComplete="current-password"
                     placeholder="••••••••••••"
@@ -650,7 +685,7 @@ export function Login({
                   disabled={busy || !email.trim() || !password}
                   onClick={() => void signIn()}
                 >
-                  Sign in
+                  {busy ? "Signing in…" : "Sign in"}
                 </button>
                 <button
                   className="bare"
@@ -713,8 +748,9 @@ export function Login({
                   {verificationMessage || `We’ll send a verification link to ${verificationEmail}.`}
                 </p>
                 <div className="field">
-                  <label>Email</label>
+                  <label htmlFor={`auth-email-${mode}`}>Email</label>
                   <input
+                    id={`auth-email-${mode}`}
                     type="email"
                     autoComplete="email"
                     value={verificationEmail}
@@ -742,8 +778,9 @@ export function Login({
             {mode === "signup" && (
               <>
                 <div className="field">
-                  <label>Email</label>
+                  <label htmlFor={`auth-email-${mode}`}>Email</label>
                   <input
+                    id={`auth-email-${mode}`}
                     type="email"
                     autoComplete="username"
                     placeholder="you@company.com"
@@ -762,8 +799,9 @@ export function Login({
                   />
                 </div>
                 <div className="field">
-                  <label>Password</label>
+                  <label htmlFor={`auth-password-${mode}`}>Password</label>
                   <input
+                    id={`auth-password-${mode}`}
                     type="password"
                     autoComplete="new-password"
                     placeholder="at least 12 characters"
@@ -936,8 +974,9 @@ function KeyRevealCard({
 
       {session.agentKeys.length === 0 ? (
         <p className="faint" style={{ fontSize: 12, lineHeight: 1.5, margin: "4px 0 0" }}>
-          Next inside the console: <b>Agents → Create</b>, then Treasury (fund vault + stipend),
-          then connect your agent runtime with the new <code>pv_agent_…</code> key.
+          Next inside the console: <b>API connections → Create API key</b>, then Treasury (fund
+          vault + stipend), then connect your agent runtime with the new <code>pv_agent_…</code>{" "}
+          key.
         </p>
       ) : null}
 
