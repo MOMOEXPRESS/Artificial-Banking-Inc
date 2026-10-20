@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Empty, Icon, fmtUsd, relTime } from "./ui";
 import { InvoicesView, type Invoice, type InvoiceStats } from "./views";
 import { Approvals } from "./approvals-view";
@@ -16,10 +16,12 @@ type Sub = {
   vendor: string;
   amountUsdc: string;
   intervalHours: number;
+  kind: "recurring" | "one_shot";
   status: string;
   runs: number;
   spentUsdc: string;
   nextRunAt: string;
+  lastRunAt?: string;
   memo?: string;
   lastError?: string;
 };
@@ -89,6 +91,7 @@ export function PaymentsView({
   const [rails, setRails] = useState<Rail[]>([]);
   const [subs, setSubs] = useState<Sub[]>([]);
   const [recent, setRecent] = useState<PayRow[]>([]);
+  const subStatusRef = useRef<Map<string, string> | null>(null);
   const resolveTab = (
     t?: typeof initialTab,
   ): "approvals" | "recent" | "subs" | "rails" | "invoices" | "escrows" | "batch" => {
@@ -129,12 +132,44 @@ export function PaymentsView({
       gFetch("/v1/guardian/payments/recent").then((x) => x.json()),
     ]);
     setRails(r.rails ?? []);
-    setSubs(s.subscriptions ?? []);
+    const nextSubs = (s.subscriptions ?? []) as Sub[];
+    if (subStatusRef.current) {
+      for (const sub of nextSubs) {
+        const before = subStatusRef.current.get(sub.id);
+        if (before && before !== sub.status) {
+          if (sub.status === "completed") {
+            setToast?.(
+              `Scheduled payment completed — ${fmtUsd(sub.amountUsdc)} paid to ${sub.vendor}.`,
+              "ok",
+            );
+          } else if (sub.status === "failed") {
+            setToast?.(
+              `Scheduled payment failed — ${sub.vendor}. Open the schedule for details.`,
+              "err",
+            );
+          } else if (sub.status === "awaiting_approval") {
+            setToast?.(
+              `Scheduled payment needs approval — ${fmtUsd(sub.amountUsdc)} to ${sub.vendor}.`,
+              "info",
+            );
+          }
+        }
+      }
+    }
+    subStatusRef.current = new Map(nextSubs.map((sub) => [sub.id, sub.status]));
+    setSubs(nextSubs);
     setRecent(p.payments ?? []);
-  }, [gFetch]);
+  }, [gFetch, setToast]);
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  // Scheduled payments settle in the API background worker. Keep this screen
+  // live so terminal state, receipts and controls update without a manual refresh.
+  useEffect(() => {
+    const timer = window.setInterval(() => void refresh(), 8_000);
+    return () => window.clearInterval(timer);
   }, [refresh]);
 
   useEffect(() => {
@@ -404,7 +439,9 @@ export function PaymentsView({
                           {p.txHash.slice(0, 10)}…
                         </a>
                       ) : (
-                        <span className="faint">{p.rail ?? p.settlementState ?? "ledger"}</span>
+                        <span className="pill ok">
+                          <i /> Paid · {p.rail ?? p.settlementState ?? "ledger"}
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -574,7 +611,7 @@ export function PaymentsView({
 
           <div className="card">
             <div className="card-head">
-              <h2>Active & scheduled</h2>
+              <h2>Schedules & subscriptions</h2>
             </div>
             {!subs.length ? (
               <Empty icon="clock">No subscriptions or schedules yet.</Empty>
@@ -585,7 +622,7 @@ export function PaymentsView({
                     <th>Vendor</th>
                     <th>Agent</th>
                     <th className="num">Amount</th>
-                    <th>Next</th>
+                    <th>Timing</th>
                     <th>Status</th>
                     <th />
                   </tr>
@@ -604,19 +641,33 @@ export function PaymentsView({
                       <td>{agentName(s.agentId)}</td>
                       <td className="num mono">{fmtUsd(s.amountUsdc)}</td>
                       <td className="mono faint" style={{ fontSize: 11 }}>
-                        {new Date(s.nextRunAt).toLocaleString()}
+                        {s.status === "completed" ||
+                        s.status === "failed" ||
+                        s.status === "exhausted"
+                          ? s.lastRunAt
+                            ? `${s.status === "completed" ? "Paid" : "Finished"} ${new Date(s.lastRunAt).toLocaleString()}`
+                            : "Finished"
+                          : s.status === "awaiting_approval"
+                            ? "Waiting for approval"
+                            : `Next ${new Date(s.nextRunAt).toLocaleString()}`}
                       </td>
                       <td>
                         <span
                           className={`pill ${
-                            s.status === "active" ? "ok" : s.status === "paused" ? "warn" : "mute"
+                            s.status === "active" || s.status === "completed"
+                              ? "ok"
+                              : s.status === "paused" || s.status === "awaiting_approval"
+                                ? "warn"
+                                : s.status === "failed"
+                                  ? "bad"
+                                  : "mute"
                           }`}
                         >
-                          <i /> {s.status}
+                          <i /> {s.status.replaceAll("_", " ")}
                         </span>
                       </td>
                       <td>
-                        {s.status === "active" && (
+                        {s.status === "active" && s.kind === "recurring" && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -650,7 +701,7 @@ export function PaymentsView({
                             Resume
                           </Button>
                         )}
-                        {s.status !== "cancelled" && (
+                        {(s.status === "active" || s.status === "paused") && (
                           <Button
                             variant="ghost"
                             size="sm"
