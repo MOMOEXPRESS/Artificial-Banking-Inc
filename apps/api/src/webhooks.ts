@@ -23,6 +23,7 @@ export type WebhookEvent =
   | "escrow.refunded"
   | "agent.frozen"
   | "agent.unfrozen"
+  | "invoice.created"
   | "invoice.paid"
   | "subscription.charged"
   | "compliance.flagged"

@@ -11,13 +11,7 @@
  */
 import { formatMicroToUsdc } from "@policyvault/common";
 import { evaluatePolicy } from "@policyvault/policy";
-import {
-  APPROVAL_TTL_MINUTES,
-  executeIntent,
-  id,
-  recordDecision,
-  rulesFor,
-} from "../engine.js";
+import { APPROVAL_TTL_MINUTES, executeIntent, id, recordDecision, rulesFor } from "../engine.js";
 import { notify } from "../platform/notifier.js";
 import { store, type ApprovalRow } from "../store.js";
 import { emitEvent } from "../webhooks.js";
@@ -28,7 +22,7 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
 
   for (const sub of store.listDueSubscriptions()) {
     if (sub.maxTotalMicro && sub.spentMicro >= sub.maxTotalMicro) {
-      store.setSubscriptionStatus(sub.id, "exhausted");
+      store.setSubscriptionStatus(sub.id, sub.kind === "one_shot" ? "completed" : "exhausted");
       continue;
     }
     const nextRunAt = new Date(Date.now() + sub.intervalHours * 3600_000).toISOString();
@@ -73,6 +67,7 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
         destination: sub.vendor,
         memo: sub.memo ?? `subscription ${sub.id}`,
         idempotencyKey: `sub_${sub.id}_${sub.runs}`,
+        subscriptionId: sub.id,
         ruleIds: decision.ruleIds,
         reasons: decision.reasons,
         status: "pending",
@@ -98,17 +93,34 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
         chargedMicro: 0n,
         nextRunAt,
         error: `review: pending approval ${approval.id}`,
+        status: "awaiting_approval",
       });
       parked += 1;
       continue;
     }
 
     if (decision.outcome !== "allow") {
+      const error = `${decision.outcome}: ${decision.reasons[0] ?? ""}`;
       store.recordSubscriptionRun({
         subId: sub.id,
         chargedMicro: 0n,
         nextRunAt,
-        error: `${decision.outcome}: ${decision.reasons[0] ?? ""}`,
+        error,
+        status: sub.kind === "one_shot" ? "failed" : "active",
+      });
+      emitEvent(sub.orgId, "payment.failed", {
+        subscriptionId: sub.id,
+        agentId: sub.agentId,
+        destination: sub.vendor,
+        amountUsdc: formatMicroToUsdc(sub.amountMicro),
+        reason: error,
+      });
+      void notify({
+        kind: "info",
+        orgId: sub.orgId,
+        title: sub.kind === "one_shot" ? "Scheduled payment failed" : "Subscription charge failed",
+        body: `${formatMicroToUsdc(sub.amountMicro)} USDC to ${sub.vendor} — ${error}`,
+        meta: { subscriptionId: sub.id, agentId: sub.agentId },
       });
       continue;
     }
@@ -123,13 +135,59 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
       intentId,
       memo: sub.memo ?? `subscription ${sub.id}`,
     });
+    const spentAfter = sub.spentMicro + (result.ok ? sub.amountMicro : 0n);
+    const completed =
+      result.ok &&
+      (sub.kind === "one_shot" || Boolean(sub.maxTotalMicro && spentAfter >= sub.maxTotalMicro));
+    const error = result.ok ? undefined : JSON.stringify(result.payload.error);
     store.recordSubscriptionRun({
       subId: sub.id,
       chargedMicro: result.ok ? sub.amountMicro : 0n,
       nextRunAt,
-      error: result.ok ? undefined : JSON.stringify(result.payload.error),
+      error,
+      status: result.ok
+        ? completed
+          ? sub.kind === "one_shot"
+            ? "completed"
+            : "exhausted"
+          : "active"
+        : sub.kind === "one_shot"
+          ? "failed"
+          : "active",
     });
-    if (result.ok) charged += 1;
+    if (result.ok) {
+      charged += 1;
+      emitEvent(sub.orgId, "subscription.charged", {
+        subscriptionId: sub.id,
+        kind: sub.kind,
+        agentId: sub.agentId,
+        destination: sub.vendor,
+        amountUsdc: formatMicroToUsdc(sub.amountMicro),
+        status: sub.kind === "one_shot" ? "completed" : completed ? "exhausted" : "active",
+      });
+      void notify({
+        kind: "info",
+        orgId: sub.orgId,
+        title: sub.kind === "one_shot" ? "Scheduled payment completed" : "Subscription charged",
+        body: `${formatMicroToUsdc(sub.amountMicro)} USDC paid to ${sub.vendor}.`,
+        meta: { subscriptionId: sub.id, agentId: sub.agentId },
+      });
+    } else {
+      emitEvent(sub.orgId, "payment.failed", {
+        subscriptionId: sub.id,
+        agentId: sub.agentId,
+        destination: sub.vendor,
+        amountUsdc: formatMicroToUsdc(sub.amountMicro),
+        reason: error,
+      });
+      void notify({
+        kind: "info",
+        orgId: sub.orgId,
+        title: sub.kind === "one_shot" ? "Scheduled payment failed" : "Subscription charge failed",
+        body: `${formatMicroToUsdc(sub.amountMicro)} USDC to ${sub.vendor} did not settle.`,
+        meta: { subscriptionId: sub.id, agentId: sub.agentId },
+      });
+    }
   }
 
   return { charged, parked };

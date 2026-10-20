@@ -31,7 +31,7 @@ after(() => {
   }
 });
 
-function subscribe(amountMicro: bigint) {
+function subscribe(amountMicro: bigint, kind: "recurring" | "one_shot" = "recurring") {
   const demo = store.seedDemoOrg();
   const sub = {
     id: `sub_${Math.random().toString(16).slice(2, 14)}`,
@@ -40,11 +40,13 @@ function subscribe(amountMicro: bigint) {
     vendor: "api.openai.com",
     amountMicro,
     intervalHours: 24,
+    kind,
     status: "active" as const,
     createdAt: new Date().toISOString(),
     nextRunAt: new Date().toISOString(),
     runs: 0,
     spentMicro: 0n,
+    maxTotalMicro: kind === "one_shot" ? amountMicro : undefined,
   };
   store.createSubscription(sub);
   return { orgId: demo.orgId, sub };
@@ -111,5 +113,48 @@ describe("recordSubscriptionRun", () => {
       nextRunAt: new Date(Date.now() + 864e5).toISOString(),
     });
     assert.equal(store.listSubscriptions(orgId)[0]!.spentMicro, 3_000_000n);
+  });
+
+  it("persists a one-shot as completed in the same write as its charge", () => {
+    const { orgId, sub } = subscribe(5_000_000n, "one_shot");
+    store.setSubscriptionStatus(sub.id, "active");
+    store.recordSubscriptionRun({
+      subId: sub.id,
+      chargedMicro: 5_000_000n,
+      nextRunAt: new Date(Date.now() + 365 * 864e5).toISOString(),
+      status: "completed",
+    });
+    const completed = store.listSubscriptions(orgId)[0]!;
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.spentMicro, 5_000_000n);
+    assert.ok(completed.lastRunAt);
+  });
+
+  it("closes an approval-backed one-shot instead of leaving it active", () => {
+    const demo = store.seedDemoOrg();
+    const sub = {
+      id: `sub_${Math.random().toString(16).slice(2, 14)}`,
+      orgId: demo.orgId,
+      agentId: demo.researcherAgentId,
+      vendor: "api.openai.com",
+      amountMicro: 15_000_000n,
+      intervalHours: 24 * 365,
+      kind: "one_shot" as const,
+      status: "awaiting_approval" as const,
+      createdAt: new Date().toISOString(),
+      nextRunAt: new Date(Date.now() + 365 * 864e5).toISOString(),
+      runs: 1,
+      spentMicro: 0n,
+      maxTotalMicro: 15_000_000n,
+      memo: "scheduled_one_shot",
+    };
+    store.createSubscription(sub);
+    const completed = store.resolveScheduledApproval({
+      subId: sub.id,
+      ok: true,
+      chargedMicro: 15_000_000n,
+    });
+    assert.equal(completed?.status, "completed");
+    assert.equal(completed?.spentMicro, 15_000_000n);
   });
 });
