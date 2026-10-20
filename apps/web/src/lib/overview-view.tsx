@@ -160,7 +160,7 @@ export function Overview({
           ) : readOnly ? (
             <>
               <Button variant="secondary" onClick={() => setView("agents")}>
-                <Icon name="robot" size={14} /> View agents
+                <Icon name="key" size={14} /> API
               </Button>
               <Button onClick={() => setView("activity")}>
                 <Icon name="list" size={14} /> View activity
@@ -169,7 +169,7 @@ export function Overview({
           ) : (
             <>
               <Button variant="secondary" onClick={() => setView("agents")}>
-                <Icon name="robot" size={14} /> View agents
+                <Icon name="key" size={14} /> API
               </Button>
               <Button onClick={() => setView("treasury", "move")}>
                 <Icon name="swap" size={14} /> Move funds
