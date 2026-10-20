@@ -167,6 +167,8 @@ export interface ApprovalRow {
   idempotencyKey: string;
   payeeAgentId?: string;
   timeoutMinutes?: number;
+  /** Schedule that owns this approval, when the scheduler parked the charge. */
+  subscriptionId?: string;
   ruleIds: string[];
   reasons: string[];
   status: ApprovalStatus;
@@ -199,7 +201,9 @@ export interface VoteRow {
   at: string;
 }
 
-export type SubscriptionStatus = "active" | "paused" | "cancelled" | "exhausted";
+export type SubscriptionStatus =
+  "active" | "paused" | "awaiting_approval" | "completed" | "failed" | "cancelled" | "exhausted";
+export type SubscriptionKind = "recurring" | "one_shot";
 
 export interface SubscriptionRow {
   id: string;
@@ -208,6 +212,7 @@ export interface SubscriptionRow {
   vendor: string;
   amountMicro: MicroUsdc;
   intervalHours: number;
+  kind: SubscriptionKind;
   status: SubscriptionStatus;
   createdAt: string;
   nextRunAt: string;
@@ -577,6 +582,7 @@ CREATE TABLE IF NOT EXISTS approvals (
   idempotency_key TEXT NOT NULL,
   payee_agent_id TEXT,
   timeout_minutes INTEGER,
+  subscription_id TEXT,
   rule_ids_json TEXT NOT NULL,
   reasons_json TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -625,6 +631,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   vendor TEXT NOT NULL,
   amount_micro TEXT NOT NULL,
   interval_hours INTEGER NOT NULL,
+  schedule_kind TEXT NOT NULL DEFAULT 'recurring',
   status TEXT NOT NULL DEFAULT 'active',
   created_at TEXT NOT NULL,
   next_run_at TEXT NOT NULL,
@@ -760,6 +767,8 @@ for (const migration of [
   // took at lock time. Reversal keys on this ref rather than matching by
   // amount, which would pick the wrong row when two escrows are the same size.
   "ALTER TABLE pay_events ADD COLUMN ref TEXT",
+  "ALTER TABLE subscriptions ADD COLUMN schedule_kind TEXT NOT NULL DEFAULT 'recurring'",
+  "ALTER TABLE approvals ADD COLUMN subscription_id TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -767,6 +776,15 @@ for (const migration of [
     /* column already exists */
   }
 }
+
+// Backfill the canonical one-shot memos written before schedule_kind existed.
+db.exec(`
+UPDATE subscriptions
+SET schedule_kind = 'one_shot'
+WHERE schedule_kind = 'recurring'
+  AND max_total_micro IS NOT NULL
+  AND (memo = 'scheduled_one_shot' OR memo LIKE 'batch_%');
+`);
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS merchants (
@@ -1412,6 +1430,7 @@ function rowToApproval(r: Row): ApprovalRow {
     idempotencyKey: r.idempotency_key,
     payeeAgentId: r.payee_agent_id ?? undefined,
     timeoutMinutes: r.timeout_minutes ?? undefined,
+    subscriptionId: r.subscription_id ?? undefined,
     ruleIds: JSON.parse(r.rule_ids_json),
     reasons: JSON.parse(r.reasons_json),
     status: r.status,
@@ -1519,6 +1538,7 @@ function rowToSub(r: Row): SubscriptionRow {
     vendor: r.vendor,
     amountMicro: BigInt(r.amount_micro),
     intervalHours: r.interval_hours,
+    kind: (r.schedule_kind ?? "recurring") as SubscriptionKind,
     status: r.status,
     createdAt: r.created_at,
     nextRunAt: r.next_run_at,
@@ -3841,8 +3861,8 @@ export const store = {
   createApproval(a: ApprovalRow): void {
     db.prepare(
       `INSERT INTO approvals (id, org_id, agent_id, intent_id, tool, amount_micro, amount_usdc, destination, job_id, memo,
-        idempotency_key, payee_agent_id, timeout_minutes, rule_ids_json, reasons_json, status, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        idempotency_key, payee_agent_id, timeout_minutes, subscription_id, rule_ids_json, reasons_json, status, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       a.id,
       a.orgId,
@@ -3857,6 +3877,7 @@ export const store = {
       a.idempotencyKey,
       a.payeeAgentId ?? null,
       a.timeoutMinutes ?? null,
+      a.subscriptionId ?? null,
       JSON.stringify(a.ruleIds),
       JSON.stringify(a.reasons),
       a.status,
@@ -4570,9 +4591,9 @@ export const store = {
   // --------------------------------------------------------- subscriptions
   createSubscription(s: SubscriptionRow): void {
     db.prepare(
-      `INSERT INTO subscriptions (id, org_id, agent_id, vendor, amount_micro, interval_hours, status,
+      `INSERT INTO subscriptions (id, org_id, agent_id, vendor, amount_micro, interval_hours, schedule_kind, status,
         created_at, next_run_at, runs, spent_micro, max_total_micro, memo)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       s.id,
       s.orgId,
@@ -4580,6 +4601,7 @@ export const store = {
       s.vendor,
       s.amountMicro.toString(),
       s.intervalHours,
+      s.kind,
       s.status,
       s.createdAt,
       s.nextRunAt,
@@ -4637,6 +4659,7 @@ export const store = {
     chargedMicro: MicroUsdc;
     nextRunAt: string;
     error?: string;
+    status?: SubscriptionStatus;
   }): void {
     // Accumulate in JS with bigints and write TEXT, the way every other money
     // column in this schema is handled.
@@ -4659,11 +4682,51 @@ export const store = {
              spent_micro = ?,
              last_run_at = ?,
              next_run_at = ?,
-             last_error = ?
+             last_error = ?,
+             status = COALESCE(?, status)
          WHERE id = ?`,
-      ).run(spent.toString(), nowIso(), args.nextRunAt, args.error ?? null, args.subId);
+      ).run(
+        spent.toString(),
+        nowIso(),
+        args.nextRunAt,
+        args.error ?? null,
+        args.status ?? null,
+        args.subId,
+      );
     });
     tx();
+  },
+
+  /** Finish a scheduler run that was parked for guardian approval. */
+  resolveScheduledApproval(args: {
+    subId: string;
+    ok: boolean;
+    chargedMicro: MicroUsdc;
+    error?: string;
+  }): SubscriptionRow | undefined {
+    const tx = db.transaction(() => {
+      const raw = db.prepare("SELECT * FROM subscriptions WHERE id = ?").get(args.subId) as
+        Row | undefined;
+      if (!raw) return undefined;
+      const sub = rowToSub(raw);
+      const spent = sub.spentMicro + args.chargedMicro;
+      const status: SubscriptionStatus = args.ok
+        ? sub.kind === "one_shot"
+          ? "completed"
+          : sub.maxTotalMicro && spent >= sub.maxTotalMicro
+            ? "exhausted"
+            : "active"
+        : sub.kind === "one_shot"
+          ? "failed"
+          : "active";
+      db.prepare(
+        `UPDATE subscriptions
+         SET spent_micro = ?, last_error = ?, status = ?
+         WHERE id = ?`,
+      ).run(spent.toString(), args.error ?? null, status, sub.id);
+      return rowToSub(db.prepare("SELECT * FROM subscriptions WHERE id = ?").get(sub.id) as Row);
+    });
+    return tx();
   },
 
   // -------------------------------------------------------------- invoices
