@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Empty, Icon, Stat, fmtTime, fmtUsd } from "./ui";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Decision } from "./console-types";
 import { Button } from "@/components/ui/button";
@@ -45,7 +51,9 @@ export function Activity({
   );
   const toolOpts = useMemo(() => [...new Set(decisions.map((d) => d.tool))], [decisions]);
   const destOpts = useMemo(
-    () => [...new Set(decisions.map((d) => d.destination.replace(/^https?:\/\//, "").split("/")[0]))],
+    () => [
+      ...new Set(decisions.map((d) => d.destination.replace(/^https?:\/\//, "").split("/")[0])),
+    ],
     [decisions],
   );
 
@@ -117,6 +125,24 @@ export function Activity({
     }
   }
 
+  async function exportReport() {
+    try {
+      const res = await gFetch("/v1/guardian/audit/export?limit=2000&format=html", {
+        headers: { Accept: "text/html" },
+      });
+      if (!res.ok) throw new Error("report export failed");
+      const blob = new Blob([await res.text()], { type: "text/html" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `abi-decision-trail-${new Date().toISOString().slice(0, 10)}.html`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setToast("Downloaded the branded ABI decision-trail report.", "ok");
+    } catch {
+      setToast("Could not generate the ABI report. The CSV export is still available.", "err");
+    }
+  }
+
   return (
     <>
       <div className="grid g-4">
@@ -145,7 +171,20 @@ export function Activity({
                 ))}
               </TabsList>
             </Tabs>
-            <Button variant="ghost" size="sm" onClick={() => void exportCsv()} disabled={!decisions.length}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void exportReport()}
+              disabled={!decisions.length}
+            >
+              <Icon name="book" size={13} /> ABI report
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void exportCsv()}
+              disabled={!decisions.length}
+            >
               <Icon name="download" size={13} /> CSV
             </Button>
           </div>
@@ -192,7 +231,9 @@ export function Activity({
             </SelectContent>
           </Select>
           {filtersActive && (
-            <Button variant="bare" size="sm"
+            <Button
+              variant="bare"
+              size="sm"
               onClick={() => {
                 setFilter("all");
                 setAgentF("all");
@@ -205,7 +246,9 @@ export function Activity({
           )}
         </div>
         {rows.length === 0 ? (
-          <Empty icon="list">Nothing matches. Run a mission in the Playground to generate activity.</Empty>
+          <Empty icon="list">
+            Nothing matches. Run a mission in the Playground to generate activity.
+          </Empty>
         ) : (
           <div className="tbl-wrap">
             <table>
@@ -250,4 +293,3 @@ export function Activity({
     </>
   );
 }
-
