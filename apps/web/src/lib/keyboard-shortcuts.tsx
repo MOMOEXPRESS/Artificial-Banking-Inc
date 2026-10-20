@@ -23,7 +23,7 @@ export type ShortcutView =
 export const GO_MAP: { key: string; view: ShortcutView; label: string }[] = [
   { key: "o", view: "overview", label: "Overview" },
   { key: "t", view: "treasury", label: "Treasury" },
-  { key: "a", view: "agents", label: "Agents" },
+  { key: "a", view: "agents", label: "API" },
   { key: "p", view: "payments", label: "Payments" },
   { key: "m", view: "playground", label: "Playground (missions)" },
   { key: "c", view: "chat", label: "ABI Chat" },
