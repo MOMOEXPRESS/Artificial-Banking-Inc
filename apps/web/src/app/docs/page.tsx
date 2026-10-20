@@ -46,7 +46,7 @@ export default function DocsPage() {
             <section id="chatgpt">
               <h3>Connect your AI agent</h3>
               <p>
-                In the console, open <strong>Agents</strong> and create or select an agent. Use the
+                In the console, open <strong>API</strong> and create or select an agent. Use the
                 remote MCP URL shown there to connect a compatible client, including ChatGPT
                 developer mode. The URL is a short-lived bearer credential: treat it like a
                 password, share it only with your chosen client, and revoke the session in ABI when

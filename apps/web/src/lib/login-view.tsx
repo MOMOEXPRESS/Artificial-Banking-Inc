@@ -66,7 +66,7 @@ We cannot show them again from the server — only a hash is stored.
 
 ${
   agents ||
-  "_No agents yet._ Create them in Console → Agents, then save each `pv_agent_…` key once."
+  "_No agents yet._ Create them in Console → API, then save each `pv_agent_…` key once."
 }
 
 ---
@@ -936,7 +936,7 @@ function KeyRevealCard({
 
       {session.agentKeys.length === 0 ? (
         <p className="faint" style={{ fontSize: 12, lineHeight: 1.5, margin: "4px 0 0" }}>
-          Next inside the console: <b>Agents → Create</b>, then Treasury (fund vault + stipend),
+          Next inside the console: <b>API → Create API key</b>, then Treasury (fund vault + stipend),
           then connect your agent runtime with the new <code>pv_agent_…</code> key.
         </p>
       ) : null}
