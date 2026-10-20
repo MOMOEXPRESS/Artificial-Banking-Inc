@@ -9,11 +9,11 @@ const EXIT_MS = 280;
 /** Multiple tips per console page — rotates in a reserved slot (no layout jump). */
 const TIPS: Record<string, string[]> = {
   overview: [
-    "Create a budget in Treasury → Budgets. ABI also creates its linked ops group; add agents under Agents.",
+    "Create a budget in Treasury → Budgets. ABI also creates its linked ops group; add agents under API.",
     "Fund a budget in Treasury → Move. Agents spend from that shared budget under policy.",
     "Review policy limits and approved destinations before an agent starts spending.",
     "Use Approvals for requests waiting on a person, and Transactions for recorded outcomes.",
-    "Daily agent spend shows approved activity by day. Freeze an agent under Agents if spending needs to stop.",
+    "Daily agent spend shows approved activity by day. Freeze an agent under API if spending needs to stop.",
   ],
   agents: [
     "Open an agent profile for session keys, shared budget authority, and freeze controls.",
@@ -106,7 +106,6 @@ export function PageTour({
   const tips = tipsOverride ?? TIPS[view];
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<"in" | "out">("in");
-  const [paused, setPaused] = useState(false);
 
   useEffect(() => {
     setIndex(0);
@@ -114,7 +113,7 @@ export function PageTour({
   }, [view, tips]);
 
   useEffect(() => {
-    if (!tips || tips.length <= 1 || paused) return;
+    if (!tips || tips.length <= 1) return;
     let exitTimer = 0;
     const tick = window.setInterval(() => {
       setPhase("out");
@@ -127,7 +126,7 @@ export function PageTour({
       window.clearInterval(tick);
       window.clearTimeout(exitTimer);
     };
-  }, [tips, view, paused, index]);
+  }, [tips, view]);
 
   if (!tips?.length) return null;
 
@@ -149,7 +148,7 @@ export function PageTour({
             )}
           </div>
           <p
-            aria-live={paused ? "polite" : "off"}
+            aria-live="off"
             key={`${view}-${index}`}
             className={`page-tip-text ${phase === "out" ? "page-tip-text-out" : "page-tip-text-in"}`}
           >
@@ -157,44 +156,7 @@ export function PageTour({
           </p>
           {actions && <div className="overview-guide-actions">{actions}</div>}
         </div>
-        {interactive && tips.length > 1 && (
-          <div className="overview-guide-controls">
-            <button
-              type="button"
-              aria-label="Previous tip"
-              onClick={() => {
-                setPaused(true);
-                setPhase("in");
-                setIndex((index + tips.length - 1) % tips.length);
-              }}
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              aria-label={paused ? "Resume tips" : "Pause tips"}
-              aria-pressed={paused}
-              onClick={() => {
-                setPaused(!paused);
-                setPhase("in");
-              }}
-            >
-              {paused ? "Resume" : "Pause"}
-            </button>
-            <button
-              type="button"
-              aria-label="Next tip"
-              onClick={() => {
-                setPaused(true);
-                setPhase("in");
-                setIndex((index + 1) % tips.length);
-              }}
-            >
-              Next
-            </button>
-          </div>
-        )}
-        {tips.length > 1 && !paused && (
+        {tips.length > 1 && (
           <div key={`bar-${view}-${index}`} className="page-tip-bar" aria-hidden />
         )}
       </div>
