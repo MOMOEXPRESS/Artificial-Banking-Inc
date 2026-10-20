@@ -73,20 +73,20 @@ const NAV: { key: View; label: string; icon: string; group: string }[] = [
   { key: "treasury", label: "Treasury", icon: "wallet", group: "Money" },
   { key: "payments", label: "Transactions", icon: "zap", group: "Money" },
   { key: "ledger", label: "Ledger", icon: "list", group: "Money" },
-  { key: "agents", label: "Agents", icon: "robot", group: "Agents" },
-  { key: "work", label: "Work", icon: "book", group: "Agents" },
+  { key: "agents", label: "API", icon: "key", group: "Connections" },
+  { key: "work", label: "Work", icon: "book", group: "Connections" },
   { key: "approvals", label: "Approvals", icon: "check", group: "Controls" },
   { key: "policy", label: "Policies", icon: "sliders", group: "Controls" },
   { key: "playground", label: "Playground", icon: "play", group: "Developers" },
   { key: "webhooks", label: "Webhooks", icon: "zap", group: "Developers" },
 ];
 
-const NAV_GROUPS = ["Home", "Money", "Agents", "Controls", "Developers"] as const;
+const NAV_GROUPS = ["Home", "Money", "Connections", "Controls", "Developers"] as const;
 
 const MOBILE_NAV: { key: View; label: string; icon: string }[] = [
   { key: "overview", label: "Home", icon: "home" },
   { key: "treasury", label: "Money", icon: "wallet" },
-  { key: "agents", label: "Agents", icon: "robot" },
+  { key: "agents", label: "API", icon: "key" },
   { key: "approvals", label: "Approvals", icon: "check" },
 ];
 
@@ -143,14 +143,14 @@ const VIEW_META: Partial<
     icon: "list",
   },
   agents: {
-    eyebrow: "Agents · Directory",
-    title: "Manage the workforce that can spend.",
+    eyebrow: "API · Keys",
+    title: "Manage API access.",
     description:
       "Create identities, assign operating context, control sessions, inspect activity, and stop an agent instantly.",
-    icon: "robot",
+    icon: "key",
   },
   work: {
-    eyebrow: "Agents · Work",
+    eyebrow: "Connections · Work",
     title: "Connect agent output to financial results.",
     description:
       "Review runs, attribution, delivered work, and the revenue or cost attached to each outcome.",
@@ -337,7 +337,7 @@ export default function Console() {
   const [folderOpen, setFolderOpen] = useState<Record<string, boolean>>({
     Home: true,
     Money: true,
-    Agents: true,
+    Connections: true,
     Controls: true,
     Developers: true,
   });
@@ -869,7 +869,7 @@ export default function Console() {
                 setFolderOpen({
                   Home: true,
                   Money: true,
-                  Agents: true,
+                  Connections: true,
                   Controls: true,
                   Developers: true,
                 });
@@ -884,7 +884,7 @@ export default function Console() {
             const groupActive = items.some((n) => n.key === railActive);
             const showBadge =
               (group === "Money" && pending.length > 0) ||
-              (group === "Agents" && (pending.length > 0 || mission.running));
+              (group === "Connections" && (pending.length > 0 || mission.running));
             return (
               <SidebarFolder
                 key={group}
