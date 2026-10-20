@@ -434,15 +434,18 @@ export function PaymentsView({
                     <td className="mono wrap">{p.destination}</td>
                     <td className="num mono">{fmtUsd(p.amountUsdc)}</td>
                     <td>
-                      {p.txHash && p.explorerUrl ? (
-                        <a href={p.explorerUrl} target="_blank" rel="noreferrer" className="mono">
-                          {p.txHash.slice(0, 10)}…
-                        </a>
-                      ) : (
+                      <div className="row" style={{ flexWrap: "nowrap", gap: 6 }}>
                         <span className="pill ok">
-                          <i /> Paid · {p.rail ?? p.settlementState ?? "ledger"}
+                          <i /> Paid
                         </span>
-                      )}
+                        {p.txHash && p.explorerUrl ? (
+                          <a href={p.explorerUrl} target="_blank" rel="noreferrer" className="mono">
+                            {p.txHash.slice(0, 10)}…
+                          </a>
+                        ) : (
+                          <span className="faint">{p.rail ?? p.settlementState ?? "ledger"}</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
