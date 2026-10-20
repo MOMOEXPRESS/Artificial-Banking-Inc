@@ -57,11 +57,19 @@ function parseMarkdown(src: string): React.ReactNode[] {
     }
     // table
     if (line.trim().startsWith("|") && lines[i + 1]?.includes("---")) {
-      const head = line.split("|").slice(1, -1).map((c) => c.trim());
+      const head = line
+        .split("|")
+        .slice(1, -1)
+        .map((c) => c.trim());
       i += 2;
       const rows: string[][] = [];
       while (i < lines.length && lines[i].trim().startsWith("|")) {
-        rows.push(lines[i].split("|").slice(1, -1).map((c) => c.trim()));
+        rows.push(
+          lines[i]
+            .split("|")
+            .slice(1, -1)
+            .map((c) => c.trim()),
+        );
         i++;
       }
       out.push(
@@ -202,8 +210,16 @@ export function AIPanel({
             <div className="k">{h.label}</div>
             <div className="v">
               {h.value}
-              <span className={`pill ${h.tone === "bad" ? "bad" : h.tone === "warn" ? "warn" : h.tone === "ok" ? "ok" : "mute"}`}>
-                {h.tone === "warn" ? "check" : h.tone === "bad" ? "act" : h.tone === "ok" ? "good" : "info"}
+              <span
+                className={`pill ${h.tone === "bad" ? "bad" : h.tone === "warn" ? "warn" : h.tone === "ok" ? "ok" : "mute"}`}
+              >
+                {h.tone === "warn"
+                  ? "check"
+                  : h.tone === "bad"
+                    ? "act"
+                    : h.tone === "ok"
+                      ? "good"
+                      : "info"}
               </span>
             </div>
             <div className="h">{h.hint}</div>
@@ -354,8 +370,8 @@ export function InvoicesView({
             <div>
               <h2>Invoices</h2>
               <div className="sub">
-                Bill clients for the work your agents produced. Settling one books the cash into
-                the treasury as revenue.
+                Bill clients for the work your agents produced. Settling one books the cash into the
+                treasury as revenue.
               </div>
             </div>
             <Button size="sm" disabled={readOnly} onClick={() => setOpen((v) => !v)}>
@@ -448,12 +464,20 @@ export function InvoicesView({
                       <Button size="sm" disabled={locked} onClick={() => void pay(inv.id)}>
                         Mark paid
                       </Button>
-                      <Button variant="ghost" size="sm" disabled={locked} onClick={() => void voidIt(inv.id)}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={locked}
+                        onClick={() => void voidIt(inv.id)}
+                      >
                         Void
                       </Button>
                     </div>
                   ) : (
-                    <span className="faint" style={{ fontSize: 11.5, minWidth: 78, textAlign: "right" }}>
+                    <span
+                      className="faint"
+                      style={{ fontSize: 11.5, minWidth: 78, textAlign: "right" }}
+                    >
                       {inv.status === "paid" ? "settled" : "voided"}
                     </span>
                   )}
@@ -485,8 +509,8 @@ export function InvoicesView({
               <h2>Why invoices matter</h2>
             </div>
             <p className="muted" style={{ fontSize: 12.5, marginTop: 0, lineHeight: 1.7 }}>
-              Agents cost money to run — API calls, compute, hiring peers. Invoicing closes the
-              loop so you can see whether a swarm actually earns more than it burns.
+              Agents cost money to run — API calls, compute, hiring peers. Invoicing closes the loop
+              so you can see whether a swarm actually earns more than it burns.
             </p>
             <div className="divider" />
             <div className="between" style={{ fontSize: 12.5, marginBottom: 9 }}>
@@ -521,6 +545,13 @@ export type Run = {
   costUsdc: string;
   steps: { id: string; title: string; status: string; summary?: string; output?: string }[];
   deliverableMd?: string;
+  invoice?: {
+    id: string;
+    number: string;
+    status: string;
+    amountUsdc: string;
+    counterparty: string;
+  };
 };
 
 export function WorkView({
@@ -573,7 +604,11 @@ export function WorkView({
     <div className="console-page work-page">
       <div className="grid g-4">
         <Stat label="Runs" value={String(runs.length)} foot="missions executed" />
-        <Stat label="Deliverables" value={String(withDeliverable.length)} foot="documents produced" />
+        <Stat
+          label="Deliverables"
+          value={String(withDeliverable.length)}
+          foot="documents produced"
+        />
         <Stat label="Total cost" value={fmtUsd(totalCost)} foot="what the work consumed" />
         <Stat
           label="Avg per run"
@@ -586,8 +621,8 @@ export function WorkView({
         <div className="card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
           {!sel ? (
             <Empty icon="book">
-              No work yet. Run a mission in the Agent Playground — the deliverable it produces
-              lands here.
+              No work yet. Run a mission in the Agent Playground — the deliverable it produces lands
+              here.
             </Empty>
           ) : (
             <>
@@ -605,9 +640,15 @@ export function WorkView({
                       <Button variant="ghost" size="sm" onClick={() => download(sel)}>
                         <Icon name="download" size={13} /> Markdown
                       </Button>
-                      <Button size="sm" disabled={busy} onClick={() => void bill(sel)}>
-                        Bill this work
-                      </Button>
+                      {sel.invoice ? (
+                        <span className={`pill ${sel.invoice.status === "paid" ? "ok" : "warn"}`}>
+                          <i /> {sel.invoice.number} · {sel.invoice.status}
+                        </span>
+                      ) : (
+                        <Button size="sm" disabled={busy} onClick={() => void bill(sel)}>
+                          Bill this work
+                        </Button>
+                      )}
                     </>
                   )}
                 </div>
@@ -631,7 +672,13 @@ export function WorkView({
                     <div
                       key={s.id + i}
                       className={`step ${
-                        s.status === "done" ? "done" : s.status === "failed" ? "fail" : s.status === "blocked" ? "block" : ""
+                        s.status === "done"
+                          ? "done"
+                          : s.status === "failed"
+                            ? "fail"
+                            : s.status === "blocked"
+                              ? "block"
+                              : ""
                       }`}
                     >
                       <div className="bullet">
@@ -662,7 +709,15 @@ export function WorkView({
           {runs.length === 0 ? (
             <Empty icon="list">Nothing archived yet.</Empty>
           ) : (
-            <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div
+              style={{
+                overflowY: "auto",
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
               {runs.map((r) => (
                 <button
                   key={r.id}
