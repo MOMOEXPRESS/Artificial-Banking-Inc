@@ -92,9 +92,10 @@ export function registerPaymentRoutes(
             settlementState: settlement?.state,
             rail: settlement?.rail,
             txHash: settlement?.txHash,
-            explorerUrl: settlement?.txHash
-              ? `${process.env.CHAIN === "base" ? "https://basescan.org" : "https://sepolia.basescan.org"}/tx/${settlement.txHash}`
-              : undefined,
+            explorerUrl:
+              settlement?.txHash && /^0x[a-fA-F0-9]{64}$/.test(settlement.txHash)
+                ? `${process.env.CHAIN === "base" ? "https://basescan.org" : "https://sepolia.basescan.org"}/tx/${settlement.txHash}`
+                : undefined,
           };
         });
       res.json({ payments: rows });
