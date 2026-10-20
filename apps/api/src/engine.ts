@@ -769,6 +769,53 @@ function guardianApproveGate(
   return { ok: true };
 }
 
+/** Close the schedule that produced a parked approval. */
+function finishScheduledApproval(approval: ApprovalRow, ok: boolean, error?: string): void {
+  if (!approval.subscriptionId) return;
+  const sub = store.resolveScheduledApproval({
+    subId: approval.subscriptionId,
+    ok,
+    chargedMicro: ok ? approval.amountMicro : 0n,
+    error,
+  });
+  if (!sub) return;
+  if (ok) {
+    emitEvent(approval.orgId, "subscription.charged", {
+      subscriptionId: sub.id,
+      kind: sub.kind,
+      agentId: sub.agentId,
+      destination: sub.vendor,
+      amountUsdc: approval.amountUsdc,
+      status: sub.status,
+      approvalId: approval.id,
+    });
+  } else {
+    emitEvent(approval.orgId, "payment.failed", {
+      subscriptionId: sub.id,
+      agentId: sub.agentId,
+      destination: sub.vendor,
+      amountUsdc: approval.amountUsdc,
+      approvalId: approval.id,
+      reason: error,
+    });
+  }
+  void notify({
+    kind: "info",
+    orgId: approval.orgId,
+    title: ok
+      ? sub.kind === "one_shot"
+        ? "Scheduled payment completed"
+        : "Subscription charged"
+      : sub.kind === "one_shot"
+        ? "Scheduled payment failed"
+        : "Subscription charge failed",
+    body: ok
+      ? `${approval.amountUsdc} USDC paid to ${sub.vendor}.`
+      : `${approval.amountUsdc} USDC to ${sub.vendor} did not settle${error ? ` — ${error}` : "."}`,
+    meta: { subscriptionId: sub.id, approvalId: approval.id, agentId: sub.agentId },
+  });
+}
+
 export async function resolveApproval(
   orgId: string,
   approvalId: string,
@@ -849,6 +896,7 @@ export async function resolveApproval(
       destination: approval.destination,
     });
     store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
+    finishScheduledApproval(approval, false, "Denied by guardian");
     emitEvent(orgId, "approval.resolved", {
       approvalId: approval.id,
       status: "denied",
@@ -889,6 +937,7 @@ export async function resolveApproval(
       destination: approval.destination,
     });
     store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
+    finishScheduledApproval(approval, false, "Agent or organization was frozen");
     emitEvent(orgId, "approval.resolved", {
       approvalId: approval.id,
       status: "denied",
@@ -934,6 +983,7 @@ export async function resolveApproval(
       destination: approval.destination,
     });
     store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
+    finishScheduledApproval(approval, false, recheck.reasons.join("; "));
     emitEvent(orgId, "approval.resolved", {
       approvalId: approval.id,
       status: "denied",
@@ -987,6 +1037,11 @@ export async function resolveApproval(
     ...result.payload,
     httpStatus: result.ok ? 200 : result.status,
   });
+  finishScheduledApproval(
+    approval,
+    result.ok,
+    result.ok ? undefined : "Approved payment could not be settled",
+  );
   emitEvent(orgId, "approval.resolved", {
     approvalId: approval.id,
     status: result.ok ? "approved" : "denied",
@@ -1115,6 +1170,7 @@ export function sweepApprovalExpiry() {
       amountUsdc: approval.amountUsdc,
       destination: approval.destination,
     });
+    finishScheduledApproval(approval, false, "Approval expired");
     emitEvent(approval.orgId, "approval.resolved", {
       approvalId: approval.id,
       status: "expired",
