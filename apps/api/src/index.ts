@@ -1061,6 +1061,7 @@ app.post(
         vendor: body.vendor,
         amountMicro: parseUsdcToMicro(body.amountUsdc),
         intervalHours: body.intervalHours,
+        kind: "recurring" as const,
         status: "active" as const,
         createdAt: new Date().toISOString(),
         nextRunAt: new Date(
@@ -1088,6 +1089,18 @@ app.post(
       }
       const sub = store.getSubscription(req.params.id, org.id);
       if (!sub) return res.status(404).json({ error: { code: "NOT_FOUND" } });
+      const allowed =
+        (action === "pause" && sub.status === "active") ||
+        (action === "resume" && sub.status === "paused") ||
+        (action === "cancel" && (sub.status === "active" || sub.status === "paused"));
+      if (!allowed) {
+        return res.status(409).json({
+          error: {
+            code: "INVALID_STATE",
+            message: `Cannot ${action} a ${sub.status} ${sub.kind === "one_shot" ? "schedule" : "subscription"}`,
+          },
+        });
+      }
       store.setSubscriptionStatus(
         sub.id,
         action === "pause" ? "paused" : action === "resume" ? "active" : "cancelled",
@@ -1560,6 +1573,21 @@ app.post(
       jobId: body.jobId,
       runId: body.runId,
     });
+    emitEvent(org.id, "invoice.created", {
+      invoiceId: invoice.id,
+      number: invoice.number,
+      counterparty: invoice.counterparty,
+      amountUsdc: formatMicroToUsdc(invoice.amountMicro),
+      status: invoice.status,
+      runId: invoice.runId,
+    });
+    void notify({
+      kind: "info",
+      orgId: org.id,
+      title: "Invoice created",
+      body: `${invoice.number} for ${formatMicroToUsdc(invoice.amountMicro)} USDC was issued to ${invoice.counterparty}.`,
+      meta: { invoiceId: invoice.id, number: invoice.number, runId: invoice.runId },
+    });
     res.status(201).json({ invoice: invoiceView(invoice) });
   }),
 );
@@ -1593,6 +1621,20 @@ app.post(
       counterparty: invoice.counterparty,
       amountUsdc: formatMicroToUsdc(invoice.amountMicro),
     });
+    emitEvent(org.id, "invoice.paid", {
+      invoiceId: invoice.id,
+      number: invoice.number,
+      counterparty: invoice.counterparty,
+      amountUsdc: formatMicroToUsdc(invoice.amountMicro),
+      status: "paid",
+    });
+    void notify({
+      kind: "info",
+      orgId: org.id,
+      title: "Invoice paid",
+      body: `${invoice.number} was settled for ${formatMicroToUsdc(invoice.amountMicro)} USDC; cash and revenue are reconciled.`,
+      meta: { invoiceId: invoice.id, number: invoice.number },
+    });
     res.json({ ok: true, invoice: invoiceView(store.getInvoice(invoice.id, org.id)!) });
   }),
 );
@@ -1614,15 +1656,35 @@ app.post(
 
 // -------------------------------------------------------------------- runs
 
-function runView(r: RunRow) {
+function runView(r: RunRow, invoice?: InvoiceRow) {
   const { costMicro, ...rest } = r;
-  return { ...rest, costUsdc: formatMicroToUsdc(costMicro) };
+  return {
+    ...rest,
+    costUsdc: formatMicroToUsdc(costMicro),
+    invoice: invoice
+      ? {
+          id: invoice.id,
+          number: invoice.number,
+          status: invoice.status,
+          amountUsdc: formatMicroToUsdc(invoice.amountMicro),
+          counterparty: invoice.counterparty,
+        }
+      : undefined,
+  };
 }
 
 app.get(
   "/v1/guardian/runs",
   guardianRoute((org, _req, res) => {
-    res.json({ runs: store.listRuns(org.id).map(runView) });
+    const invoicesByRun = new Map(
+      store
+        .listInvoices(org.id)
+        .filter((invoice) => invoice.runId)
+        .map((invoice) => [invoice.runId!, invoice]),
+    );
+    res.json({
+      runs: store.listRuns(org.id).map((run) => runView(run, invoicesByRun.get(run.id))),
+    });
   }),
 );
 
@@ -1631,7 +1693,8 @@ app.get(
   guardianRoute((org, req, res) => {
     const run = store.getRun(req.params.id, org.id);
     if (!run) return res.status(404).json({ error: { code: "NOT_FOUND" } });
-    res.json({ run: runView(run) });
+    const invoice = store.listInvoices(org.id).find((item) => item.runId === run.id);
+    res.json({ run: runView(run, invoice) });
   }),
 );
 
