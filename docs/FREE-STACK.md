@@ -16,7 +16,9 @@ substitute we ship and what remains deferred.
 | Telegram approvals | — | Bot API (free); per-org `settings.telegramChatId` + guardian `telegramUserId` | Webhook transport (Phase 4 of TELEGRAM plan) |
 | Card rails / AP2 / L402 | Stripe SPT, Google AP2, Lightning | Interface stubs under `apps/api/src/platform/rails-future.ts` | Implement when a free test path exists |
 | Python SDK | — | OpenAPI at `/v1/openapi.json` — generate clients later | Publish when needed |
-| Hosting cold-start | Paid always-on | Console proxy returns `API_WAKING_UP` JSON; document Fly/Oracle free tiers | Keep-alive cron (UptimeRobot free) |
+| Hosting cold-start | Paid always-on | Console proxy returns `API_WAKING_UP` JSON; Fly/Oracle + docker compose | Keep-alive cron (UptimeRobot free) |
+| Structured logging / APM | Datadog | `pino` JSON to stdout + `GET /metrics` | OTLP later |
+| Security headers / WAF | Paid WAF | `helmet` (API) + Next/Vercel headers | Cloudflare free optional |
 
 ## Owner setup (all free)
 

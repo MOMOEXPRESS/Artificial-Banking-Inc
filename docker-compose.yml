@@ -36,6 +36,11 @@ x-money-env: &money-env
   ABI_COMPLIANCE_FAIL_CLOSED: ${ABI_COMPLIANCE_FAIL_CLOSED:-1}
   # Outbound fetches to private addresses are an SSRF surface in production.
   ABI_ALLOW_LOCAL_TARGETS: ${ABI_ALLOW_LOCAL_TARGETS:-0}
+  ABI_LOG_LEVEL: ${ABI_LOG_LEVEL:-info}
+  ABI_ONCHAIN_ENABLED: ${ABI_ONCHAIN_ENABLED:-0}
+  # Never set ABI_ALLOW_UNSAFE_PROD=1 with real funds.
+  ABI_ALLOW_UNSAFE_PROD: ${ABI_ALLOW_UNSAFE_PROD:-0}
+  POLICYVAULT_MOCK_TRANSFER: ${POLICYVAULT_MOCK_TRANSFER:-0}
 
 services:
   api:
@@ -53,7 +58,7 @@ services:
       POLICYVAULT_ALLOW_BOOTSTRAP: ${POLICYVAULT_ALLOW_BOOTSTRAP:-0}
       POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE: ${POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE:-0}
       ABI_SIGNUP_TOKEN: ${ABI_SIGNUP_TOKEN:-}
-      RATE_LIMIT_PER_MIN: ${RATE_LIMIT_PER_MIN:-5000}
+      RATE_LIMIT_PER_MIN: ${RATE_LIMIT_PER_MIN:-120}
       APPROVAL_TTL_MINUTES: ${APPROVAL_TTL_MINUTES:-10}
     volumes:
       - abi_sqlite:/data
@@ -64,7 +69,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:8787/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 15s
       timeout: 5s
@@ -76,12 +81,26 @@ services:
       target: worker
     environment:
       <<: *money-env
+      WORKER_HEALTH_PORT: "8788"
+    ports:
+      - "8788:8788"
     volumes:
       - abi_sqlite:/data
     restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8788/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
 
   web:
     build:

@@ -10,8 +10,12 @@ import { recogniseRevenue } from "@policyvault/ledger";
 import { evaluatePolicy, matchedAutomationRules } from "@policyvault/policy";
 import cors from "cors";
 import express from "express";
+import helmet from "helmet";
+import type { Server } from "node:http";
 import { privateKeyToAccount } from "viem/accounts";
 import { z } from "zod";
+import { loadConfig, getConfig, ConfigError } from "./config.js";
+import { getLogger, requestLogMiddleware } from "./platform/logger.js";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import type { PaymentRequired } from "@x402/core/types";
 import {
@@ -75,7 +79,23 @@ import { registerPolicyRoutes } from "./routes/policy-routes.js";
 import { registerTreasuryRoutes } from "./routes/treasury-routes.js";
 import { registerRemoteMcp } from "./remote-mcp.js";
 
+// Validate env before wiring routes. Tests set process.env, then import this
+// module — so this runs with the test env already applied.
+try {
+  loadConfig();
+} catch (e) {
+  if (e instanceof ConfigError) {
+    console.error(e.message);
+    if (process.env.ABI_NO_LISTEN !== "1") process.exit(1);
+    throw e;
+  }
+  throw e;
+}
+
 const app = express();
+const config = getConfig();
+const log = getLogger();
+
 /**
  * CORS.
  *
@@ -84,23 +104,26 @@ const app = express();
  * fail cross-origin. The console calls same-origin `/abi-api` and needs no
  * CORS at all; anything else must be named explicitly in ABI_CORS_ORIGINS.
  */
-const corsOrigins = (process.env.ABI_CORS_ORIGINS ?? "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
 app.use(
   cors({
-    origin: corsOrigins.length ? corsOrigins : false,
-    credentials: corsOrigins.length > 0,
+    origin: config.corsOrigins.length ? config.corsOrigins : false,
+    credentials: config.corsOrigins.length > 0,
   }),
 );
 // Behind the Next proxy / a load balancer, so req.ip must come from
 // X-Forwarded-For or every caller shares one rate-limit bucket.
 app.set("trust proxy", true);
-app.use(express.json());
+app.use(
+  helmet({
+    // API is JSON-only; CSP is for HTML. HSTS is for TLS terminators in front.
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  }),
+);
+app.use(express.json({ limit: "1mb" }));
+app.use(requestLogMiddleware);
 
-const PORT = Number(process.env.PORT ?? 8787);
+const PORT = config.PORT;
 const STARTED_AT = Date.now();
 
 registerInAppNotifier();
@@ -297,10 +320,10 @@ registerNotifier("webhook", (payload) => {
 // Rate limiting: sliding window per bearer key (falls back to IP).
 // Generous dev default — this is abuse protection, not throttling.
 // ---------------------------------------------------------------------------
-const RATE_LIMIT_PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN ?? 5000);
+const RATE_LIMIT_PER_MIN = config.rateLimitPerMin;
 /** Credential-minting routes get their own, far tighter budget per IP. */
 const SIGNUP_LIMIT_PER_HOUR = Number(
-  process.env.ABI_SIGNUP_LIMIT_PER_HOUR ?? (process.env.NODE_ENV === "production" ? 10 : 1000),
+  process.env.ABI_SIGNUP_LIMIT_PER_HOUR ?? (config.isProduction ? 10 : 1000),
 );
 /** Cap the window map so a key-rotating caller cannot exhaust memory. */
 const RATE_MAX_KEYS = 50_000;
@@ -343,7 +366,7 @@ const AUTH_LIMITS: Record<string, { ipLimit: number; accountLimit: number; windo
 };
 
 app.use((req, res, next) => {
-  if (req.path === "/health" || req.path === "/metrics") return next();
+  if (req.path === "/health" || req.path === "/ready" || req.path === "/metrics") return next();
 
   const authLimit = req.method === "POST" ? AUTH_LIMITS[req.path] : undefined;
   if (authLimit) {
@@ -553,8 +576,8 @@ function guardianRoute(
           error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
         });
       }
-      console.error("guardian route error:", e);
-      res.status(500).json({ error: { code: "RAIL_FAILED", message: String(e) } });
+      (req.log ?? log).error({ err: e }, "guardian route error");
+      res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
     });
   };
 }
@@ -582,8 +605,8 @@ function asyncRoute(
           error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
         });
       }
-      console.error("route error:", e);
-      res.status(500).json({ error: { code: "RAIL_FAILED", message: String(e) } });
+      (req.log ?? log).error({ err: e }, "route error");
+      res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
     });
   };
 }
@@ -838,6 +861,8 @@ async function handleIntent(
 }
 
 app.get("/health", (_req, res) => {
+  // Liveness: process is up. Do not touch the DB here — Render/Fly free probes
+  // should stay cheap even when SQLite is briefly busy.
   res.json({
     ok: true,
     service: "abi-api",
@@ -848,6 +873,30 @@ app.get("/health", (_req, res) => {
     legal: LEGAL_FOOTER,
     telegram: telegramEnabled,
   });
+});
+
+app.get("/ready", (_req, res) => {
+  // Readiness: can serve money-path traffic. Checks SQLite responds.
+  try {
+    const orgCount = store.listOrgIds().length;
+    res.json({
+      ok: true,
+      service: "abi-api",
+      ready: true,
+      db: "ok",
+      orgs: orgCount,
+      demoMode: config.allowBootstrap,
+      mockTransfer: config.mockTransfer,
+    });
+  } catch (e) {
+    log.error({ err: e }, "readiness check failed");
+    res.status(503).json({
+      ok: false,
+      service: "abi-api",
+      ready: false,
+      error: { code: "NOT_READY", message: "Database not ready" },
+    });
+  }
 });
 
 /** Prometheus text exposition (Observability pillar). */
@@ -874,9 +923,7 @@ app.get("/v1/openapi.json", (_req, res) => {
  * Still gated, because it mints a root guardian key: an open endpoint that
  * hands out credentials is an abuse vector even when it is non-destructive.
  */
-const ALLOW_DEMO_SEED =
-  process.env.POLICYVAULT_ALLOW_BOOTSTRAP === "1" ||
-  (process.env.NODE_ENV !== "production" && process.env.POLICYVAULT_ALLOW_BOOTSTRAP !== "0");
+const ALLOW_DEMO_SEED = config.allowBootstrap;
 
 app.get("/v1/demo/status", (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
@@ -885,7 +932,8 @@ app.get("/v1/demo/status", (_req, res) => {
   // public capability. Bootstrap POST still checks the token.
   res.json({
     enabled: ALLOW_DEMO_SEED,
-    requiresSignupToken: Boolean(process.env.ABI_SIGNUP_TOKEN?.trim()),
+    requiresSignupToken: Boolean(config.ABI_SIGNUP_TOKEN?.trim()),
+    productionSafe: config.isProduction && !ALLOW_DEMO_SEED,
   });
 });
 
@@ -894,7 +942,9 @@ app.post("/v1/demo/bootstrap", async (req, res) => {
     return res.status(403).json({
       error: {
         code: "UNAUTHORIZED",
-        message: "Demo seeding is disabled. Set POLICYVAULT_ALLOW_BOOTSTRAP=1 to enable.",
+        message:
+          "Demo seeding is disabled in this environment. For disposable demos only, set " +
+          "POLICYVAULT_ALLOW_BOOTSTRAP=1 and ABI_ALLOW_UNSAFE_PROD=1 (never with real funds).",
       },
     });
   }
@@ -911,11 +961,15 @@ app.post("/v1/demo/bootstrap", async (req, res) => {
       note: "Demo org seeded. agentApiKey = agent Bearer token; guardianKey = guardian Bearer token. Existing organizations were not modified.",
     });
   } catch (e) {
-    console.error("demo seed failed:", e);
+    log.error({ err: e }, "demo seed failed");
     return res.status(500).json({
       error: {
         code: "BOOTSTRAP_FAILED",
-        message: e instanceof Error ? e.message : String(e),
+        message: config.isProduction
+          ? "Demo bootstrap failed"
+          : e instanceof Error
+            ? e.message
+            : String(e),
       },
     });
   }
@@ -935,17 +989,16 @@ app.post("/v1/demo/bootstrap", async (req, res) => {
  * Ledger `depositUsdc` is optional mock float; live USDC comes from on-chain
  * vault funding + auto-credit.
  */
-const ALLOW_PUBLIC_ORG_CREATE =
-  process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE === "1" ||
-  (process.env.NODE_ENV !== "production" &&
-    process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE !== "0");
+const ALLOW_PUBLIC_ORG_CREATE = config.allowPublicOrgCreate;
 
 app.post("/v1/guardian/orgs", async (req, res) => {
   if (!ALLOW_PUBLIC_ORG_CREATE) {
     return res.status(403).json({
       error: {
         code: "UNAUTHORIZED",
-        message: "Public org creation disabled — set POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE=1",
+        message:
+          "Public org creation disabled. Use /v1/auth/signup, or for disposable demos set " +
+          "POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE=1 with ABI_ALLOW_UNSAFE_PROD=1.",
       },
     });
   }
@@ -2520,7 +2573,7 @@ app.use(
         error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
       });
     }
-    console.error("unhandled route error:", err);
+    log.error({ err }, "unhandled route error");
     res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
   },
 );
@@ -2532,37 +2585,52 @@ export { app };
  * Tests import `app` to drive it over an ephemeral port, so they suppress the
  * listener. Everything else — including every deployment — listens.
  */
-const noListen = process.env.ABI_NO_LISTEN === "1";
+const noListen = config.ABI_NO_LISTEN === true;
 
 /**
  * Background jobs run in-process by default, which is correct for the
  * single-instance topology. Set ABI_RUN_JOBS=0 when running `apps/worker`
  * alongside the API so the two do not compete for the same leases.
  */
-const runJobsInProcess = process.env.ABI_RUN_JOBS !== "0";
+const runJobsInProcess = config.runJobsInProcess;
+
+let httpServer: Server | undefined;
+let schedulerHandle: ReturnType<typeof startScheduler> | undefined;
 
 if (!noListen) {
   // Do not advertise a healthy API that cannot create accounts or sessions.
-  // In explicit demo mode, missing values are purpose-derived from the existing
-  // server-side signup token; normal production still requires dedicated keys.
   assertAuthRuntimeReady();
 
   if (runJobsInProcess) {
-    startScheduler();
+    schedulerHandle = startScheduler();
     startTelegramPolling();
   } else {
-    console.log(
-      JSON.stringify({
-        type: "abi.jobs.delegated",
-        note: "ABI_RUN_JOBS=0 — background jobs are expected from the worker process.",
-      }),
+    log.info(
+      { type: "abi.jobs.delegated" },
+      "ABI_RUN_JOBS=0 — background jobs are expected from the worker process.",
     );
   }
 
-  app.listen(PORT, () => {
-    console.log(`ABI API on http://localhost:${PORT} (SQLite-backed, persistent process)`);
-    console.log(LEGAL_FOOTER);
+  httpServer = app.listen(PORT, () => {
+    log.info({ port: PORT }, "ABI API listening (SQLite-backed)");
+    log.info(LEGAL_FOOTER);
   });
+  httpServer.requestTimeout = 60_000;
+  httpServer.headersTimeout = 65_000;
+  httpServer.keepAliveTimeout = 72_000;
+
+  const shutdown = (signal: string) => {
+    log.info({ signal }, "shutting down");
+    schedulerHandle?.stop();
+    httpServer?.close((err) => {
+      if (err) log.error({ err }, "error during server.close");
+      process.exit(err ? 1 : 0);
+    });
+    // Hard ceiling so a stuck keep-alive cannot hang the process forever.
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 export { closeDb, getDbPath } from "./store.js";
