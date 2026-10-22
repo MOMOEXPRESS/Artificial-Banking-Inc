@@ -148,6 +148,19 @@ export const JOBS: JobDefinition[] = [
       }
     },
   },
+  {
+    name: "webhook-retries",
+    // Durable queue: pending rows in webhook_deliveries, not in-process setTimeout.
+    intervalMs: 15_000,
+    leaseMs: 60_000,
+    run: async () => {
+      const { retryPendingWebhookDeliveries } = await import("../webhooks.js");
+      const { attempted } = await retryPendingWebhookDeliveries();
+      if (attempted > 0) {
+        recordObs({ name: "jobs.webhookRetries", attrs: { attempted } });
+      }
+    },
+  },
 ];
 
 /** Run one job if its lease can be taken. Exposed for tests and for one-shot runs. */

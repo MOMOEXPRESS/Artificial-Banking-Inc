@@ -46,3 +46,12 @@ services:
         value: base-sepolia
       - key: CHAIN_RPC_URL
         sync: false
+      # Fail closed when an optional compliance webhook is configured but unreachable.
+      - key: ABI_COMPLIANCE_FAIL_CLOSED
+        value: "1"
+      # Prefer the explicit self-custody switch over legacy CDP_* env names.
+      - key: ABI_ONCHAIN_ENABLED
+        sync: false
+      # Independent secrets — never reuse ABI_SIGNUP_TOKEN as pepper/KEK.
+      # On free disk-backed demos you may omit these and set POLICYVAULT_ALLOW_BOOTSTRAP=1
+      # so the API writes random secrets under /data/abi-demo-secrets.json.

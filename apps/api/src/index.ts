@@ -878,9 +878,15 @@ const ALLOW_DEMO_SEED =
   process.env.POLICYVAULT_ALLOW_BOOTSTRAP === "1" ||
   (process.env.NODE_ENV !== "production" && process.env.POLICYVAULT_ALLOW_BOOTSTRAP !== "0");
 
-app.get("/v1/demo/status", (req, res) => {
+app.get("/v1/demo/status", (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json({ enabled: ALLOW_DEMO_SEED && !signupTokenProblem(req) });
+  // Status is informational and must not require the signup token — otherwise
+  // the console proxy attaching the token to this path made the token a
+  // public capability. Bootstrap POST still checks the token.
+  res.json({
+    enabled: ALLOW_DEMO_SEED,
+    requiresSignupToken: Boolean(process.env.ABI_SIGNUP_TOKEN?.trim()),
+  });
 });
 
 app.post("/v1/demo/bootstrap", async (req, res) => {
