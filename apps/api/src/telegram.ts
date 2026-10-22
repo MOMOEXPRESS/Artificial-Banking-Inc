@@ -56,7 +56,7 @@ function allowedUsersForOrg(orgId: string): Set<string> {
  * for any future formatted path and for unit tests.
  */
 export function escapeTelegramText(value: string): string {
-  return value.replace(/[_*`\[\]()~>#+\-=|{}.!\\]/g, "\\$&");
+  return value.replace(/[_*`[\]()~>#+\-=|{}.!\\]/g, "\\$&");
 }
 
 async function tg(method: string, payload: Record<string, unknown>): Promise<unknown> {

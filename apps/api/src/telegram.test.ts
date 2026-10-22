@@ -119,7 +119,7 @@ describe("Telegram approval security", () => {
     store.setOrgSettings(org.id, { telegramChatId: "333" });
     const calls: Array<{ method: string; payload: Record<string, unknown> }> = [];
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
       const url = String(_url);
       const method = url.split("/").pop()!;
       const payload = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;

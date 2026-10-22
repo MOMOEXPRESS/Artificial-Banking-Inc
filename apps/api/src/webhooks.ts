@@ -195,7 +195,11 @@ export async function retryPendingWebhookDeliveries(): Promise<{ attempted: numb
       });
       continue;
     }
-    const body = JSON.stringify({ ...row.payload, deliveryId: row.id });
+    const payload =
+      row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+        ? (row.payload as Record<string, unknown>)
+        : { data: row.payload };
+    const body = JSON.stringify({ ...payload, deliveryId: row.id });
     attempted += 1;
     await attemptDelivery({
       deliveryId: row.id,
