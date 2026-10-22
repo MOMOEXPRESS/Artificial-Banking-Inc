@@ -189,8 +189,14 @@ export interface GuardianRow {
   guardianKey: string;
   createdAt: string;
   revokedAt?: string;
-  /** Optional HITL approval conditions (e.g. max amount). */
-  conditions?: { maxApproveUsdc?: string; note?: string; restricted?: boolean };
+  /** Optional HITL approval conditions (e.g. max amount, Telegram link). */
+  conditions?: {
+    maxApproveUsdc?: string;
+    note?: string;
+    restricted?: boolean;
+    /** Telegram user id bound to this seat for approval buttons. */
+    telegramUserId?: string;
+  };
 }
 
 export interface VoteRow {
@@ -285,6 +291,8 @@ export interface WebhookDeliveryRow {
   lastError?: string;
   createdAt: string;
   deliveredAt?: string;
+  /** When status is pending, earliest time the durable retry job may re-drive. */
+  nextAttemptAt?: string;
 }
 
 export interface DepartmentRow {
@@ -769,6 +777,8 @@ for (const migration of [
   "ALTER TABLE pay_events ADD COLUMN ref TEXT",
   "ALTER TABLE subscriptions ADD COLUMN schedule_kind TEXT NOT NULL DEFAULT 'recurring'",
   "ALTER TABLE approvals ADD COLUMN subscription_id TEXT",
+  // Durable webhook retries — survives process restarts (replaces in-memory setTimeout).
+  "ALTER TABLE webhook_deliveries ADD COLUMN next_attempt_at TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -1591,17 +1601,18 @@ function rowToWebhook(r: Row): WebhookRow {
 
 function rowToDelivery(r: Row): WebhookDeliveryRow {
   return {
-    id: r.id,
-    orgId: r.org_id,
-    webhookId: r.webhook_id,
-    event: r.event,
-    payload: JSON.parse(r.payload_json),
-    url: r.url,
-    status: r.status,
-    attempts: r.attempts,
-    lastError: r.last_error ?? undefined,
-    createdAt: r.created_at,
-    deliveredAt: r.delivered_at ?? undefined,
+    id: r.id as number,
+    orgId: r.org_id as string,
+    webhookId: r.webhook_id as string,
+    event: r.event as string,
+    payload: JSON.parse(r.payload_json as string),
+    url: r.url as string,
+    status: r.status as WebhookDeliveryRow["status"],
+    attempts: r.attempts as number,
+    lastError: (r.last_error as string | null) ?? undefined,
+    createdAt: r.created_at as string,
+    deliveredAt: (r.delivered_at as string | null) ?? undefined,
+    nextAttemptAt: (r.next_attempt_at as string | null) ?? undefined,
   };
 }
 
@@ -4430,15 +4441,22 @@ export const store = {
 
   updateDelivery(
     deliveryId: number,
-    fields: { status: string; attempts: number; lastError?: string; deliveredAt?: string },
+    fields: {
+      status: string;
+      attempts: number;
+      lastError?: string;
+      deliveredAt?: string;
+      nextAttemptAt?: string;
+    },
   ): void {
     db.prepare(
-      "UPDATE webhook_deliveries SET status = ?, attempts = ?, last_error = ?, delivered_at = ? WHERE id = ?",
+      "UPDATE webhook_deliveries SET status = ?, attempts = ?, last_error = ?, delivered_at = ?, next_attempt_at = ? WHERE id = ?",
     ).run(
       fields.status,
       fields.attempts,
       fields.lastError ?? null,
       fields.deliveredAt ?? null,
+      fields.nextAttemptAt ?? null,
       deliveryId,
     );
   },
@@ -4448,6 +4466,22 @@ export const store = {
       db
         .prepare("SELECT * FROM webhook_deliveries WHERE org_id = ? ORDER BY id DESC LIMIT ?")
         .all(orgId, limit) as Row[]
+    ).map(rowToDelivery);
+  },
+
+  /** Pending deliveries whose next_attempt_at is due (or null = immediately retryable). */
+  listDueWebhookDeliveries(limit = 50): WebhookDeliveryRow[] {
+    const now = nowIso();
+    return (
+      db
+        .prepare(
+          `SELECT * FROM webhook_deliveries
+           WHERE status = 'pending'
+             AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+           ORDER BY id ASC
+           LIMIT ?`,
+        )
+        .all(now, limit) as Row[]
     ).map(rowToDelivery);
   },
 
@@ -4532,6 +4566,15 @@ export const store = {
       "UPDATE guardians SET role = ?, conditions_json = ? WHERE id = ? AND org_id = ?",
     ).run(role, conditions ? JSON.stringify(conditions) : null, guardianId, orgId);
     return { ...row, role, conditions };
+  },
+
+  /** Resolve a Telegram user id to a guardian seat within one org. */
+  findGuardianByTelegramUserId(orgId: string, telegramUserId: string): GuardianRow | undefined {
+    const needle = telegramUserId.trim();
+    if (!needle) return undefined;
+    return this.listGuardians(orgId).find(
+      (g) => !g.revokedAt && g.conditions?.telegramUserId?.trim() === needle,
+    );
   },
 
   /** Secondary guardians authenticate here; the org's founding key is separate. */
