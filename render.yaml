@@ -1,6 +1,15 @@
-# Render blueprint for the ABI API.
+# Render blueprint for the ABI API (zero-spend notes below).
 #
-# Vercel hosts the console. Render hosts the persistent API service.
+# Vercel hosts the console (free hobby). Prefer a free persistent host for the
+# API when you can:
+#   - Fly.io free allowance + volume (recommended free path)
+#   - Oracle Cloud free tier VM + docker compose
+#   - Campus/home VPS + docker compose
+#
+# Render: the `free` plan sleeps and cannot attach a disk — SQLite state is
+# lost on every cold start. `starter` + disk persists SQLite but needs a card.
+# This blueprint keeps `starter` as the documented Render path; for true
+# zero-spend use docker-compose on Fly/Oracle (see docs/DEPLOY.md).
 #
 # Deploy: Render dashboard -> New -> Blueprint -> point at this repo.
 # Then set ABI_API_ORIGIN on Vercel to the URL this service gets.
@@ -35,7 +44,11 @@ services:
         sync: false
       - key: ABI_CORS_ORIGINS
         sync: false
-      # Production signup requires verification mail; configure a verified sender.
+      - key: ABI_LOG_LEVEL
+        value: info
+      - key: RATE_LIMIT_PER_MIN
+        value: "120"
+      # Production signup email is optional; without it, invite-only / manual verify.
       - key: RESEND_API_KEY
         sync: false
       - key: ABI_NOTIFY_EMAIL_FROM
@@ -46,12 +59,16 @@ services:
         value: base-sepolia
       - key: CHAIN_RPC_URL
         sync: false
-      # Fail closed when an optional compliance webhook is configured but unreachable.
       - key: ABI_COMPLIANCE_FAIL_CLOSED
         value: "1"
-      # Prefer the explicit self-custody switch over legacy CDP_* env names.
       - key: ABI_ONCHAIN_ENABLED
         sync: false
-      # Independent secrets — never reuse ABI_SIGNUP_TOKEN as pepper/KEK.
-      # On free disk-backed demos you may omit these and set POLICYVAULT_ALLOW_BOOTSTRAP=1
-      # so the API writes random secrets under /data/abi-demo-secrets.json.
+      # Demo flags stay off. Disposable demos need ABI_ALLOW_UNSAFE_PROD=1 too.
+      - key: POLICYVAULT_ALLOW_BOOTSTRAP
+        value: "0"
+      - key: POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE
+        value: "0"
+      - key: POLICYVAULT_MOCK_TRANSFER
+        value: "0"
+      - key: ABI_ALLOW_LOCAL_TARGETS
+        value: "0"
