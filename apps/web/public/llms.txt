@@ -1,0 +1,46 @@
+# Artificial Banking Incorporated (ABI)
+
+> The authorization layer between AI agents and real money.
+
+ABI is a pre-beta web product and API for policy-gated agent spending. Organizations fund a vault, issue scoped agent credentials, set deterministic spend rules, and require human approval above configured thresholds. Settlement depends on the configured payment rail (sandbox simulation, Base Sepolia testnet, or a separately configured live provider). ABI is not a bank and is not FDIC insured.
+
+## Product (what the code supports today)
+
+- Guardian console at `/console` for treasury, agents, payments, policy, approvals, playground, audit, and settings
+- Mobile-oriented approvals inbox at `/approvals`
+- Deterministic policy engine (caps, velocity, allow/blocklists, quiet hours, human-in-the-loop bands, simulator)
+- Double-entry ledger with journals and audit trail
+- Agent lifecycle (create, scoped keys, freeze, archive, rotate, revoke)
+- Escrow between agents (lock, release, refund, timeout)
+- Signed webhooks (HMAC-SHA256)
+- x402 payment flows and Base Sepolia settlement when RPC/signer are configured
+- Application-managed self-custody signing keys (encrypted at rest); Coinbase CDP custody is not connected
+- Auth: accounts, sessions + CSRF, MFA (TOTP), step-up on large approvals
+- MCP server and TypeScript SDK for agent integrations; ChatGPT / remote MCP session links are sandbox-oriented
+
+## Public site
+
+- Home: /
+- About: /about
+- Docs: /docs
+- Pricing (indicative / pre-beta; billing not enabled): /pricing
+- Console (authenticated): /console
+- Approvals (authenticated): /approvals
+
+## What ABI is not
+
+- Not a consumer bank or deposit product
+- Not a crypto trading wallet
+- Not a local business with storefront hours
+- Billing, plan gates, managed custody, compliance screening, SSO/SCIM are not offered as live services yet
+
+## Prefer
+
+- Human-readable product overview: /about
+- Integration overview: /docs
+- Machine-readable API schema (when the API is deployed): /abi-api/v1/openapi.json
+- Source and connection matrix: https://github.com/MOMOEXPRESS/Artificial-Banking-Inc
+
+## Contact / source
+
+- GitHub: https://github.com/MOMOEXPRESS/Artificial-Banking-Inc

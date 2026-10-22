@@ -150,13 +150,20 @@ function FooterCol({ title, links }: { title: string; links: [string, string][] 
     <div>
       <h4>{title}</h4>
       <ul>
-        {links.map(([label, href]) => (
-          <li key={label}>
-            <a href={href} target={href.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
-              {label}
-            </a>
-          </li>
-        ))}
+        {links.map(([label, href]) => {
+          const external = href.startsWith("http");
+          return (
+            <li key={label}>
+              {external ? (
+                <a href={href} target="_blank" rel="noreferrer">
+                  {label}
+                </a>
+              ) : (
+                <Link href={href}>{label}</Link>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -166,19 +173,55 @@ export function SectionHead({
   eyebrow,
   title,
   sub,
+  headingLevel = 2,
 }: {
   eyebrow: string;
   title: string;
   sub: string;
+  /** Use 1 for the page hero (exactly one h1 per page). Default 2 for in-page sections. */
+  headingLevel?: 1 | 2;
 }) {
+  const Heading = headingLevel === 1 ? "h1" : "h2";
   return (
     <div className="section-head">
       <span className="eyebrow">
         <span className="dot" /> {eyebrow}
       </span>
-      <h2>{title}</h2>
+      <Heading>{title}</Heading>
       <p>{sub}</p>
     </div>
+  );
+}
+
+/** Simple trail for public pages with a clear parent → child hierarchy. */
+export function MarketingBreadcrumbs({
+  items,
+}: {
+  items: { label: string; href?: string }[];
+}) {
+  if (items.length === 0) return null;
+  return (
+    <nav className="mkt-breadcrumbs" aria-label="Breadcrumb">
+      <ol>
+        {items.map((item, i) => {
+          const last = i === items.length - 1;
+          return (
+            <li key={`${item.label}-${i}`}>
+              {i > 0 ? (
+                <span className="mkt-breadcrumbs-sep" aria-hidden>
+                  /
+                </span>
+              ) : null}
+              {last || !item.href ? (
+                <span aria-current={last ? "page" : undefined}>{item.label}</span>
+              ) : (
+                <Link href={item.href}>{item.label}</Link>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
   );
 }
 

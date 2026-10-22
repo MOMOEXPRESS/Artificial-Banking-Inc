@@ -1,10 +1,15 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { MarketingCta, MarketingShell, SectionHead } from "../lib/marketing-shell";
-import { LandingMotion } from "../lib/landing-motion";
 import { Icon } from "../lib/ui";
+
+const LandingMotion = dynamic(
+  () => import("../lib/landing-motion").then((m) => ({ default: m.LandingMotion })),
+  { ssr: false },
+);
 
 /**
  * Artificial Banking Incorporated — public home page.
