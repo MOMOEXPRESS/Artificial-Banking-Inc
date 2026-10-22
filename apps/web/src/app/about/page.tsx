@@ -1,10 +1,19 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
-import { MarketingShell, SectionHead } from "../../lib/marketing-shell";
-import { LandingMotion } from "../../lib/landing-motion";
+import {
+  MarketingBreadcrumbs,
+  MarketingShell,
+  SectionHead,
+} from "../../lib/marketing-shell";
 import { Icon } from "../../lib/ui";
+
+const LandingMotion = dynamic(
+  () => import("../../lib/landing-motion").then((m) => ({ default: m.LandingMotion })),
+  { ssr: false },
+);
 
 /**
  * About — alternating copy/visual pans with clean generated illustrations
@@ -16,10 +25,12 @@ export default function AboutPage() {
       <LandingMotion />
       <section className="mkt-page about-page">
         <div className="mkt-page-inner mkt-about-hero">
+          <MarketingBreadcrumbs items={[{ label: "Home", href: "/" }, { label: "About" }]} />
           <SectionHead
             eyebrow="About"
             title="Artificial Banking Incorporated"
             sub="We help companies let AI agents spend money — with budgets, approvals, and a clear record — without handing the wallet keys to the AI."
+            headingLevel={1}
           />
           <div className="mkt-prose mkt-prose-wide about-lede">
             <p>

@@ -6373,6 +6373,7 @@ input[type="range"].slider::-moz-range-thumb {
   margin-bottom: 18px;
 }
 
+.section-head h1,
 .section-head h2 {
   font-size: clamp(1.9rem, 3.5vw, 2.6rem);
   font-weight: 640;
@@ -6380,6 +6381,60 @@ input[type="range"].slider::-moz-range-thumb {
   margin: 0 0 14px;
   line-height: 1.15;
   color: var(--ink);
+}
+
+.mkt-breadcrumbs {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.mkt-breadcrumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mkt-breadcrumbs li {
+  display: inline-flex;
+  align-items: center;
+}
+
+.mkt-breadcrumbs a {
+  color: var(--ink-2);
+  text-decoration: none;
+}
+
+.mkt-breadcrumbs a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.mkt-breadcrumbs [aria-current="page"] {
+  color: var(--ink);
+  font-weight: 550;
+}
+
+.mkt-breadcrumbs-sep {
+  margin: 0 8px;
+  opacity: 0.45;
+}
+
+.mkt-page-inner > .mkt-breadcrumbs {
+  text-align: left;
+}
+
+.mkt-about-hero .mkt-breadcrumbs {
+  text-align: center;
+  justify-content: center;
+}
+
+.mkt-about-hero .mkt-breadcrumbs ol {
+  justify-content: center;
 }
 
 .section-head p {

@@ -1,6 +1,15 @@
 import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Sora } from "next/font/google";
+import { SiteJsonLd } from "../lib/json-ld";
 import { AppProviders } from "../lib/providers";
+import {
+  DEFAULT_DESCRIPTION,
+  DEFAULT_TITLE,
+  SITE_NAME,
+  SITE_SHORT_NAME,
+  absoluteUrl,
+  getSiteUrl,
+} from "../lib/site";
 import "./globals.css";
 
 const sora = Sora({
@@ -16,9 +25,41 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Artificial Banking Incorporated — Financial infrastructure for autonomous AI",
-  description:
-    "Programmable AI agent wallets with policies, human approvals, and x402 payments — the authorization layer between AI agents and real money.",
+  metadataBase: new URL(getSiteUrl()),
+  title: {
+    default: DEFAULT_TITLE,
+    template: `%s · ${SITE_NAME}`,
+  },
+  description: DEFAULT_DESCRIPTION,
+  applicationName: SITE_NAME,
+  authors: [{ name: SITE_NAME }],
+  creator: SITE_NAME,
+  publisher: SITE_NAME,
+  keywords: [
+    "AI agent payments",
+    "x402",
+    "policy engine",
+    "USDC",
+    "agent wallets",
+    "human-in-the-loop approvals",
+    "Artificial Banking Incorporated",
+  ],
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: absoluteUrl("/"),
+    siteName: SITE_NAME,
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+  },
   icons: {
     icon: [
       { url: "/favicon-16.png", sizes: "16x16", type: "image/png" },
@@ -33,7 +74,11 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "ABI",
+    title: SITE_SHORT_NAME,
+  },
+  robots: {
+    index: true,
+    follow: true,
   },
 };
 
@@ -56,6 +101,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
     >
       <body>
+        <SiteJsonLd />
         <AppProviders>{children}</AppProviders>
       </body>
     </html>

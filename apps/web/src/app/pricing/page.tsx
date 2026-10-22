@@ -1,7 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { MarketingShell, SectionHead } from "../../lib/marketing-shell";
+import {
+  MarketingBreadcrumbs,
+  MarketingShell,
+  SectionHead,
+} from "../../lib/marketing-shell";
 import { Icon } from "../../lib/ui";
 
 const TIERS = [
@@ -64,10 +68,12 @@ export default function PricingPage() {
     <MarketingShell active="pricing">
       <section className="mkt-page">
         <div className="mkt-page-inner">
+          <MarketingBreadcrumbs items={[{ label: "Home", href: "/" }, { label: "Pricing" }]} />
           <SectionHead
             eyebrow="Pricing"
             title="Explore ABI while we build."
             sub="ABI is in pre-beta. These are indicative product areas, not purchasable plans: billing, tier entitlements, and live settlement are not enabled."
+            headingLevel={1}
           />
 
           <div className="mkt-price-grid">

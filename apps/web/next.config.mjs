@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Do not ship production browser source maps.
+  productionBrowserSourceMaps: false,
   // Money API is embedded on Vercel via /abi-api — keep native/sqlite out of the bundle.
   serverExternalPackages: [
     "better-sqlite3",

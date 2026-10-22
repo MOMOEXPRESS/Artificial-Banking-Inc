@@ -1,7 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { MarketingShell, SectionHead } from "../../lib/marketing-shell";
+import {
+  MarketingBreadcrumbs,
+  MarketingShell,
+  SectionHead,
+} from "../../lib/marketing-shell";
 import { Icon } from "../../lib/ui";
 
 const STEPS = [
@@ -36,10 +40,12 @@ export default function DocsPage() {
     <MarketingShell active="docs">
       <section className="mkt-page">
         <div className="mkt-page-inner">
+          <MarketingBreadcrumbs items={[{ label: "Home", href: "/" }, { label: "Docs" }]} />
           <SectionHead
             eyebrow="Documentation"
             title="Build agents that can spend — safely"
             sub="The AI asks to pay. Your rules and a signer decide. Keys never go into the model."
+            headingLevel={1}
           />
 
           <div className="mkt-prose">
