@@ -34,7 +34,7 @@ Final local validation passed: 353 tests (25 web, 265 API, 7 ledger, 56 policy),
 - The observed sandbox's chain-read failed. Actual RPC configuration/availability must be checked before claiming funded settlement; the display fix does not repair the provider.
 - Hosted MCP remains sandbox-only and session-bound. Persistent OAuth and dedicated framework adapters are absent.
 - Signing is application-managed in this repository. Coinbase CDP configuration is not a managed-custody integration.
-- Render blueprint requests persistent /data storage; actual host volume, backups and recovery cannot be proved from the source alone.
+- (Historical, 2026-10-12) The former Render blueprint requested persistent /data storage. Render has since been retired; the API runs on Cloudflare Workers (Durable Object SQLite) and the demo seller on a Cloudflare Worker.
 - SQLite and background-job ownership require a single-instance deployment assumption; local tests do not establish horizontal scaling safety.
 - Real merchant payments, disputes, delivery, gas funding and network outages need a separate funded end-to-end test.
 - CSS responsiveness was reviewed, but the available browser viewport is desktop; no physical-device or screen-reader certification was performed.

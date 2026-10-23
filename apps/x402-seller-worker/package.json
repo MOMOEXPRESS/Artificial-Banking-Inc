@@ -1,0 +1,23 @@
+{
+  "name": "@policyvault/x402-seller-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --config ./wrangler.toml",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test --test-reporter=spec \"src/**/*.test.ts\"",
+    "deploy:dry-run": "wrangler deploy --config ./wrangler.toml --dry-run --outdir .wrangler/dry"
+  },
+  "dependencies": {
+    "@x402/core": "~2.26.0",
+    "@x402/evm": "~2.26.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20251011.0",
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.152.0"
+  }
+}

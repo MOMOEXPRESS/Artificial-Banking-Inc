@@ -22,6 +22,7 @@ export default tseslint.config(
       "**/dist/**",
       "**/.next/**",
       "**/coverage/**",
+      "**/.wrangler/**",
       "apps/web/next-env.d.ts",
       "contracts/out/**",
       "contracts/cache/**",

@@ -6,7 +6,9 @@ proven. Testnet tokens have no monetary value.
 ## Proven settlement — 2026-09-22
 
 ABI completed a funded x402 V2 settlement against the independently deployed
-demo seller at `https://abi-x402-seller.onrender.com/report`.
+demo seller, then hosted on Render. The demo seller now runs on Cloudflare
+Workers at `https://abi-x402-seller.momomaurice20006.workers.dev/report`
+(`apps/x402-seller-worker`), replacing the Render host.
 
 | Evidence             | Value                                                                                                                                                                      |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

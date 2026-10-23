@@ -11,6 +11,7 @@
     "apps/worker",
     "apps/demo-agent",
     "apps/x402-seller",
+    "apps/x402-seller-worker",
     "packages/*"
   ],
   "scripts": {
