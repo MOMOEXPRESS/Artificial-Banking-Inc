@@ -6,6 +6,7 @@ import { formatMicroToUsdc } from "@policyvault/common";
 import { readVaultOnchain, type OnchainVaultSnapshot, type ReadVaultOptions } from "./deposits.js";
 import { activeChain } from "./network.js";
 import { rpcRemaining } from "./rpc-budget.js";
+import { rotate, rotationStart, saveRotation } from "../jobs/rotation.js";
 import { store } from "../store.js";
 import { recordObs } from "../platform/observability.js";
 import { emitEvent } from "../webhooks.js";
@@ -166,7 +167,6 @@ const SWEEP_SUBREQUEST_BUDGET = Number(process.env.ABI_DEPOSIT_SWEEP_BUDGET ?? 3
 const BALANCE_CALLS_PER_ORG = 3;
 const MIN_LOG_CALLS_PER_ORG = 1;
 const MAX_LOG_CALLS_PER_ORG = 4;
-let sweepOffset = 0;
 
 /**
  * Scan org vaults for new USDC Transfer-ins and credit the ledger, round-robin
@@ -188,8 +188,8 @@ export async function runOnchainDepositSweep(opts?: {
 
   const all = (opts?.orgIds ?? store.listOrgIds()).filter((id) => store.getVaultAddress(id));
   if (all.length === 0) return { orgs: 0, credited: 0, skipped: 0, logErrors: 0 };
-  const start = opts?.orgIds ? 0 : sweepOffset % all.length;
-  const ordered = [...all.slice(start), ...all.slice(0, start)];
+  const start = opts?.orgIds ? 0 : rotationStart("onchain-deposits", all.length);
+  const ordered = rotate(all, start);
 
   let budget = opts?.budget ?? SWEEP_SUBREQUEST_BUDGET;
   let localLeft = budget;
@@ -226,12 +226,12 @@ export async function runOnchainDepositSweep(opts?: {
     budget = localLeft;
     done += 1;
   }
-  if (!opts?.orgIds) sweepOffset = (start + done) % all.length;
+  if (!opts?.orgIds) saveRotation("onchain-deposits", start, done, all.length);
   return { orgs: done, credited, skipped: all.length - done, logErrors };
 }
 
 /** Test hook. */
 export function resetDepositSweepState(): void {
   lastDepositSweepAt = 0;
-  sweepOffset = 0;
+  store.setJobState("rr:onchain-deposits", "0");
 }

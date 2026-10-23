@@ -9,8 +9,31 @@
 import { retryPendingWebhookDeliveries } from "../webhooks.js";
 import { JOBS, type JobDefinition } from "./scheduler.js";
 import { runWithRpcBudget } from "../chain/rpc-budget.js";
+import { store } from "../store.js";
 
 const lastRun = new Map<string, number>();
+
+/** Alarm cadence (apps/api-worker ALARM_MS). Jobs slower than this persist their clock. */
+const ALARM_TICK_MS = 60_000;
+
+/**
+ * The Durable Object is evicted between ticks, which reset this in-memory map:
+ * hourly jobs (gas monitor) and 5-minute jobs (on-chain backing) re-ran every
+ * minute. Jobs slower than one tick keep their last-run time in job_state —
+ * one row write per run, not per tick.
+ */
+function lastRunAt(job: JobDefinition): number {
+  const mem = lastRun.get(job.name);
+  if (mem !== undefined) return mem;
+  if (job.intervalMs <= ALARM_TICK_MS) return 0;
+  const v = Number(store.getJobState(`last-run:${job.name}`) ?? 0);
+  return Number.isFinite(v) ? v : 0;
+}
+
+function markRun(job: JobDefinition, now: number): void {
+  lastRun.set(job.name, now);
+  if (job.intervalMs > ALARM_TICK_MS) store.setJobState(`last-run:${job.name}`, String(now));
+}
 
 const WEBHOOK_RETRY_JOB: JobDefinition = {
   name: "webhook-retries",
@@ -47,19 +70,19 @@ async function runAlarmJobsInner(jobs: JobDefinition[]): Promise<{
   const skipped: string[] = [];
 
   for (const job of jobs) {
-    const prev = lastRun.get(job.name) ?? 0;
+    const prev = lastRunAt(job);
     if (now - prev < job.intervalMs) {
       skipped.push(job.name);
       continue;
     }
     try {
       await job.run();
-      lastRun.set(job.name, now);
+      markRun(job, now);
       ran.push(job.name);
     } catch (error) {
       console.error(`alarm job ${job.name} failed:`, error);
       // Still advance the clock so a hard-failing job cannot monopolize every tick.
-      lastRun.set(job.name, now);
+      markRun(job, now);
       ran.push(job.name);
     }
   }
