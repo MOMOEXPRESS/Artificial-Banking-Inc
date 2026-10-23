@@ -176,6 +176,15 @@ export function rulesFor(agentId: string, orgId: string, destination?: string): 
         ? undefined
         : store.counterpartyStats(orgId, destination),
     paysLastMinute: store.paysLastMinute(agentId),
+    // Cumulative and hourly velocity caps — only scanned when configured.
+    spentLast30dMicro:
+      effective.monthlyMaxMicro === undefined
+        ? undefined
+        : store.spentSince(agentId, Date.now() - 30 * 24 * 60 * 60 * 1000),
+    paysLastHour:
+      effective.maxPaysPerHour === undefined
+        ? undefined
+        : store.paysSince(agentId, Date.now() - 60 * 60 * 1000),
     // Archived agents are non-spendable — same deny path as freeze.
     agentFrozen: agent.status === "frozen" || agent.status === "archived" || !funding,
     orgFrozen: org.status === "frozen",

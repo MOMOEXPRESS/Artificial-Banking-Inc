@@ -31,6 +31,18 @@ export interface PolicyRules {
    */
   orgDailyMaxMicro?: MicroUsdc;
   /**
+   * Cumulative ceiling on what THIS agent may spend in a rolling 30-day window.
+   * `dailyMaxMicro` alone lets an agent spend 30× the daily cap per month,
+   * one compliant day at a time. Omitted means no monthly ceiling.
+   */
+  monthlyMaxMicro?: MicroUsdc;
+  /**
+   * Velocity ceiling: payments per rolling hour for this agent. Complements
+   * `maxPaysPerMinute`, which a slow drip of payments stays under forever.
+   * Omitted means no hourly count limit.
+   */
+  maxPaysPerHour?: number;
+  /**
    * Guardian-side ceilings for money leaving the org treasury via
    * `/v1/guardian/treasury/withdraw`. Not read by `evaluatePolicy` (agents
    * cannot withdraw from the treasury); enforced by the API's treasury guard.
@@ -103,6 +115,10 @@ export interface PolicyRules {
   counterpartyFirstSeenMs?: number;
   /** Pays in last 60 seconds */
   paysLastMinute: number;
+  /** Spent by THIS AGENT in a rolling 30-day window (micro), injected by the runtime. */
+  spentLast30dMicro?: MicroUsdc;
+  /** Pays by THIS AGENT in the last hour, injected by the runtime. */
+  paysLastHour?: number;
   agentFrozen: boolean;
   orgFrozen: boolean;
 }
@@ -404,6 +420,25 @@ export function evaluatePolicy(
     };
   }
 
+  if (
+    rules.monthlyMaxMicro !== undefined &&
+    (rules.spentLast30dMicro ?? 0n) + intent.amountMicro > rules.monthlyMaxMicro
+  ) {
+    return {
+      outcome: "deny",
+      ruleIds: ["monthly_max"],
+      reasons: ["Exceeds the rolling 30-day spending cap"],
+      policyVersion,
+      limits: capLimits(
+        "monthly_max",
+        intent.amountMicro,
+        rules.monthlyMaxMicro,
+        rules.spentLast30dMicro ?? 0n,
+        "30d",
+      ),
+    };
+  }
+
   // Organization-wide ceiling. `dailyMaxMicro` is per agent, so without this a
   // fleet of individually-compliant agents could spend an unbounded multiple
   // of the limit the operator thought they had set.
@@ -547,6 +582,23 @@ export function evaluatePolicy(
         BigInt(rules.maxPaysPerMinute),
         BigInt(rules.paysLastMinute),
         "60s",
+        "count",
+      ),
+    };
+  }
+
+  if (rules.maxPaysPerHour !== undefined && (rules.paysLastHour ?? 0) >= rules.maxPaysPerHour) {
+    return {
+      outcome: "deny",
+      ruleIds: ["velocity_hourly"],
+      reasons: ["Too many payments in the last hour"],
+      policyVersion,
+      limits: capLimits(
+        "velocity_hourly",
+        1n,
+        BigInt(rules.maxPaysPerHour),
+        BigInt(rules.paysLastHour ?? 0),
+        "1h",
         "count",
       ),
     };
@@ -822,6 +874,8 @@ export type PolicyTemplate = Omit<
   | "windowSpentMicro"
   | "counterpartyStats"
   | "paysLastMinute"
+  | "spentLast30dMicro"
+  | "paysLastHour"
   | "agentFrozen"
   | "orgFrozen"
   | "walletBalanceMicro"
@@ -871,7 +925,9 @@ export function templateSoloSwarm(): PolicyTemplate {
     // Bands must nest: allow < hitlAboveMicro <= review < perTxMaxMicro <= deny
     perTxMaxMicro: 25_000_000n, // $25 hard per-tx ceiling
     dailyMaxMicro: 50_000_000n, // $50
+    monthlyMaxMicro: 500_000_000n, // $500 rolling 30 days
     maxPaysPerMinute: 10,
+    maxPaysPerHour: 60,
     newCounterpartyCooldownHours: 24,
     hitlAboveMicro: 10_000_000n, // $10 — above this a guardian must approve
     addressAllowlist: [],
@@ -888,7 +944,9 @@ export function templateSwarm(): PolicyTemplate {
   return {
     perTxMaxMicro: 15_000_000n,
     dailyMaxMicro: 40_000_000n,
+    monthlyMaxMicro: 400_000_000n,
     maxPaysPerMinute: 8,
+    maxPaysPerHour: 40,
     newCounterpartyCooldownHours: 48,
     hitlAboveMicro: 5_000_000n,
     addressAllowlist: [],
@@ -914,7 +972,9 @@ export function templateApiSeller(): PolicyTemplate {
   return {
     perTxMaxMicro: 50_000_000n,
     dailyMaxMicro: 200_000_000n,
+    monthlyMaxMicro: 2_000_000_000n,
     maxPaysPerMinute: 30,
+    maxPaysPerHour: 600,
     newCounterpartyCooldownHours: 0,
     hitlAboveMicro: 25_000_000n,
     addressAllowlist: [],

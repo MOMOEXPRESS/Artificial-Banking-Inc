@@ -73,6 +73,11 @@ in one auditable ledger with the exact rule that fired.
 
 > **LLM proposes. Policy authorizes. Keys never enter the model.**
 
+The policy engine is separate from the agent: an agent's credential can only
+propose payments and read its own budget and decisions — it cannot read or
+change its own policy. Every policy-writing route is guardian-only
+(`apps/api/src/policy-isolation.test.ts` enforces this).
+
 ### Who it is for
 
 - Teams running agents that pay for APIs, data, compute, or other agents

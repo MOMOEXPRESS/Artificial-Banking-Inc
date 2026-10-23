@@ -52,6 +52,11 @@ export function policyView(template: ReturnType<typeof store.getPolicyTemplate>)
     orgDailyMaxUsdc:
       template.orgDailyMaxMicro === undefined ? null : formatMicroToUsdc(template.orgDailyMaxMicro),
     approvalQuorum: template.approvalQuorum ?? 1,
+    /** Per-agent rolling 30-day cap (null = none). */
+    monthlyMaxUsdc:
+      template.monthlyMaxMicro === undefined ? null : formatMicroToUsdc(template.monthlyMaxMicro),
+    /** Per-agent payments per rolling hour (null = none). */
+    maxPaysPerHour: template.maxPaysPerHour ?? null,
     /** Guardian treasury withdrawal guard (null = API default applies). */
     treasuryWithdrawMaxUsdc:
       template.treasuryWithdrawMaxMicro === undefined
@@ -528,6 +533,10 @@ export function registerPolicyRoutes(
             dailyMaxUsdc: z.string().optional(),
             /** Ceiling for the whole org in 24h. null removes it. */
             orgDailyMaxUsdc: z.string().nullable().optional(),
+            /** Per-agent rolling 30-day cap. null removes it. */
+            monthlyMaxUsdc: z.string().nullable().optional(),
+            /** Per-agent payments per rolling hour. null removes it. */
+            maxPaysPerHour: z.number().int().positive().nullable().optional(),
             /** Guardian treasury withdrawal caps. null restores the API default. */
             treasuryWithdrawMaxUsdc: z.string().nullable().optional(),
             treasuryWithdrawDailyMaxUsdc: z.string().nullable().optional(),
@@ -648,6 +657,13 @@ export function registerPolicyRoutes(
             orgDailyMaxMicro:
               body.orgDailyMaxUsdc === null ? undefined : parseUsdcToMicro(body.orgDailyMaxUsdc),
           }),
+          ...(body.monthlyMaxUsdc !== undefined && {
+            monthlyMaxMicro:
+              body.monthlyMaxUsdc === null ? undefined : parseUsdcToMicro(body.monthlyMaxUsdc),
+          }),
+          ...(body.maxPaysPerHour !== undefined && {
+            maxPaysPerHour: body.maxPaysPerHour ?? undefined,
+          }),
           ...(body.treasuryWithdrawMaxUsdc !== undefined && {
             treasuryWithdrawMaxMicro:
               body.treasuryWithdrawMaxUsdc === null
@@ -702,6 +718,22 @@ export function registerPolicyRoutes(
               message:
                 "orgDailyMaxUsdc must be at least perTxMaxUsdc — otherwise no single payment " +
                 "could ever clear the organization ceiling.",
+            },
+          });
+        }
+        if (next.monthlyMaxMicro !== undefined && next.monthlyMaxMicro < next.dailyMaxMicro) {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "monthlyMaxUsdc must be at least dailyMaxUsdc",
+            },
+          });
+        }
+        if (next.maxPaysPerHour !== undefined && next.maxPaysPerHour < next.maxPaysPerMinute) {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "maxPaysPerHour must be at least maxPaysPerMinute",
             },
           });
         }

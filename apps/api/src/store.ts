@@ -3872,6 +3872,13 @@ export const store = {
     return r.n as number;
   },
 
+  paysSince(agentId: string, sinceMs: number): number {
+    const r = db
+      .prepare("SELECT COUNT(*) AS n FROM pay_events WHERE agent_id = ? AND at_ms >= ?")
+      .get(agentId, sinceMs) as Row;
+    return r.n as number;
+  },
+
   // ------------------------------------------------------------- decisions
   addDecision(d: DecisionRow): void {
     db.prepare(
