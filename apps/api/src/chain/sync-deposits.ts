@@ -5,6 +5,7 @@
 import { formatMicroToUsdc } from "@policyvault/common";
 import { readVaultOnchain, type OnchainVaultSnapshot, type ReadVaultOptions } from "./deposits.js";
 import { activeChain } from "./network.js";
+import { rpcRemaining } from "./rpc-budget.js";
 import { store } from "../store.js";
 import { recordObs } from "../platform/observability.js";
 import { emitEvent } from "../webhooks.js";
@@ -191,10 +192,14 @@ export async function runOnchainDepositSweep(opts?: {
   const ordered = [...all.slice(start), ...all.slice(0, start)];
 
   let budget = opts?.budget ?? SWEEP_SUBREQUEST_BUDGET;
+  let localLeft = budget;
   let credited = 0;
   let done = 0;
   let logErrors = 0;
   for (const orgId of ordered) {
+    // Also respect the tick's shared RPC budget (alarm), when there is one.
+    const shared = rpcRemaining();
+    if (shared !== null) budget = Math.min(localLeft, shared);
     const logCalls = Math.min(MAX_LOG_CALLS_PER_ORG, budget - BALANCE_CALLS_PER_ORG);
     if (logCalls < MIN_LOG_CALLS_PER_ORG) break;
     try {
@@ -212,8 +217,13 @@ export async function runOnchainDepositSweep(opts?: {
     } catch (e) {
       console.error(`onchain deposit sweep failed org=${orgId}:`, e);
     }
-    // Charge the worst case: scan calls are not reported back per org.
-    budget -= BALANCE_CALLS_PER_ORG + logCalls;
+    // Inside a shared tick budget, readVaultOnchain charges each real call, so
+    // the local cap tracks actual use. Without one, charge the worst case.
+    const after = rpcRemaining();
+    const used =
+      shared !== null && after !== null ? shared - after : BALANCE_CALLS_PER_ORG + logCalls;
+    localLeft -= used;
+    budget = localLeft;
     done += 1;
   }
   if (!opts?.orgIds) sweepOffset = (start + done) % all.length;

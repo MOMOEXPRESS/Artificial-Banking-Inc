@@ -123,9 +123,12 @@ export const JOBS: JobDefinition[] = [
     intervalMs: 5 * 60_000,
     leaseMs: 300_000,
     run: async () => {
-      const { checked, drifted, unreadable } = await runOnchainBackingSweep();
-      if (checked > 0 || unreadable > 0) {
-        recordObs({ name: "jobs.onchainBacking", attrs: { checked, drifted, unreadable } });
+      const { checked, drifted, unreadable, deferred } = await runOnchainBackingSweep();
+      if (checked > 0 || unreadable > 0 || deferred > 0) {
+        recordObs({
+          name: "jobs.onchainBacking",
+          attrs: { checked, drifted, unreadable, deferred },
+        });
       }
     },
   },
