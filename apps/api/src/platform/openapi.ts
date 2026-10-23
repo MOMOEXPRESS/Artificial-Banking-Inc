@@ -343,7 +343,20 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
         post: stub(["guardian"], "Deposit into org treasury", "guardianBearer"),
       },
       "/v1/guardian/treasury/withdraw": {
-        post: stub(["guardian"], "Withdraw from org treasury", "guardianBearer"),
+        post: stub(
+          ["guardian"],
+          "Withdraw from org treasury (guardian policy: org freeze, blocklist, " +
+            "treasuryWithdrawAllowlist, treasuryWithdrawMaxUsdc, treasuryWithdrawDailyMaxUsdc)",
+          "guardianBearer",
+          {
+            "200": { description: "Withdrawn — body carries intentId of the allow decision" },
+            "400": { description: "Validation error or insufficient balance" },
+            "403": {
+              description:
+                "Refused by guardian treasury policy — ruleIds, reasons, limits {amountUsdc, capUsdc, usedUsdc, remainingUsdc}",
+            },
+          },
+        ),
       },
       "/v1/guardian/treasury/cashflow": {
         get: stub(["guardian"], "Cash-flow series", "guardianBearer"),

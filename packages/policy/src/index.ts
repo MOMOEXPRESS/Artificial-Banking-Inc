@@ -30,6 +30,16 @@ export interface PolicyRules {
    * org-level ceiling, which is the pre-existing behaviour.
    */
   orgDailyMaxMicro?: MicroUsdc;
+  /**
+   * Guardian-side ceilings for money leaving the org treasury via
+   * `/v1/guardian/treasury/withdraw`. Not read by `evaluatePolicy` (agents
+   * cannot withdraw from the treasury); enforced by the API's treasury guard.
+   * Omitted means the API's conservative defaults apply.
+   */
+  treasuryWithdrawMaxMicro?: MicroUsdc;
+  treasuryWithdrawDailyMaxMicro?: MicroUsdc;
+  /** When non-empty, treasury withdrawals may only go to these destinations. */
+  treasuryWithdrawAllowlist?: string[];
   /** Shared rolling 24h ceilings for individual pay_api destinations across all agents. */
   merchantDailyCaps?: Record<string, MicroUsdc>;
   /** Settled org spend for this exact destination, injected by the runtime. */

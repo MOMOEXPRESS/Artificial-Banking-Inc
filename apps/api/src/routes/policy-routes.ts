@@ -55,6 +55,16 @@ export function policyView(template: ReturnType<typeof store.getPolicyTemplate>)
         ? null
         : formatMicroToUsdc(template.orgDailyMaxMicro),
     approvalQuorum: template.approvalQuorum ?? 1,
+    /** Guardian treasury withdrawal guard (null = API default applies). */
+    treasuryWithdrawMaxUsdc:
+      template.treasuryWithdrawMaxMicro === undefined
+        ? null
+        : formatMicroToUsdc(template.treasuryWithdrawMaxMicro),
+    treasuryWithdrawDailyMaxUsdc:
+      template.treasuryWithdrawDailyMaxMicro === undefined
+        ? null
+        : formatMicroToUsdc(template.treasuryWithdrawDailyMaxMicro),
+    treasuryWithdrawAllowlist: template.treasuryWithdrawAllowlist ?? [],
     categoryCaps: Object.fromEntries(
       Object.entries(template.categoryCaps ?? {}).map(([key, cap]) => [
         key,
@@ -489,6 +499,11 @@ export function registerPolicyRoutes(
           dailyMaxUsdc: z.string().optional(),
           /** Ceiling for the whole org in 24h. null removes it. */
           orgDailyMaxUsdc: z.string().nullable().optional(),
+          /** Guardian treasury withdrawal caps. null restores the API default. */
+          treasuryWithdrawMaxUsdc: z.string().nullable().optional(),
+          treasuryWithdrawDailyMaxUsdc: z.string().nullable().optional(),
+          /** Destinations treasury withdrawals may go to. Empty = any non-blocklisted. */
+          treasuryWithdrawAllowlist: z.array(z.string().min(1).max(200)).max(100).optional(),
           hitlAboveUsdc: z.string().optional(),
           maxPaysPerMinute: z.number().int().positive().optional(),
           newCounterpartyCooldownHours: z.number().int().min(0).optional(),
@@ -594,6 +609,21 @@ export function registerPolicyRoutes(
           orgDailyMaxMicro:
             body.orgDailyMaxUsdc === null ? undefined : parseUsdcToMicro(body.orgDailyMaxUsdc),
         }),
+        ...(body.treasuryWithdrawMaxUsdc !== undefined && {
+          treasuryWithdrawMaxMicro:
+            body.treasuryWithdrawMaxUsdc === null
+              ? undefined
+              : parseUsdcToMicro(body.treasuryWithdrawMaxUsdc),
+        }),
+        ...(body.treasuryWithdrawDailyMaxUsdc !== undefined && {
+          treasuryWithdrawDailyMaxMicro:
+            body.treasuryWithdrawDailyMaxUsdc === null
+              ? undefined
+              : parseUsdcToMicro(body.treasuryWithdrawDailyMaxUsdc),
+        }),
+        ...(body.treasuryWithdrawAllowlist && {
+          treasuryWithdrawAllowlist: body.treasuryWithdrawAllowlist.map((d) => d.trim()),
+        }),
         ...(body.categoryCaps !== undefined && { categoryCaps: toCategoryCaps(body.categoryCaps) }),
         ...(body.budgetWindow !== undefined && { budgetWindow: toBudgetWindow(body.budgetWindow) }),
         ...(body.counterpartyRiskReviewAbove !== undefined && {
@@ -629,6 +659,30 @@ export function registerPolicyRoutes(
             message:
               "orgDailyMaxUsdc must be at least perTxMaxUsdc — otherwise no single payment " +
               "could ever clear the organization ceiling.",
+          },
+        });
+      }
+      if (
+        (next.treasuryWithdrawMaxMicro !== undefined && next.treasuryWithdrawMaxMicro <= 0n) ||
+        (next.treasuryWithdrawDailyMaxMicro !== undefined &&
+          next.treasuryWithdrawDailyMaxMicro <= 0n)
+      ) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Treasury withdrawal caps must be positive (use null to restore the default)",
+          },
+        });
+      }
+      if (
+        next.treasuryWithdrawMaxMicro !== undefined &&
+        next.treasuryWithdrawDailyMaxMicro !== undefined &&
+        next.treasuryWithdrawDailyMaxMicro < next.treasuryWithdrawMaxMicro
+      ) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "treasuryWithdrawDailyMaxUsdc must be at least treasuryWithdrawMaxUsdc",
           },
         });
       }
