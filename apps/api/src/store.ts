@@ -431,7 +431,7 @@ function installPrepareRevisionHook(database: Database.Database): void {
 /**
  * Open SQLite lazily so Cloudflare Workers can inject a Durable Object
  * SqlStorage adapter (`globalThis.__ABI_STORE_DB__`) before first use.
- * Node / Render keep the previous on-disk better-sqlite3 path.
+ * Node keeps the previous on-disk better-sqlite3 path.
  */
 function openStoreDatabase(): Database.Database {
   const injected = (globalThis as { __ABI_STORE_DB__?: Database.Database }).__ABI_STORE_DB__;

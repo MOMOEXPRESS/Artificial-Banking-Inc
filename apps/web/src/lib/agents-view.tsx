@@ -5,6 +5,7 @@ import { Empty, Icon } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { okJson } from "./api-response";
 
 type AgentRow = {
   id: string;
@@ -135,26 +136,28 @@ export function AgentsView({
 
   const refreshRoster = useCallback(async () => {
     const [a, g, b] = await Promise.all([
-      gFetch("/v1/guardian/agents").then((x) => x.json()),
-      gFetch("/v1/guardian/agent-groups").then((x) => x.json()),
+      gFetch("/v1/guardian/agents").then(okJson),
+      gFetch("/v1/guardian/agent-groups").then(okJson),
       gFetch("/v1/guardian/budgets")
-        .then((x) => x.json())
-        .catch(() => ({ budgets: [] })),
+        .then(okJson)
+        .catch(() => null),
     ]);
-    setAgents(a.agents ?? []);
-    setGroups(g.groups ?? []);
-    setBudgets(b.budgets ?? []);
+    // A rate-limited or failed read keeps the previous roster instead of
+    // blanking it (or worse, storing an error body as data).
+    if (a) setAgents(a.agents ?? []);
+    if (g) setGroups(g.groups ?? []);
+    if (b) setBudgets(b.budgets ?? []);
     setRosterReady(true);
   }, [gFetch]);
 
   const refreshFreezes = useCallback(async () => {
-    const f = await gFetch("/v1/guardian/freezes").then((x) => x.json());
-    setFreezes(f.freezes ?? []);
+    const f = await gFetch("/v1/guardian/freezes").then(okJson);
+    if (f) setFreezes(f.freezes ?? []);
   }, [gFetch]);
 
   const refreshSessions = useCallback(async () => {
-    const s = await gFetch("/v1/guardian/session-keys").then((x) => x.json());
-    setSessions(s.sessionKeys ?? []);
+    const s = await gFetch("/v1/guardian/session-keys").then(okJson);
+    if (s) setSessions(s.sessionKeys ?? []);
   }, [gFetch]);
 
   const refresh = useCallback(async () => {
@@ -178,9 +181,10 @@ export function AgentsView({
       const agentName = agents.find((a) => a.id === id)?.name;
       onContextChange?.(agentName ?? id.slice(0, 8));
       const [d, an] = await Promise.all([
-        gFetch(`/v1/guardian/agents/${id}`).then((x) => x.json()),
-        gFetch(`/v1/guardian/agents/${id}/analytics`).then((x) => x.json()),
+        gFetch(`/v1/guardian/agents/${id}`).then(okJson),
+        gFetch(`/v1/guardian/agents/${id}/analytics`).then(okJson),
       ]);
+      if (!d) return;
       setDetail(d);
       setAnalytics(an);
       const ident = d.identity as AgentRow | undefined;

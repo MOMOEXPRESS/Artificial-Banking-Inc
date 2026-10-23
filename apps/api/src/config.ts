@@ -25,6 +25,7 @@ const envSchema = z.object({
   ABI_RUN_JOBS: z.enum(["0", "1"]).optional(),
   ABI_NO_LISTEN: bool01,
   RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().optional(),
+  RATE_LIMIT_READ_PER_MIN: z.coerce.number().int().positive().optional(),
   APPROVAL_TTL_MINUTES: z.coerce.number().int().positive().default(10),
   CHAIN: z.string().default("base-sepolia"),
   CHAIN_RPC_URL: z.string().optional(),
@@ -52,6 +53,8 @@ export type AppConfig = z.infer<typeof envSchema> & {
   isTest: boolean;
   corsOrigins: string[];
   rateLimitPerMin: number;
+  /** Budget for safe (GET/HEAD) requests — the console polls ~15 reads per mutation. */
+  rateLimitReadPerMin: number;
   keyPepperConfigured: boolean;
   kekConfigured: boolean;
   allowBootstrap: boolean;
@@ -142,6 +145,12 @@ function parseEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     corsOrigins,
     // Sensible prod default; keep the historical generous default for local/tests.
     rateLimitPerMin: e.RATE_LIMIT_PER_MIN ?? (isProduction ? 120 : 5000),
+    // Reads get their own, larger bucket: one console tab polls ~60 reads/min at
+    // rest and bursts ~25 after every mutation, which exhausted the shared 120/min
+    // bucket and turned every poll into a 429 (the Oct 23 console crashes).
+    rateLimitReadPerMin:
+      e.RATE_LIMIT_READ_PER_MIN ??
+      Math.max(600, (e.RATE_LIMIT_PER_MIN ?? (isProduction ? 120 : 5000)) * 5),
     keyPepperConfigured,
     kekConfigured,
     // In production without unsafe override, force demo flags off even if

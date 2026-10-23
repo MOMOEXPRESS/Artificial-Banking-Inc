@@ -289,7 +289,7 @@ export async function pollOnce(): Promise<void> {
 }
 
 /**
- * Long-poll getUpdates — Node/Render only. Workers use the webhook route.
+ * Long-poll getUpdates — Node only. Workers use the webhook route.
  */
 export function startTelegramPolling(): void {
   if (process.env.ABI_RUNTIME === "cloudflare-workers") {

@@ -2,7 +2,7 @@
  * Browser API base URL.
  *
  * Session cookies are httpOnly and set through the same-origin `/abi-api`
- * proxy. An absolute `NEXT_PUBLIC_API_URL` (e.g. the Render host) makes the
+ * proxy. An absolute `NEXT_PUBLIC_API_URL` (e.g. the Worker host) makes the
  * browser talk cross-origin; SameSite=Lax cookies then never stick and every
  * reload looks like a sign-out. Absolute URLs are therefore ignored here —
  * the Next.js proxy (`apps/web/src/app/abi-api`) still uses `ABI_API_ORIGIN`

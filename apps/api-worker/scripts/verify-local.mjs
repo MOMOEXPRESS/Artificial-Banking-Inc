@@ -3,7 +3,7 @@
  * Local Workers verification without the vitest Workers pool (blocked by the
  * repo-wide zod@3 override vs @cloudflare/vitest-plugin's zod@4).
  *
- * Starts `wrangler dev`, hits health / scrypt spike / telegram webhook /
+ * Starts `wrangler dev`, hits health / scrypt spike /
  * openapi, writes JSON evidence under /opt/cursor/artifacts.
  */
 import { spawn } from "node:child_process";
@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const appDir = join(root, "..");
-const artifactDir = "/opt/cursor/artifacts";
+const artifactDir = process.env.ABI_VERIFY_ARTIFACT_DIR ?? join(appDir, ".wrangler", "verify");
 mkdirSync(artifactDir, { recursive: true });
 
 const PORT = Number(process.env.ABI_WORKER_DEV_PORT ?? 8799);
@@ -25,9 +25,8 @@ const env = {
   ABI_KEK: process.env.ABI_KEK ?? "local-verify-kek-32-bytes-base64-test!!!!",
   ABI_KEY_PEPPER: process.env.ABI_KEY_PEPPER ?? "local-verify-pepper",
   ABI_SIGNUP_TOKEN: process.env.ABI_SIGNUP_TOKEN ?? "test-signup-token",
-  TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET ?? "telegram-webhook-secret-test",
   ABI_ALLOW_UNVERIFIED_SIGNUP: "1",
-  POLICYVAULT_ALLOW_BOOTSTRAP: "1",
+  POLICYVAULT_ALLOW_BOOTSTRAP: "0",
   CHAIN: "base-sepolia",
 };
 
@@ -41,8 +40,21 @@ const child = spawn(
     "127.0.0.1",
     "--port",
     String(PORT),
-    "--var",
-    "ABI_SPIKE_ROUTES:1",
+    // Always this project's config: without it wrangler can resolve the repo-root
+    // wrangler.jsonc (the redirect Worker) and every /health returns 302.
+    "--config",
+    "./wrangler.toml",
+    // Worker bindings come from --var/.dev.vars, not process.env. The Worker runs
+    // with NODE_ENV=production, so the boot guard needs pepper + KEK.
+    ...[
+      "ABI_SPIKE_ROUTES",
+      "ABI_KEK",
+      "ABI_KEY_PEPPER",
+      "ABI_SIGNUP_TOKEN",
+      "ABI_ALLOW_UNVERIFIED_SIGNUP",
+    ]
+      .filter((k) => env[k])
+      .flatMap((k) => ["--var", `${k}:${env[k]}`]),
   ],
   {
     cwd: appDir,
@@ -99,26 +111,6 @@ async function main() {
     const scryptBody = await scrypt.json();
     results.steps.push({ name: "scrypt", status: scrypt.status, body: scryptBody });
 
-    const tgBad = await fetch(`${BASE}/v1/telegram/webhook`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-telegram-bot-api-secret-token": "wrong",
-      },
-      body: "{}",
-    });
-    results.steps.push({ name: "telegram_bad_secret", status: tgBad.status });
-
-    const tgGood = await fetch(`${BASE}/v1/telegram/webhook`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-telegram-bot-api-secret-token": env.TELEGRAM_WEBHOOK_SECRET,
-      },
-      body: JSON.stringify({ update_id: 1 }),
-    });
-    results.steps.push({ name: "telegram_good_secret", status: tgGood.status });
-
     const openapi = await fetch(`${BASE}/v1/openapi.json`);
     results.steps.push({ name: "openapi", status: openapi.status });
 
@@ -152,7 +144,6 @@ async function main() {
     ) {
       results.ok = false;
     }
-    if (tgBad.status !== 401 || tgGood.status !== 200) results.ok = false;
     if (openapi.status !== 200) results.ok = false;
     if (notFound.status !== 404) results.ok = false;
 

@@ -230,8 +230,9 @@ Supabase, RDS) — **blocked on your billing account.**
 ### 5.3 Hosting for the API and worker
 
 The API is now a persistent process, not a serverless function. It needs
-somewhere to run (Railway, Render, Fly, ECS) with `ABI_RUN_JOBS` set so exactly
-one process owns the background sweeps.
+somewhere to run. Production uses the Cloudflare Worker + Durable Object
+(`apps/api-worker`), where a DO alarm owns the background sweeps; self-hosted
+Node needs `ABI_RUN_JOBS` set so exactly one process owns them.
 
 ### 5.4 Monitoring that pages a human (P12-T1)
 

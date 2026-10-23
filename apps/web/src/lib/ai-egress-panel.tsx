@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "./ui";
+import { okJson } from "./api-response";
 
 type AiMode = "off" | "platform" | "byo";
 
@@ -59,8 +60,8 @@ export function AiEgressPanel({
 
   const load = useCallback(async () => {
     try {
-      const d = await gFetch("/v1/guardian/settings/ai").then((r) => r.json());
-      if (d.ai) {
+      const d = await gFetch("/v1/guardian/settings/ai").then(okJson);
+      if (d?.ai) {
         setSettings(d.ai);
         setBaseUrl(d.ai.baseUrl ?? "");
         setModel(d.ai.model ?? "");

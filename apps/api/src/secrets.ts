@@ -20,7 +20,7 @@ type DiskSecrets = {
 
 /**
  * Path for auto-generated demo secrets. Prefer the SQLite directory so a
- * Render/Fly disk that keeps the DB also keeps the pepper/KEK across restarts
+ * Fly/VPS disk that keeps the DB also keeps the pepper/KEK across restarts
  * without deriving either from ABI_SIGNUP_TOKEN (which would let one leaked
  * signup token decrypt every vault key).
  */

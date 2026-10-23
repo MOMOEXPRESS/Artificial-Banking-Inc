@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Empty, Icon, Stat } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
+import { okJson } from "./api-response";
 
 type Scope = "org" | "department" | "agent" | "shared";
 
@@ -279,31 +280,37 @@ export function TreasuryView({
 
   const refresh = useCallback(async () => {
     const [w, m, c, f, r, a] = await Promise.all([
-      gFetch("/v1/guardian/wallets").then((x) => x.json()),
-      gFetch("/v1/guardian/treasury/moves").then((x) => x.json()),
-      gFetch("/v1/guardian/treasury/cashflow?days=30").then((x) => x.json()),
-      gFetch("/v1/guardian/treasury/forecast").then((x) => x.json()),
-      gFetch("/v1/guardian/treasury/recovery").then((x) => x.json()),
-      gFetch("/v1/guardian/assets").then((x) => x.json()),
+      gFetch("/v1/guardian/wallets").then(okJson),
+      gFetch("/v1/guardian/treasury/moves").then(okJson),
+      gFetch("/v1/guardian/treasury/cashflow?days=30").then(okJson),
+      gFetch("/v1/guardian/treasury/forecast").then(okJson),
+      gFetch("/v1/guardian/treasury/recovery").then(okJson),
+      gFetch("/v1/guardian/assets").then(okJson),
     ]);
-    setWallets(w);
-    setMoves(m.moves ?? []);
-    setCashflow(c);
-    setForecast(f.forecast ?? null);
-    setRecovery(r);
-    setHoldings(a.assets ?? []);
+    // Only adopt success payloads: a 429/5xx body stored here used to crash the
+    // vault card (`wallets.org.availableUsdc`) and flip Liquid to $0.
+    if (w?.org) setWallets(w);
+    if (m) setMoves(m.moves ?? []);
+    if (c) setCashflow(c);
+    if (f) setForecast(f.forecast ?? null);
+    if (r) setRecovery(r);
+    if (a) setHoldings(a.assets ?? []);
   }, [gFetch]);
 
   const refreshOnchain = useCallback(async () => {
     setOnchainBusy(true);
     try {
       const [d, act] = await Promise.all([
-        gFetch("/v1/guardian/treasury/onchain").then((x) => x.json()),
-        gFetch("/v1/guardian/treasury/vault-activity").then((x) => x.json()),
+        gFetch("/v1/guardian/treasury/onchain").then(okJson),
+        gFetch("/v1/guardian/treasury/vault-activity").then(okJson),
       ]);
+      if (!d) {
+        setOnchain({ ok: false, error: "Chain read unavailable (API busy) — retry shortly" });
+        return null;
+      }
       setOnchain(d.onchain ?? null);
       setBacking(d.backing ?? null);
-      setVaultActivity(act.items ?? []);
+      if (act) setVaultActivity(act.items ?? []);
       if ((d.creditedCount ?? 0) > 0) {
         await refresh();
       }
@@ -340,7 +347,7 @@ export function TreasuryView({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once when wallets first arrive
   }, [wallets]);
 
-  const vault = wallets?.org.vaultAddress ?? recovery?.vaultAddress ?? "";
+  const vault = wallets?.org?.vaultAddress ?? recovery?.vaultAddress ?? "";
   const allTargets: {
     key: string;
     label: string;
@@ -426,14 +433,14 @@ export function TreasuryView({
           symbol: "USDC",
           decimals: 6,
           chain: "base-sepolia",
-          balance: wallets?.org.availableUsdc ?? "0",
+          balance: wallets?.org?.availableUsdc ?? "0",
         },
       ];
   const activeHolding =
     visibleHoldings.find((holding) => holding.id === assetId) ?? visibleHoldings[0];
   const activeBalance =
     activeHolding?.id === "asset_usdc"
-      ? (wallets?.org.availableUsdc ?? activeHolding.balance)
+      ? (wallets?.org?.availableUsdc ?? activeHolding.balance)
       : (activeHolding?.balance ?? "0");
   const activeBalanceNumber = Number(activeBalance);
 
@@ -516,7 +523,7 @@ export function TreasuryView({
         />
         <Stat
           label="Org vault"
-          value={fmt(wallets?.org.availableUsdc)}
+          value={fmt(wallets?.org?.availableUsdc)}
           foot={vault ? `${vault.slice(0, 8)}…${vault.slice(-4)}` : "no address"}
         />
         <Stat
@@ -545,7 +552,7 @@ export function TreasuryView({
               </div>
 
               <div className="vault-total-label">Spendable balance</div>
-              <div className="vault-total-value">{fmt(wallets?.org.availableUsdc)}</div>
+              <div className="vault-total-value">{fmt(wallets?.org?.availableUsdc)}</div>
               <p className="vault-total-note">USDC available to allocate across group budgets.</p>
 
               <div className="vault-selected-asset">
@@ -618,7 +625,9 @@ export function TreasuryView({
                   {visibleHoldings.map((h) => {
                     const active = h.id === assetId;
                     const n = Number(
-                      h.id === "asset_usdc" ? (wallets?.org.availableUsdc ?? h.balance) : h.balance,
+                      h.id === "asset_usdc"
+                        ? (wallets?.org?.availableUsdc ?? h.balance)
+                        : h.balance,
                     );
                     return (
                       <button
@@ -699,7 +708,7 @@ export function TreasuryView({
                   <span className="faint">
                     {ledgerMode === "sandbox" ? "Sandbox book balance" : "Ledger available"}
                   </span>
-                  <b>{fmt(wallets?.org.availableUsdc)}</b>
+                  <b>{fmt(wallets?.org?.availableUsdc)}</b>
                 </div>
                 <div>
                   <span className="faint">Network gas</span>

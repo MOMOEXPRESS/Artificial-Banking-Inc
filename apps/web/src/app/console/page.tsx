@@ -1,5 +1,6 @@
 "use client";
 
+import { okJson, sessionRejected } from "../../lib/api-response";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ABAppIcon } from "../../lib/brand";
@@ -383,12 +384,14 @@ export default function Console() {
             // Re-validate the httpOnly cookie before painting a signed-in shell.
             // Without this, a stale localStorage row flashes the console and then
             // immediately signs the user out on the first 401.
+            // A network blip (cold start, proxy timeout) must not sign the user out:
+            // treat it like a transient failure and let the poller decide.
             const me = await fetch(`${API}/v1/auth/me`, {
               credentials: "include",
               cache: "no-store",
-            });
+            }).catch(() => null);
             if (cancelled) return;
-            if (me.ok) {
+            if (me?.ok) {
               const body = (await me.json()) as {
                 user: { id: string; email: string; name: string };
                 orgs: { id: string }[];
@@ -398,8 +401,13 @@ export default function Console() {
                 user: body.user,
                 orgId: safe.orgId ?? body.orgs[0]?.id,
               });
-            } else {
+            } else if (me && sessionRejected(me.status)) {
+              // Only an explicit 401 means the cookie session is gone.
               localStorage.removeItem("pv_session");
+            } else {
+              // 429 / 5xx / offline: keep the stored session. The fast poller
+              // signs out on a real 401 once the API answers again.
+              setSession(safe);
             }
           } else if (parsed.mode === "key" && parsed.guardianKey) {
             setSession(parsed);
@@ -608,18 +616,23 @@ export default function Console() {
         setToast("Guardian key rejected — signed out.", "err");
         return;
       }
-      const [o, ap, a, es, bu, gr] = await Promise.all(res.map((r) => r.json()));
-      setBudgetOpsSetup(
-        res[4].ok && res[5].ok && o.org?.id && Array.isArray(bu.budgets) && Array.isArray(gr.groups)
-          ? { orgId: o.org.id, ready: hasBudgetOpsSetup(bu.budgets, gr.groups) }
-          : null,
-      );
-      setConnected(true);
-      setIfChanged("org", o, setOrg);
-      setIfChanged("approvals", ap.approvals ?? [], setApprovals);
-      setIfChanged("decisions", a.decisions ?? [], setDecisions);
-      setIfChanged("escrows", es.escrows ?? [], setEscrows);
-      setLoading(false);
+      // Non-2xx bodies (429 rate limit, 5xx, proxy errors) become null and are
+      // never stored: an `{ error }` body saved as `org` crashed the header
+      // (`org.org.name`) and took the whole console into the error boundary.
+      const [o, ap, a, es, bu, gr] = await Promise.all(res.map((r) => okJson(r)));
+      if (o?.org?.id) {
+        setBudgetOpsSetup(
+          Array.isArray(bu?.budgets) && Array.isArray(gr?.groups)
+            ? { orgId: o.org.id, ready: hasBudgetOpsSetup(bu.budgets, gr.groups) }
+            : null,
+        );
+        setIfChanged("org", o, setOrg);
+        setLoading(false);
+      }
+      setConnected(res.some((r) => r.ok));
+      if (ap) setIfChanged("approvals", ap.approvals ?? [], setApprovals);
+      if (a) setIfChanged("decisions", a.decisions ?? [], setDecisions);
+      if (es) setIfChanged("escrows", es.escrows ?? [], setEscrows);
     } catch {
       setConnected(false);
     }
@@ -642,17 +655,19 @@ export default function Console() {
           "/v1/guardian/runs",
         ].map((p) => gFetch(p)),
       );
-      const [jo, po, wh, de, me, st, su, inv, rn] = await Promise.all(res.map((r) => r.json()));
-      setIfChanged("journals", jo.journals ?? [], setJournals);
-      setIfChanged("policy", po.policy ?? null, setPolicy);
-      setIfChanged("webhooks", wh.webhooks ?? [], setWebhooks);
-      setIfChanged("deliveries", de.deliveries ?? [], setDeliveries);
-      setIfChanged("metrics", me.metrics ?? null, setMetrics);
-      setIfChanged("setup", st.setup ?? null, setSetup);
-      setIfChanged("summary", su.summary ?? null, setSummary);
-      setIfChanged("invoices", inv.invoices ?? [], setInvoices);
-      setIfChanged("invStats", inv.stats ?? null, setInvStats);
-      setIfChanged("runs", rn.runs ?? [], setRuns);
+      const [jo, po, wh, de, me, st, su, inv, rn] = await Promise.all(res.map((r) => okJson(r)));
+      if (jo) setIfChanged("journals", jo.journals ?? [], setJournals);
+      if (po?.policy) setIfChanged("policy", po.policy, setPolicy);
+      if (wh) setIfChanged("webhooks", wh.webhooks ?? [], setWebhooks);
+      if (de) setIfChanged("deliveries", de.deliveries ?? [], setDeliveries);
+      if (me) setIfChanged("metrics", me.metrics ?? null, setMetrics);
+      if (st) setIfChanged("setup", st.setup ?? null, setSetup);
+      if (su) setIfChanged("summary", su.summary ?? null, setSummary);
+      if (inv) {
+        setIfChanged("invoices", inv.invoices ?? [], setInvoices);
+        setIfChanged("invStats", inv.stats ?? null, setInvStats);
+      }
+      if (rn) setIfChanged("runs", rn.runs ?? [], setRuns);
     } catch {
       /* the fast tier owns the connection indicator */
     }
@@ -1016,9 +1031,9 @@ export default function Console() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button type="button" className="user-chip" aria-label="Account menu">
-                  <div className="avatar">{(org?.org.name ?? "PV").slice(0, 2).toUpperCase()}</div>
+                  <div className="avatar">{(org?.org?.name ?? "PV").slice(0, 2).toUpperCase()}</div>
                   <div className="who">
-                    <b>{org?.org.name ?? "Loading…"}</b>
+                    <b>{org?.org?.name ?? "Loading…"}</b>
                     <span>
                       {org?.actor?.role === "viewer"
                         ? "Viewer · read-only"
@@ -1027,13 +1042,13 @@ export default function Console() {
                           : connected
                             ? "Owner · " + (org?.ledgerMode === "live" ? "live" : "sandbox")
                             : "reconnecting…"}
-                      {org?.org.status === "frozen" ? " · FROZEN" : ""}
+                      {org?.org?.status === "frozen" ? " · FROZEN" : ""}
                     </span>
                   </div>
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{org?.org.name ?? "Organization"}</DropdownMenuLabel>
+                <DropdownMenuLabel>{org?.org?.name ?? "Organization"}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => setView("settings")}>Settings</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setPaletteOpen(true)}>
@@ -1205,7 +1220,7 @@ export default function Console() {
                   <Overview
                     {...shared}
                     budgetOpsReady={
-                      budgetOpsSetup && budgetOpsSetup.orgId === org?.org.id
+                      budgetOpsSetup && budgetOpsSetup.orgId === org?.org?.id
                         ? budgetOpsSetup.ready
                         : null
                     }

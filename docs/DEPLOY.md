@@ -3,18 +3,16 @@
 ABI is two services: a **persistent API** (SQLite + jobs) and a **console**
 (Next.js on Vercel free). Never put secrets in the client bundle.
 
-## Recommended free topology
+## Production topology (free)
 
-| Piece                 | Free option                                                          | Notes                                               |
-| --------------------- | -------------------------------------------------------------------- | --------------------------------------------------- |
-| Console               | Vercel Hobby                                                         | Set `ABI_API_ORIGIN` to the API URL                 |
-| API + worker + SQLite | Fly.io free allowance **or** Oracle Cloud free VM + `docker compose` | Needs a volume/disk                                 |
-| Keep-alive (optional) | [UptimeRobot](https://uptimerobot.com) free HTTP ping on `/health`   | Avoids sleeper cold starts                          |
-| Email                 | Brevo free transactional API (`BREVO_API_KEY`)                       | Required for production signup; see API email below |
-| Monitoring            | stdout JSON logs (`pino`) + `GET /metrics`                           | No paid APM                                         |
+| Piece      | Host                                              | Notes                                                                 |
+| ---------- | ------------------------------------------------- | --------------------------------------------------------------------- |
+| Console    | Vercel Hobby                                      | `ABI_API_ORIGIN` = the Worker URL                                     |
+| API + data | Cloudflare Workers Free + SQLite Durable Object   | `apps/api-worker`; see [CLOUDFLARE-WORKERS.md](CLOUDFLARE-WORKERS.md) |
+| Email      | Resend HTTP API (`RESEND_API_KEY` Worker secret)  | Brevo (`BREVO_API_KEY`) is preferred only when set                    |
+| Monitoring | Workers Logs (`[observability]`) + `GET /metrics` | No paid APM                                                           |
 
-Render `starter` + disk works but **requires a card**. Render `free` sleeps and
-cannot attach a disk — do not use it for a ledger you care about.
+Self-hosting the Node API with `docker compose` (below) remains possible for local or VPS use.
 
 ## 1. Generate secrets (local, free)
 
@@ -74,11 +72,11 @@ On the API host, configure **Brevo (primary, free)** or an optional fallback, pl
 
 Email is not optional for production signup unless that testnet flag is set.
 
-### Brevo free setup (owner sets these on Render)
+### Brevo free setup (optional — Worker secrets)
 
 1. Create a free Brevo account and verify **one sender email** (Senders — no domain required).
 2. Create an API key (SMTP & API → API keys).
-3. On Render set:
+3. On the Worker set (`npx wrangler secret put BREVO_API_KEY --config ./wrangler.toml` from `apps/api-worker`):
    - `BREVO_API_KEY=<api-key>`
    - `ABI_NOTIFY_EMAIL_FROM=ABI <your-verified-sender@example.com>`
    - `ABI_CONSOLE_URL=https://artificial-banking-inc-web.vercel.app` (or your console URL)

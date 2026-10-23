@@ -77,7 +77,7 @@ import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
 import { outboundUrlProblem, webhookUrlProblem } from "./outbound-url.js";
 import { hashSecret } from "./secrets.js";
-import { csrfProblem } from "./auth/session.js";
+import { csrfProblem, parseCookies, SESSION_COOKIE } from "./auth/session.js";
 import { signupTokenProblem } from "./auth/signup-token.js";
 import { assertAuthRuntimeReady } from "./auth/key-encryption.js";
 import { currentUser, registerAuthRoutes } from "./routes/auth-routes.js";
@@ -344,6 +344,7 @@ registerNotifier("webhook", (payload) => {
 // Generous dev default — this is abuse protection, not throttling.
 // ---------------------------------------------------------------------------
 const RATE_LIMIT_PER_MIN = config.rateLimitPerMin;
+const RATE_LIMIT_READ_PER_MIN = config.rateLimitReadPerMin;
 /** Credential-minting routes get their own, far tighter budget per IP. */
 const SIGNUP_LIMIT_PER_HOUR = Number(
   process.env.ABI_SIGNUP_LIMIT_PER_HOUR ?? (config.isProduction ? 10 : 1000),
@@ -365,6 +366,11 @@ const rateWindows = new Map<string, number[]>();
 function rateKey(req: express.Request): string {
   const cred = bearer(req);
   if (cred) return `k:${hashSecret(cred)}`;
+  // Console traffic authenticates with the httpOnly session cookie, not a
+  // bearer header. Bucket it per session so guardians behind one NAT (or one
+  // proxy egress) do not share a budget. Unknown cookies still cost budget.
+  const session = parseCookies(req)[SESSION_COOKIE];
+  if (session) return `s:${hashSecret(session)}`;
   return `i:${req.ip ?? "anon"}`;
 }
 
@@ -423,9 +429,12 @@ app.use((req, res, next) => {
     }
   }
 
-  if (overLimit(rateKey(req), RATE_LIMIT_PER_MIN, 60_000)) {
+  const safeMethod = req.method === "GET" || req.method === "HEAD";
+  const limit = safeMethod ? RATE_LIMIT_READ_PER_MIN : RATE_LIMIT_PER_MIN;
+  if (overLimit(`${safeMethod ? "r" : "w"}:${rateKey(req)}`, limit, 60_000)) {
+    res.setHeader("Retry-After", "60");
     return res.status(429).json({
-      error: { code: "RATE_LIMITED", message: `Over ${RATE_LIMIT_PER_MIN} requests/minute` },
+      error: { code: "RATE_LIMITED", message: `Over ${limit} requests/minute` },
     });
   }
   next();
@@ -926,14 +935,16 @@ async function handleIntent(
 }
 
 app.get("/health", (_req, res) => {
-  // Liveness: process is up. Do not touch the DB here — Render/Fly free probes
-  // should stay cheap even when SQLite is briefly busy.
+  // Liveness: process is up. Do not touch the DB here — health probes should
+  // stay cheap even when SQLite is briefly busy.
+  const revision = process.env.ABI_GIT_COMMIT?.trim() ?? "";
   res.json({
     ok: true,
     service: "abi-api",
-    revision: /^[a-f0-9]{40}$/i.test(process.env.RENDER_GIT_COMMIT ?? "")
-      ? process.env.RENDER_GIT_COMMIT
-      : null,
+    // Set at deploy time (`wrangler deploy --var ABI_GIT_COMMIT:<sha>`) so the
+    // console proxy's upstream can be matched to a commit.
+    revision: /^[a-f0-9]{40}$/i.test(revision) ? revision : null,
+    runtime: process.env.ABI_RUNTIME === "cloudflare-workers" ? "cloudflare-workers" : "node",
     uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
     legal: LEGAL_FOOTER,
     telegram: telegramEnabled(),
@@ -1002,43 +1013,46 @@ app.get("/v1/demo/status", (_req, res) => {
   });
 });
 
-app.post("/v1/demo/bootstrap", async (req, res) => {
-  if (!ALLOW_DEMO_SEED) {
-    return res.status(403).json({
-      error: {
-        code: "UNAUTHORIZED",
-        message:
-          "Demo seeding is disabled in this environment. For disposable demos only, set " +
-          "POLICYVAULT_ALLOW_BOOTSTRAP=1 and ABI_ALLOW_UNSAFE_PROD=1 (never with real funds).",
-      },
-    });
-  }
-  const gate = signupTokenProblem(req);
-  if (gate) {
-    return res.status(403).json({ error: { code: "UNAUTHORIZED", message: gate } });
-  }
-  try {
-    const demo = store.seedDemoOrg();
-    res.json({
-      ...demo,
-      vaultAddress: store.getVaultAddress(demo.orgId),
-      legal: LEGAL_FOOTER,
-      note: "Demo org seeded. agentApiKey = agent Bearer token; guardianKey = guardian Bearer token. Existing organizations were not modified.",
-    });
-  } catch (e) {
-    log.error({ err: e }, "demo seed failed");
-    return res.status(500).json({
-      error: {
-        code: "BOOTSTRAP_FAILED",
-        message: config.isProduction
-          ? "Demo bootstrap failed"
-          : e instanceof Error
-            ? e.message
-            : String(e),
-      },
-    });
-  }
-});
+app.post(
+  "/v1/demo/bootstrap",
+  asyncRoute(async (req, res) => {
+    if (!ALLOW_DEMO_SEED) {
+      return res.status(403).json({
+        error: {
+          code: "UNAUTHORIZED",
+          message:
+            "Demo seeding is disabled in this environment. For disposable demos only, set " +
+            "POLICYVAULT_ALLOW_BOOTSTRAP=1 and ABI_ALLOW_UNSAFE_PROD=1 (never with real funds).",
+        },
+      });
+    }
+    const gate = signupTokenProblem(req);
+    if (gate) {
+      return res.status(403).json({ error: { code: "UNAUTHORIZED", message: gate } });
+    }
+    try {
+      const demo = store.seedDemoOrg();
+      res.json({
+        ...demo,
+        vaultAddress: store.getVaultAddress(demo.orgId),
+        legal: LEGAL_FOOTER,
+        note: "Demo org seeded. agentApiKey = agent Bearer token; guardianKey = guardian Bearer token. Existing organizations were not modified.",
+      });
+    } catch (e) {
+      log.error({ err: e }, "demo seed failed");
+      return res.status(500).json({
+        error: {
+          code: "BOOTSTRAP_FAILED",
+          message: config.isProduction
+            ? "Demo bootstrap failed"
+            : e instanceof Error
+              ? e.message
+              : String(e),
+        },
+      });
+    }
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // Guardian routes (Bearer pv_guardian_... — org derived from the key)
@@ -1056,38 +1070,41 @@ app.post("/v1/demo/bootstrap", async (req, res) => {
  */
 const ALLOW_PUBLIC_ORG_CREATE = config.allowPublicOrgCreate;
 
-app.post("/v1/guardian/orgs", async (req, res) => {
-  if (!ALLOW_PUBLIC_ORG_CREATE) {
-    return res.status(403).json({
-      error: {
-        code: "UNAUTHORIZED",
-        message:
-          "Public org creation disabled. Use /v1/auth/signup, or for disposable demos set " +
-          "POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE=1 with ABI_ALLOW_UNSAFE_PROD=1.",
-      },
+app.post(
+  "/v1/guardian/orgs",
+  asyncRoute(async (req, res) => {
+    if (!ALLOW_PUBLIC_ORG_CREATE) {
+      return res.status(403).json({
+        error: {
+          code: "UNAUTHORIZED",
+          message:
+            "Public org creation disabled. Use /v1/auth/signup, or for disposable demos set " +
+            "POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE=1 with ABI_ALLOW_UNSAFE_PROD=1.",
+        },
+      });
+    }
+    const gate = signupTokenProblem(req);
+    if (gate) {
+      return res.status(403).json({ error: { code: "UNAUTHORIZED", message: gate } });
+    }
+    const body = z
+      .object({
+        name: z.string().min(1).max(80),
+        depositUsdc: z.string().default("100"),
+      })
+      .parse(req.body);
+    const org = store.createOrg(body.name, parseUsdcToMicro(body.depositUsdc));
+    res.status(201).json({
+      orgId: org.id,
+      name: org.name,
+      guardianKey: org.guardianKey,
+      vaultAddress: store.getVaultAddress(org.id),
+      depositUsdc: body.depositUsdc,
+      note: "Store guardianKey now — it authenticates all /v1/guardian routes for this org.",
+      legal: LEGAL_FOOTER,
     });
-  }
-  const gate = signupTokenProblem(req);
-  if (gate) {
-    return res.status(403).json({ error: { code: "UNAUTHORIZED", message: gate } });
-  }
-  const body = z
-    .object({
-      name: z.string().min(1).max(80),
-      depositUsdc: z.string().default("100"),
-    })
-    .parse(req.body);
-  const org = store.createOrg(body.name, parseUsdcToMicro(body.depositUsdc));
-  res.status(201).json({
-    orgId: org.id,
-    name: org.name,
-    guardianKey: org.guardianKey,
-    vaultAddress: store.getVaultAddress(org.id),
-    depositUsdc: body.depositUsdc,
-    note: "Store guardianKey now — it authenticates all /v1/guardian routes for this org.",
-    legal: LEGAL_FOOTER,
-  });
-});
+  }),
+);
 
 app.get(
   "/v1/guardian/org",
@@ -2146,6 +2163,7 @@ app.get(
             : "On-chain mode with application-managed self-custody. Managed custody (Coinbase CDP Server Wallets) is not implemented.",
         telegram: telegramEnabled(),
         rateLimitPerMin: RATE_LIMIT_PER_MIN,
+        rateLimitReadPerMin: RATE_LIMIT_READ_PER_MIN,
         approvalTtlMinutes: APPROVAL_TTL_MINUTES,
       },
     });

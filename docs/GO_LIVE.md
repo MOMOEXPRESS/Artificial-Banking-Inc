@@ -16,7 +16,8 @@ Longer context: `docs/LAUNCH.md`. This file is only the buttons.
 
 ## 1. Production environment
 
-Set API variables on the long-lived API host (for example, Render). The web
+Set API variables as Cloudflare Worker secrets/vars on `abi-api` (see
+[CLOUDFLARE-WORKERS.md](CLOUDFLARE-WORKERS.md)). The web
 project only proxies requests and must not be given the API's encryption key.
 
 | API host variable                                             | Purpose                                                                                                                                                                                                                                        |

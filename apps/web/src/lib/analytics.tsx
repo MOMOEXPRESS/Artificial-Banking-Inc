@@ -6,6 +6,7 @@ import { Activity } from "./activity-view";
 import type { Decision } from "./console-types";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
+import { okJson } from "./api-response";
 
 /* ==================================================================== types */
 
@@ -152,12 +153,14 @@ export function InsightsView({
       if (typeof document !== "undefined" && document.hidden) return;
       try {
         const [v, b, a, e] = await Promise.all([
-          gFetch("/v1/guardian/vendors").then((r) => r.json()),
-          gFetch("/v1/guardian/burn").then((r) => r.json()),
-          gFetch("/v1/guardian/anomalies").then((r) => r.json()),
-          gFetch("/v1/guardian/economics").then((r) => r.json()),
+          gFetch("/v1/guardian/vendors").then(okJson),
+          gFetch("/v1/guardian/burn").then(okJson),
+          gFetch("/v1/guardian/anomalies").then(okJson),
+          gFetch("/v1/guardian/economics").then(okJson),
         ]);
         if (!alive) return;
+        // Keep the last good snapshot when any tier was rate-limited or failed.
+        if (!v || !b || !a || !e) return;
         const next = {
           vendors: v.vendors ?? [],
           concentrationPct: v.concentrationPct ?? 0,
