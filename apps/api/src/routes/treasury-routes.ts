@@ -957,16 +957,26 @@ export function registerTreasuryRoutes(
     guardianRoute(async (org, _req, res) => {
       const result = await syncOrgOnchainDeposits(org.id);
       if (!result.ok) {
-        return res.status(502).json({
-          error: {
-            code: "CHAIN_UNAVAILABLE",
-            message: result.error ?? "Could not read vault on-chain",
-            network: result.snap.network,
+        // Degrade gracefully: the console still needs vault address / network
+        // metadata when the RPC is cold or rate-limited. A hard 502 made the
+        // Fund tab look broken even though the ledger was fine.
+        return res.status(200).json({
+          onchain: {
+            ...result.snap,
+            ok: false,
+            error: result.error ?? "Could not read vault on-chain",
+            transfers: [],
           },
-          onchain: result.snap,
+          backing: null,
           newlyCredited: [],
           creditedCount: 0,
+          credited: [],
           ledgerAvailableUsdc: result.ledgerAvailableUsdc,
+          autoSynced: false,
+          chainUnavailable: true,
+          note:
+            result.error ??
+            "On-chain status is temporarily unavailable. Ledger balances below are still authoritative.",
         });
       }
       const { credited, transfers } = decorateOnchainTransfers(result.snap, org.id);
@@ -1043,7 +1053,15 @@ export function registerTreasuryRoutes(
         if (delta === 0n) continue;
         const amt = formatMicroToUsdc(delta > 0n ? delta : -delta);
 
-        if (memo.includes("treasury_deposit") || memo.includes("seed") || memo === "deposit") {
+        // Internal budget allocation (seed_demo_budget) debits org:available and
+        // credits a department — that is not a vault deposit/withdrawal. Showing
+        // it as -40 USDC confused the demo seed path.
+        if (memo.includes("seed_demo_budget") || memo.includes("seed_budget")) continue;
+
+        if (
+          (memo.includes("treasury_deposit") || memo.includes("sandbox_deposit") || memo === "deposit") &&
+          delta > 0n
+        ) {
           ledgerItems.push({
             id: j.id,
             kind: "demo_in",
@@ -1052,12 +1070,12 @@ export function registerTreasuryRoutes(
             symbol: "USDC",
             amount: amt,
             amountUsdc: amt,
-            direction: delta > 0n ? "in" : "out",
+            direction: "in",
             at: j.createdAt,
             label: "Demo ledger credit",
             memo: j.memo,
           });
-        } else if (memo.includes("treasury_withdraw") || memo.includes("withdraw")) {
+        } else if (memo.includes("treasury_withdraw") || memo.includes("withdraw") || memo.includes("sandbox_withdraw")) {
           ledgerItems.push({
             id: j.id,
             kind: "withdraw",

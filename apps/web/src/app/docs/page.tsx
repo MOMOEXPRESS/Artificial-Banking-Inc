@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { MarketingShell, SectionHead } from "../../lib/marketing-shell";
 import { Icon } from "../../lib/ui";
@@ -11,7 +12,7 @@ const STEPS = [
   },
   {
     title: "Create an agent",
-    body: "Issue an API key. The agent never sees the vault keys — only that Bearer token.",
+    body: "Issue an API key under Console → API. The agent never sees the vault keys — only that Bearer token.",
   },
   {
     title: "Set the rules",
@@ -31,7 +32,21 @@ const ENDPOINTS = [
   { method: "POST", path: "/v1/guardian/chat", note: "Console chat (fixed replies)" },
 ];
 
+function scrollToHash() {
+  if (typeof window === "undefined") return;
+  const id = window.location.hash.replace(/^#/, "");
+  if (!id) return;
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 export default function DocsPage() {
+  useEffect(() => {
+    scrollToHash();
+    window.addEventListener("hashchange", scrollToHash);
+    return () => window.removeEventListener("hashchange", scrollToHash);
+  }, []);
+
   return (
     <MarketingShell active="docs">
       <section className="mkt-page">
@@ -43,8 +58,8 @@ export default function DocsPage() {
           />
 
           <div className="mkt-prose">
-            <section id="chatgpt">
-              <h3>Connect your AI agent</h3>
+            <section id="chatgpt" className="docs-anchor-target">
+              <h3>Connect ChatGPT (and other agents)</h3>
               <p>
                 In the console, open <strong>API</strong> and create or select an agent. Use the
                 remote MCP URL shown there to connect a compatible client, including ChatGPT
@@ -70,7 +85,7 @@ export default function DocsPage() {
                 .
               </p>
               <Link className="btn-primary" href="/console?view=agents">
-                Open Agents <Icon name="arrowRight" size={14} />
+                Open API <Icon name="arrowRight" size={14} />
               </Link>
             </section>
             <h3>How money moves</h3>

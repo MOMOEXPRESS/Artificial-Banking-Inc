@@ -75,19 +75,8 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
         expiresAt: new Date(Date.now() + APPROVAL_TTL_MINUTES * 60_000).toISOString(),
       };
       store.createApproval(approval);
+      // notify() already fans into the webhook channel — do not also emitEvent.
       void notify({ kind: "approval.pending", approval });
-      emitEvent(sub.orgId, "approval.pending", {
-        approvalId: approval.id,
-        intentId,
-        agentId: sub.agentId,
-        tool: "pay_api",
-        amountUsdc: approval.amountUsdc,
-        destination: sub.vendor,
-        reasons: decision.reasons,
-        expiresAt: approval.expiresAt,
-        source: "subscription",
-        subscriptionId: sub.id,
-      });
       store.recordSubscriptionRun({
         subId: sub.id,
         chargedMicro: 0n,

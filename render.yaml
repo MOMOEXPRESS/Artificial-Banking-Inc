@@ -2,8 +2,14 @@
 #
 # Vercel hosts the console. Render hosts the persistent API service.
 #
+# Aligns with the free Render web service plan actually in use. Persistent
+# disks require a paid plan — on free, SQLite lives on the ephemeral filesystem
+# and is wiped on redeploy/restart. Prefer a free always-on host with a volume
+# (Fly.io / Oracle free tier) when you need durable state; see docs/DEPLOY.md.
+#
 # Deploy: Render dashboard -> New -> Blueprint -> point at this repo.
 # Then set ABI_API_ORIGIN on Vercel to the URL this service gets.
+# Owner must set secrets in the Render dashboard (this file does not deploy them).
 #
 services:
   - type: web
@@ -13,18 +19,15 @@ services:
     dockerContext: .
     dockerCommand: node apps/api/dist/index.js
     healthCheckPath: /health
-    plan: starter
-    disk:
-      name: abi-data
-      mountPath: /data
-      sizeGB: 1
+    plan: free
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 8787
+      # Ephemeral on free plan — data is lost on restart. Override if you attach a disk later.
       - key: POLICYVAULT_DB
-        value: /data/policyvault.db
+        value: /tmp/policyvault.db
       - key: ABI_KEK
         sync: false
       - key: ABI_KEY_PEPPER
@@ -35,10 +38,27 @@ services:
         sync: false
       - key: ABI_CORS_ORIGINS
         sync: false
-      # Production signup requires verification mail; configure a verified sender.
+      # Email is required for production signup (unless ABI_ALLOW_UNVERIFIED_SIGNUP=1 on testnet).
+      # Prefer free SMTP that can reach arbitrary recipients (Gmail app password or Brevo SMTP).
+      # Resend without a verified domain only delivers to the Resend account owner.
+      - key: SMTP_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_SECURE
+        sync: false
       - key: RESEND_API_KEY
         sync: false
       - key: ABI_NOTIFY_EMAIL_FROM
+        sync: false
+      # Testnet-only escape hatch; refused when CHAIN=base. Default unset/off.
+      - key: ABI_ALLOW_UNVERIFIED_SIGNUP
         sync: false
       - key: ABI_RUN_JOBS
         value: 1

@@ -1524,7 +1524,8 @@ export function SettingsView({
                   </button>
                 ))}
                 <span className="faint" style={{ fontSize: 11.5 }}>
-                  {guardians.filter((g) => !g.revokedAt).length + 1} seats available
+                  {guardians.filter((g) => !g.revokedAt && g.role !== "viewer").length + 1} seats
+                  in use (owner + approvers)
                 </span>
               </div>
             </div>
@@ -1616,13 +1617,13 @@ export function SettingsView({
               <div>
                 <h2>Recurring spend moved</h2>
                 <div className="sub">
-                  Subscriptions and one-shot schedules live under Payments so money surfaces stay
-                  together.
+                  Subscriptions and one-shot schedules live under Transactions → Scheduled so money
+                  surfaces stay together.
                 </div>
               </div>
             </div>
             <Button size="sm" onClick={() => onGoto?.("payments")}>
-              Open Payments → Scheduled
+              Open Transactions → Scheduled
             </Button>
           </div>
         )}
@@ -1829,8 +1830,8 @@ ${agents || "_None saved in this browser session._"}
               <h2>Connect your own agent</h2>
             </div>
             <p className="muted" style={{ fontSize: 12.5, marginTop: 0, lineHeight: 1.7 }}>
-              Any program that can make an HTTP request can be an agent. Create one on the Overview
-              screen, give it the key, and these money verbs appear on its tool menu.
+              Any program that can make an HTTP request can be an agent. Create one under API,
+              give it the key, and these money verbs appear on its tool menu.
             </p>
             <div className="code" style={{ whiteSpace: "pre-wrap" }}>
               {`curl -X POST ${api}/v1/agent/pay_api \\

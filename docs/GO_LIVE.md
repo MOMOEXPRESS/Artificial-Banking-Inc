@@ -27,7 +27,7 @@ project only proxies requests and must not be given the API's encryption key.
 | `ABI_ONCHAIN_ENABLED`                      | Optional `1` to enable application-managed self-custody signing; not Coinbase CDP |
 | `POLICYVAULT_ALLOW_BOOTSTRAP`              | `0` disables isolated demo org creation; set `1` only if desired                  |
 | `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE`      | `1` enables public organization creation; leave off for invite-only deployment    |
-| `RESEND_API_KEY` / `ABI_NOTIFY_EMAIL_FROM` | Email verification, reset, and invitation delivery                                |
+| `SMTP_*` or `RESEND_API_KEY` + `ABI_NOTIFY_EMAIL_FROM` + `ABI_CONSOLE_URL` | Email verification, reset, and invitation delivery. Prefer free SMTP (Gmail app password or Brevo) so arbitrary new users can receive mail. Resend without a verified domain only delivers to the Resend account owner. Optional testnet escape hatch: `ABI_ALLOW_UNVERIFIED_SIGNUP=1` (refused when `CHAIN=base`). |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`  | Optional Telegram approvals                                                       |
 | `TELEGRAM_ALLOWED_USER_IDS`                | Optional Telegram user allowlist                                                  |
 

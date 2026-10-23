@@ -6,7 +6,9 @@ import { fmtUsd, relTime } from "../../lib/ui";
 import { Button } from "@/components/ui/button";
 import { useStepUp } from "../../lib/step-up";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
+import { browserApiBase } from "../../lib/browser-api";
+
+const API = browserApiBase();
 
 type Session = { mode?: "session" | "key"; guardianKey: string; orgId?: string };
 type Approval = {

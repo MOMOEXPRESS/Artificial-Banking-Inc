@@ -135,11 +135,18 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
     // Session cookies are issued by the API but must reach the browser, and
     // there may be several (session + CSRF) — `get` would collapse them into
     // one comma-joined value that browsers mis-parse.
+    // Strip any Domain= from upstream so the cookie binds to this console host
+    // (the proxy is same-origin; a Render Domain= would never stick here).
     const setCookies =
       typeof upstream.headers.getSetCookie === "function"
         ? upstream.headers.getSetCookie()
         : ([] as string[]);
-    for (const cookie of setCookies) outHeaders.append("set-cookie", cookie);
+    for (const cookie of setCookies) {
+      outHeaders.append(
+        "set-cookie",
+        cookie.replace(/;\s*Domain=[^;]*/gi, "").replace(/;\s*domain=[^;]*/g, ""),
+      );
+    }
 
     outHeaders.set("Cache-Control", "no-store");
     return new NextResponse(upstream.body, { status: upstream.status, headers: outHeaders });

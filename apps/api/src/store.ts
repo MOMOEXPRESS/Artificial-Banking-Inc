@@ -1607,20 +1607,26 @@ function rowToDelivery(r: Row): WebhookDeliveryRow {
 
 export const store = {
   // ------------------------------------------------------------------ orgs
-  createOrg(name: string, depositMicro: MicroUsdc): OrgRow {
+  createOrg(
+    name: string,
+    depositMicro: MicroUsdc,
+    opts?: { ledgerMode?: "sandbox" | "live" },
+  ): OrgRow {
     const orgId = id("org");
     const guardianKey = `pv_guardian_${randomBytes(12).toString("hex")}`;
     const guardianKeyHash = hashSecret(guardianKey);
     const tx = db.transaction(() => {
       // An opening balance nobody sent on-chain is simulated money, so an org
-      // seeded with one is a sandbox org. Orgs that start empty are live: the
-      // only way to add money is to send USDC to the vault address.
+      // seeded with one is a sandbox org. Orgs that start empty default to live
+      // (real money only) unless the caller opts into sandbox — self-signup on
+      // testnet does that so first-time users can simulate deposits and use MCP.
       //
       // `unbacked_micro` stays 0 even for a seeded org: the opening balance is
       // written straight onto org:available and never debits `external`, so
       // -(external) already excludes it. Counting it here would subtract it
       // twice and make every seeded org look short by its own float.
-      const ledgerMode = depositMicro > 0n ? "sandbox" : "live";
+      const ledgerMode =
+        opts?.ledgerMode ?? (depositMicro > 0n ? "sandbox" : "live");
       db.prepare(
         "INSERT INTO orgs (id, name, status, guardian_key, deposit_micro, ledger_mode, unbacked_micro) VALUES (?, ?, 'active', ?, ?, ?, ?)",
       ).run(orgId, name, guardianKeyHash, depositMicro.toString(), ledgerMode, "0");
@@ -2662,6 +2668,10 @@ export const store = {
     invitationToken?: string;
     verificationToken: string;
     verificationTtlMs: number;
+    /** Override ledger mode for newly created (non-invite) orgs. */
+    ledgerMode?: "sandbox" | "live";
+    /** When true, mark the email verified immediately (testnet opt-in path). */
+    markEmailVerified?: boolean;
   }):
     | { status: "created"; user: UserRow; orgId: string; role: GuardianRoleName }
     | { status: "conflict" }
@@ -2690,13 +2700,21 @@ export const store = {
           const org = this.createOrg(
             input.orgName?.trim() || `${input.name.trim()}'s organization`,
             0n,
+            input.ledgerMode ? { ledgerMode: input.ledgerMode } : undefined,
           );
           orgId = org.id;
           role = "owner";
         }
         this.addMembership(user.id, orgId, role);
-        this.createEmailVerification(user.id, input.verificationToken, input.verificationTtlMs);
-        return { status: "created", user, orgId, role } as const;
+        if (input.markEmailVerified) {
+          db.prepare(
+            "UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?",
+          ).run(nowIso(), user.id);
+        } else {
+          this.createEmailVerification(user.id, input.verificationToken, input.verificationTtlMs);
+        }
+        const fresh = this.getUser(user.id) ?? user;
+        return { status: "created", user: fresh, orgId, role } as const;
       })();
     } catch (error) {
       if (error instanceof Error && error.message === "SIGNUP_INVALID_INVITATION") {
@@ -4443,7 +4461,25 @@ export const store = {
     );
   },
 
+  /**
+   * Expire in-flight deliveries whose retry timers were lost (process restart).
+   * Without this the webhook log accumulates forever-pending "stale" rows.
+   */
+  expireStaleWebhookDeliveries(maxAgeMs = 60 * 60_000): number {
+    const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+    const info = db
+      .prepare(
+        `UPDATE webhook_deliveries
+         SET status = 'failed',
+             last_error = COALESCE(last_error, 'Delivery abandoned after process restart / timeout')
+         WHERE status = 'pending' AND created_at < ?`,
+      )
+      .run(cutoff);
+    return info.changes;
+  },
+
   listDeliveries(orgId: string, limit = 50): WebhookDeliveryRow[] {
+    this.expireStaleWebhookDeliveries();
     return (
       db
         .prepare("SELECT * FROM webhook_deliveries WHERE org_id = ? ORDER BY id DESC LIMIT ?")

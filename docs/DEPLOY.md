@@ -20,6 +20,20 @@ API and can be connected to a Vercel project for the console.
    Vercel project environment, matching the values configured for the API.
 3. Redeploy the console after changing project environment settings.
 
+## API email (required for production signup)
+
+On the API host, configure **one** delivery backend plus the console origin:
+
+| Variable | Notes |
+| --- | --- |
+| `SMTP_URL` **or** `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` (+ `SMTP_PORT`, optional `SMTP_SECURE=1`) | **Recommended free path** — Gmail app password or Brevo free SMTP can deliver to arbitrary new users |
+| `RESEND_API_KEY` | Works for open signup only with a verified sending domain (usually paid). Free Resend without a domain only delivers to the account owner |
+| `ABI_NOTIFY_EMAIL_FROM` | From address allowed by your SMTP/Resend provider |
+| `ABI_CONSOLE_URL` | Public console origin used in verification/invite/reset links — **required in production** (no localhost fallback) |
+| `ABI_ALLOW_UNVERIFIED_SIGNUP=1` | Opt-in testnet-only escape hatch; refused when `CHAIN=base`. Default off |
+
+Email is not optional for production signup unless that testnet flag is set.
+
 ## Verify the release
 
 - Open the console and confirm account creation and email verification work.

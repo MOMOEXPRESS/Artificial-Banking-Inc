@@ -20,7 +20,12 @@ import {
 import { store, type UserRow } from "../store.js";
 import { signupTokenProblem } from "../auth/signup-token.js";
 import { assertAuthRuntimeReady } from "../auth/key-encryption.js";
-import { sendEmail } from "../platform/email.js";
+import {
+  allowUnverifiedSignup,
+  emailDeliveryConfigured,
+  resolveConsoleUrl,
+  sendEmail,
+} from "../platform/email.js";
 
 const INVITE_TTL_MS = 7 * 24 * 3600_000;
 const VERIFY_EMAIL_TTL_MS = 24 * 60 * 60_000;
@@ -52,14 +57,20 @@ function userView(user: UserRow) {
   };
 }
 
-async function sendVerificationEmail(email: string, name: string, token: string): Promise<boolean> {
-  const consoleUrl = (process.env.ABI_CONSOLE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-  const link = `${consoleUrl}/console?verify=${encodeURIComponent(token)}`;
-  return sendEmail({
+async function sendVerificationEmail(
+  email: string,
+  name: string,
+  token: string,
+): Promise<{ sent: boolean; error?: string }> {
+  const console = resolveConsoleUrl();
+  if (!console.ok) return { sent: false, error: console.error };
+  const link = `${console.url}/console?verify=${encodeURIComponent(token)}`;
+  const result = await sendEmail({
     to: email,
     subject: "Verify your ABI account",
     text: `Hi ${name},\n\nVerify your ABI account: ${link}\n\nThis link expires in 24 hours. If you did not create this account, ignore this email.`,
   });
+  return result.ok ? { sent: true } : { sent: false, error: result.error };
 }
 
 /**
@@ -100,13 +111,28 @@ export function registerAuthRoutes(app: express.Express) {
       if (pwProblem) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: pwProblem } });
       }
-      if (process.env.NODE_ENV === "production" && !process.env.RESEND_API_KEY?.trim()) {
+
+      const skipVerify = allowUnverifiedSignup();
+      if (process.env.NODE_ENV === "production" && !emailDeliveryConfigured() && !skipVerify) {
         return res.status(503).json({
           error: {
             code: "EMAIL_DELIVERY_UNAVAILABLE",
-            message: "Account verification email is not configured.",
+            message:
+              "Account verification email is not configured. On the API host set SMTP_URL " +
+              "(recommended free path: Gmail app password or Brevo SMTP) or RESEND_API_KEY, " +
+              "plus ABI_NOTIFY_EMAIL_FROM and ABI_CONSOLE_URL. " +
+              "For testnet-only demos without mail, set ABI_ALLOW_UNVERIFIED_SIGNUP=1 " +
+              "(refused when CHAIN=base).",
           },
         });
+      }
+      if (!skipVerify) {
+        const console = resolveConsoleUrl();
+        if (!console.ok) {
+          return res.status(503).json({
+            error: { code: "EMAIL_DELIVERY_UNAVAILABLE", message: console.error },
+          });
+        }
       }
 
       const invitation = body.invitationToken
@@ -139,6 +165,10 @@ export function registerAuthRoutes(app: express.Express) {
         ...(body.invitationToken ? { invitationToken: body.invitationToken } : {}),
         verificationToken,
         verificationTtlMs: VERIFY_EMAIL_TTL_MS,
+        // Self-serve orgs on testnet start in sandbox so simulated deposits and
+        // remote MCP work for first-time users. Mainnet stays live-only.
+        ledgerMode: process.env.CHAIN === "base" ? "live" : "sandbox",
+        markEmailVerified: skipVerify,
       });
       if (created.status === "conflict") {
         return res.status(409).json({
@@ -158,25 +188,49 @@ export function registerAuthRoutes(app: express.Express) {
           },
         });
       }
-      let delivered = false;
-      try {
-        delivered = await sendVerificationEmail(
-          created.user.email,
-          created.user.name,
-          verificationToken,
-        );
-      } catch (error) {
-        console.error("verification email delivery failed:", error);
+
+      if (skipVerify) {
+        issueSession(res, created.user, req);
+        return res.status(201).json({
+          user: userView(created.user),
+          org: { id: created.orgId, role: created.role },
+          verificationRequired: false,
+          emailSent: false,
+          note: "Signed up without email verification (ABI_ALLOW_UNVERIFIED_SIGNUP). Testnet/demo only.",
+        });
+      }
+
+      const delivery = await sendVerificationEmail(
+        created.user.email,
+        created.user.name,
+        verificationToken,
+      );
+      if (!delivery.sent && process.env.NODE_ENV === "production") {
+        return res.status(503).json({
+          error: {
+            code: "EMAIL_DELIVERY_FAILED",
+            message:
+              "Your account was created, but the verification email could not be sent. " +
+              "Check SMTP/Resend configuration on the API host, then use Resend verification. " +
+              (delivery.error ? `(${delivery.error})` : ""),
+          },
+          user: userView(created.user),
+          org: { id: created.orgId, role: created.role },
+          verificationRequired: true,
+          emailSent: false,
+        });
       }
       res.status(201).json({
         user: userView(created.user),
         org: { id: created.orgId, role: created.role },
         verificationRequired: true,
-        emailSent: delivered,
-        ...(process.env.NODE_ENV !== "production" && !delivered
+        emailSent: delivery.sent,
+        ...(process.env.NODE_ENV !== "production" && !delivery.sent
           ? { devVerificationToken: verificationToken }
           : {}),
-        note: "Verify your email before signing in. The link expires in 24 hours.",
+        note: delivery.sent
+          ? "Verify your email before signing in. The link expires in 24 hours."
+          : "Email could not be sent. Use the development verification token or fix mail config.",
       });
     }),
   );
@@ -207,23 +261,27 @@ export function registerAuthRoutes(app: express.Express) {
       const body = z.object({ email: emailSchema }).parse(req.body);
       const found = store.findUserCredentialsByEmail(body.email);
       let devVerificationToken: string | undefined;
+      let deliveryError: string | undefined;
       if (found && !found.disabled && !found.user.emailVerifiedAt) {
         const token = newToken();
         store.revokeEmailVerifications(found.user.id);
         store.createEmailVerification(found.user.id, token, VERIFY_EMAIL_TTL_MS);
-        let delivered = false;
-        try {
-          delivered = await sendVerificationEmail(found.user.email, found.user.name, token);
-        } catch (error) {
-          console.error("verification email delivery failed:", error);
+        const delivery = await sendVerificationEmail(found.user.email, found.user.name, token);
+        if (!delivery.sent) {
+          res.setHeader("x-abi-email-delivery", "unavailable");
+          deliveryError = delivery.error;
         }
-        if (!delivered) res.setHeader("x-abi-email-delivery", "unavailable");
-        if (process.env.NODE_ENV !== "production" && !delivered) devVerificationToken = token;
+        if (process.env.NODE_ENV !== "production" && !delivery.sent) {
+          devVerificationToken = token;
+        }
       }
       res.json({
         ok: true,
-        note: "If an unverified account exists for that address, a verification link is on its way.",
+        note: deliveryError
+          ? `If an unverified account exists for that address, a verification link could not be sent (${deliveryError}).`
+          : "If an unverified account exists for that address, a verification link is on its way.",
         ...(devVerificationToken ? { devVerificationToken } : {}),
+        ...(deliveryError ? { emailSent: false, emailError: deliveryError } : { emailSent: true }),
       });
     }),
   );
@@ -361,20 +419,20 @@ export function registerAuthRoutes(app: express.Express) {
         invitedBy: gate.user.id,
         ttlMs: INVITE_TTL_MS,
       });
-      const consoleUrl = (process.env.ABI_CONSOLE_URL ?? "http://localhost:3000").replace(
-        /\/$/,
-        "",
-      );
-      const inviteLink = `${consoleUrl}/console?invite=${encodeURIComponent(token)}`;
+      const console = resolveConsoleUrl();
       let emailSent = false;
-      try {
-        emailSent = await sendEmail({
+      let emailError: string | undefined;
+      if (!console.ok) {
+        emailError = console.error;
+      } else {
+        const inviteLink = `${console.url}/console?invite=${encodeURIComponent(token)}`;
+        const delivery = await sendEmail({
           to: invitation.email,
           subject: "You have been invited to an ABI organization",
           text: `You were invited to join an ABI organization as ${invitation.role}.\n\nAccept the invitation and create or sign in to your account: ${inviteLink}\n\nThis link expires in seven days. If you did not expect this invitation, ignore this email.`,
         });
-      } catch (error) {
-        console.error("invitation email delivery failed:", error);
+        emailSent = delivery.ok;
+        if (!delivery.ok) emailError = delivery.error;
       }
       res.status(201).json({
         invitation: {
@@ -385,6 +443,7 @@ export function registerAuthRoutes(app: express.Express) {
         },
         ...(!emailSent ? { invitationToken: token } : {}),
         emailSent,
+        ...(emailError ? { emailError } : {}),
         note: emailSent
           ? "Invitation sent. The invitee can accept it with the invited email address."
           : "Email is unavailable; share this invitation token securely with the invitee.",

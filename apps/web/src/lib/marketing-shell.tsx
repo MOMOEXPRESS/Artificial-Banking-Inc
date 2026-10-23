@@ -139,7 +139,13 @@ export function MarketingFooter() {
       </div>
       <div className="marketing-footer-legal">
         <span>© {new Date().getFullYear()} Artificial Banking Incorporated</span>
-        <span>Not a bank. Not FDIC insured. Operators remain responsible for agent spend.</span>
+        <span>
+          <a href="/terms">Terms</a>
+          {" · "}
+          <a href="/privacy">Privacy</a>
+          {" · "}
+          Not a bank. Not FDIC insured. Operators remain responsible for agent spend.
+        </span>
       </div>
     </footer>
   );

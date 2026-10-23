@@ -75,7 +75,7 @@ reconciliation both read the chain on a timer, so this degrades quietly.
 |---|---|---|
 | Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_ALLOWED_USER_IDS` | Create via @BotFather |
 | Slack | `SLACK_WEBHOOK_URL` | For drift and approval alerts |
-| Email | `RESEND_API_KEY`, `ABI_NOTIFY_EMAIL_TO/FROM` | Resend account + verified domain |
+| Email | `SMTP_URL` or `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS`, `ABI_NOTIFY_EMAIL_FROM`, `ABI_CONSOLE_URL` | Prefer free SMTP (Gmail app password or Brevo) for open signup. `RESEND_API_KEY` alone without a verified domain only reaches the Resend account owner. |
 
 Until at least one is set, **a treasury drift alarm reaches the in-app Chat
 view and the process logs, and nothing else.** If nobody is looking at the

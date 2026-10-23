@@ -7,7 +7,9 @@ import { Icon } from "./ui";
 import type { AgentKey, Session } from "./console-types";
 import { Button } from "@/components/ui/button";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
+import { browserApiBase } from "./browser-api";
+
+const API = browserApiBase();
 
 async function readApiError(res: Response): Promise<string> {
   try {
@@ -147,9 +149,13 @@ export function Login({
       setMode("verify");
       setVerificationMessage("Verifying your email address…");
     }
-    const invite = new URLSearchParams(window.location.search).get("invite");
+    const params = new URLSearchParams(window.location.search);
+    const invite = params.get("invite");
     if (invite) {
       setInviteToken(invite);
+      setMode("signup");
+    }
+    if (params.get("signup") === "1") {
       setMode("signup");
     }
   }, []);
@@ -387,15 +393,36 @@ export function Login({
             : { orgName: orgName.trim() || undefined }),
         }),
       });
-      if (!res.ok) throw new Error(await readApiError(res));
       const d = (await res.json()) as {
-        user: { id: string; email: string; name: string };
-        org: { id: string; role: string };
+        user?: { id: string; email: string; name: string };
+        org?: { id: string; role: string };
         emailSent?: boolean;
         verificationRequired?: boolean;
         devVerificationToken?: string;
+        error?: { code?: string; message?: string };
       };
+      if (!res.ok) {
+        if (d.error?.code === "EMAIL_DELIVERY_UNAVAILABLE" || d.error?.code === "EMAIL_DELIVERY_FAILED") {
+          throw new Error(
+            d.error.message ??
+              "Verification email could not be sent. The API host needs SMTP (Gmail/Brevo) or Resend configured.",
+          );
+        }
+        throw new Error(d.error?.message ?? (await Promise.resolve(`HTTP ${res.status}`)));
+      }
+      if (!d.user || !d.org) throw new Error("Unexpected signup response.");
       setVerificationEmail(email.trim());
+      if (d.verificationRequired === false) {
+        onLogin({
+          mode: "session",
+          guardianKey: "",
+          orgId: d.org.id,
+          user: d.user,
+          agentKeys: [],
+        });
+        setToast(`Welcome. You are ${d.org.role} of this organization.`, "ok");
+        return;
+      }
       if (d.devVerificationToken) {
         const verified = await fetch(`${API}/v1/auth/email/verify`, {
           method: "POST",
@@ -418,13 +445,13 @@ export function Login({
       setVerificationMessage(
         d.emailSent
           ? `We sent a verification link to ${email.trim()}. Open it to finish creating your account.`
-          : `Your account is ready for verification, but the email could not be sent. Request a fresh link below.`,
+          : `Your account was created, but the verification email could not be sent. Fix mail config on the API host, then request a fresh link below.`,
       );
       setToast(
         d.emailSent
           ? "Check your email to finish setting up your account."
-          : "Verification email needs to be resent.",
-        "info",
+          : "Verification email was not delivered — see the message below.",
+        d.emailSent ? "info" : "err",
       );
       return;
     } catch (e) {
