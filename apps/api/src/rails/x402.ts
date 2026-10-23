@@ -78,7 +78,48 @@ export type RailErrorCode =
   | "CUSTODY_UNAVAILABLE"
   | "INVALID_DESTINATION"
   | "INSUFFICIENT_ONCHAIN_USDC"
-  | "INSUFFICIENT_GAS";
+  | "INSUFFICIENT_GAS"
+  /** Seller's payTo differs from the payee the org registered/approved. */
+  | "PAYEE_MISMATCH"
+  /** Seller asked for a network other than the one the payee was approved on. */
+  | "NETWORK_MISMATCH"
+  /** A PAYMENT-REQUIRED (or our PAYMENT-SIGNATURE) header exceeds the size budget. */
+  | "CHALLENGE_TOO_LARGE"
+  /** The signed authorization does not say what was approved (to/value/asset). */
+  | "SIGNED_PAYLOAD_MISMATCH";
+
+/**
+ * Stable policy rule id for each client-guard refusal, so a refused x402
+ * payment explains itself the same way a policy deny does.
+ */
+export const X402_GUARD_RULE_IDS: Partial<Record<RailErrorCode, string>> = {
+  PRICE_EXCEEDS_AUTHORIZED: "x402_amount_exceeds_approved",
+  UNSUPPORTED_SCHEME: "x402_unsupported_asset_or_network",
+  PAYEE_MISMATCH: "x402_payee_mismatch",
+  NETWORK_MISMATCH: "x402_network_mismatch",
+  CHALLENGE_TOO_LARGE: "x402_header_too_large",
+  SIGNED_PAYLOAD_MISMATCH: "x402_signed_payload_mismatch",
+};
+
+/**
+ * Size budget for any x402 header we read or write. Proxies start rejecting
+ * around 8 KB; a seller that sends more than this is either misconfigured or
+ * trying to exhaust something on our side.
+ */
+export const MAX_X402_HEADER_BYTES = 8 * 1024;
+
+/**
+ * What the approved intent says the seller may ask for. Present when the
+ * destination is a registered merchant gateway (payout address, network and
+ * price declared at onboarding); absent for ad-hoc URLs, where the amount
+ * ceiling, asset and configured network still apply.
+ */
+export interface X402Expectation {
+  payTo?: string;
+  network?: string;
+  /** Declared price ceiling (micro-USDC); the authorized amount still applies too. */
+  maxAmountMicro?: bigint;
+}
 
 export class X402Error extends Error {
   constructor(
@@ -102,6 +143,7 @@ function selectRequirement(
   required: PaymentRequired,
   authorizedMicro: bigint,
   blocklist: string[],
+  expect?: X402Expectation,
 ): { requirement: PaymentRequirements; priceMicro: bigint; network: X402Network } {
   if (required.x402Version !== 2) {
     throw new X402Error(
@@ -110,10 +152,25 @@ function selectRequirement(
     );
   }
   const allowed = allowedX402Networks();
+  if (expect?.network && !allowed.has(expect.network as X402Network)) {
+    throw new X402Error(
+      "NETWORK_MISMATCH",
+      `Payee was approved on ${expect.network}, which this deployment does not pay on.`,
+    );
+  }
   const requirement = required.accepts.find(
     (r) =>
-      r.scheme === "exact" && r.network in ALL_NETWORKS && allowed.has(r.network as X402Network),
+      r.scheme === "exact" &&
+      r.network in ALL_NETWORKS &&
+      allowed.has(r.network as X402Network) &&
+      (!expect?.network || r.network === expect.network),
   );
+  if (!requirement && expect?.network) {
+    throw new X402Error(
+      "NETWORK_MISMATCH",
+      `Seller did not offer exact USDC on the approved network ${expect.network}.`,
+    );
+  }
   if (!requirement) {
     const allowedList = [...allowed].join(", ");
     throw new X402Error(
@@ -130,6 +187,12 @@ function selectRequirement(
   }
   if (!isAddress(requirement.payTo)) {
     throw new X402Error("SELLER_REJECTED", `Malformed payTo address: ${requirement.payTo}`);
+  }
+  if (expect?.payTo && expect.payTo.toLowerCase() !== requirement.payTo.toLowerCase()) {
+    throw new X402Error(
+      "PAYEE_MISMATCH",
+      `Seller asked to be paid at ${requirement.payTo}, but the approved payee is ${expect.payTo}.`,
+    );
   }
   if (blocklist.some((x) => x.toLowerCase() === requirement.payTo.toLowerCase())) {
     throw new X402Error(
@@ -151,7 +214,63 @@ function selectRequirement(
       `Seller price ${priceMicro} exceeds authorized ${authorizedMicro}`,
     );
   }
+  if (expect?.maxAmountMicro !== undefined && priceMicro > expect.maxAmountMicro) {
+    throw new X402Error(
+      "PRICE_EXCEEDS_AUTHORIZED",
+      `Seller price ${priceMicro} exceeds the registered price ${expect.maxAmountMicro}`,
+    );
+  }
   return { requirement, priceMicro, network };
+}
+
+/**
+ * Read the EIP-3009 authorization out of a signed exact-EVM payload and
+ * confirm it says exactly what was approved. The SDK builds this from the
+ * requirement we selected, so a mismatch means an SDK or custody bug — and
+ * this is the last point at which nothing has left the building.
+ */
+export function assertSignedPayloadMatches(
+  payload: unknown,
+  expected: { payTo: string; amountMicro: bigint; network: string; asset: string; from?: string },
+): void {
+  const root = (payload ?? {}) as Record<string, unknown>;
+  const accepted = (root.accepted ?? {}) as Record<string, unknown>;
+  const inner = (root.payload ?? {}) as Record<string, unknown>;
+  const auth = (inner.authorization ?? {}) as Record<string, unknown>;
+  const problems: string[] = [];
+  const eq = (a: unknown, b: string) =>
+    typeof a === "string" && a.toLowerCase() === b.toLowerCase();
+  if (accepted.network !== undefined && accepted.network !== expected.network) {
+    problems.push(`network ${String(accepted.network)}`);
+  }
+  if (accepted.asset !== undefined && !eq(accepted.asset, expected.asset)) {
+    problems.push(`asset ${String(accepted.asset)}`);
+  }
+  if (!eq(auth.to, expected.payTo)) problems.push(`to ${String(auth.to)}`);
+  if (expected.from && auth.from !== undefined && !eq(auth.from, expected.from)) {
+    problems.push(`from ${String(auth.from)}`);
+  }
+  let value: bigint | undefined;
+  try {
+    value = BigInt(String(auth.value));
+  } catch {
+    value = undefined;
+  }
+  if (value === undefined || value !== expected.amountMicro)
+    problems.push(`value ${String(auth.value)}`);
+  if (problems.length) {
+    throw new X402Error(
+      "SIGNED_PAYLOAD_MISMATCH",
+      `Signed authorization does not match the approved payment (${problems.join(", ")}).`,
+    );
+  }
+}
+
+function headerBytes(headers: Record<string, string>): number {
+  let total = 0;
+  for (const [k, v] of Object.entries(headers))
+    total += Buffer.byteLength(k) + Buffer.byteLength(v);
+  return total;
 }
 
 async function readBody(response: Response): Promise<unknown> {
@@ -185,6 +304,8 @@ export async function payViaX402(args: {
   authorizedMicro: MicroUsdc;
   orgId: string;
   blocklist?: string[];
+  /** Payee/network/price the approved intent pins, when known. */
+  expect?: X402Expectation;
   fetchImpl?: typeof fetch;
   /**
    * Called after the EIP-3009 authorization is signed and before it is sent to
@@ -218,6 +339,14 @@ export async function payViaX402(args: {
     throw new X402Error("RAIL_FAILED", `Seller returned HTTP ${first.status}`);
   }
 
+  const challengeHeader =
+    first.headers.get("PAYMENT-REQUIRED") ?? first.headers.get("payment-required") ?? "";
+  if (Buffer.byteLength(challengeHeader) > MAX_X402_HEADER_BYTES) {
+    throw new X402Error(
+      "CHALLENGE_TOO_LARGE",
+      `PAYMENT-REQUIRED header is ${Buffer.byteLength(challengeHeader)} bytes (limit ${MAX_X402_HEADER_BYTES}).`,
+    );
+  }
   const challengeBody = await readBody(first);
   let paymentRequired: PaymentRequired;
   try {
@@ -231,7 +360,12 @@ export async function payViaX402(args: {
       `Invalid x402 challenge: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const selected = selectRequirement(paymentRequired, args.authorizedMicro, args.blocklist ?? []);
+  const selected = selectRequirement(
+    paymentRequired,
+    args.authorizedMicro,
+    args.blocklist ?? [],
+    args.expect,
+  );
   const signer: ClientEvmSigner = {
     address: wallet.address,
     signTypedData: (typedData) => custody.signTypedData({ orgId: args.orgId, typedData }),
@@ -254,6 +388,21 @@ export async function payViaX402(args: {
     ...paymentRequired,
     accepts: [selected.requirement],
   });
+  // Verify what was actually signed before it can leave the process.
+  assertSignedPayloadMatches(payload, {
+    payTo: selected.requirement.payTo,
+    amountMicro: selected.priceMicro,
+    network: selected.network,
+    asset: selected.requirement.asset,
+    from: wallet.address,
+  });
+  const signatureHeaders = http.encodePaymentSignatureHeader(payload);
+  if (headerBytes(signatureHeaders) > MAX_X402_HEADER_BYTES) {
+    throw new X402Error(
+      "CHALLENGE_TOO_LARGE",
+      `PAYMENT-SIGNATURE header is ${headerBytes(signatureHeaders)} bytes (limit ${MAX_X402_HEADER_BYTES}).`,
+    );
+  }
   const nonce =
     extractAuthNonce(payload) ??
     `anon-${createHash("sha256").update(randomBytes(16)).digest("hex").slice(0, 16)}`;
@@ -261,7 +410,7 @@ export async function payViaX402(args: {
   // if the HTTP response is non-2xx or the PAYMENT-RESPONSE is malformed.
   args.onAuthorizationSigned?.(`x402-auth:${nonce}`, { nonce });
   const paid = await doFetch(args.url, {
-    headers: http.encodePaymentSignatureHeader(payload),
+    headers: signatureHeaders,
     signal: AbortSignal.timeout(30_000),
     redirect: "error",
   });
@@ -323,6 +472,7 @@ export class X402Rail implements PaymentRail {
       authorizedMicro: ctx.authorizedMicro,
       orgId: ctx.orgId,
       blocklist: ctx.blocklist,
+      expect: ctx.x402Expect,
       onAuthorizationSigned: (marker) => {
         // Persist before the seller sees the signature — this is the
         // signed-but-unrecorded-spend guard.
