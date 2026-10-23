@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+
 /**
  * Route-level error boundary. Never render stack traces — Next already
  * withholds them in production; we keep the UI honest either way.
@@ -11,6 +13,11 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Surface the failure in the browser console / Vercel logs so a crash can be
+  // diagnosed without a stack trace in the UI.
+  useEffect(() => {
+    console.error("[abi.console] error boundary:", error?.message ?? error, error?.digest ?? "");
+  }, [error]);
   return (
     <main
       style={{

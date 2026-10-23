@@ -10,7 +10,7 @@
  * both is safe — merely wasteful.
  *
  * Exposes a tiny free HTTP probe on WORKER_HEALTH_PORT (default 8788) so
- * Docker/Fly/Render can health-check without a paid sidecar.
+ * Docker/Fly can health-check without a paid sidecar.
  */
 import { createServer } from "node:http";
 import { HOLDER_ID, JOBS, startScheduler } from "@policyvault/api/jobs";

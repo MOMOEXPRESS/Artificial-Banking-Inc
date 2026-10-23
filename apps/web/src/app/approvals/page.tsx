@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useStepUp } from "../../lib/step-up";
 
 import { browserApiBase } from "../../lib/browser-api";
+import { okJson } from "../../lib/api-response";
 
 const API = browserApiBase();
 
@@ -96,13 +97,18 @@ export default function MobileApprovalsPage() {
       gFetch("/v1/guardian/approvals"),
       gFetch("/v1/guardian/org"),
     ]);
-    const body = (await aRes.json()) as { approvals?: Approval[] } | Approval[];
-    const approvals = Array.isArray(body) ? body : (body.approvals ?? []);
-    const org = await oRes.json();
-    const map: Record<string, string> = {};
-    for (const ag of org.agents ?? []) map[ag.id] = ag.name;
-    setAgents(map);
-    setPending(approvals.filter((x) => x.status === "pending"));
+    // Keep the last good inbox on a 429/5xx instead of storing an error body.
+    const body = await okJson<{ approvals?: Approval[] } | Approval[]>(aRes);
+    const org = await okJson<{ agents?: { id: string; name: string }[] }>(oRes);
+    if (org) {
+      const map: Record<string, string> = {};
+      for (const ag of org.agents ?? []) map[ag.id] = ag.name;
+      setAgents(map);
+    }
+    if (body) {
+      const approvals = Array.isArray(body) ? body : (body.approvals ?? []);
+      setPending(approvals.filter((x) => x.status === "pending"));
+    }
   }, [gFetch, session]);
 
   useEffect(() => {

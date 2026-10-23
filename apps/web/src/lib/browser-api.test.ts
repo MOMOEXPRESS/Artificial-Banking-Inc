@@ -5,7 +5,7 @@ import { browserApiBase, sellerUrl } from "./browser-api.js";
 describe("browserApiBase", () => {
   it("returns /abi-api when NEXT_PUBLIC_API_URL is absolute (cookie-safe)", () => {
     const prev = process.env.NEXT_PUBLIC_API_URL;
-    process.env.NEXT_PUBLIC_API_URL = "https://abi-api.onrender.com";
+    process.env.NEXT_PUBLIC_API_URL = "https://abi-api.example.workers.dev";
     assert.equal(browserApiBase(), "/abi-api");
     if (prev === undefined) delete process.env.NEXT_PUBLIC_API_URL;
     else process.env.NEXT_PUBLIC_API_URL = prev;

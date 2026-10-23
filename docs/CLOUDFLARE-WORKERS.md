@@ -1,22 +1,21 @@
-# Cloudflare Workers port (ABI API)
+# Cloudflare Workers (ABI API — production)
 
-Preview-only packaging of `apps/api` onto Cloudflare Workers Free via one
-SQLite-backed Durable Object. **Do not deploy** until Maurice approves.
+`apps/api` runs on Cloudflare Workers Free inside one SQLite-backed Durable
+Object. This is the production API (`https://abi-api.<subdomain>.workers.dev`);
+the Vercel console proxies to it through `/abi-api`.
 
-Recommended merge order before landing this port: **#60 → #61 → #63 → #62 → this PR**.
-
-## Architecture (path A)
+## Architecture
 
 1. Thin Worker `fetch` forwards every request to a singleton Durable Object (`AbiApi`).
 2. The DO injects a better-sqlite3-shaped adapter over `ctx.storage.sql`, then
    dynamically imports the Express app (`@policyvault/api/worker-app`).
+   Data is durable Durable Object SQLite storage (survives deploys and restarts).
 3. Express is served through `cloudflare:node` (`handleAsNodeRequest`).
 4. Background work runs on a **~60s Durable Object alarm** (no `setInterval`, no job leases).
-5. Telegram uses **webhook** + `TELEGRAM_WEBHOOK_SECRET` (no `getUpdates` polling).
-6. Remote MCP calls the API through an in-process Node HTTP bridge (no `127.0.0.1` loopback).
-7. Outbound SSRF checks resolve DNS via **DNS-over-HTTPS**; Node can dial the pinned IP.
-
-Render (`apps/api` + `render.yaml`) stays unchanged for production until cutover.
+5. Remote MCP calls the API through an in-process Node HTTP bridge (no `127.0.0.1` loopback).
+6. Outbound SSRF checks resolve DNS via **DNS-over-HTTPS**; Node can dial the pinned IP.
+7. `applyWorkerEnv` forces `NODE_ENV=production`, so the production guards in
+   `apps/api/src/config.ts` apply (pepper/KEK required, demo flags refused).
 
 ## Package layout
 
@@ -77,19 +76,20 @@ Workers Vitest pool deferred: monorepo `zod@3` override breaks `@cloudflare/vite
 
 Never set `NODE_ENV=development` for production builds. `wrangler deploy` freezes production at build time.
 
-## Seven one-time manual steps (Maurice)
+## Deploy and operate
 
-Maurice must (1) sign in once and (2) approve each live change. With approval, an assistant can run the rest from a laptop:
+All commands run from `apps/api-worker` with Node 22 and **always** `--config ./wrangler.toml`
+(a bare `wrangler deploy` at the repo root uses `wrangler.jsonc` and targets the wrong Worker).
 
-1. **Login (Maurice):** `npx wrangler login` on the free Cloudflare account (no card).
-2. **Secrets:** `npx wrangler secret put BREVO_API_KEY` (and the other secrets above) from `apps/api-worker`.
-3. **Deploy (after approval):** `npx wrangler deploy` → `https://abi-api.<subdomain>.workers.dev`. Check `/health`, `npx wrangler tail`.
-4. **Telegram webhook:**  
-   `https://api.telegram.org/bot<TOKEN>/setWebhook` with  
-   `url=<worker>/v1/telegram/webhook` and `secret_token=<TELEGRAM_WEBHOOK_SECRET>`.
-5. **Vercel:** set production `ABI_API_ORIGIN` to the Worker URL; keep `ABI_SIGNUP_TOKEN` in sync; redeploy web. Leave `NEXT_PUBLIC_API_URL` unset so the browser uses `/abi-api` (first-party cookies).
-6. **Workers Builds dashboard:** Worker `artificialbanking` → Settings → Builds → root directory `apps/api-worker`, deploy `npx wrangler deploy`, non-prod `npx wrangler versions upload` — **or disconnect** Git builds (they auto-deploy every main merge).
-7. **Cut over:** first-time-user test on Worker, then suspend Render. No data migration (Render free keeps none).
+1. **Secrets** (names only; values never in git): `RESEND_API_KEY`, `ABI_KEK`, `ABI_KEY_PEPPER`,
+   `ABI_SIGNUP_TOKEN`, and `CHAIN_RPC_URL` only if it embeds a provider key —
+   `npx wrangler secret put <NAME> --config ./wrangler.toml`; check with `npx wrangler secret list --config ./wrangler.toml`.
+2. **Note the rollback target:** `npx wrangler deployments list --config ./wrangler.toml`.
+3. **Deploy:** `npx wrangler deploy --config ./wrangler.toml --var ABI_GIT_COMMIT:$(git rev-parse HEAD)`,
+   then check `/health` (its `revision` is the deployed commit) and `npx wrangler tail --config ./wrangler.toml`.
+4. **Vercel:** production `ABI_API_ORIGIN` = the Worker URL; `ABI_SIGNUP_TOKEN` identical to the Worker secret;
+   leave `NEXT_PUBLIC_API_URL` unset so the browser uses `/abi-api` (first-party cookies). Redeploy web.
+5. **Workers Builds:** the `artificialbanking` Worker's Git builds must not deploy this API; deploy abi-api with the command above.
 
 ## Local commands
 
@@ -104,21 +104,21 @@ npm run deploy:dry-run           # size check; does not deploy
 
 ## Email
 
-Prefer **Brevo free HTTP** (`BREVO_API_KEY`) with one verified sender address (no custom domain). Resend remains an optional fetch fallback. SMTP is Node/Render-only (#63).
+Resend HTTP (`RESEND_API_KEY`, sender `ABI_NOTIFY_EMAIL_FROM` in `wrangler.toml`). Brevo
+(`BREVO_API_KEY`) takes precedence when set — leave it unset unless switching. SMTP is Node-only (#63)
+and is stripped inside the Worker.
 
-## Rollback to Render
+## Rollback
 
-1. Point Vercel `ABI_API_ORIGIN` back to the Render URL and redeploy web.
-2. Restore Telegram `setWebhook` to Render **or** resume `getUpdates` polling on Render.
-3. Suspend / leave the Worker unused (or `wrangler delete` only with Maurice’s approval).
-4. Render service + `render.yaml` were never removed by this port.
+1. `npx wrangler rollback <previous-version-id> --config ./wrangler.toml`.
+2. Durable Object data is not rolled back; schema migrations are additive.
 
 ## Expected overlaps with open PRs
 
 | PR      | Overlap                                                                                                                                                                                                                                                                                                                                |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **#61** | `outbound-url.ts` (replace `dns.lookup` with DoH seam — already here); `telegram.ts` (`resolveTelegramVoter` + polling rewrite — reuse webhook handler); `store.ts` migrations/methods vs lazy Proxy adapter; `secrets.ts` disk `abi-demo-secrets.json` (Workers require explicit secrets); `webhooks.ts` durable retry job → DO alarm |
-| **#63** | `platform/email.ts` Brevo HTTP primary; `BREVO_API_KEY`, `ABI_ALLOW_UNVERIFIED_SIGNUP`; auth-routes signup guard; docs/`render.yaml`                                                                                                                                                                                                   |
+| **#63** | `platform/email.ts` Brevo HTTP primary; `BREVO_API_KEY`, `ABI_ALLOW_UNVERIFIED_SIGNUP`; auth-routes signup guard                                                                                                                                                                                                                       |
 | **#62** | `config.ts` env loader; `index.ts` entry; logger/`process.exit`; may touch boot path the Worker imports                                                                                                                                                                                                                                |
 
 Design goal: additive `apps/api-worker` + small seams so rebase onto #61 is mechanical.

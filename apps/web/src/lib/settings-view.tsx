@@ -5,6 +5,7 @@ import { Icon } from "./ui";
 import { AiEgressPanel } from "./ai-egress-panel";
 import { MfaPanel } from "./mfa-panel";
 import { Button } from "@/components/ui/button";
+import { okJson } from "./api-response";
 
 export type Setup = {
   custody: string;
@@ -246,7 +247,8 @@ export function SettingsView({
 
   const loadTeam = async () => {
     try {
-      const g = await gFetch("/v1/guardian/guardians").then((r) => r.json());
+      const g = await gFetch("/v1/guardian/guardians").then(okJson);
+      if (!g) return;
       setGuardians(g.guardians ?? []);
       setQuorum(g.quorum ?? 1);
     } catch {
@@ -258,15 +260,16 @@ export function SettingsView({
   const loadPlatform = async () => {
     try {
       const [settings, comp, ob, merch] = await Promise.all([
-        gFetch("/v1/guardian/settings").then((r) => r.json()),
-        gFetch("/v1/guardian/compliance").then((r) => r.json()),
-        gFetch("/v1/guardian/observability").then((r) => r.json()),
-        gFetch("/v1/guardian/merchants").then((r) => r.json()),
+        gFetch("/v1/guardian/settings").then(okJson),
+        gFetch("/v1/guardian/compliance").then(okJson),
+        gFetch("/v1/guardian/observability").then(okJson),
+        gFetch("/v1/guardian/merchants").then(okJson),
       ]);
-      setTreasuryHitlDraft(String((settings.settings ?? {}).treasuryHitlUsdc ?? "50"));
-      setCompliance(comp);
-      setObs(ob);
-      setMerchants(merch.merchants ?? []);
+      if (settings)
+        setTreasuryHitlDraft(String((settings.settings ?? {}).treasuryHitlUsdc ?? "50"));
+      if (comp) setCompliance(comp);
+      if (ob) setObs(ob);
+      if (merch) setMerchants(merch.merchants ?? []);
     } catch {
       /* non-fatal */
     }
@@ -362,7 +365,7 @@ export function SettingsView({
     ? `X402_SELLER_ADDRESS=${selectedMerchant.meta.gateway.payoutAddress ?? "0x..."}\nX402_PRICE_USDC=$${selectedMerchant.meta.gateway.priceUsdc ?? "0.01"}\nCHAIN=${selectedMerchant.meta.gateway.network === "eip155:8453" ? "base" : "base-sepolia"}\nX402_FACILITATOR_URL=https://x402.org/facilitator`
     : "";
 
-  const currentOrgStatus = org?.org.status ?? profileMeta.status;
+  const currentOrgStatus = org?.org?.status ?? profileMeta.status;
   const orgFrozen = currentOrgStatus === "frozen";
   const activeSection = SECTIONS.find((item) => item.key === section) ?? SECTIONS[0];
 
@@ -513,11 +516,14 @@ export function SettingsView({
           <span>Settings</span>
           <small>{actorRole}</small>
         </div>
-        <div className="set-nav-org" title={profile.displayName || org?.org.name || "Organization"}>
+        <div
+          className="set-nav-org"
+          title={profile.displayName || org?.org?.name || "Organization"}
+        >
           <span className="set-nav-org-mark" aria-hidden>
-            {(profile.displayName || org?.org.name || "O").trim().slice(0, 1).toUpperCase()}
+            {(profile.displayName || org?.org?.name || "O").trim().slice(0, 1).toUpperCase()}
           </span>
-          <span>{profile.displayName || org?.org.name || "Your organization"}</span>
+          <span>{profile.displayName || org?.org?.name || "Your organization"}</span>
         </div>
         <select
           className="settings-mobile-picker"
@@ -565,10 +571,10 @@ export function SettingsView({
           <div className="card settings-profile-card">
             <div className="settings-profile-identity">
               <span className="settings-profile-avatar" aria-hidden>
-                {(profile.displayName || org?.org.name || "O").trim().slice(0, 1).toUpperCase()}
+                {(profile.displayName || org?.org?.name || "O").trim().slice(0, 1).toUpperCase()}
               </span>
               <div className="settings-profile-identity-copy">
-                <strong>{profile.displayName || org?.org.name || "Your organization"}</strong>
+                <strong>{profile.displayName || org?.org?.name || "Your organization"}</strong>
                 <span>Organization workspace</span>
               </div>
               <span className={`pill ${orgFrozen ? "bad" : currentOrgStatus ? "ok" : "warn"}`}>

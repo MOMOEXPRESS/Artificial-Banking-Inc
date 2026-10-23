@@ -1,9 +1,9 @@
-# ABI API on Cloudflare Workers (Durable Object + SQLite).
-# Preview / local only until Maurice approves a live deploy.
+# ABI API on Cloudflare Workers (Durable Object + SQLite) — the production API.
 #
-# Dashboard (Maurice): set Worker root directory to apps/api-worker,
-# deploy command `npx wrangler deploy`, non-prod `npx wrangler versions upload`.
-# Or disconnect Git builds so merges to main do not auto-deploy.
+# Deploy from apps/api-worker only, always with this file:
+#   npx wrangler deploy --config ./wrangler.toml --var ABI_GIT_COMMIT:$(git rev-parse HEAD)
+# (a bare `wrangler deploy` at the repo root picks up ../../wrangler.jsonc instead).
+# Rollback: npx wrangler rollback <version-id> --config ./wrangler.toml
 
 name = "abi-api"
 main = "src/worker.ts"
@@ -16,7 +16,7 @@ compatibility_flags = ["nodejs_compat"]
 enabled = true
 
 # Plain text vars — override per environment as needed.
-# POLICYVAULT_ALLOW_BOOTSTRAP: Maurice decides (1 keeps Demo mode).
+# Production guard: demo bootstrap is refused in production (see apps/api/src/config.ts).
 [vars]
 CHAIN = "base-sepolia"
 ABI_CONSOLE_URL = "https://artificial-banking-inc-web.vercel.app"
@@ -25,19 +25,16 @@ ABI_NOTIFY_EMAIL_FROM = "ABI <onboarding@resend.dev>"
 ABI_RUNTIME = "cloudflare-workers"
 ABI_NO_LISTEN = "1"
 ABI_RUN_JOBS = "0"
-POLICYVAULT_ALLOW_BOOTSTRAP = "1"
+POLICYVAULT_ALLOW_BOOTSTRAP = "0"
+POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE = "0"
 
-# Secrets (set via `npx wrangler secret put <NAME>` after Maurice's login/approval):
-#   BREVO_API_KEY          — primary email (free HTTP API; preferred)
-#   RESEND_API_KEY         — optional email fallback (fetch)
+# Secrets (set via `npx wrangler secret put <NAME> --config ./wrangler.toml`):
+#   RESEND_API_KEY         — email delivery (Resend HTTP API)
 #   ABI_KEK
 #   ABI_KEY_PEPPER
-#   ABI_SIGNUP_TOKEN
-#   TELEGRAM_BOT_TOKEN
-#   TELEGRAM_CHAT_ID
-#   TELEGRAM_ALLOWED_USER_IDS
-#   TELEGRAM_WEBHOOK_SECRET
-#   CHAIN_RPC_URL          — if it embeds a provider key
+#   ABI_SIGNUP_TOKEN       — must equal ABI_SIGNUP_TOKEN on the Vercel console
+#   CHAIN_RPC_URL          — only if it embeds a provider key
+# Leave BREVO_API_KEY unset unless Brevo should take over (it is preferred when present).
 # Do NOT put SMTP_* secrets here for the Worker path — SMTP/nodemailer is Node-only (#63).
 
 [[durable_objects.bindings]]

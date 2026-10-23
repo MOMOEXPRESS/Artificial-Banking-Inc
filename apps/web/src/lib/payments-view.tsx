@@ -7,6 +7,7 @@ import { Approvals } from "./approvals-view";
 import type { Approval, OrgView, View } from "./console-types";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
+import { okJson } from "./api-response";
 
 type Agent = { id: string; name: string; status: string };
 type Rail = { id: string; tools: string[]; description: string; status: string };
@@ -127,11 +128,12 @@ export function PaymentsView({
 
   const refresh = useCallback(async () => {
     const [r, s, p] = await Promise.all([
-      gFetch("/v1/guardian/payments/rails").then((x) => x.json()),
-      gFetch("/v1/guardian/subscriptions").then((x) => x.json()),
-      gFetch("/v1/guardian/payments/recent").then((x) => x.json()),
+      gFetch("/v1/guardian/payments/rails").then(okJson),
+      gFetch("/v1/guardian/subscriptions").then(okJson),
+      gFetch("/v1/guardian/payments/recent").then(okJson),
     ]);
-    setRails(r.rails ?? []);
+    if (r) setRails(r.rails ?? []);
+    if (!s) return;
     const nextSubs = (s.subscriptions ?? []) as Sub[];
     if (subStatusRef.current) {
       for (const sub of nextSubs) {
@@ -158,7 +160,7 @@ export function PaymentsView({
     }
     subStatusRef.current = new Map(nextSubs.map((sub) => [sub.id, sub.status]));
     setSubs(nextSubs);
-    setRecent(p.payments ?? []);
+    if (p) setRecent(p.payments ?? []);
   }, [gFetch, setToast]);
 
   useEffect(() => {

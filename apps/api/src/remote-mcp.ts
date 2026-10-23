@@ -328,7 +328,10 @@ function methodNotAllowed(res: express.Response) {
  * organizations are rejected even if a valid token is supplied.
  */
 export function registerRemoteMcp(app: express.Express) {
-  app.post("/mcp/:token", async (req, res) => {
+  app.post("/mcp/:token", (req, res, next) => {
+    void handleMcpPost(req, res).catch(next);
+  });
+  async function handleMcpPost(req: express.Request, res: express.Response) {
     res.set({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
     const token = req.params.token;
     const session = token?.startsWith("pv_sess_") ? store.getSessionByToken(token) : undefined;
@@ -347,7 +350,7 @@ export function registerRemoteMcp(app: express.Express) {
       });
     }
 
-    // Prefer in-process/bridge fetch (Workers). On Node/Render, loop back to the
+    // Prefer in-process/bridge fetch (Workers). On Node, loop back to the
     // same listener so MCP uses the exact public agent routes, auth checks,
     // policy engine, idempotency, rail, ledger, and audit trail. Deriving the
     // port from the socket avoids trusting the caller's Host header.
@@ -389,7 +392,7 @@ export function registerRemoteMcp(app: express.Express) {
         });
       }
     }
-  });
+  }
   app.get("/mcp/:token", (_req, res) => methodNotAllowed(res));
   app.delete("/mcp/:token", (_req, res) => methodNotAllowed(res));
 }

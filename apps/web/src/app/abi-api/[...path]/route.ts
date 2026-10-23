@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Give slow upstream calls (cold Durable Object, chain reads) room before
+// Vercel kills the function; the fetch below aborts a little earlier so the
+// console always gets a JSON error instead of a platform HTML page.
+export const maxDuration = 60;
+const UPSTREAM_TIMEOUT_MS = 55_000;
 
 /**
  * Same-origin proxy to the ABI API.
@@ -69,14 +74,14 @@ function notConfigured() {
         message:
           "This console has no API to talk to. The ABI API is a separate, long-lived " +
           "process — Vercel hosts the console, but cannot host the API. " +
-          "Deploy the API (Render/Railway/Fly/VPS — render.yaml is a ready blueprint), " +
+          "Deploy the API Worker (apps/api-worker, `wrangler deploy --config ./wrangler.toml`), " +
           "then set ABI_API_ORIGIN on this Vercel project to its URL and redeploy. " +
           "Step-by-step: docs/DEPLOY.md.",
         /** Machine-readable so the console can render a setup card, not a toast. */
         setup: {
           missing: "ABI_API_ORIGIN",
           where: "Vercel → Settings → Environment Variables",
-          example: "https://your-api.onrender.com",
+          example: "https://abi-api.<account>.workers.dev",
           docs: "docs/DEPLOY.md",
         },
       },
@@ -124,9 +129,10 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
       headers,
       body: body && body.byteLength > 0 ? body : undefined,
       redirect: "manual",
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
     const contentType = upstream.headers.get("content-type") ?? "";
-    // Free-tier hosts (e.g. Render) sometimes return an HTML "waking up" page
+    // An upstream can return an HTML error or "waking up" page
     // instead of JSON. Surface that as a structured console state, never as a
     // cryptic HTML parse error in the browser.
     if (contentType.includes("text/html") || (contentType === "" && upstream.status >= 500)) {
@@ -142,7 +148,7 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
               : `The API returned a non-JSON response (HTTP ${upstream.status}). Check that ABI_API_ORIGIN points at the ABI API, not a status page.`,
             setup: waking
               ? {
-                  tip: "Keep-alive pings or an always-on free host (Fly.io free allowance, Oracle Cloud free tier, a campus VPS) avoid cold starts. Paid Render disks are optional.",
+                  tip: "Retry in a few seconds. If it persists, check the abi-api Worker in the Cloudflare dashboard (Workers Logs).",
                 }
               : undefined,
           },
@@ -160,7 +166,7 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
     // there may be several (session + CSRF) — `get` would collapse them into
     // one comma-joined value that browsers mis-parse.
     // Strip any Domain= from upstream so the cookie binds to this console host
-    // (the proxy is same-origin; a Render Domain= would never stick here).
+    // (the proxy is same-origin; an upstream Domain= would never stick here).
     const setCookies =
       typeof upstream.headers.getSetCookie === "function"
         ? upstream.headers.getSetCookie()
@@ -175,6 +181,17 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
     outHeaders.set("Cache-Control", "no-store");
     return new NextResponse(upstream.body, { status: upstream.status, headers: outHeaders });
   } catch (e) {
+    if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "API_TIMEOUT",
+            message: `The ABI API did not answer within ${UPSTREAM_TIMEOUT_MS / 1000}s. Retry shortly; a write may still have completed — refresh before repeating it.`,
+          },
+        },
+        { status: 504, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     return NextResponse.json(
       {
         error: {

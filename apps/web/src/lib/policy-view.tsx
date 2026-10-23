@@ -6,6 +6,7 @@ import { SegTabs } from "@/components/ui/seg-tabs";
 import { SmoothBarChart } from "./smooth-bar-chart";
 import { applyJudgmentBandDrag, formatBandUsd, judgmentScaleMax, MAX_BAND } from "./judgment-bands";
 import { BudgetsPanel } from "./policy-budgets-panel";
+import { okJson } from "./api-response";
 
 export type Policy = {
   perTxMaxUsdc: string;
@@ -246,17 +247,21 @@ export function PolicyView({
   useEffect(() => {
     void (async () => {
       const [v, t, q, g] = await Promise.all([
-        gFetch("/v1/guardian/policy/versions").then((r) => r.json()),
-        gFetch("/v1/guardian/policy/templates").then((r) => r.json()),
-        gFetch("/v1/guardian/quorum").then((r) => r.json()),
-        gFetch("/v1/guardian/guardians").then((r) => r.json()),
+        gFetch("/v1/guardian/policy/versions").then(okJson),
+        gFetch("/v1/guardian/policy/templates").then(okJson),
+        gFetch("/v1/guardian/quorum").then(okJson),
+        gFetch("/v1/guardian/guardians").then(okJson),
       ]);
-      setVersions(v.versions ?? []);
-      setCurrentVersion(v.current ?? "");
-      setTemplates(t.templates ?? []);
-      setQuorum(q.approvalQuorum ?? policy.approvalQuorum ?? 1);
-      setQuorumSeats(q.seats ?? 1);
-      setGuardians((g.guardians ?? []).filter((x: { revokedAt?: string }) => !x.revokedAt));
+      if (v) {
+        setVersions(v.versions ?? []);
+        setCurrentVersion(v.current ?? "");
+      }
+      if (t) setTemplates(t.templates ?? []);
+      if (q) {
+        setQuorum(q.approvalQuorum ?? policy.approvalQuorum ?? 1);
+        setQuorumSeats(q.seats ?? 1);
+      }
+      if (g) setGuardians((g.guardians ?? []).filter((x: { revokedAt?: string }) => !x.revokedAt));
     })();
   }, [gFetch, policy]);
 
@@ -944,8 +949,8 @@ export function PolicyView({
                             setGuardians((list) =>
                               list.map((x) => (x.id === g.id ? { ...x, role } : x)),
                             );
-                            const q = await gFetch("/v1/guardian/quorum").then((r) => r.json());
-                            setQuorumSeats(q.seats ?? 1);
+                            const q = await gFetch("/v1/guardian/quorum").then(okJson);
+                            if (q) setQuorumSeats(q.seats ?? 1);
                             return `${g.name} is now ${role}.`;
                           })
                         }

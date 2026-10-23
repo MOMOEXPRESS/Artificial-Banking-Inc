@@ -167,7 +167,14 @@ export function AIPanel({
         method: "POST",
         body: JSON.stringify({ question }),
       });
-      setAnswer(await res.json());
+      const d = await res.json().catch(() => null);
+      setAnswer(
+        res.ok && d
+          ? d
+          : {
+              answer: `The API could not answer right now: ${d?.error?.message ?? `HTTP ${res.status}`}`,
+            },
+      );
     } catch (e) {
       setAnswer({ answer: `Could not reach the API: ${String(e)}` });
     } finally {

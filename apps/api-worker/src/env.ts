@@ -2,7 +2,7 @@
  * Copy Worker bindings into process.env so the existing Express/API code
  * (which reads process.env) keeps working inside the Durable Object.
  *
- * Never force NODE_ENV=development — wrangler deploy freezes production at build.
+ * NODE_ENV is always forced to production here; never set it to development.
  */
 
 const STRING_KEYS = [
@@ -14,20 +14,19 @@ const STRING_KEYS = [
   "ABI_NO_LISTEN",
   "ABI_RUN_JOBS",
   "POLICYVAULT_ALLOW_BOOTSTRAP",
+  "POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE",
   "BREVO_API_KEY",
   "RESEND_API_KEY",
   "ABI_KEK",
   "ABI_KEY_PEPPER",
   "ABI_SIGNUP_TOKEN",
-  "TELEGRAM_BOT_TOKEN",
-  "TELEGRAM_CHAT_ID",
-  "TELEGRAM_ALLOWED_USER_IDS",
-  "TELEGRAM_WEBHOOK_SECRET",
   "CHAIN_RPC_URL",
   "ABI_ALLOW_UNVERIFIED_SIGNUP",
   "ABI_ALLOW_LOCAL_TARGETS",
   "ABI_SPIKE_ROUTES",
   "RATE_LIMIT_PER_MIN",
+  "RATE_LIMIT_READ_PER_MIN",
+  "ABI_GIT_COMMIT",
   "OPENAI_API_KEY",
   "ABI_CHAT_LLM",
   "ABI_CHAT_AGENT",
@@ -44,6 +43,12 @@ export function applyWorkerEnv(env: Env): void {
     }
   }
   // Worker runtime flags — always set for the DO-hosted API.
+  // NODE_ENV must be set at runtime: wrangler only rewrites the literal
+  // `process.env.NODE_ENV` at build time, but config.ts parses the whole
+  // process.env object, so without this the deployed Worker ran in
+  // non-production mode (production guards off, demo flags auto-on,
+  // /v1/demo/status reported productionSafe:false).
+  process.env.NODE_ENV = "production";
   process.env.ABI_RUNTIME = "cloudflare-workers";
   process.env.ABI_NO_LISTEN = "1";
   process.env.ABI_RUN_JOBS = "0";
