@@ -6,35 +6,38 @@ import { cardholderName, cardNumberRows, groupVaultAddress } from "./vault-card-
 
 /**
  * Bank-card-style visual for the organization vault (Treasury → Vault).
- * Black/charcoal card with gray/silver text, a gray EMV-style chip and the
- * official ABI mark (brand.tsx ABMark → /public/abi-mark-light.png, desaturated).
- * The vault address is the "card number"; there is no expiry, so it says so.
+ * Black/charcoal card with gray/silver text and the official ABI mark
+ * (brand.tsx ABMark → /public/abi-mark-light.png, desaturated).
+ * The "card number" is the deposit address of the asset selected in the
+ * vault asset picker; assets without one show an explicit empty state.
  */
 export function VaultBankCard({
   address,
-  orgName,
+  assetSymbol,
   networkLabel,
-  modeLabel,
+  orgName,
   copied,
   onCopy,
 }: {
-  address: string;
-  orgName?: string | null;
+  /** Deposit address for the selected asset, or null when it has none. */
+  address: string | null;
+  assetSymbol: string;
   networkLabel: string;
-  modeLabel: string;
+  orgName?: string | null;
   copied: boolean;
   onCopy: () => void;
 }) {
-  const rows = cardNumberRows(groupVaultAddress(address));
+  const rows = address ? cardNumberRows(groupVaultAddress(address)) : [];
   const holder = cardholderName(orgName);
+  const assetLine = `${assetSymbol} on ${networkLabel}`;
   return (
     <div
       className="vault-bank-card"
       role="group"
       aria-label={
         address
-          ? `Organization vault card. Vault address ${address}. ${networkLabel}.`
-          : "Organization vault card. Vault address not configured."
+          ? `Organization vault card. ${assetLine} deposit address ${address}.`
+          : `Organization vault card. No address for ${assetLine}.`
       }
     >
       <div className="vbc-top">
@@ -44,19 +47,8 @@ export function VaultBankCard({
           </span>
           <span className="vbc-brand-name">ABI Vault</span>
         </span>
-        <span className="vbc-mode">{modeLabel}</span>
-      </div>
-
-      <div className="vbc-chip-row">
-        <span className="vbc-chip" aria-hidden>
-          <i />
-          <i />
-          <i />
-        </span>
-        <span className="vbc-contactless" aria-hidden>
-          <span />
-          <span />
-          <span />
+        <span className="vbc-asset" aria-hidden>
+          {assetSymbol}
         </span>
       </div>
 
@@ -72,15 +64,15 @@ export function VaultBankCard({
             ))}
           </code>
         ) : (
-          <code className="vbc-number mono is-empty">Vault address not configured</code>
+          <code className="vbc-number mono is-empty">No address for this asset</code>
         )}
         <button
           type="button"
           className="vbc-copy"
           disabled={!address}
           onClick={onCopy}
-          aria-label="Copy vault address"
-          title={copied ? "Copied" : "Copy vault address"}
+          aria-label={address ? `Copy ${assetSymbol} deposit address` : "No address to copy"}
+          title={copied ? "Copied" : address ? "Copy address" : "No address for this asset"}
         >
           <Icon name="copy" size={13} />
           <span>{copied ? "Copied" : "Copy"}</span>
@@ -92,12 +84,9 @@ export function VaultBankCard({
           <small>Cardholder</small>
           <b>{holder}</b>
         </span>
-        <span className="vbc-field vbc-expiry">
-          <small>Valid thru</small>
-          <b>No expiry</b>
-        </span>
-        <span className="vbc-network" aria-label={`Network: ${networkLabel}`}>
-          {networkLabel}
+        <span className="vbc-field vbc-network-field">
+          <small>Network</small>
+          <b>{networkLabel}</b>
         </span>
       </div>
     </div>

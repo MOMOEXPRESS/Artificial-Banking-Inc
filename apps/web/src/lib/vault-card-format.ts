@@ -32,3 +32,31 @@ export function cardholderName(name: string | undefined | null, max = 26): strin
   if (!clean) return "ORGANIZATION";
   return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
 }
+
+/** The subset of a vault holding the card needs to pick an address. */
+export type CardHolding = {
+  id: string;
+  symbol: string;
+  chain: string;
+  backing?: { kind: "chain" | "chain-unconfigured" | "manual" | string };
+};
+
+/**
+ * Deposit address for the selected asset, or null when the vault has none.
+ *
+ * The org has a single EVM vault key. It is the receiving address only for
+ * assets the API reads on-chain from that vault (`backing.kind === "chain"`,
+ * e.g. USDC, EURC and native ETH on Base Sepolia). Manual-book assets such as
+ * BTC or SOL, and EVM assets on a chain with no RPC configured, have no vault
+ * address — we never reuse the EVM address for them.
+ */
+export function assetDepositAddress(
+  holding: CardHolding | null | undefined,
+  vaultAddress: string | null | undefined,
+): string | null {
+  const vault = (vaultAddress ?? "").trim();
+  if (!holding || !vault) return null;
+  if (holding.backing) return holding.backing.kind === "chain" ? vault : null;
+  // No backing info (fallback roster before /assets loads): only the USDC spend rail.
+  return holding.id === "asset_usdc" ? vault : null;
+}

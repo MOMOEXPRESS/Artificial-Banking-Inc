@@ -20,6 +20,7 @@ import { okJson } from "./api-response";
 import { deriveVaultStatus, stripChips } from "./vault-status";
 import { VaultStatusStrip } from "./vault-status-strip";
 import { VaultBankCard } from "./vault-bank-card";
+import { assetDepositAddress } from "./vault-card-format";
 
 type Scope = "org" | "department" | "agent" | "shared";
 
@@ -428,9 +429,9 @@ export function TreasuryView({
     setMoveIntent("custom");
   };
 
-  const copyVault = async () => {
-    if (!vault) return;
-    await navigator.clipboard.writeText(vault);
+  const copyAddress = async (address: string | null) => {
+    if (!address) return;
+    await navigator.clipboard.writeText(address);
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   };
@@ -453,6 +454,9 @@ export function TreasuryView({
       ? (wallets?.org?.availableUsdc ?? activeHolding.balance)
       : holdingBalance(activeHolding);
   const activeBalanceNumber = Number(activeBalance);
+  /** Card number: the selected asset's deposit address (null → "No address for this asset"). */
+  const cardAddress = assetDepositAddress(activeHolding, vault);
+  useEffect(() => setCopied(false), [assetId]);
   const vaultStatus = deriveVaultStatus({
     assetId: activeHolding?.id ?? assetId,
     symbol: activeHolding?.symbol ?? "USDC",
@@ -584,12 +588,13 @@ export function TreasuryView({
               <p className="vault-total-note">USDC available to allocate across group budgets.</p>
 
               <VaultBankCard
-                address={vault}
+                key={activeHolding?.id ?? "asset_usdc"}
+                address={cardAddress}
+                assetSymbol={activeHolding?.symbol ?? "USDC"}
+                networkLabel={holdingNetwork(activeHolding)}
                 orgName={wallets?.org?.name}
-                networkLabel={holdingNetwork({ chain: wallets?.asset.chain ?? "base-sepolia" })}
-                modeLabel={ledgerMode === "live" ? "Live" : "Sandbox"}
                 copied={copied}
-                onCopy={() => void copyVault()}
+                onCopy={() => void copyAddress(cardAddress)}
               />
 
               <div className="vault-selected-asset">
