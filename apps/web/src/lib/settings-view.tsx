@@ -7,6 +7,7 @@ import { MfaPanel } from "./mfa-panel";
 import { AccountAccessPanel } from "./account-access-panel";
 import { Button } from "@/components/ui/button";
 import { okJson } from "./api-response";
+import { networkLabel } from "./network-names";
 
 export type Setup = {
   custody: string;
@@ -441,12 +442,7 @@ export function SettingsView({
       return "Guardian revoked — their key no longer works.";
     });
 
-  const networkLabel =
-    setup?.network === "base"
-      ? "Base"
-      : setup?.network === "base-sepolia"
-        ? "Base Sepolia"
-        : (setup?.network ?? "Base Sepolia");
+  const setupNetwork = networkLabel(setup?.network, "Base Sepolia");
 
   const onchainMode = !!(setup?.onchainMode ?? setup?.productionMode);
 
@@ -467,9 +463,9 @@ export function SettingsView({
     },
     {
       done: onchainMode,
-      title: `On-chain signer configured (${networkLabel})`,
+      title: `On-chain signer configured (${setupNetwork})`,
       body: onchainMode
-        ? `Configuration is enabled for ${networkLabel}; this does not verify a successful payment. The signer remains application-managed self-custody.`
+        ? `Configuration is enabled for ${setupNetwork}; this does not verify a successful payment. The signer remains application-managed self-custody.`
         : `On-chain signing is disabled. Simulation and policy testing remain available.`,
     },
     {
@@ -851,7 +847,7 @@ export function SettingsView({
                 <h2>Environment</h2>
               </div>
               {[
-                ["Network", setup?.network ?? "—"],
+                ["Network", networkLabel(setup?.network)],
                 ["Custody", setup?.custody ?? "—"],
                 ["Custody model", setup?.custodyModel ?? "self-custody"],
                 ["Managed custody", setup?.managedCustodyProvider ?? "none"],
@@ -906,7 +902,7 @@ export function SettingsView({
                 <label>Vault address</label>
                 <div className="code">{org?.vaultAddress}</div>
                 <div className="hint">
-                  Fund with {networkLabel} <b>USDC</b> (agent spend) and a little <b>ETH</b> (gas
+                  Fund with {setupNetwork} <b>USDC</b> (agent spend) and a little <b>ETH</b> (gas
                   for on-chain agent pays). Sync deposits on Treasury → Vault. Proof path:{" "}
                   <code>docs/E2E-ONCHAIN-AGENT-PAY.md</code>.
                 </div>
