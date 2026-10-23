@@ -118,9 +118,9 @@ export function registerAuthRoutes(app: express.Express) {
           error: {
             code: "EMAIL_DELIVERY_UNAVAILABLE",
             message:
-              "Account verification email is not configured. On the API host set SMTP_URL " +
-              "(recommended free path: Gmail app password or Brevo SMTP) or RESEND_API_KEY, " +
-              "plus ABI_NOTIFY_EMAIL_FROM and ABI_CONSOLE_URL. " +
+              "Account verification email is not configured. On the API host set BREVO_API_KEY " +
+              "(recommended free path), ABI_NOTIFY_EMAIL_FROM (your Brevo-verified sender), " +
+              "and ABI_CONSOLE_URL. Optional fallback: RESEND_API_KEY. " +
               "For testnet-only demos without mail, set ABI_ALLOW_UNVERIFIED_SIGNUP=1 " +
               "(refused when CHAIN=base).",
           },

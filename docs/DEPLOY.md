@@ -22,17 +22,27 @@ API and can be connected to a Vercel project for the console.
 
 ## API email (required for production signup)
 
-On the API host, configure **one** delivery backend plus the console origin:
+On the API host, configure **Brevo (primary, free)** or an optional fallback, plus the console origin:
 
-| Variable | Notes |
-| --- | --- |
-| `SMTP_URL` **or** `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` (+ `SMTP_PORT`, optional `SMTP_SECURE=1`) | **Recommended free path** — Gmail app password or Brevo free SMTP can deliver to arbitrary new users |
-| `RESEND_API_KEY` | Works for open signup only with a verified sending domain (usually paid). Free Resend without a domain only delivers to the account owner |
-| `ABI_NOTIFY_EMAIL_FROM` | From address allowed by your SMTP/Resend provider |
-| `ABI_CONSOLE_URL` | Public console origin used in verification/invite/reset links — **required in production** (no localhost fallback) |
-| `ABI_ALLOW_UNVERIFIED_SIGNUP=1` | Opt-in testnet-only escape hatch; refused when `CHAIN=base`. Default off |
+| Variable                        | Notes                                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `BREVO_API_KEY`                 | **Recommended free path** — Brevo transactional HTTP API (`fetch`). Free plan: verify one sender email, no custom domain |
+| `ABI_NOTIFY_EMAIL_FROM`         | That verified sender, e.g. `you@gmail.com` or `ABI <you@gmail.com>`                                                      |
+| `ABI_CONSOLE_URL`               | Public console origin for verification/invite/reset links — **required in production** (no localhost fallback)           |
+| `RESEND_API_KEY`                | Optional fallback only. Free Resend without a domain only delivers to the account owner                                  |
+| `SMTP_*`                        | Optional Node SMTP path (e.g. `smtp-relay.brevo.com:587`) if not using `BREVO_API_KEY`                                   |
+| `ABI_ALLOW_UNVERIFIED_SIGNUP=1` | Opt-in testnet-only escape hatch; refused when `CHAIN=base`. Default off                                                 |
 
 Email is not optional for production signup unless that testnet flag is set.
+
+### Brevo free setup (owner sets these on Render)
+
+1. Create a free Brevo account and verify **one sender email** (Senders — no domain required).
+2. Create an API key (SMTP & API → API keys).
+3. On Render set:
+   - `BREVO_API_KEY=<api-key>`
+   - `ABI_NOTIFY_EMAIL_FROM=ABI <your-verified-sender@example.com>`
+   - `ABI_CONSOLE_URL=https://artificial-banking-inc-web.vercel.app` (or your console URL)
 
 ## Verify the release
 

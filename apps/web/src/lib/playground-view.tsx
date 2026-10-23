@@ -784,7 +784,8 @@ export function Playground({
                   <span>
                     Set <span className="mono">NEXT_PUBLIC_SELLER_URL</span> on the console host to
                     a public seller endpoint. The bundled seller at localhost:9402 is only reachable
-                    during local development; x402 missions will report a clear soft-fail until then.
+                    during local development; x402 missions will report a clear soft-fail until
+                    then.
                   </span>
                 </span>
               </div>

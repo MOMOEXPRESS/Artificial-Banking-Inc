@@ -1625,8 +1625,7 @@ export const store = {
       // written straight onto org:available and never debits `external`, so
       // -(external) already excludes it. Counting it here would subtract it
       // twice and make every seeded org look short by its own float.
-      const ledgerMode =
-        opts?.ledgerMode ?? (depositMicro > 0n ? "sandbox" : "live");
+      const ledgerMode = opts?.ledgerMode ?? (depositMicro > 0n ? "sandbox" : "live");
       db.prepare(
         "INSERT INTO orgs (id, name, status, guardian_key, deposit_micro, ledger_mode, unbacked_micro) VALUES (?, ?, 'active', ?, ?, ?, ?)",
       ).run(orgId, name, guardianKeyHash, depositMicro.toString(), ledgerMode, "0");

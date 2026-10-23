@@ -66,10 +66,7 @@ We cannot show them again from the server — only a hash is stored.
 
 ## Agent API keys
 
-${
-  agents ||
-  "_No agents yet._ Create them in Console → API, then save each `pv_agent_…` key once."
-}
+${agents || "_No agents yet._ Create them in Console → API, then save each `pv_agent_…` key once."}
 
 ---
 
@@ -402,10 +399,13 @@ export function Login({
         error?: { code?: string; message?: string };
       };
       if (!res.ok) {
-        if (d.error?.code === "EMAIL_DELIVERY_UNAVAILABLE" || d.error?.code === "EMAIL_DELIVERY_FAILED") {
+        if (
+          d.error?.code === "EMAIL_DELIVERY_UNAVAILABLE" ||
+          d.error?.code === "EMAIL_DELIVERY_FAILED"
+        ) {
           throw new Error(
             d.error.message ??
-              "Verification email could not be sent. The API host needs SMTP (Gmail/Brevo) or Resend configured.",
+              "Verification email could not be sent. The API host needs BREVO_API_KEY (or RESEND_API_KEY), ABI_NOTIFY_EMAIL_FROM, and ABI_CONSOLE_URL.",
           );
         }
         throw new Error(d.error?.message ?? (await Promise.resolve(`HTTP ${res.status}`)));
@@ -963,8 +963,8 @@ function KeyRevealCard({
 
       {session.agentKeys.length === 0 ? (
         <p className="faint" style={{ fontSize: 12, lineHeight: 1.5, margin: "4px 0 0" }}>
-          Next inside the console: <b>API → Create API key</b>, then Treasury (fund vault + stipend),
-          then connect your agent runtime with the new <code>pv_agent_…</code> key.
+          Next inside the console: <b>API → Create API key</b>, then Treasury (fund vault +
+          stipend), then connect your agent runtime with the new <code>pv_agent_…</code> key.
         </p>
       ) : null}
 

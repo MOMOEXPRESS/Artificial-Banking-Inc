@@ -39,8 +39,15 @@ services:
       - key: ABI_CORS_ORIGINS
         sync: false
       # Email is required for production signup (unless ABI_ALLOW_UNVERIFIED_SIGNUP=1 on testnet).
-      # Prefer free SMTP that can reach arbitrary recipients (Gmail app password or Brevo SMTP).
-      # Resend without a verified domain only delivers to the Resend account owner.
+      # Primary (free): Brevo transactional API — verify one sender email, no domain needed.
+      - key: BREVO_API_KEY
+        sync: false
+      - key: ABI_NOTIFY_EMAIL_FROM
+        sync: false
+      # Optional fallback only (Resend free without a domain only reaches the account owner).
+      - key: RESEND_API_KEY
+        sync: false
+      # Optional Node SMTP path (e.g. smtp-relay.brevo.com:587) if not using BREVO_API_KEY.
       - key: SMTP_URL
         sync: false
       - key: SMTP_HOST
@@ -52,10 +59,6 @@ services:
       - key: SMTP_PASS
         sync: false
       - key: SMTP_SECURE
-        sync: false
-      - key: RESEND_API_KEY
-        sync: false
-      - key: ABI_NOTIFY_EMAIL_FROM
         sync: false
       # Testnet-only escape hatch; refused when CHAIN=base. Default unset/off.
       - key: ABI_ALLOW_UNVERIFIED_SIGNUP

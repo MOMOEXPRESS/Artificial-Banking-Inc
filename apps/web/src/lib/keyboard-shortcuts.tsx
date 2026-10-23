@@ -129,13 +129,7 @@ export function useConsoleShortcuts(opts: {
 }
 
 /** Modal help sheet — lists `g X` map + global shortcuts. */
-export function KeyboardHelp({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+export function KeyboardHelp({ open, onClose }: { open: boolean; onClose: () => void }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -159,7 +153,9 @@ export function KeyboardHelp({
         <div className="pv-help-head">
           <div>
             <h2>Keyboard shortcuts</h2>
-            <p className="pv-help-sub">Press <kbd>?</kbd> anytime · Esc to close</p>
+            <p className="pv-help-sub">
+              Press <kbd>?</kbd> anytime · Esc to close
+            </p>
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>
             Close

@@ -19,13 +19,13 @@ tests and have never touched a real chain or a real browser.**
 
 Specifically, none of the following has ever executed against reality:
 
-| Never run | Where | Risk if wrong |
-|---|---|---|
-| A real USDC transfer out of a vault | `chain/transfer.ts`, treasury withdraw | Money leaves, or does not, incorrectly |
-| An on-chain balance read for reconciliation | `treasury-backing.ts` | Drift alarm silent or crying wolf |
-| A per-asset ERC-20 balance read | `chain/asset-adapters.ts` | Holdings display wrong |
-| An x402 settlement against a real facilitator | `rails/x402.ts` | The headline integration may not work |
-| Any console screen built in Phases 6–7 | Treasury Fund, Policy → Budgets | Layout or wiring broken |
+| Never run                                     | Where                                  | Risk if wrong                          |
+| --------------------------------------------- | -------------------------------------- | -------------------------------------- |
+| A real USDC transfer out of a vault           | `chain/transfer.ts`, treasury withdraw | Money leaves, or does not, incorrectly |
+| An on-chain balance read for reconciliation   | `treasury-backing.ts`                  | Drift alarm silent or crying wolf      |
+| A per-asset ERC-20 balance read               | `chain/asset-adapters.ts`              | Holdings display wrong                 |
+| An x402 settlement against a real facilitator | `rails/x402.ts`                        | The headline integration may not work  |
+| Any console screen built in Phases 6–7        | Treasury Fund, Policy → Budgets        | Layout or wiring broken                |
 
 Section 2 is how you clear it. **I would not demo the treasury to anyone
 outside the company until section 2 is done.**
@@ -69,17 +69,17 @@ reconciliation both read the chain on a timer, so this degrades quietly.
 
 **Blocked on you:** billing account.
 
-### 1.4 Optional notification channels
+### 1.4 Email (required for open signup) and optional notify channels
 
-| Channel | Variables | Notes |
-|---|---|---|
-| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_ALLOWED_USER_IDS` | Create via @BotFather |
-| Slack | `SLACK_WEBHOOK_URL` | For drift and approval alerts |
-| Email | `SMTP_URL` or `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS`, `ABI_NOTIFY_EMAIL_FROM`, `ABI_CONSOLE_URL` | Prefer free SMTP (Gmail app password or Brevo) for open signup. `RESEND_API_KEY` alone without a verified domain only reaches the Resend account owner. |
+| Channel  | Variables                                                             | Notes                                                                                                                                            |
+| -------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Email    | `BREVO_API_KEY`, `ABI_NOTIFY_EMAIL_FROM`, `ABI_CONSOLE_URL`           | **Required for production signup.** Primary free path: Brevo transactional API — verify one sender email, no domain. Optional: `RESEND_API_KEY`. |
+| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_ALLOWED_USER_IDS` | Optional approvals via @BotFather                                                                                                                |
+| Slack    | `SLACK_WEBHOOK_URL`                                                   | Optional drift and approval alerts                                                                                                               |
 
-Until at least one is set, **a treasury drift alarm reaches the in-app Chat
-view and the process logs, and nothing else.** If nobody is looking at the
-console, nobody is told.
+Without email configured, production signup returns `EMAIL_DELIVERY_UNAVAILABLE`
+(unless `ABI_ALLOW_UNVERIFIED_SIGNUP=1` on testnet). Without Telegram/Slack, a
+treasury drift alarm reaches the in-app Chat view and the process logs only.
 
 ---
 
@@ -100,15 +100,15 @@ account or social login.
 
 ### 2.2 Then verify, in this order
 
-| # | Check | Pass looks like |
-|---|---|---|
-| 1 | Deposit auto-credit | USDC arrives → ledger balance rises within ~30s with no manual sync |
-| 2 | Backing panel | Treasury → Fund shows "Books match the chain" |
-| 3 | **Drift detection** | Send USDC *out* of the vault from an external wallet → panel flips to "Drift −$X" within 5 min, and a notification fires |
-| 4 | Live withdrawal | Treasury → Send to a 0x address → real tx hash, balance drops, books still match |
-| 5 | Deposit refusal | Confirm a live org has **no** manual receive control at all |
-| 6 | Agent pay | Playground → on-chain wallet pay → real tx on Basescan |
-| 7 | Policy → Budgets | Set a category cap and a budget window; confirm a payment is refused with the right reason |
+| #   | Check               | Pass looks like                                                                                                          |
+| --- | ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Deposit auto-credit | USDC arrives → ledger balance rises within ~30s with no manual sync                                                      |
+| 2   | Backing panel       | Treasury → Fund shows "Books match the chain"                                                                            |
+| 3   | **Drift detection** | Send USDC _out_ of the vault from an external wallet → panel flips to "Drift −$X" within 5 min, and a notification fires |
+| 4   | Live withdrawal     | Treasury → Send to a 0x address → real tx hash, balance drops, books still match                                         |
+| 5   | Deposit refusal     | Confirm a live org has **no** manual receive control at all                                                              |
+| 6   | Agent pay           | Playground → on-chain wallet pay → real tx on Basescan                                                                   |
+| 7   | Policy → Budgets    | Set a category cap and a budget window; confirm a payment is refused with the right reason                               |
 
 Check 3 is the one I care most about — it is the only end-to-end proof that the
 reconciliation built in Phase 7 actually detects anything.
@@ -151,7 +151,7 @@ gated to sandbox.
 
 ### 3.3 Is the demo bootstrap endpoint still wanted?
 
-`POST /v1/demo/bootstrap` is no longer destructive (it seeds a *new* org and
+`POST /v1/demo/bootstrap` is no longer destructive (it seeds a _new_ org and
 leaves others alone) and is gated behind `POLICYVAULT_ALLOW_BOOTSTRAP` plus the
 signup token. The roadmap's P1-T1 called for deleting it entirely.
 
@@ -243,11 +243,11 @@ on a Grafana Cloud / Datadog / Betterstack account.
 
 ## 6. Third parties you must engage
 
-| What | Why blocked on you | Roadmap |
-|---|---|---|
-| **Penetration test** | Contract + payment. The money path has had no independent human review, and nearly all of it is agent-authored. | P11-T5 |
-| **SOC 2 auditor** | Contract. Start evidence collection early; the observation window is the long pole. | P11-T6 |
-| **A second engineer to review money-path changes** | Hiring. Right now no human has independently reviewed the code that moves funds. | R5 |
+| What                                               | Why blocked on you                                                                                              | Roadmap |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------- |
+| **Penetration test**                               | Contract + payment. The money path has had no independent human review, and nearly all of it is agent-authored. | P11-T5  |
+| **SOC 2 auditor**                                  | Contract. Start evidence collection early; the observation window is the long pole.                             | P11-T6  |
+| **A second engineer to review money-path changes** | Hiring. Right now no human has independently reviewed the code that moves funds.                                | R5      |
 
 The third is the one I would not skip. I write these changes and I also write
 the tests that check them; that is not review.
@@ -256,12 +256,12 @@ the tests that check them; that is not review.
 
 ## 7. Publishing and distribution
 
-| Item | Blocked on |
-|---|---|
-| npm org for `@abi/sdk` (P10-T1) | Your npm account; name must be settled first |
-| PyPI project for the Python SDK (P10-T2) | Your PyPI account |
-| Docs domain + hosting (P10-T3) | DNS |
-| GitHub org settings — branch protection, required CI | Repo admin |
+| Item                                                 | Blocked on                                   |
+| ---------------------------------------------------- | -------------------------------------------- |
+| npm org for `@abi/sdk` (P10-T1)                      | Your npm account; name must be settled first |
+| PyPI project for the Python SDK (P10-T2)             | Your PyPI account                            |
+| Docs domain + hosting (P10-T3)                       | DNS                                          |
+| GitHub org settings — branch protection, required CI | Repo admin                                   |
 
 Branch protection matters: CI exists (`.github/workflows/ci.yml`) but nothing
 forces it to pass before merge.
