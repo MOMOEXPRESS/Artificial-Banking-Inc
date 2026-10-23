@@ -5510,8 +5510,8 @@ input[type="range"].slider::-moz-range-thumb {
 
 .login-mode-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
   margin: 0 0 16px;
   padding: 4px;
   border-radius: 12px;
@@ -5523,11 +5523,25 @@ input[type="range"].slider::-moz-range-thumb {
   border: 0;
   background: transparent;
   color: rgba(255, 255, 255, 0.65);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 8px 6px;
+  padding: 8px 4px;
   border-radius: 9px;
   cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+@media (max-width: 420px) {
+  .login-mode-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .login-mode-btn {
+    font-size: 12px;
+    padding: 8px 6px;
+  }
 }
 
 .login-mode-btn.on {
@@ -7311,6 +7325,10 @@ input[type="range"].slider::-moz-range-thumb {
   .about-pane:hover .about-art {
     transform: none;
   }
+}
+
+.docs-anchor-target {
+  scroll-margin-top: 96px;
 }
 
 .mkt-prose {

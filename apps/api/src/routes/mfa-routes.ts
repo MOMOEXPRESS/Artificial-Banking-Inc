@@ -13,7 +13,7 @@ import { z } from "zod";
 import { hashPassword, passwordProblem, verifyPassword } from "../auth/password.js";
 import { clearSessionCookies, newToken } from "../auth/session.js";
 import { generateRecoveryCodes, generateSecret, otpauthUri, verifyCode } from "../auth/totp.js";
-import { sendEmail } from "../platform/email.js";
+import { resolveConsoleUrl, sendEmail } from "../platform/email.js";
 import { store } from "../store.js";
 import { asyncRoute, currentUser } from "./auth-routes.js";
 
@@ -193,16 +193,16 @@ export function registerMfaRoutes(app: express.Express) {
       if (found && !found.disabled) {
         const token = newToken();
         store.createPasswordReset(found.user.id, token, RESET_TTL_MS);
-        const link = `${(process.env.ABI_CONSOLE_URL ?? "http://localhost:3000").replace(/\/$/, "")}/console?reset=${token}`;
+        const console = resolveConsoleUrl();
         let delivered = false;
-        try {
-          delivered = await sendEmail({
+        if (console.ok) {
+          const link = `${console.url}/console?reset=${token}`;
+          const delivery = await sendEmail({
             to: found.user.email,
             subject: "Reset your ABI password",
             text: `Reset your password: ${link}\n\nThis link expires in one hour. If you did not ask for it, ignore this email.`,
           });
-        } catch (error) {
-          console.error("password reset email delivery failed:", error);
+          delivered = delivery.ok;
         }
         // Without an email provider configured the notifier only logs, so surface
         // the token to the operator in development rather than silently failing.

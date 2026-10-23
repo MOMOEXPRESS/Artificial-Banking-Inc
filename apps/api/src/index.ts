@@ -850,17 +850,10 @@ async function handleIntent(
       httpStatus: 202,
     };
     store.setIdempotent(input.orgId, idemKey, reviewPayload);
+    // notify() already fans approval.pending into the webhook channel via
+    // registerNotifier("webhook"). Do not also call emitEvent here — that
+    // duplicated every approval.pending delivery in the webhook log.
     void notify({ kind: "approval.pending", approval });
-    emitEvent(input.orgId, "approval.pending", {
-      approvalId: approval.id,
-      intentId,
-      agentId: input.agentId,
-      tool: input.tool,
-      amountUsdc: input.amountUsdc,
-      destination: input.destination,
-      reasons: decision.reasons,
-      expiresAt: approval.expiresAt,
-    });
     return res.status(202).json({
       intentId,
       outcome: "review" as const,

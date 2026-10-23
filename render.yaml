@@ -6,13 +6,14 @@
 #   - Oracle Cloud free tier VM + docker compose
 #   - Campus/home VPS + docker compose
 #
-# Render: the `free` plan sleeps and cannot attach a disk — SQLite state is
-# lost on every cold start. `starter` + disk persists SQLite but needs a card.
-# This blueprint keeps `starter` as the documented Render path; for true
-# zero-spend use docker-compose on Fly/Oracle (see docs/DEPLOY.md).
+# Aligns with the free Render web service plan actually in use. Persistent
+# disks require a paid plan — on free, SQLite lives on the ephemeral filesystem
+# and is wiped on redeploy/restart. Prefer a free always-on host with a volume
+# (Fly.io / Oracle free tier) when you need durable state; see docs/DEPLOY.md.
 #
 # Deploy: Render dashboard -> New -> Blueprint -> point at this repo.
 # Then set ABI_API_ORIGIN on Vercel to the URL this service gets.
+# Owner must set secrets in the Render dashboard (this file does not deploy them).
 #
 services:
   - type: web
@@ -22,18 +23,15 @@ services:
     dockerContext: .
     dockerCommand: node apps/api/dist/index.js
     healthCheckPath: /health
-    plan: starter
-    disk:
-      name: abi-data
-      mountPath: /data
-      sizeGB: 1
+    plan: free
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 8787
+      # Ephemeral on free plan — data is lost on restart. Override if you attach a disk later.
       - key: POLICYVAULT_DB
-        value: /data/policyvault.db
+        value: /tmp/policyvault.db
       - key: ABI_KEK
         sync: false
       - key: ABI_KEY_PEPPER
@@ -48,10 +46,30 @@ services:
         value: info
       - key: RATE_LIMIT_PER_MIN
         value: "120"
-      # Production signup email is optional; without it, invite-only / manual verify.
-      - key: RESEND_API_KEY
+      # Email is required for production signup (unless ABI_ALLOW_UNVERIFIED_SIGNUP=1 on testnet).
+      # Primary (free): Brevo transactional API — verify one sender email, no domain needed.
+      - key: BREVO_API_KEY
         sync: false
       - key: ABI_NOTIFY_EMAIL_FROM
+        sync: false
+      # Optional fallback only (Resend free without a domain only reaches the account owner).
+      - key: RESEND_API_KEY
+        sync: false
+      # Optional Node SMTP path (e.g. smtp-relay.brevo.com:587) if not using BREVO_API_KEY.
+      - key: SMTP_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_SECURE
+        sync: false
+      # Testnet-only escape hatch; refused when CHAIN=base. Default unset/off.
+      - key: ABI_ALLOW_UNVERIFIED_SIGNUP
         sync: false
       - key: ABI_RUN_JOBS
         value: 1

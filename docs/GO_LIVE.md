@@ -19,17 +19,17 @@ Longer context: `docs/LAUNCH.md`. This file is only the buttons.
 Set API variables on the long-lived API host (for example, Render). The web
 project only proxies requests and must not be given the API's encryption key.
 
-| API host variable                          | Purpose                                                                           |
-| ------------------------------------------ | --------------------------------------------------------------------------------- |
-| `ABI_KEY_PEPPER`                           | Random secret for credential hashing                                              |
-| `ABI_KEK`                                  | 32 random bytes, base64; encrypts vault keys at rest; back it up securely         |
-| `CHAIN`                                    | `base-sepolia` for reviewed testnet flows                                         |
-| `ABI_ONCHAIN_ENABLED`                      | Optional `1` to enable application-managed self-custody signing; not Coinbase CDP |
-| `POLICYVAULT_ALLOW_BOOTSTRAP`              | `0` disables isolated demo org creation; set `1` only if desired                  |
-| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE`      | `1` enables public organization creation; leave off for invite-only deployment    |
-| `RESEND_API_KEY` / `ABI_NOTIFY_EMAIL_FROM` | Email verification, reset, and invitation delivery                                |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`  | Optional Telegram approvals                                                       |
-| `TELEGRAM_ALLOWED_USER_IDS`                | Optional Telegram user allowlist                                                  |
+| API host variable                                             | Purpose                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ABI_KEY_PEPPER`                                              | Random secret for credential hashing                                                                                                                                                                                                           |
+| `ABI_KEK`                                                     | 32 random bytes, base64; encrypts vault keys at rest; back it up securely                                                                                                                                                                      |
+| `CHAIN`                                                       | `base-sepolia` for reviewed testnet flows                                                                                                                                                                                                      |
+| `ABI_ONCHAIN_ENABLED`                                         | Optional `1` to enable application-managed self-custody signing; not Coinbase CDP                                                                                                                                                              |
+| `POLICYVAULT_ALLOW_BOOTSTRAP`                                 | `0` disables isolated demo org creation; set `1` only if desired                                                                                                                                                                               |
+| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE`                         | `1` enables public organization creation; leave off for invite-only deployment                                                                                                                                                                 |
+| `BREVO_API_KEY` + `ABI_NOTIFY_EMAIL_FROM` + `ABI_CONSOLE_URL` | Email verification, reset, and invitation delivery. **Primary free path: Brevo** (verify one sender email, no domain). Optional: `RESEND_API_KEY` fallback. Testnet escape hatch: `ABI_ALLOW_UNVERIFIED_SIGNUP=1` (refused when `CHAIN=base`). |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`                     | Optional Telegram approvals                                                                                                                                                                                                                    |
+| `TELEGRAM_ALLOWED_USER_IDS`                                   | Optional Telegram user allowlist                                                                                                                                                                                                               |
 
 On Vercel, set `ABI_API_ORIGIN` to the API's HTTPS URL. If registration is
 gated, set the same `ABI_SIGNUP_TOKEN` on the API and Vercel; the browser never

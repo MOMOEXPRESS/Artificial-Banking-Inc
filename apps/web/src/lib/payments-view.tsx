@@ -201,7 +201,7 @@ export function PaymentsView({
     <div className="console-page payments-page">
       <div className="card-head" style={{ marginBottom: 16 }}>
         <div>
-          <h2 style={{ margin: 0 }}>Payments</h2>
+          <h2 style={{ margin: 0 }}>Transactions</h2>
           <div className="sub">
             Approvals, USDC rails, invoices, escrows — every charge still hits policy
             {readOnly ? " · viewer read-only" : ""}
