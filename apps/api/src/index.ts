@@ -725,7 +725,8 @@ function escrowView(e: EscrowRow) {
  */
 function supersedesProblem(orgId: string, agentId: string, supersedes: string): string | null {
   const prior = store.getDecision(orgId, supersedes);
-  if (!prior || prior.agentId !== agentId) return "supersedes must reference one of your own intents";
+  if (!prior || prior.agentId !== agentId)
+    return "supersedes must reference one of your own intents";
   if (prior.outcome !== "deny") return "supersedes must reference an intent that was refused";
   return null;
 }

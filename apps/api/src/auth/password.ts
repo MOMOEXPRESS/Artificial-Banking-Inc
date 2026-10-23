@@ -29,14 +29,9 @@ export async function hashPassword(password: string): Promise<string> {
     ...PARAMS,
     maxmem: 64 * 1024 * 1024,
   });
-  return [
-    PREFIX,
-    PARAMS.N,
-    PARAMS.r,
-    PARAMS.p,
-    salt.toString("hex"),
-    derived.toString("hex"),
-  ].join(":");
+  return [PREFIX, PARAMS.N, PARAMS.r, PARAMS.p, salt.toString("hex"), derived.toString("hex")].join(
+    ":",
+  );
 }
 
 /**

@@ -55,7 +55,7 @@ CI runs exactly these. A red result blocks merge.
   reformat files you did not otherwise change.
 - **ESLint** is enforced. `npm run lint` must be clean.
 - Match the surrounding code. This codebase has an unusually high comment
-  density that explains *why*, not *what* — that is deliberate, especially on
+  density that explains _why_, not _what_ — that is deliberate, especially on
   the money path. Keep it.
 
 ## The money path needs extra care
@@ -114,13 +114,13 @@ git switch -c feat/short-description
 If a change alters behaviour a user or integrator can observe, update the docs
 in the same commit:
 
-| Change | Update |
-|---|---|
-| API surface | `docs/ARCHITECTURE.md`, the OpenAPI document |
-| Security posture | `docs/SECURITY.md` |
-| Deployment | `docs/DEPLOY.md` |
-| A decision with lasting consequences | a new `docs/adr/` entry |
-| Anything on the roadmap | tick it off in `docs/ROADMAP.md` |
+| Change                               | Update                                       |
+| ------------------------------------ | -------------------------------------------- |
+| API surface                          | `docs/ARCHITECTURE.md`, the OpenAPI document |
+| Security posture                     | `docs/SECURITY.md`                           |
+| Deployment                           | `docs/DEPLOY.md`                             |
+| A decision with lasting consequences | a new `docs/adr/` entry                      |
+| Anything on the roadmap              | tick it off in `docs/ROADMAP.md`             |
 
 **Do not describe something as built until it is built.** The audit that
 produced the current roadmap found marketing copy, a README section, and an API

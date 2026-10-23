@@ -238,7 +238,8 @@ export function assertSignedPayloadMatches(
   const inner = (root.payload ?? {}) as Record<string, unknown>;
   const auth = (inner.authorization ?? {}) as Record<string, unknown>;
   const problems: string[] = [];
-  const eq = (a: unknown, b: string) => typeof a === "string" && a.toLowerCase() === b.toLowerCase();
+  const eq = (a: unknown, b: string) =>
+    typeof a === "string" && a.toLowerCase() === b.toLowerCase();
   if (accepted.network !== undefined && accepted.network !== expected.network) {
     problems.push(`network ${String(accepted.network)}`);
   }
@@ -255,7 +256,8 @@ export function assertSignedPayloadMatches(
   } catch {
     value = undefined;
   }
-  if (value === undefined || value !== expected.amountMicro) problems.push(`value ${String(auth.value)}`);
+  if (value === undefined || value !== expected.amountMicro)
+    problems.push(`value ${String(auth.value)}`);
   if (problems.length) {
     throw new X402Error(
       "SIGNED_PAYLOAD_MISMATCH",
@@ -266,7 +268,8 @@ export function assertSignedPayloadMatches(
 
 function headerBytes(headers: Record<string, string>): number {
   let total = 0;
-  for (const [k, v] of Object.entries(headers)) total += Buffer.byteLength(k) + Buffer.byteLength(v);
+  for (const [k, v] of Object.entries(headers))
+    total += Buffer.byteLength(k) + Buffer.byteLength(v);
   return total;
 }
 
@@ -280,7 +283,10 @@ function extractAuthNonce(payload: unknown): string | undefined {
   if (!payload || typeof payload !== "object") return undefined;
   const root = payload as Record<string, unknown>;
   const nested = root.payload;
-  const candidates = [root, nested && typeof nested === "object" ? (nested as Record<string, unknown>) : null];
+  const candidates = [
+    root,
+    nested && typeof nested === "object" ? (nested as Record<string, unknown>) : null,
+  ];
   for (const obj of candidates) {
     if (!obj) continue;
     const auth = obj.authorization ?? obj.authorizations;
@@ -306,7 +312,10 @@ export async function payViaX402(args: {
    * the seller. The marker must be persisted so a later seller/network failure
    * is treated as needs_review rather than a clean failure that releases the hold.
    */
-  onAuthorizationSigned?: (marker: string, details: { nonce?: string; validBefore?: string }) => void;
+  onAuthorizationSigned?: (
+    marker: string,
+    details: { nonce?: string; validBefore?: string },
+  ) => void;
 }): Promise<{ receipt: X402Receipt; resource: unknown; contentType: string | null }> {
   const problem = outboundUrlProblem(args.url, "Payment destination");
   if (problem) throw new X402Error("INVALID_DESTINATION", problem);

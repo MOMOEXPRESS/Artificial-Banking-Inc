@@ -177,10 +177,7 @@ export function SmoothBarChart({
           const pct = Math.max((c.value / visualHi) * 100, c.value > lo ? 5 : 2);
           const on = i === peakIdx;
           return (
-            <div
-              className={`bar-col ${on ? "on" : ""} tone-${c.tone ?? "default"}`}
-              key={c.id}
-            >
+            <div className={`bar-col ${on ? "on" : ""} tone-${c.tone ?? "default"}`} key={c.id}>
               <div
                 className="bar-track"
                 ref={(el) => {

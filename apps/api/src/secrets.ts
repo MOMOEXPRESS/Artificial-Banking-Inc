@@ -72,9 +72,7 @@ export function demoDerivedSecret(purpose: DemoPurpose): string | undefined {
   if (process.env.ABI_DEMO_DERIVE_FROM_SIGNUP_TOKEN === "1") {
     const signupToken = process.env.ABI_SIGNUP_TOKEN?.trim();
     if (!signupToken) return undefined;
-    return createHmac("sha256", signupToken)
-      .update(`abi-free-demo:${purpose}:v1`)
-      .digest("base64");
+    return createHmac("sha256", signupToken).update(`abi-free-demo:${purpose}:v1`).digest("base64");
   }
 
   const existing = readDiskSecrets();

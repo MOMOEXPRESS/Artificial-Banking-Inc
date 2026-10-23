@@ -12,8 +12,7 @@ export function quietHoursStatus(
   label: string;
   clock: string;
 } {
-  const nowSec =
-    now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
+  const nowSec = now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
   const startSec = quiet.startHour * 3600;
   const endSec = quiet.endHour * 3600;
   const day = 24 * 3600;

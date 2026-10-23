@@ -87,9 +87,9 @@ async function main() {
   const team = (teams.teams ?? []).find((t) => t.slug === TEAM_SLUG);
   if (!team) {
     console.error(
-      `Team slug “${TEAM_SLUG}” not found for this token. Teams: ${(teams.teams ?? [])
-        .map((t) => t.slug)
-        .join(", ") || "(none)"}`,
+      `Team slug “${TEAM_SLUG}” not found for this token. Teams: ${
+        (teams.teams ?? []).map((t) => t.slug).join(", ") || "(none)"
+      }`,
     );
     process.exit(1);
   }
@@ -100,9 +100,7 @@ async function main() {
   console.log(`Project id: ${project.id}`);
   console.log(`Framework:  ${project.framework ?? "(unset)"}`);
   console.log(`Root dir:   ${project.rootDirectory ?? "(repo root)"}`);
-  console.log(
-    `Outside root files: ${project.sourceFilesOutsideRootDirectory ?? "(default)"}`,
-  );
+  console.log(`Outside root files: ${project.sourceFilesOutsideRootDirectory ?? "(default)"}`);
 
   const patch = {};
   if (project.rootDirectory !== ROOT_DIRECTORY) {
@@ -125,9 +123,7 @@ async function main() {
     });
     project = await api(`/v9/projects/${encodeURIComponent(project.id)}?${q}`);
     console.log(`Root dir after:  ${project.rootDirectory ?? "(repo root)"}`);
-    console.log(
-      `Outside root after: ${project.sourceFilesOutsideRootDirectory ?? "(default)"}`,
-    );
+    console.log(`Outside root after: ${project.sourceFilesOutsideRootDirectory ?? "(default)"}`);
     console.log(`SSO protection after:  ${JSON.stringify(project.ssoProtection ?? null)}`);
   } else {
     console.log("Root directory, monorepo sources, and SSO already correct.");
@@ -138,10 +134,7 @@ async function main() {
   console.log("Assigned domains:");
   for (const n of names) console.log(`  - https://${n}`);
 
-  const want = [
-    `${PROJECT}.vercel.app`,
-    `${PROJECT.replace(/-/g, "")}.vercel.app`,
-  ];
+  const want = [`${PROJECT}.vercel.app`, `${PROJECT.replace(/-/g, "")}.vercel.app`];
   for (const name of want) {
     if (names.includes(name)) continue;
     console.log(`\nTrying to claim ${name} (may be unavailable for team projects)…`);

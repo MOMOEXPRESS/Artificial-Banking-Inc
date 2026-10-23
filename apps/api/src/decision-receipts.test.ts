@@ -29,7 +29,14 @@ const body: ReceiptBody = {
   destination: "0x1111111111111111111111111111111111111111",
   ruleIds: ["daily_max"],
   reasons: ["Exceeds daily max"],
-  limits: { ruleId: "daily_max", unit: "usdc", attempted: "60", cap: "100", used: "50", remaining: "50" },
+  limits: {
+    ruleId: "daily_max",
+    unit: "usdc",
+    attempted: "60",
+    cap: "100",
+    used: "50",
+    remaining: "50",
+  },
   supersedes: null,
   policyVersion: "v1",
   policyHash: "ab",
@@ -40,7 +47,10 @@ const body: ReceiptBody = {
 
 describe("decision receipts", () => {
   it("canonical JSON sorts keys at every level and drops undefined", () => {
-    assert.equal(canonicalJson({ b: 1, a: { d: [2, { z: 1, y: 2 }], c: undefined } }), '{"a":{"d":[2,{"y":2,"z":1}]},"b":1}');
+    assert.equal(
+      canonicalJson({ b: 1, a: { d: [2, { z: 1, y: 2 }], c: undefined } }),
+      '{"a":{"d":[2,{"y":2,"z":1}]},"b":1}',
+    );
     assert.equal(canonicalJson({ x: 5n }), '{"x":"5"}');
   });
 
@@ -90,11 +100,33 @@ describe("decision receipts", () => {
 
   it("formats denial numbers as decimal strings", () => {
     assert.deepEqual(
-      limitsView({ ruleId: "velocity", unit: "count", attempted: 1n, cap: 10n, used: 10n, remaining: 0n, window: "60s" }),
-      { ruleId: "velocity", unit: "count", attempted: "1", cap: "10", used: "10", remaining: "0", window: "60s" },
+      limitsView({
+        ruleId: "velocity",
+        unit: "count",
+        attempted: 1n,
+        cap: 10n,
+        used: 10n,
+        remaining: 0n,
+        window: "60s",
+      }),
+      {
+        ruleId: "velocity",
+        unit: "count",
+        attempted: "1",
+        cap: "10",
+        used: "10",
+        remaining: "0",
+        window: "60s",
+      },
     );
     assert.equal(
-      limitsView({ ruleId: "daily_max", unit: "usdc", attempted: 60_000_000n, cap: 100_000_000n, remaining: 40_000_000n })?.remaining,
+      limitsView({
+        ruleId: "daily_max",
+        unit: "usdc",
+        attempted: 60_000_000n,
+        cap: 100_000_000n,
+        remaining: 40_000_000n,
+      })?.remaining,
       "40",
     );
   });

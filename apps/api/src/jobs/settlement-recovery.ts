@@ -35,9 +35,7 @@ function isMockHash(txHash?: string): boolean {
   return Boolean(txHash?.startsWith("0xmock_"));
 }
 
-async function chainStatus(
-  txHash: string,
-): Promise<"success" | "reverted" | "unknown"> {
+async function chainStatus(txHash: string): Promise<"success" | "reverted" | "unknown"> {
   try {
     const cfg = activeChain();
     const client = createPublicClient({

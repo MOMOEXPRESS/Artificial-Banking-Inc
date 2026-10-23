@@ -27,20 +27,17 @@ const MODES: { value: AiMode; label: string; body: string }[] = [
   {
     value: "off",
     label: "Off",
-    body:
-      "Nothing leaves this platform. The assistant still answers from your own data — it is narrower, not broken.",
+    body: "Nothing leaves this platform. The assistant still answers from your own data — it is narrower, not broken.",
   },
   {
     value: "platform",
     label: "Use the operator's account",
-    body:
-      "Your data is sent to the model provider under the credential configured by whoever runs this deployment. Their vendor contract, not yours.",
+    body: "Your data is sent to the model provider under the credential configured by whoever runs this deployment. Their vendor contract, not yours.",
   },
   {
     value: "byo",
     label: "Use your own account",
-    body:
-      "Your API key and endpoint, so the data goes to a vendor you contract with directly, in a region you choose.",
+    body: "Your API key and endpoint, so the data goes to a vendor you contract with directly, in a region you choose.",
   },
 ];
 
@@ -105,7 +102,8 @@ export function AiEgressPanel({
           </div>
         </div>
         <span className={`pill ${mode === "off" ? "ok" : "warn"}`}>
-          <i /> {mode === "off" ? "nothing sent" : `sending to ${settings?.egressHost ?? "provider"}`}
+          <i />{" "}
+          {mode === "off" ? "nothing sent" : `sending to ${settings?.egressHost ?? "provider"}`}
         </span>
       </div>
 
@@ -194,7 +192,8 @@ export function AiEgressPanel({
       {mode === "byo" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
           <label style={{ fontSize: 12 }}>
-            API key {settings?.hasOwnKey && <span className="faint">(stored — leave blank to keep)</span>}
+            API key{" "}
+            {settings?.hasOwnKey && <span className="faint">(stored — leave blank to keep)</span>}
             <input
               className="input sm"
               type="password"

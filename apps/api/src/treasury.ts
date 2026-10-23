@@ -44,8 +44,7 @@ export function buildCashflow(journals: JournalView[], days = 30): CashflowDay[]
     // Net change on external/revenue accounts is the cleanest signal for
     // money leaving/entering the org perimeter.
     for (const line of j.lines) {
-      const delta =
-        typeof line.deltaMicro === "bigint" ? line.deltaMicro : BigInt(line.deltaMicro);
+      const delta = typeof line.deltaMicro === "bigint" ? line.deltaMicro : BigInt(line.deltaMicro);
       if (line.accountId.includes(":external")) {
         // +external = money left the org (spend settled); -external = deposit/mock credit
         if (delta > 0n) bucket.out += delta;
@@ -113,8 +112,7 @@ export function buildTreasuryForecast(input: TreasuryForecastInput): TreasuryFor
     input.sharedAvailableMicro +
     input.agentAvailableMicro;
   const spend = input.avgDailySpendMicro;
-  const runwayDays =
-    spend > 0n ? Number(liquid / spend) : liquid > 0n ? null : 0;
+  const runwayDays = spend > 0n ? Number(liquid / spend) : liquid > 0n ? null : 0;
   const projected = liquid + input.openInvoicesMicro - spend * 30n;
   return {
     totalLiquidUsdc: formatMicroToUsdc(liquid),

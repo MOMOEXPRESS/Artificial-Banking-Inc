@@ -145,8 +145,9 @@ export class SelfCustodyVaultProvider implements CustodyProvider {
 export function onchainSignerConfigured(): boolean {
   if (process.env.ABI_ONCHAIN_ENABLED === "1") return true;
   if (process.env.ABI_ONCHAIN_ENABLED === "0") return false;
-  const legacyCdp =
-    Boolean(process.env.CDP_API_KEY_ID?.trim() && process.env.CDP_API_KEY_SECRET?.trim());
+  const legacyCdp = Boolean(
+    process.env.CDP_API_KEY_ID?.trim() && process.env.CDP_API_KEY_SECRET?.trim(),
+  );
   if (legacyCdp && process.env.NODE_ENV !== "test") {
     console.warn(
       "[custody] CDP_API_KEY_* enables the local self-custody signer only — " +

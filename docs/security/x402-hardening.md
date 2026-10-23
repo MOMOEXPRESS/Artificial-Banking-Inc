@@ -12,7 +12,7 @@ ABI's only x402 server is `apps/x402-seller`. It now mounts
 `paidMethodGuard` before the payment middleware: any method other than the
 configured one on a paid path gets `405` with `Allow: GET`, before the paywall
 or the handler runs. The ABI API itself serves no paid routes (merchant gateway
-onboarding only *reads* a seller's challenge).
+onboarding only _reads_ a seller's challenge).
 
 When an `@x402/*` release ships #3796, unpack it and grep for the fix before
 relying on it; the guard can stay either way.
@@ -29,13 +29,13 @@ relying on it; the guard can stay either way.
 Before ABI signs an EIP-3009 authorization for `pay_api`, the seller's challenge
 must match the approved intent:
 
-| Check | Rule id |
-| --- | --- |
-| amount ≤ approved amount (and ≤ registered price for onboarded merchants) | `x402_amount_exceeds_approved` |
-| USDC on an allowed network (pinned to `CHAIN`, or `ABI_X402_NETWORKS`) | `x402_unsupported_asset_or_network` |
-| payTo = the payout address registered for that merchant gateway | `x402_payee_mismatch` |
-| network = the network registered for that merchant gateway | `x402_network_mismatch` |
-| the signed authorization's `to` / `value` / network / asset / `from` equal what was selected | `x402_signed_payload_mismatch` |
+| Check                                                                                        | Rule id                             |
+| -------------------------------------------------------------------------------------------- | ----------------------------------- |
+| amount ≤ approved amount (and ≤ registered price for onboarded merchants)                    | `x402_amount_exceeds_approved`      |
+| USDC on an allowed network (pinned to `CHAIN`, or `ABI_X402_NETWORKS`)                       | `x402_unsupported_asset_or_network` |
+| payTo = the payout address registered for that merchant gateway                              | `x402_payee_mismatch`               |
+| network = the network registered for that merchant gateway                                   | `x402_network_mismatch`             |
+| the signed authorization's `to` / `value` / network / asset / `from` equal what was selected | `x402_signed_payload_mismatch`      |
 
 A guard refusal returns HTTP 403 with `outcome: "deny"` and the rule id. Ad-hoc
 URLs (not onboarded) have no registered payee, so only the amount, asset,

@@ -26,9 +26,9 @@ request**:
 This is a read-modify-write cycle on a shared blob with no compare-and-swap, no
 lease, and no version check.
 
-**Writes are lost.** Two concurrent requests each hydrate snapshot *N*, apply
+**Writes are lost.** Two concurrent requests each hydrate snapshot _N_, apply
 their own mutation, and each persist. The loser's journal entries, payments,
-approvals and idempotency reservations disappear — *after* the caller has already
+approvals and idempotency reservations disappear — _after_ the caller has already
 received HTTP 200. Every guarantee the engine establishes (idempotency reserved
 before execution, atomic approval claims, escrow CAS) is enforced inside a SQLite
 transaction on a file that is about to be silently overwritten.
@@ -52,7 +52,7 @@ only happen when a human loads the relevant screen.
 
 **Irreversible side effects can go unrecorded.** `waitForTransactionReceipt`
 waits up to 120s; the function's `maxDuration` is 60s. A slow confirmation kills
-the function mid-await, and because persistence happens only *after* the
+the function mid-await, and because persistence happens only _after_ the
 response, every write from that request is discarded. Real USDC leaves the vault
 and the ledger contains no record of it.
 

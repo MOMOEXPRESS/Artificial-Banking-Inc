@@ -31,7 +31,12 @@ const { executeIntent, id } = await import("../engine.js");
 const { recoverStuckSettlements } = await import("./settlement-recovery.js");
 const { setCustodyProvider, DevLocalProvider } = await import("@policyvault/custody");
 
-setCustodyProvider(new DevLocalProvider(() => null, async () => "0x" as `0x${string}`));
+setCustodyProvider(
+  new DevLocalProvider(
+    () => null,
+    async () => "0x" as `0x${string}`,
+  ),
+);
 
 after(() => {
   try {
@@ -79,12 +84,7 @@ function fundedOrg(stipend = 200_000_000n) {
 }
 
 /** Fabricate an attempt left mid-flight, as a crash would. */
-function stranded(
-  orgId: string,
-  agentId: string,
-  state: "pending" | "broadcast",
-  txHash?: string,
-) {
+function stranded(orgId: string, agentId: string, state: "pending" | "broadcast", txHash?: string) {
   const intentId = id("int");
   store.beginSettlement({
     intentId,
@@ -220,8 +220,9 @@ describe("recoverStuckSettlements", () => {
     // a recovery path becomes a double-spend. It must only report.
     const { org, agent } = fundedOrg();
     stranded(org.id, agent.agentId, "broadcast", "0xmock_abc123");
-    const before = store.getAccountMap(org.id).get(`agent:${agent.agentId}:available`)
-      ?.balanceMicro;
+    const before = store
+      .getAccountMap(org.id)
+      .get(`agent:${agent.agentId}:available`)?.balanceMicro;
 
     await tick();
     await recoverStuckSettlements();

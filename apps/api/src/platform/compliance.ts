@@ -16,7 +16,10 @@ export interface ScreenResult {
 
 export interface ComplianceScreener {
   readonly name: string;
-  screenDestination(destination: string, ctx: { orgId: string; agentId: string }): Promise<ScreenResult>;
+  screenDestination(
+    destination: string,
+    ctx: { orgId: string; agentId: string },
+  ): Promise<ScreenResult>;
 }
 
 /** Run multiple screeners in order — first failure wins. */

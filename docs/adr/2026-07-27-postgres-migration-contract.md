@@ -53,11 +53,11 @@ before any translation work.
 
 ## Staging
 
-1. **Contract** *(landed)* — conformance suite, green against SQLite.
-2. **Schema** *(landed)* — the schema is now generated from the live one by
+1. **Contract** _(landed)_ — conformance suite, green against SQLite.
+2. **Schema** _(landed)_ — the schema is now generated from the live one by
    `apps/api/scripts/gen-prisma-schema.mjs`, which boots the store so every
    migration and seed has run. 50 models, 362 fields, validated by `prisma
-   validate`. `store.schema-drift.test.ts` fails if a migration lands without a
+validate`. `store.schema-drift.test.ts` fails if a migration lands without a
    regeneration, in either direction — a dropped table leaves a model behind
    that reads as supported.
 
@@ -68,8 +68,9 @@ before any translation work.
    or ±$9.2 trillion.
 
    Drift the generation surfaced immediately: every `*_micro` column defaults
-   to the *string* `'0'` in SQLite, because the column is TEXT. As int8 that
+   to the _string_ `'0'` in SQLite, because the column is TEXT. As int8 that
    default has to be numeric, and would have failed on the first insert.
+
 3. **Implementation** — a Postgres store behind the same boundary, with:
    - `SERIALIZABLE` or explicit row locks for the CAS operations
    - `int8` for micro amounts, per the correction in stage 2 — never

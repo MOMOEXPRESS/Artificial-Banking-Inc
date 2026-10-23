@@ -98,7 +98,10 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
           ["guardian"],
           "Verify a signed decision receipt for this org {receipt} → {valid, reason?}",
           "guardianBearer",
-          { "200": { description: "Verification result" }, "404": { description: "Receipt belongs to another org" } },
+          {
+            "200": { description: "Verification result" },
+            "404": { description: "Receipt belongs to another org" },
+          },
         ),
       },
 

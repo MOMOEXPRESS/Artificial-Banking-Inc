@@ -51,7 +51,8 @@ export function buildScratchpad(
     const d = r.data;
     if (!d) continue;
     if (typeof d.topic === "string") next.lastTopic = d.topic;
-    if (Array.isArray(d.agentIds)) next.agentIds = d.agentIds.filter((x): x is string => typeof x === "string");
+    if (Array.isArray(d.agentIds))
+      next.agentIds = d.agentIds.filter((x): x is string => typeof x === "string");
     if (Array.isArray(d.agentNames))
       next.agentNames = d.agentNames.filter((x): x is string => typeof x === "string");
     if (Array.isArray(d.destinations))
@@ -91,7 +92,10 @@ export function resolveFollowUp(
   if (/\b(spend|spent|cost|payments?)\b/.test(q)) {
     return { query: "recent spend", reuseTools: [], scratch };
   }
-  if (/\b(agent|roster|balance|stipend|them|those)\b/.test(q) && (priorTools.includes("list_agents") || scratch.agentIds?.length)) {
+  if (
+    /\b(agent|roster|balance|stipend|them|those)\b/.test(q) &&
+    (priorTools.includes("list_agents") || scratch.agentIds?.length)
+  ) {
     return { query: "list agents balances", reuseTools: ["list_agents"], scratch };
   }
   if (/\b(budget|finance|research|envelope)\b/.test(q)) {
@@ -112,7 +116,12 @@ export function resolveFollowUp(
   if (/\b(quiet)\b/.test(q)) {
     return { query: "quiet hours status", reuseTools: [], scratch };
   }
-  if (/\b(why)\b/.test(q) && (scratch.destinations?.length || priorTools.includes("list_denials") || priorTools.includes("explain_decision"))) {
+  if (
+    /\b(why)\b/.test(q) &&
+    (scratch.destinations?.length ||
+      priorTools.includes("list_denials") ||
+      priorTools.includes("explain_decision"))
+  ) {
     const dest = scratch.destinations?.[0];
     return {
       query: dest ? `explain decision ${dest}` : "explain decision deny",
@@ -122,7 +131,9 @@ export function resolveFollowUp(
   }
   if (
     /\b(them|those|that agent|this agent|him|her)\b/.test(q) &&
-    (scratch.agentNames?.length || priorTools.includes("list_agents") || priorTools.includes("agent_detail"))
+    (scratch.agentNames?.length ||
+      priorTools.includes("list_agents") ||
+      priorTools.includes("agent_detail"))
   ) {
     const name = scratch.agentNames?.[0];
     return {

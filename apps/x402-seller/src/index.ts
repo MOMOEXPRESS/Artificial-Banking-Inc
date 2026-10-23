@@ -2,7 +2,12 @@
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { paymentMiddleware, x402ResourceServer } from "@x402/express";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
-import { assertPaymentHeaderBudget, createSellerApp, paidRoutes, type SellerConfig } from "./app.js";
+import {
+  assertPaymentHeaderBudget,
+  createSellerApp,
+  paidRoutes,
+  type SellerConfig,
+} from "./app.js";
 
 const PORT = Number(process.env.PORT ?? 9402);
 const FACILITATOR_URL = process.env.X402_FACILITATOR_URL ?? "https://x402.org/facilitator";
