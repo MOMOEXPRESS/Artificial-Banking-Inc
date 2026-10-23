@@ -11,8 +11,15 @@ When a refusal is caused by a cap, the API response, the stored decision row
 `payment.failed` events carry:
 
 ```json
-{ "ruleId": "daily_max", "unit": "usdc", "attempted": "80", "cap": "150",
-  "used": "80", "remaining": "70", "window": "24h" }
+{
+  "ruleId": "daily_max",
+  "unit": "usdc",
+  "attempted": "80",
+  "cap": "150",
+  "used": "80",
+  "remaining": "70",
+  "window": "24h"
+}
 ```
 
 Amounts are decimal USDC strings (`unit: "count"` for velocity). A frozen org
@@ -44,14 +51,14 @@ Each decision gets a `receipt`:
   "alg": "HMAC-SHA256", "keyId": "<first 16 hex of sha256(key)>", "signature": "<hex>" }
 ```
 
-* Signature = HMAC-SHA256 over the canonical JSON of `body` (keys sorted at
+- Signature = HMAC-SHA256 over the canonical JSON of `body` (keys sorted at
   every level, no whitespace).
-* Key = `HMAC-SHA256(ABI_DECISION_SIGNING_KEY || ABI_KEY_PEPPER, "abi-decision-receipt-v1")`.
+- Key = `HMAC-SHA256(ABI_DECISION_SIGNING_KEY || ABI_KEY_PEPPER, "abi-decision-receipt-v1")`.
   No new secret is required: if `ABI_DECISION_SIGNING_KEY` is unset the key is
   derived from the existing `ABI_KEY_PEPPER`. If neither is set (local dev),
   receipts are still produced with `alg: "none"` and an empty signature —
   decisions never fail because signing is unavailable.
-* Verify with `POST /v1/agent/decision-receipts/verify` or
+- Verify with `POST /v1/agent/decision-receipts/verify` or
   `POST /v1/guardian/decision-receipts/verify` (`{ "receipt": … }` →
   `{ "valid": true }` or `{ "valid": false, "reason": "unsigned" | "unknown_key" | "bad_signature" | "malformed" }`),
   or in-process with `verifyDecisionReceipt()` from `apps/api/src/decision-receipts.ts`.

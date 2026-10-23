@@ -93,12 +93,23 @@ const key = () => `idem-key-${++n}-${Date.now()}`;
 describe("denial numbers, supersedes and signed receipts", () => {
   it("a per-payment cap denial carries attempted / cap / remaining and a valid receipt", async () => {
     const { org, agent } = fixture();
-    const r = await pay(agent.apiKey, { amountUsdc: "120", destination: PAYEE, idempotencyKey: key() });
+    const r = await pay(agent.apiKey, {
+      amountUsdc: "120",
+      destination: PAYEE,
+      idempotencyKey: key(),
+    });
     assert.equal(r.status, 403);
     assert.deepEqual(r.body.ruleIds, ["per_tx_max"]);
     assert.deepEqual(
       { ...r.body.limits },
-      { ruleId: "per_tx_max", unit: "usdc", attempted: "120", cap: "100", remaining: "100", window: "per_payment" },
+      {
+        ruleId: "per_tx_max",
+        unit: "usdc",
+        attempted: "120",
+        cap: "100",
+        remaining: "100",
+        window: "per_payment",
+      },
     );
     assert.equal(r.body.receipt?.alg, "HMAC-SHA256");
     assert.equal(r.body.receipt?.body.amountUsdc, "120");
@@ -124,9 +135,21 @@ describe("denial numbers, supersedes and signed receipts", () => {
 
   it("a daily cap denial says how much was used and what remains", async () => {
     const { agent } = fixture();
-    assert.equal((await pay(agent.apiKey, { amountUsdc: "40", destination: PAYEE, idempotencyKey: key() })).status, 200);
-    assert.equal((await pay(agent.apiKey, { amountUsdc: "40", destination: PAYEE, idempotencyKey: key() })).status, 200);
-    const r = await pay(agent.apiKey, { amountUsdc: "80", destination: PAYEE, idempotencyKey: key() });
+    assert.equal(
+      (await pay(agent.apiKey, { amountUsdc: "40", destination: PAYEE, idempotencyKey: key() }))
+        .status,
+      200,
+    );
+    assert.equal(
+      (await pay(agent.apiKey, { amountUsdc: "40", destination: PAYEE, idempotencyKey: key() }))
+        .status,
+      200,
+    );
+    const r = await pay(agent.apiKey, {
+      amountUsdc: "80",
+      destination: PAYEE,
+      idempotencyKey: key(),
+    });
     assert.equal(r.status, 403);
     assert.deepEqual(r.body.ruleIds, ["daily_max"]);
     assert.equal(r.body.limits?.cap, "150");
@@ -137,7 +160,11 @@ describe("denial numbers, supersedes and signed receipts", () => {
   it("a frozen agent's refusal still carries a receipt", async () => {
     const { agent } = fixture();
     store.setAgentStatus(agent.agentId, "frozen");
-    const r = await pay(agent.apiKey, { amountUsdc: "1", destination: PAYEE, idempotencyKey: key() });
+    const r = await pay(agent.apiKey, {
+      amountUsdc: "1",
+      destination: PAYEE,
+      idempotencyKey: key(),
+    });
     assert.equal(r.status, 403);
     assert.deepEqual(r.body.ruleIds, ["agent_frozen"]);
     assert.ok(r.body.receipt?.signature);
@@ -145,7 +172,11 @@ describe("denial numbers, supersedes and signed receipts", () => {
 
   it("a re-proposal links to the refused intent it supersedes, and only to a refused one of its own", async () => {
     const { org, agent } = fixture();
-    const refused = await pay(agent.apiKey, { amountUsdc: "120", destination: PAYEE, idempotencyKey: key() });
+    const refused = await pay(agent.apiKey, {
+      amountUsdc: "120",
+      destination: PAYEE,
+      idempotencyKey: key(),
+    });
     assert.equal(refused.status, 403);
     const retry = await pay(agent.apiKey, {
       amountUsdc: "20",
@@ -189,7 +220,11 @@ describe("denial numbers, supersedes and signed receipts", () => {
 
   it("the post-approval re-check refusal carries the numbers in the approval result", async () => {
     const { org, agent } = fixture();
-    const parked = await pay(agent.apiKey, { amountUsdc: "60", destination: PAYEE, idempotencyKey: key() });
+    const parked = await pay(agent.apiKey, {
+      amountUsdc: "60",
+      destination: PAYEE,
+      idempotencyKey: key(),
+    });
     assert.equal(parked.status, 202);
     assert.ok(parked.body.receipt?.signature, "a review decision is signed too");
     // While parked, other spend uses up the daily headroom.

@@ -378,7 +378,13 @@ export function evaluatePolicy(
       ruleIds: ["per_tx_max"],
       reasons: [`Exceeds per-tx max`],
       policyVersion,
-      limits: capLimits("per_tx_max", intent.amountMicro, rules.perTxMaxMicro, undefined, "per_payment"),
+      limits: capLimits(
+        "per_tx_max",
+        intent.amountMicro,
+        rules.perTxMaxMicro,
+        undefined,
+        "per_payment",
+      ),
     };
   }
 
@@ -388,7 +394,13 @@ export function evaluatePolicy(
       ruleIds: ["daily_max"],
       reasons: [`Exceeds daily max`],
       policyVersion,
-      limits: capLimits("daily_max", intent.amountMicro, rules.dailyMaxMicro, rules.spentLast24hMicro, "24h"),
+      limits: capLimits(
+        "daily_max",
+        intent.amountMicro,
+        rules.dailyMaxMicro,
+        rules.spentLast24hMicro,
+        "24h",
+      ),
     };
   }
 
