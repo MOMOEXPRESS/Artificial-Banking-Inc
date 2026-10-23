@@ -33,3 +33,30 @@ describe("runAlarmJobs", () => {
     assert.equal(runs, 1);
   });
 });
+
+describe("alarm state survives Durable Object eviction", () => {
+  it("a slow job's last run is persisted, so a fresh instance does not re-run it", async () => {
+    const { store } = await import("../store.js");
+    let runs = 0;
+    const job = {
+      name: "hourly-persisted",
+      intervalMs: 60 * 60_000,
+      leaseMs: 60_000,
+      run: () => {
+        runs += 1;
+      },
+    };
+    await runAlarmJobs([job]);
+    assert.equal(runs, 1);
+    assert.ok(Number(store.getJobState("last-run:hourly-persisted")) > 0);
+  });
+
+  it("round-robin positions are persisted", async () => {
+    const { rotationStart, saveRotation, rotate } = await import("./rotation.js");
+    saveRotation("t", 1, 2, 5);
+    assert.equal(rotationStart("t", 5), 3);
+    assert.deepEqual(rotate([0, 1, 2, 3, 4], 3), [3, 4, 0, 1, 2]);
+    // A shrunken list still yields a valid start.
+    assert.equal(rotationStart("t", 2), 1);
+  });
+});

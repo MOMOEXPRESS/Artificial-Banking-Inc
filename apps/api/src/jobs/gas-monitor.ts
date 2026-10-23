@@ -12,6 +12,7 @@
  */
 import { readVaultOnchain } from "../chain/deposits.js";
 import { isRpcBudgetError } from "../chain/rpc-budget.js";
+import { rotate, rotationStart, saveRotation } from "./rotation.js";
 import { notify } from "../platform/notifier.js";
 import { recordObs } from "../platform/observability.js";
 import { store } from "../store.js";
@@ -27,7 +28,11 @@ function warnThresholdWei(): bigint {
 
 /** Do not re-alert the same org more often than this. */
 const RENOTIFY_MS = Number(process.env.ABI_GAS_RENOTIFY_HOURS ?? 6) * 3600_000;
-const lastAlertAt = new Map<string, number>();
+/** Last low-gas alert per org, persisted so DO eviction does not re-alert every tick. */
+function lastAlertAt(orgId: string): number {
+  const v = Number(store.getJobState(`gas-alert:${orgId}`) ?? 0);
+  return Number.isFinite(v) ? v : 0;
+}
 
 export type GasCheck = {
   orgId: string;
@@ -42,9 +47,15 @@ export async function checkVaultGas(): Promise<{ checked: number; low: number }>
   let checked = 0;
   let low = 0;
 
-  for (const orgId of store.listOrgIds()) {
+  const all = store.listOrgIds();
+  const start = rotationStart("gas-monitor", all.length);
+  let visited = 0;
+  for (const orgId of rotate(all, start)) {
     const address = store.getVaultAddress(orgId);
-    if (!address) continue;
+    if (!address) {
+      visited++;
+      continue;
+    }
 
     let snap;
     try {
@@ -52,17 +63,19 @@ export async function checkVaultGas(): Promise<{ checked: number; low: number }>
     } catch {
       // An RPC failure is not evidence of a low balance; skip rather than
       // alarm on it. RPC health is a separate concern.
+      visited++;
       continue;
     }
     // Out of this tick's RPC allowance: stop; the next tick continues.
     if (!snap.ok && isRpcBudgetError(snap.error)) break;
+    visited++;
     if (!snap.ok) continue;
     checked += 1;
 
     const wei = BigInt(snap.nativeBalanceWei);
     if (wei >= threshold) {
       // Recovered — allow an immediate alert if it drops again.
-      lastAlertAt.delete(orgId);
+      if (lastAlertAt(orgId)) store.setJobState(`gas-alert:${orgId}`, "0");
       continue;
     }
     low += 1;
@@ -73,9 +86,9 @@ export async function checkVaultGas(): Promise<{ checked: number; low: number }>
       attrs: { address, nativeEth: snap.nativeBalanceEth, empty: wei === 0n },
     });
 
-    const last = lastAlertAt.get(orgId) ?? 0;
+    const last = lastAlertAt(orgId);
     if (Date.now() - last < RENOTIFY_MS) continue;
-    lastAlertAt.set(orgId, Date.now());
+    store.setJobState(`gas-alert:${orgId}`, String(Date.now()));
 
     const body =
       wei === 0n
@@ -98,10 +111,11 @@ export async function checkVaultGas(): Promise<{ checked: number; low: number }>
     });
   }
 
+  saveRotation("gas-monitor", start, visited, all.length);
   return { checked, low };
 }
 
 /** Test-only: forget alert suppression between cases. */
 export function resetGasAlertsForTests(): void {
-  lastAlertAt.clear();
+  for (const orgId of store.listOrgIds()) store.setJobState(`gas-alert:${orgId}`, "0");
 }
