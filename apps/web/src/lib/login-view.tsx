@@ -8,6 +8,7 @@ import type { AgentKey, Session } from "./console-types";
 import { Button } from "@/components/ui/button";
 
 import { browserApiBase } from "./browser-api";
+import { PASSWORD_RULES_HINT, newPasswordProblem } from "./password-rules";
 
 const API = browserApiBase();
 
@@ -93,7 +94,7 @@ function downloadKeysFile(session: Session, kind: "real" | "demo") {
 }
 
 type Phase = "ready" | "keys";
-type LoginMode = "signin" | "signup" | "key" | "demo" | "reset" | "verify";
+type LoginMode = "signin" | "signup" | "key" | "demo" | "forgot" | "reset" | "verify";
 type ApiStatus =
   | { state: "checking" | "ready" }
   | {
@@ -127,6 +128,7 @@ export function Login({
   const [resetSent, setResetSent] = useState<string | null>(null);
   const [resetToken, setResetToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [verifyToken, setVerifyToken] = useState("");
   const [verificationEmail, setVerificationEmail] = useState("");
   const [verificationMessage, setVerificationMessage] = useState("");
@@ -139,6 +141,11 @@ export function Login({
     if (token) {
       setResetToken(token);
       setMode("reset");
+      // Keep the token in memory only: drop it from the address bar so it does
+      // not linger in history or leak through a Referer header.
+      const url = new URL(window.location.href);
+      url.searchParams.delete("reset");
+      window.history.replaceState(null, "", url.toString());
     }
     const verify = new URLSearchParams(window.location.search).get("verify");
     if (verify) {
@@ -334,6 +341,7 @@ export function Login({
       const d = (await res.json()) as { devResetToken?: string; note?: string };
       // The endpoint answers 200 whether or not the address exists, so it
       // cannot be used to enumerate accounts. Say the same thing back.
+      if (!res.ok && res.status === 429) throw new Error("Too many requests. Try again later.");
       setResetSent(
         d.devResetToken
           ? `Email is not configured, so here is the link: ${window.location.origin}/console?reset=${d.devResetToken}`
@@ -347,15 +355,25 @@ export function Login({
   }
 
   async function confirmReset() {
+    const problem = newPasswordProblem(newPassword, confirmNewPassword);
+    if (problem) {
+      setToast(problem, "err");
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch(`${API}/v1/auth/password-reset/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: resetToken, newPassword }),
+        body: JSON.stringify({
+          token: resetToken,
+          newPassword,
+          confirmPassword: confirmNewPassword,
+        }),
       });
       if (!res.ok) throw new Error(await readApiError(res));
       setNewPassword("");
+      setConfirmNewPassword("");
       setResetToken("");
       setMode("signin");
       // Confirming also revokes every session for that user, so signing in
@@ -680,22 +698,73 @@ export function Login({
                   Sign in
                 </button>
                 <button
-                  className="bare"
-                  style={{ fontSize: 11.5, marginTop: 12 }}
+                  type="button"
+                  className="bare login-forgot-link"
+                  data-testid="forgot-password-link"
+                  style={{ fontSize: 12, marginTop: 10, textDecoration: "underline" }}
                   disabled={busy}
-                  onClick={() => void requestReset()}
+                  onClick={() => {
+                    setResetSent(null);
+                    setMode("forgot");
+                  }}
                 >
-                  Forgot your password?
+                  Forgot password?
                 </button>
-                {resetSent && (
-                  <p className="faint" style={{ fontSize: 11.5, marginTop: 8, lineHeight: 1.55 }}>
-                    {resetSent}
-                  </p>
-                )}
                 <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.55 }}>
                   Your session is a secure cookie, not a key pasted into the browser. Sign out
                   anywhere and it stops working.
                 </p>
+              </>
+            )}
+
+            {mode === "forgot" && (
+              <>
+                <p className="faint" style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 0 }}>
+                  Enter your account email. If it has an account, we send a single-use reset link
+                  that expires in an hour.
+                </p>
+                <div className="field">
+                  <label htmlFor="forgot-email">Email</label>
+                  <input
+                    id="forgot-email"
+                    type="email"
+                    autoComplete="username"
+                    placeholder="you@company.com"
+                    value={email}
+                    autoFocus
+                    onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && email.trim() && void requestReset()}
+                  />
+                </div>
+                <button
+                  style={{ width: "100%" }}
+                  disabled={busy || !email.trim()}
+                  onClick={() => void requestReset()}
+                >
+                  Send reset link
+                </button>
+                {resetSent && (
+                  <p
+                    className="faint"
+                    role="status"
+                    data-testid="reset-sent"
+                    style={{
+                      fontSize: 11.5,
+                      marginTop: 8,
+                      lineHeight: 1.55,
+                      wordBreak: "break-all",
+                    }}
+                  >
+                    {resetSent}
+                  </p>
+                )}
+                <button
+                  className="bare"
+                  style={{ fontSize: 11.5, marginTop: 12 }}
+                  onClick={() => setMode("signin")}
+                >
+                  Back to sign in
+                </button>
               </>
             )}
 
@@ -713,12 +782,30 @@ export function Login({
                     value={newPassword}
                     autoFocus
                     onChange={(e) => setNewPassword(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Confirm new password</label>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="••••••••••••"
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && newPassword && void confirmReset()}
                   />
                 </div>
+                <p className="faint" style={{ fontSize: 11.5, margin: "0 0 10px" }}>
+                  {PASSWORD_RULES_HINT}
+                  {confirmNewPassword && confirmNewPassword !== newPassword ? (
+                    <span style={{ display: "block", color: "var(--warn)" }}>
+                      The confirmation does not match.
+                    </span>
+                  ) : null}
+                </p>
                 <button
                   style={{ width: "100%" }}
-                  disabled={busy || !newPassword || !resetToken}
+                  disabled={busy || !newPassword || !confirmNewPassword || !resetToken}
                   onClick={() => void confirmReset()}
                 >
                   Set new password

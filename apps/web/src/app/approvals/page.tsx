@@ -8,6 +8,7 @@ import { useStepUp } from "../../lib/step-up";
 
 import { browserApiBase } from "../../lib/browser-api";
 import { okJson } from "../../lib/api-response";
+import { performSignOut, readCsrfCookie, signedOutUrl } from "../../lib/sign-out";
 
 const API = browserApiBase();
 
@@ -165,9 +166,32 @@ export default function MobileApprovalsPage() {
       <header className="mobile-approvals-head">
         <div className="between">
           <h1>Approvals</h1>
-          <Link className="text-xs text-[var(--color-fg-muted)]" href="/console">
-            Console
-          </Link>
+          <span className="row" style={{ gap: 12 }}>
+            <Link className="text-xs text-[var(--color-fg-muted)]" href="/console">
+              Console
+            </Link>
+            <button
+              type="button"
+              className="bare text-xs"
+              data-testid="approvals-logout"
+              onClick={() =>
+                void (async () => {
+                  const outcome = await performSignOut({
+                    apiBase: API,
+                    mode: session.mode,
+                    csrf: readCsrfCookie(document.cookie),
+                    orgId: session.orgId,
+                    local: localStorage,
+                    tab: sessionStorage,
+                  });
+                  setSession(null);
+                  window.location.replace(signedOutUrl(outcome));
+                })()
+              }
+            >
+              Log out
+            </button>
+          </span>
         </div>
         <p className="muted">{pending.length} waiting · auto-refreshes every 8s</p>
       </header>
