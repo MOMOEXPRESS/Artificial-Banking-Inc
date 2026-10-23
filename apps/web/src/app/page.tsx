@@ -62,8 +62,8 @@ function Hero() {
           <p className="hero-sub">
             ABI sits between an AI agent and company funds. Each agent receives a governed spending
             budget from the organization vault. You set the rules; exceptions wait for a person.
-            Settlement depends on the configured payment rail: sandbox, Base Sepolia testnet, or a
-            separately configured live provider.
+            Settlement depends on the configured payment rail: sandbox mock, or Base Sepolia testnet
+            USDC. Mainnet and managed custody are not wired yet.
           </p>
           <div className="hero-ctas">
             <Link className="btn-primary" href="/console">
@@ -604,7 +604,7 @@ const STEPS = [
     n: "02",
     title: "Create AI agents",
     lead: "Each agent gets an API key and its own spending account.",
-    body: "Create agents in the console, then put the key in your Python, Node, or MCP setup. From the first call, spend is tied to that agent — so you always know who spent what.",
+    body: "Create agents in the console, then put the key in your Node SDK or MCP setup. From the first call, spend is tied to that agent — so you always know who spent what. (A Python SDK is not published yet.)",
     visual: {
       label: "New agent",
       lines: ["name  research-bot", "key  agk_…", "budget  $100"],

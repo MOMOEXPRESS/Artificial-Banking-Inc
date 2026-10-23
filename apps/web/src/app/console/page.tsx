@@ -62,10 +62,11 @@ import { Overview } from "../../lib/overview-view";
 import { Playground } from "../../lib/playground-view";
 import { Ledger } from "../../lib/ledger-view";
 import { Webhooks } from "../../lib/webhooks-view";
+import { browserApiBase, sellerUrl } from "../../lib/browser-api";
 import { Button } from "@/components/ui/button";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
-const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
+const API = browserApiBase();
+const SELLER = sellerUrl() ?? "";
 
 const NAV: { key: View; label: string; icon: string; group: string }[] = [
   { key: "overview", label: "Overview", icon: "home", group: "Home" },
@@ -287,8 +288,8 @@ function viewLabelOf(view: View): string {
   if (view === "approvals") return "Approvals";
   if (view === "activity") return "Transactions";
   if (view === "webhooks") return "Webhooks";
-  if (view === "invoices") return "Payments · Invoices";
-  if (view === "escrows") return "Payments · Escrows";
+  if (view === "invoices") return "Transactions · Invoices";
+  if (view === "escrows") return "Transactions · Escrows";
   return NAV.find((n) => n.key === view)?.label ?? view;
 }
 
@@ -371,30 +372,63 @@ export default function Console() {
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("pv_session");
-      if (raw) {
-        const safe = sessionForPersistentStorage(JSON.parse(raw) as Session);
-        if (safe) setSession(safe);
-        else localStorage.removeItem("pv_session");
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = localStorage.getItem("pv_session");
+        if (raw) {
+          const parsed = JSON.parse(raw) as Session;
+          const safe = sessionForPersistentStorage(parsed);
+          if (safe) {
+            // Re-validate the httpOnly cookie before painting a signed-in shell.
+            // Without this, a stale localStorage row flashes the console and then
+            // immediately signs the user out on the first 401.
+            const me = await fetch(`${API}/v1/auth/me`, {
+              credentials: "include",
+              cache: "no-store",
+            });
+            if (cancelled) return;
+            if (me.ok) {
+              const body = (await me.json()) as {
+                user: { id: string; email: string; name: string };
+                orgs: { id: string }[];
+              };
+              setSession({
+                ...safe,
+                user: body.user,
+                orgId: safe.orgId ?? body.orgs[0]?.id,
+              });
+            } else {
+              localStorage.removeItem("pv_session");
+            }
+          } else if (parsed.mode === "key" && parsed.guardianKey) {
+            setSession(parsed);
+          } else {
+            localStorage.removeItem("pv_session");
+          }
+        }
+        const p = localStorage.getItem("pv_prefs");
+        if (p) {
+          const parsed = JSON.parse(p) as Partial<Prefs> & { sound?: boolean };
+          setPrefs({ autoJump: parsed.autoJump ?? true });
+        }
+        setRailCollapsed(localStorage.getItem("abi_nav_collapsed") === "1");
+      } catch {
+        /* ignore */
       }
-      const p = localStorage.getItem("pv_prefs");
-      if (p) {
-        const parsed = JSON.parse(p) as Partial<Prefs> & { sound?: boolean };
-        setPrefs({ autoJump: parsed.autoJump ?? true });
+      if (cancelled) return;
+      const q = readConsoleQuery();
+      if (q.view) setViewState(q.view);
+      if (q.tab) setTabHint(q.tab);
+      else if (q.view) {
+        const aliasTab = tabForAliasView(q.view);
+        if (aliasTab) setTabHint(aliasTab);
       }
-      setRailCollapsed(localStorage.getItem("abi_nav_collapsed") === "1");
-    } catch {
-      /* ignore */
-    }
-    const q = readConsoleQuery();
-    if (q.view) setViewState(q.view);
-    if (q.tab) setTabHint(q.tab);
-    else if (q.view) {
-      const aliasTab = tabForAliasView(q.view);
-      if (aliasTab) setTabHint(aliasTab);
-    }
-    setHydrated(true);
+      setHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const setView = useCallback((v: View, tab?: string) => {

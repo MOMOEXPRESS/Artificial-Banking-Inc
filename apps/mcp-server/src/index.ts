@@ -2,17 +2,42 @@
 /**
  * MCP server exposing PolicyVault agent money tools.
  * Env: POLICYVAULT_API_URL, POLICYVAULT_API_KEY
+ *
+ * Stdio transport has no HTTP port. For probes, run:
+ *   node apps/mcp-server/dist/index.js --health
+ * which checks the upstream API `/health` and exits 0/1.
  */
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { PolicyVaultClient } from "@policyvault/sdk";
 
 const baseUrl = process.env.POLICYVAULT_API_URL ?? "http://localhost:8787";
 const apiKey = process.env.POLICYVAULT_API_KEY ?? "";
+
+if (process.argv.includes("--health")) {
+  try {
+    const res = await fetch(`${baseUrl.replace(/\/$/, "")}/health`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    const body = (await res.json()) as { ok?: boolean };
+    if (!res.ok || !body.ok) {
+      console.error(JSON.stringify({ ok: false, service: "abi-mcp", upstream: res.status }));
+      process.exit(1);
+    }
+    console.log(JSON.stringify({ ok: true, service: "abi-mcp", upstream: baseUrl }));
+    process.exit(0);
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        ok: false,
+        service: "abi-mcp",
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    process.exit(1);
+  }
+}
 
 const client = new PolicyVaultClient({ baseUrl, apiKey });
 
@@ -90,7 +115,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "escrow_status",
-      description: "Get the state of an escrow (locked/settling/released/refunded/timeout_refunded)",
+      description:
+        "Get the state of an escrow (locked/settling/released/refunded/timeout_refunded)",
       inputSchema: {
         type: "object",
         properties: { escrowId: { type: "string" } },

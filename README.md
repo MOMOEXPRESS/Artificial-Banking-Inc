@@ -73,6 +73,11 @@ in one auditable ledger with the exact rule that fired.
 
 > **LLM proposes. Policy authorizes. Keys never enter the model.**
 
+The policy engine is separate from the agent: an agent's credential can only
+propose payments and read its own budget and decisions — it cannot read or
+change its own policy. Every policy-writing route is guardian-only
+(`apps/api/src/policy-isolation.test.ts` enforces this).
+
 ### Who it is for
 
 - Teams running agents that pay for APIs, data, compute, or other agents
@@ -120,7 +125,7 @@ apps/
   api/           Guardian + agent HTTP API — policy, ledger, rails, engine
   web/           Guardian console + marketing site (Next.js 15, App Router)
   mcp-server/    MCP tools so Claude / LangGraph / Eliza runtimes can spend
-  worker/        Background jobs (stub — becomes the job runner in P2-T3)
+  worker/        Background jobs (subscriptions, escrow, settlement recovery, webhooks)
   demo-agent/    Runnable example: budget → simulate → pay → denied → HITL → escrow
   x402-seller/   x402 V2 paid API; real facilitator settlement
 
@@ -298,30 +303,31 @@ from the key, never from the request.
 
 Copy `.env.example` and adjust. Every variable, with what happens if it is unset:
 
-| Variable                                                     | Default                          | Required in production       | Effect                                                                                                      |
-| ------------------------------------------------------------ | -------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `PORT`                                                       | `8787`                           | no                           | API port                                                                                                    |
-| `POLICYVAULT_DB`                                             | `./apps/api/data/policyvault.db` | no                           | SQLite path                                                                                                 |
-| `ABI_KEY_PEPPER`                                             | _dev fallback only_              | **yes**                      | Salt for API-key hashing. Production **refuses to boot** without it                                         |
-| `NEXT_PUBLIC_API_URL`                                        | `/abi-api`                       | no                           | Console → API origin                                                                                        |
-| `POLICYVAULT_ALLOW_BOOTSTRAP`                                | on outside production            | **set to `0`**               | Enables demo-org seeding. No longer destructive, but it mints a root key                                    |
-| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE`                        | on outside production            | **set to `0`**               | Self-serve org creation                                                                                     |
-| `ABI_SIGNUP_TOKEN`                                           | —                                | **yes** (if the above is on) | Required header `x-abi-signup-token` for org creation / demo seeding                                        |
-| `ABI_SIGNUP_LIMIT_PER_HOUR`                                  | `10`                             | no                           | Per-IP cap on credential-minting routes                                                                     |
-| `ABI_ALLOW_LOCAL_TARGETS`                                    | on outside production            | **set to `0`**               | Permits outbound fetches to loopback/private addresses (local x402 seller)                                  |
-| `CHAIN`                                                      | `base-sepolia`                   | no                           | `base` or `base-sepolia`                                                                                    |
-| `X402_FACILITATOR_URL`                                       | `https://x402.org/facilitator`   | seller only                  | Facilitator used by the x402 seller; public endpoint is for testnet proof                                   |
-| `X402_SELLER_ADDRESS`                                        | —                                | seller only, **yes**         | Base wallet receiving seller USDC; seller refuses to boot without it                                        |
-| `X402_PRICE_USDC`                                            | `$0.01`                          | no                           | Demo seller route price                                                                                     |
-| `CHAIN_RPC_URL`                                              | public RPC                       | recommended                  | Use a paid RPC; public endpoints rate-limit                                                                 |
-| `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET`                      | —                                | no                           | Selects production-mode custody. **Does not enable Coinbase custody** — see [SECURITY.md](docs/SECURITY.md) |
-| `OPENAI_API_KEY`                                             | —                                | no                           | Enables the console assistant. **Sends org financial data to OpenAI** (P8-T2)                               |
-| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`                    | —                                | no                           | Approve from Telegram                                                                                       |
-| `SLACK_WEBHOOK_URL`, `RESEND_API_KEY`, `ABI_NOTIFY_EMAIL_TO` | —                                | no                           | Notification channels; log a stub when unset                                                                |
-| `ABI_COMPLIANCE_DENYLIST`                                    | empty                            | no                           | Comma-separated denied destinations                                                                         |
-| `ABI_COMPLIANCE_FAIL_CLOSED`                                 | off                              | **yes**                      | Block rather than allow when a screener errors                                                              |
-| `RATE_LIMIT_PER_MIN`                                         | `5000`                           | no                           | Abuse protection, not throttling                                                                            |
-| `APPROVAL_TTL_MINUTES`                                       | `10`                             | no                           | How long a parked payment waits                                                                             |
+| Variable                                                    | Default                          | Required in production       | Effect                                                                                                                                                              |
+| ----------------------------------------------------------- | -------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                                      | `8787`                           | no                           | API port                                                                                                                                                            |
+| `POLICYVAULT_DB`                                            | `./apps/api/data/policyvault.db` | no                           | SQLite path                                                                                                                                                         |
+| `ABI_KEY_PEPPER`                                            | _dev fallback only_              | **yes**                      | Salt for API-key hashing. Production **refuses to boot** without it                                                                                                 |
+| `NEXT_PUBLIC_API_URL`                                       | `/abi-api`                       | no                           | Console → API origin                                                                                                                                                |
+| `POLICYVAULT_ALLOW_BOOTSTRAP`                               | on outside production            | **set to `0`**               | Enables demo-org seeding. No longer destructive, but it mints a root key                                                                                            |
+| `POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE`                       | on outside production            | **set to `0`**               | Self-serve org creation                                                                                                                                             |
+| `ABI_SIGNUP_TOKEN`                                          | —                                | **yes** (if the above is on) | Required header `x-abi-signup-token` for org creation / demo seeding                                                                                                |
+| `ABI_SIGNUP_LIMIT_PER_HOUR`                                 | `10`                             | no                           | Per-IP cap on credential-minting routes                                                                                                                             |
+| `ABI_ALLOW_LOCAL_TARGETS`                                   | on outside production            | **set to `0`**               | Permits outbound fetches to loopback/private addresses (local x402 seller)                                                                                          |
+| `CHAIN`                                                     | `base-sepolia`                   | no                           | `base` or `base-sepolia`                                                                                                                                            |
+| `X402_FACILITATOR_URL`                                      | `https://x402.org/facilitator`   | seller only                  | Facilitator used by the x402 seller; public endpoint is for testnet proof                                                                                           |
+| `X402_SELLER_ADDRESS`                                       | —                                | seller only, **yes**         | Base wallet receiving seller USDC; seller refuses to boot without it                                                                                                |
+| `X402_PRICE_USDC`                                           | `$0.01`                          | no                           | Demo seller route price                                                                                                                                             |
+| `CHAIN_RPC_URL`                                             | public RPC                       | recommended                  | Use a paid RPC; public endpoints rate-limit                                                                                                                         |
+| `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET`                     | —                                | no                           | Selects production-mode custody. **Does not enable Coinbase custody** — see [SECURITY.md](docs/SECURITY.md)                                                         |
+| `OPENAI_API_KEY`                                            | —                                | no                           | Enables the console assistant. **Sends org financial data to OpenAI** (P8-T2)                                                                                       |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`                   | —                                | no                           | Approve from Telegram                                                                                                                                               |
+| `BREVO_API_KEY`, `ABI_NOTIFY_EMAIL_FROM`, `ABI_CONSOLE_URL` | —                                | **yes for open signup**      | Primary free email path (Brevo). Optional: `RESEND_API_KEY`. Signup fails closed in production without a provider unless `ABI_ALLOW_UNVERIFIED_SIGNUP=1` on testnet |
+| `SLACK_WEBHOOK_URL`, `ABI_NOTIFY_EMAIL_TO`                  | —                                | no                           | Optional Slack / notify-to; log a stub when unset                                                                                                                   |
+| `ABI_COMPLIANCE_DENYLIST`                                   | empty                            | no                           | Comma-separated denied destinations                                                                                                                                 |
+| `ABI_COMPLIANCE_FAIL_CLOSED`                                | off                              | **yes**                      | Block rather than allow when a screener errors                                                                                                                      |
+| `RATE_LIMIT_PER_MIN`                                        | `5000`                           | no                           | Abuse protection, not throttling                                                                                                                                    |
+| `APPROVAL_TTL_MINUTES`                                      | `10`                             | no                           | How long a parked payment waits                                                                                                                                     |
 
 ---
 
@@ -353,10 +359,10 @@ service, owns the database), `worker` (background sweeps), and `web` (console,
 proxying `/abi-api` to the API). Set `ABI_KEY_PEPPER` first — the API refuses to
 boot in production without it.
 
-> **Still not ready for real customer funds.** Persistence and background jobs
-> are fixed, but there is no authentication system and vault keys are held
-> unencrypted by the application (roadmap Phases 3–4). Keep any deployment
-> behind access control.
+> **Still not ready for real customer funds.** Authentication, hashed API keys,
+> and encrypted-at-rest vault keys are built, but keys still live in this
+> process (managed CDP/MPC custody is not). Keep any deployment behind access
+> control and use testnet only.
 
 Details: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 

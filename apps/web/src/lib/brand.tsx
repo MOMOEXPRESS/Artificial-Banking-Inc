@@ -18,13 +18,7 @@ function isLightTone(tone: Tone) {
 }
 
 /** Hexagonal AB vault emblem — official cut. */
-export function ABMark({
-  size = 40,
-  tone = "currentColor",
-}: {
-  size?: number;
-  tone?: Tone;
-}) {
+export function ABMark({ size = 40, tone = "currentColor" }: { size?: number; tone?: Tone }) {
   const light = isLightTone(tone) && tone !== "currentColor";
   // currentColor on dark UI → light mark; on light marketing → dark mark via CSS filter fallback
   const src = light ? "/abi-mark-light.png" : "/abi-mark.png";
@@ -65,13 +59,7 @@ export function ABAppIcon({ size = 40 }: { size?: number }) {
 }
 
 /** Full stacked lockup for login, CTA bands, splash. */
-export function ABLockup({
-  size = 92,
-  tone = "currentColor",
-}: {
-  size?: number;
-  tone?: Tone;
-}) {
+export function ABLockup({ size = 92, tone = "currentColor" }: { size?: number; tone?: Tone }) {
   const light = isLightTone(tone) && tone !== "currentColor";
   // Dark-on-light uses a transparent cut so paper white never boxes against the canvas.
   const src = light ? "/abi-lockup-light.png" : "/abi-lockup-clear.png";
@@ -93,13 +81,7 @@ export function ABLockup({
 }
 
 /** Compact horizontal lockup for navigation bars and footers. */
-export function ABWordmark({
-  size = 30,
-  tone = "currentColor",
-}: {
-  size?: number;
-  tone?: Tone;
-}) {
+export function ABWordmark({ size = 30, tone = "currentColor" }: { size?: number; tone?: Tone }) {
   const light = isLightTone(tone) && tone !== "currentColor";
   const src = light ? "/abi-mark-light.png" : "/abi-mark.png";
   return (

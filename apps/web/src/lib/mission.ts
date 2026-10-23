@@ -32,7 +32,8 @@ export interface MissionCtx {
   agentId?: string;
   agentName?: string;
   payeeAgentId?: string;
-  sellerUrl: string;
+  /** Public x402 seller endpoint. Null/empty when not configured for this host. */
+  sellerUrl: string | null;
   runId: string;
   /** Base Sepolia receive address for agent on-chain wallet pay proof. */
   e2eWallet?: string;
@@ -189,6 +190,16 @@ const buyViaX402 = (authorize: string): StepDef => ({
   title: `Buy the pricing report (authorize up to $${authorize})`,
   detail: "Real x402 dance: seller answers 402, ABI signs an EIP-712 payment, data comes back.",
   async run(ctx, state) {
+    if (!ctx.sellerUrl) {
+      return {
+        summary:
+          "x402 seller URL is not configured. Set NEXT_PUBLIC_SELLER_URL on the console host " +
+          "to your public seller endpoint (the bundled seller defaults to localhost:9402, which " +
+          "is unreachable from a hosted console).",
+        output: "NEXT_PUBLIC_SELLER_URL unset",
+        softFail: true,
+      };
+    }
     const { status, data } = await agentCall(ctx, "POST", "/v1/agent/pay_api", {
       amountUsdc: authorize,
       destination: ctx.sellerUrl,

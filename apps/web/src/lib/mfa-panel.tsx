@@ -117,9 +117,8 @@ export function MfaPanel({
         <div>
           <h2 style={{ margin: 0 }}>Two-factor authentication</h2>
           <div className="sub">
-            Approvals of{" "}
-            <b>${status?.stepUp.thresholdUsdc ?? "100"}</b> or more ask you to re-confirm your
-            identity, so an open tab is never enough on its own to move money.
+            Approvals of <b>${status?.stepUp.thresholdUsdc ?? "100"}</b> or more ask you to
+            re-confirm your identity, so an open tab is never enough on its own to move money.
           </div>
         </div>
         <span className={`pill ${status?.enabled ? "ok" : "warn"}`}>
@@ -224,7 +223,12 @@ export function MfaPanel({
             />
           </label>
           <div className="row" style={{ gap: 8 }}>
-            <Button type="button" size="sm" disabled={locked || !code.trim()} onClick={() => void confirm()}>
+            <Button
+              type="button"
+              size="sm"
+              disabled={locked || !code.trim()}
+              onClick={() => void confirm()}
+            >
               Turn on
             </Button>
             <Button

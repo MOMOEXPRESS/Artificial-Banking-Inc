@@ -43,7 +43,7 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
       rulesFor(sub.agentId, sub.orgId, sub.vendor),
       "subscription",
     );
-    recordDecision({
+    const recorded = recordDecision({
       intentId,
       orgId: sub.orgId,
       agentId: sub.agentId,
@@ -53,6 +53,7 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
       tool: "pay_api",
       amountUsdc: formatMicroToUsdc(sub.amountMicro),
       destination: sub.vendor,
+      limits: decision.limits,
     });
 
     if (decision.outcome === "review") {
@@ -75,19 +76,8 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
         expiresAt: new Date(Date.now() + APPROVAL_TTL_MINUTES * 60_000).toISOString(),
       };
       store.createApproval(approval);
+      // notify() already fans into the webhook channel — do not also emitEvent.
       void notify({ kind: "approval.pending", approval });
-      emitEvent(sub.orgId, "approval.pending", {
-        approvalId: approval.id,
-        intentId,
-        agentId: sub.agentId,
-        tool: "pay_api",
-        amountUsdc: approval.amountUsdc,
-        destination: sub.vendor,
-        reasons: decision.reasons,
-        expiresAt: approval.expiresAt,
-        source: "subscription",
-        subscriptionId: sub.id,
-      });
       store.recordSubscriptionRun({
         subId: sub.id,
         chargedMicro: 0n,
@@ -114,6 +104,10 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
         destination: sub.vendor,
         amountUsdc: formatMicroToUsdc(sub.amountMicro),
         reason: error,
+        intentId,
+        ruleIds: decision.ruleIds,
+        ...(recorded.limits && { limits: recorded.limits }),
+        receipt: recorded.receipt,
       });
       void notify({
         kind: "info",

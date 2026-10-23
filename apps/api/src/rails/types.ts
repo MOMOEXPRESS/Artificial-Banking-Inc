@@ -11,6 +11,8 @@ export interface PaymentRailContext {
   destination: string;
   authorizedMicro: MicroUsdc;
   blocklist?: string[];
+  /** x402 only: payee / network / price pinned by the approved intent. */
+  x402Expect?: { payTo?: string; network?: string; maxAmountMicro?: bigint };
   /**
    * Called the moment an irreversible action has been dispatched — for an
    * on-chain rail, as soon as a transaction hash exists and before waiting for

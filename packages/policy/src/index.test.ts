@@ -14,7 +14,9 @@ function baseRules() {
   };
 }
 
-function intent(partial: Partial<MoneyIntent> & Pick<MoneyIntent, "destination" | "amountMicro" | "tool">): MoneyIntent {
+function intent(
+  partial: Partial<MoneyIntent> & Pick<MoneyIntent, "destination" | "amountMicro" | "tool">,
+): MoneyIntent {
   return {
     agentId: "agt_1",
     orgId: "org_1",
@@ -99,7 +101,11 @@ describe("evaluatePolicy", () => {
 
   it("still allows a destination that matches the one configured list", () => {
     const d = evaluatePolicy(
-      intent({ tool: "pay_api", destination: "http://localhost:9402/report", amountMicro: 1_000_000n }),
+      intent({
+        tool: "pay_api",
+        destination: "http://localhost:9402/report",
+        amountMicro: 1_000_000n,
+      }),
       {
         ...baseRules(),
         vendorAllowlist: [],

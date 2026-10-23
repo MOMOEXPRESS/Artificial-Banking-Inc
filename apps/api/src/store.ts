@@ -137,6 +137,33 @@ export interface DecisionRow {
   amountUsdc: string;
   destination: string;
   at: string;
+  /** Cap numbers on a denial (wire form). */
+  limits?: Record<string, unknown>;
+  /** Intent id of an earlier refused intent this one re-proposes. */
+  supersedes?: string;
+  policyVersion?: string;
+  /** Signed decision receipt (see decision-receipts.ts). */
+  receipt?: Record<string, unknown>;
+}
+
+function decisionFromRow(r: Record<string, unknown>): DecisionRow {
+  const parse = (v: unknown) => (typeof v === "string" && v ? JSON.parse(v) : undefined);
+  return {
+    intentId: r.intent_id as string,
+    orgId: r.org_id as string,
+    agentId: r.agent_id as string,
+    outcome: r.outcome as string,
+    ruleIds: JSON.parse(r.rule_ids_json as string),
+    reasons: JSON.parse(r.reasons_json as string),
+    tool: r.tool as string,
+    amountUsdc: r.amount_usdc as string,
+    destination: r.destination as string,
+    at: r.at as string,
+    ...(r.limits_json ? { limits: parse(r.limits_json) } : {}),
+    ...(r.supersedes ? { supersedes: r.supersedes as string } : {}),
+    ...(r.policy_version ? { policyVersion: r.policy_version as string } : {}),
+    ...(r.receipt_json ? { receipt: parse(r.receipt_json) } : {}),
+  };
 }
 
 export interface EscrowRow {
@@ -189,8 +216,14 @@ export interface GuardianRow {
   guardianKey: string;
   createdAt: string;
   revokedAt?: string;
-  /** Optional HITL approval conditions (e.g. max amount). */
-  conditions?: { maxApproveUsdc?: string; note?: string; restricted?: boolean };
+  /** Optional HITL approval conditions (e.g. max amount, Telegram link). */
+  conditions?: {
+    maxApproveUsdc?: string;
+    note?: string;
+    restricted?: boolean;
+    /** Telegram user id bound to this seat for approval buttons. */
+    telegramUserId?: string;
+  };
 }
 
 export interface VoteRow {
@@ -285,6 +318,8 @@ export interface WebhookDeliveryRow {
   lastError?: string;
   createdAt: string;
   deliveredAt?: string;
+  /** When status is pending, earliest time the durable retry job may re-drive. */
+  nextAttemptAt?: string;
 }
 
 export interface DepartmentRow {
@@ -842,6 +877,13 @@ for (const migration of [
   "ALTER TABLE pay_events ADD COLUMN ref TEXT",
   "ALTER TABLE subscriptions ADD COLUMN schedule_kind TEXT NOT NULL DEFAULT 'recurring'",
   "ALTER TABLE approvals ADD COLUMN subscription_id TEXT",
+  // Decision receipts: denial numbers, re-proposal link, policy pin, signature.
+  "ALTER TABLE decisions ADD COLUMN limits_json TEXT",
+  "ALTER TABLE decisions ADD COLUMN supersedes TEXT",
+  "ALTER TABLE decisions ADD COLUMN policy_version TEXT",
+  "ALTER TABLE decisions ADD COLUMN receipt_json TEXT",
+  // Durable webhook retries — survives process restarts (replaces in-memory setTimeout).
+  "ALTER TABLE webhook_deliveries ADD COLUMN next_attempt_at TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -1670,36 +1712,42 @@ function rowToWebhook(r: Row): WebhookRow {
 
 function rowToDelivery(r: Row): WebhookDeliveryRow {
   return {
-    id: r.id,
-    orgId: r.org_id,
-    webhookId: r.webhook_id,
-    event: r.event,
-    payload: JSON.parse(r.payload_json),
-    url: r.url,
-    status: r.status,
-    attempts: r.attempts,
-    lastError: r.last_error ?? undefined,
-    createdAt: r.created_at,
-    deliveredAt: r.delivered_at ?? undefined,
+    id: r.id as number,
+    orgId: r.org_id as string,
+    webhookId: r.webhook_id as string,
+    event: r.event as string,
+    payload: JSON.parse(r.payload_json as string),
+    url: r.url as string,
+    status: r.status as WebhookDeliveryRow["status"],
+    attempts: r.attempts as number,
+    lastError: (r.last_error as string | null) ?? undefined,
+    createdAt: r.created_at as string,
+    deliveredAt: (r.delivered_at as string | null) ?? undefined,
+    nextAttemptAt: (r.next_attempt_at as string | null) ?? undefined,
   };
 }
 
 export const store = {
   // ------------------------------------------------------------------ orgs
-  createOrg(name: string, depositMicro: MicroUsdc): OrgRow {
+  createOrg(
+    name: string,
+    depositMicro: MicroUsdc,
+    opts?: { ledgerMode?: "sandbox" | "live" },
+  ): OrgRow {
     const orgId = id("org");
     const guardianKey = `pv_guardian_${randomBytes(12).toString("hex")}`;
     const guardianKeyHash = hashSecret(guardianKey);
     const tx = db.transaction(() => {
       // An opening balance nobody sent on-chain is simulated money, so an org
-      // seeded with one is a sandbox org. Orgs that start empty are live: the
-      // only way to add money is to send USDC to the vault address.
+      // seeded with one is a sandbox org. Orgs that start empty default to live
+      // (real money only) unless the caller opts into sandbox — self-signup on
+      // testnet does that so first-time users can simulate deposits and use MCP.
       //
       // `unbacked_micro` stays 0 even for a seeded org: the opening balance is
       // written straight onto org:available and never debits `external`, so
       // -(external) already excludes it. Counting it here would subtract it
       // twice and make every seeded org look short by its own float.
-      const ledgerMode = depositMicro > 0n ? "sandbox" : "live";
+      const ledgerMode = opts?.ledgerMode ?? (depositMicro > 0n ? "sandbox" : "live");
       db.prepare(
         "INSERT INTO orgs (id, name, status, guardian_key, deposit_micro, ledger_mode, unbacked_micro) VALUES (?, ?, 'active', ?, ?, ?, ?)",
       ).run(orgId, name, guardianKeyHash, depositMicro.toString(), ledgerMode, "0");
@@ -2741,6 +2789,10 @@ export const store = {
     invitationToken?: string;
     verificationToken: string;
     verificationTtlMs: number;
+    /** Override ledger mode for newly created (non-invite) orgs. */
+    ledgerMode?: "sandbox" | "live";
+    /** When true, mark the email verified immediately (testnet opt-in path). */
+    markEmailVerified?: boolean;
   }):
     | { status: "created"; user: UserRow; orgId: string; role: GuardianRoleName }
     | { status: "conflict" }
@@ -2769,13 +2821,21 @@ export const store = {
           const org = this.createOrg(
             input.orgName?.trim() || `${input.name.trim()}'s organization`,
             0n,
+            input.ledgerMode ? { ledgerMode: input.ledgerMode } : undefined,
           );
           orgId = org.id;
           role = "owner";
         }
         this.addMembership(user.id, orgId, role);
-        this.createEmailVerification(user.id, input.verificationToken, input.verificationTtlMs);
-        return { status: "created", user, orgId, role } as const;
+        if (input.markEmailVerified) {
+          db.prepare(
+            "UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?",
+          ).run(nowIso(), user.id);
+        } else {
+          this.createEmailVerification(user.id, input.verificationToken, input.verificationTtlMs);
+        }
+        const fresh = this.getUser(user.id) ?? user;
+        return { status: "created", user: fresh, orgId, role } as const;
       })();
     } catch (error) {
       if (error instanceof Error && error.message === "SIGNUP_INVALID_INVITATION") {
@@ -3812,11 +3872,18 @@ export const store = {
     return r.n as number;
   },
 
+  paysSince(agentId: string, sinceMs: number): number {
+    const r = db
+      .prepare("SELECT COUNT(*) AS n FROM pay_events WHERE agent_id = ? AND at_ms >= ?")
+      .get(agentId, sinceMs) as Row;
+    return r.n as number;
+  },
+
   // ------------------------------------------------------------- decisions
   addDecision(d: DecisionRow): void {
     db.prepare(
-      `INSERT INTO decisions (intent_id, org_id, agent_id, outcome, rule_ids_json, reasons_json, tool, amount_usdc, destination, at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO decisions (intent_id, org_id, agent_id, outcome, rule_ids_json, reasons_json, tool, amount_usdc, destination, at, limits_json, supersedes, policy_version, receipt_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       d.intentId,
       d.orgId,
@@ -3828,6 +3895,10 @@ export const store = {
       d.amountUsdc,
       d.destination,
       d.at,
+      d.limits ? JSON.stringify(d.limits) : null,
+      d.supersedes ?? null,
+      d.policyVersion ?? null,
+      d.receipt ? JSON.stringify(d.receipt) : null,
     );
   },
 
@@ -3835,18 +3906,15 @@ export const store = {
     const rows = db
       .prepare("SELECT * FROM decisions WHERE org_id = ? ORDER BY id DESC LIMIT ?")
       .all(orgId, limit) as Row[];
-    return rows.map((r) => ({
-      intentId: r.intent_id,
-      orgId: r.org_id,
-      agentId: r.agent_id,
-      outcome: r.outcome,
-      ruleIds: JSON.parse(r.rule_ids_json),
-      reasons: JSON.parse(r.reasons_json),
-      tool: r.tool,
-      amountUsdc: r.amount_usdc,
-      destination: r.destination,
-      at: r.at,
-    }));
+    return rows.map(decisionFromRow);
+  },
+
+  /** Decisions for one tool since an ISO timestamp, oldest first. */
+  listDecisionsByTool(orgId: string, tool: string, sinceIso: string): DecisionRow[] {
+    const rows = db
+      .prepare("SELECT * FROM decisions WHERE org_id = ? AND tool = ? AND at >= ? ORDER BY id ASC")
+      .all(orgId, tool, sinceIso) as Row[];
+    return rows.map(decisionFromRow);
   },
 
   getDecision(orgId: string, intentId: string): DecisionRow | undefined {
@@ -3856,18 +3924,7 @@ export const store = {
       )
       .get(orgId, intentId) as Row | undefined;
     if (!r) return undefined;
-    return {
-      intentId: r.intent_id,
-      orgId: r.org_id,
-      agentId: r.agent_id,
-      outcome: r.outcome,
-      ruleIds: JSON.parse(r.rule_ids_json),
-      reasons: JSON.parse(r.reasons_json),
-      tool: r.tool,
-      amountUsdc: r.amount_usdc,
-      destination: r.destination,
-      at: r.at,
-    };
+    return decisionFromRow(r);
   },
 
   // --------------------------------------------------------------- escrows
@@ -4104,18 +4161,7 @@ export const store = {
     const rows = db
       .prepare("SELECT * FROM decisions WHERE org_id = ? AND agent_id = ? ORDER BY id DESC LIMIT ?")
       .all(orgId, agentId, limit) as Row[];
-    return rows.map((r) => ({
-      intentId: r.intent_id,
-      orgId: r.org_id,
-      agentId: r.agent_id,
-      outcome: r.outcome,
-      ruleIds: JSON.parse(r.rule_ids_json),
-      reasons: JSON.parse(r.reasons_json),
-      tool: r.tool,
-      amountUsdc: r.amount_usdc,
-      destination: r.destination,
-      at: r.at,
-    }));
+    return rows.map(decisionFromRow);
   },
 
   listRunsForAgent(orgId: string, agentId: string, limit = 50): RunRow[] {
@@ -4509,24 +4555,65 @@ export const store = {
 
   updateDelivery(
     deliveryId: number,
-    fields: { status: string; attempts: number; lastError?: string; deliveredAt?: string },
+    fields: {
+      status: string;
+      attempts: number;
+      lastError?: string;
+      deliveredAt?: string;
+      nextAttemptAt?: string;
+    },
   ): void {
     db.prepare(
-      "UPDATE webhook_deliveries SET status = ?, attempts = ?, last_error = ?, delivered_at = ? WHERE id = ?",
+      "UPDATE webhook_deliveries SET status = ?, attempts = ?, last_error = ?, delivered_at = ?, next_attempt_at = ? WHERE id = ?",
     ).run(
       fields.status,
       fields.attempts,
       fields.lastError ?? null,
       fields.deliveredAt ?? null,
+      fields.nextAttemptAt ?? null,
       deliveryId,
     );
   },
 
+  /**
+   * Expire in-flight deliveries whose retry timers were lost (process restart).
+   * Without this the webhook log accumulates forever-pending "stale" rows.
+   */
+  expireStaleWebhookDeliveries(maxAgeMs = 60 * 60_000): number {
+    const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
+    const info = db
+      .prepare(
+        `UPDATE webhook_deliveries
+         SET status = 'failed',
+             last_error = COALESCE(last_error, 'Delivery abandoned after process restart / timeout')
+         WHERE status = 'pending' AND created_at < ?`,
+      )
+      .run(cutoff);
+    return info.changes;
+  },
+
   listDeliveries(orgId: string, limit = 50): WebhookDeliveryRow[] {
+    this.expireStaleWebhookDeliveries();
     return (
       db
         .prepare("SELECT * FROM webhook_deliveries WHERE org_id = ? ORDER BY id DESC LIMIT ?")
         .all(orgId, limit) as Row[]
+    ).map(rowToDelivery);
+  },
+
+  /** Pending deliveries whose next_attempt_at is due (or null = immediately retryable). */
+  listDueWebhookDeliveries(limit = 50): WebhookDeliveryRow[] {
+    const now = nowIso();
+    return (
+      db
+        .prepare(
+          `SELECT * FROM webhook_deliveries
+           WHERE status = 'pending'
+             AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+           ORDER BY id ASC
+           LIMIT ?`,
+        )
+        .all(now, limit) as Row[]
     ).map(rowToDelivery);
   },
 
@@ -4611,6 +4698,15 @@ export const store = {
       "UPDATE guardians SET role = ?, conditions_json = ? WHERE id = ? AND org_id = ?",
     ).run(role, conditions ? JSON.stringify(conditions) : null, guardianId, orgId);
     return { ...row, role, conditions };
+  },
+
+  /** Resolve a Telegram user id to a guardian seat within one org. */
+  findGuardianByTelegramUserId(orgId: string, telegramUserId: string): GuardianRow | undefined {
+    const needle = telegramUserId.trim();
+    if (!needle) return undefined;
+    return this.listGuardians(orgId).find(
+      (g) => !g.revokedAt && g.conditions?.telegramUserId?.trim() === needle,
+    );
   },
 
   /** Secondary guardians authenticate here; the org's founding key is separate. */

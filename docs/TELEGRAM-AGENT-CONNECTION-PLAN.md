@@ -1,6 +1,9 @@
 # Telegram agent connection plan
 
-Status: planned, not implemented. This document prepares the next working block without changing the current Telegram approval bot.
+Status: Phase 0 security hardening shipped (per-org chat id, guardian
+`telegramUserId` link, allowlist fail-closed, plain-text notifications, MFA
+step-up refused over Telegram). Agent-connection Phases 1–4 below remain
+planned.
 
 ## What exists today
 

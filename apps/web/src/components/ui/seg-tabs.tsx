@@ -19,7 +19,11 @@ export function SegTabs({
   listClassName?: string;
 }) {
   return (
-    <Tabs value={value} onValueChange={onValueChange} className={cn("min-w-0 max-w-full", className)}>
+    <Tabs
+      value={value}
+      onValueChange={onValueChange}
+      className={cn("min-w-0 max-w-full", className)}
+    >
       <div className="seg-tabs-scroll max-w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
         <TabsList
           className={cn(

@@ -57,7 +57,9 @@ for (const svc of SERVICES) {
   child.stderr.on("data", (c) => prefixed(svc.name, svc.color, process.stderr, c));
   child.on("exit", (code) => {
     if (!shuttingDown) {
-      process.stderr.write(`\n${svc.color}[${svc.name}]${RESET} exited (${code}) — stopping the stack.\n`);
+      process.stderr.write(
+        `\n${svc.color}[${svc.name}]${RESET} exited (${code}) — stopping the stack.\n`,
+      );
     }
     stopAll(code ?? 0);
   });

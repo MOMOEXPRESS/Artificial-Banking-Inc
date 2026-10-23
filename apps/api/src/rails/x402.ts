@@ -4,14 +4,36 @@ import type { MicroUsdc } from "@policyvault/common";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import type { PaymentRequired, PaymentRequirements } from "@x402/core/types";
 import { ExactEvmScheme, type ClientEvmSigner } from "@x402/evm";
-import { outboundUrlProblem } from "../outbound-url.js";
+import { createHash, randomBytes } from "node:crypto";
+import { outboundUrlProblem, resolveAndPinOutboundUrl } from "../outbound-url.js";
 import { tokenDomain } from "../chain/token-domain.js";
 import type { PaymentRail, PaymentRailContext, PaymentRailResult } from "./types.js";
 
-const NETWORKS = {
+const ALL_NETWORKS = {
   "eip155:84532": { legacy: "base-sepolia", asset: "0x036cbd53842c5426634e7929541ec2318f3dcf7e" },
   "eip155:8453": { legacy: "base", asset: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" },
 } as const;
+
+type X402Network = keyof typeof ALL_NETWORKS;
+
+/**
+ * Networks the buyer may accept. Defaults to the configured CHAIN so a Sepolia
+ * deployment cannot accidentally pay a mainnet seller requirement.
+ */
+export function allowedX402Networks(): Set<X402Network> {
+  const raw = process.env.ABI_X402_NETWORKS?.trim();
+  if (raw) {
+    const out = new Set<X402Network>();
+    for (const part of raw.split(",")) {
+      const n = part.trim() as X402Network;
+      if (n in ALL_NETWORKS) out.add(n);
+    }
+    if (out.size > 0) return out;
+  }
+  const chain = (process.env.CHAIN ?? "base-sepolia").trim().toLowerCase();
+  if (chain === "base" || chain === "eip155:8453") return new Set(["eip155:8453"]);
+  return new Set(["eip155:84532"]);
+}
 
 /** Exported for domain/signature regression tests and custody adapters. */
 export const AUTHORIZATION_TYPES = {
@@ -38,11 +60,13 @@ export function eip712Domain(network: string, asset: `0x${string}`) {
 
 export interface X402Receipt {
   amountMicro: MicroUsdc;
-  network: keyof typeof NETWORKS;
+  network: X402Network;
   payer: `0x${string}`;
   payTo: `0x${string}`;
   txHash: `0x${string}`;
   settled: true;
+  /** EIP-3009 nonce when present — used for reconciliation. */
+  authorizationNonce?: string;
 }
 
 export type RailErrorCode =
@@ -54,7 +78,48 @@ export type RailErrorCode =
   | "CUSTODY_UNAVAILABLE"
   | "INVALID_DESTINATION"
   | "INSUFFICIENT_ONCHAIN_USDC"
-  | "INSUFFICIENT_GAS";
+  | "INSUFFICIENT_GAS"
+  /** Seller's payTo differs from the payee the org registered/approved. */
+  | "PAYEE_MISMATCH"
+  /** Seller asked for a network other than the one the payee was approved on. */
+  | "NETWORK_MISMATCH"
+  /** A PAYMENT-REQUIRED (or our PAYMENT-SIGNATURE) header exceeds the size budget. */
+  | "CHALLENGE_TOO_LARGE"
+  /** The signed authorization does not say what was approved (to/value/asset). */
+  | "SIGNED_PAYLOAD_MISMATCH";
+
+/**
+ * Stable policy rule id for each client-guard refusal, so a refused x402
+ * payment explains itself the same way a policy deny does.
+ */
+export const X402_GUARD_RULE_IDS: Partial<Record<RailErrorCode, string>> = {
+  PRICE_EXCEEDS_AUTHORIZED: "x402_amount_exceeds_approved",
+  UNSUPPORTED_SCHEME: "x402_unsupported_asset_or_network",
+  PAYEE_MISMATCH: "x402_payee_mismatch",
+  NETWORK_MISMATCH: "x402_network_mismatch",
+  CHALLENGE_TOO_LARGE: "x402_header_too_large",
+  SIGNED_PAYLOAD_MISMATCH: "x402_signed_payload_mismatch",
+};
+
+/**
+ * Size budget for any x402 header we read or write. Proxies start rejecting
+ * around 8 KB; a seller that sends more than this is either misconfigured or
+ * trying to exhaust something on our side.
+ */
+export const MAX_X402_HEADER_BYTES = 8 * 1024;
+
+/**
+ * What the approved intent says the seller may ask for. Present when the
+ * destination is a registered merchant gateway (payout address, network and
+ * price declared at onboarding); absent for ad-hoc URLs, where the amount
+ * ceiling, asset and configured network still apply.
+ */
+export interface X402Expectation {
+  payTo?: string;
+  network?: string;
+  /** Declared price ceiling (micro-USDC); the authorized amount still applies too. */
+  maxAmountMicro?: bigint;
+}
 
 export class X402Error extends Error {
   constructor(
@@ -78,22 +143,43 @@ function selectRequirement(
   required: PaymentRequired,
   authorizedMicro: bigint,
   blocklist: string[],
-): { requirement: PaymentRequirements; priceMicro: bigint; network: keyof typeof NETWORKS } {
+  expect?: X402Expectation,
+): { requirement: PaymentRequirements; priceMicro: bigint; network: X402Network } {
   if (required.x402Version !== 2) {
     throw new X402Error(
       "UNSUPPORTED_SCHEME",
       `Seller offered x402 V${required.x402Version}; ABI requires V2.`,
     );
   }
-  const requirement = required.accepts.find((r) => r.scheme === "exact" && r.network in NETWORKS);
-  if (!requirement) {
+  const allowed = allowedX402Networks();
+  if (expect?.network && !allowed.has(expect.network as X402Network)) {
     throw new X402Error(
-      "UNSUPPORTED_SCHEME",
-      "Seller did not offer exact USDC on Base or Base Sepolia.",
+      "NETWORK_MISMATCH",
+      `Payee was approved on ${expect.network}, which this deployment does not pay on.`,
     );
   }
-  const network = requirement.network as keyof typeof NETWORKS;
-  if (requirement.asset.toLowerCase() !== NETWORKS[network].asset) {
+  const requirement = required.accepts.find(
+    (r) =>
+      r.scheme === "exact" &&
+      r.network in ALL_NETWORKS &&
+      allowed.has(r.network as X402Network) &&
+      (!expect?.network || r.network === expect.network),
+  );
+  if (!requirement && expect?.network) {
+    throw new X402Error(
+      "NETWORK_MISMATCH",
+      `Seller did not offer exact USDC on the approved network ${expect.network}.`,
+    );
+  }
+  if (!requirement) {
+    const allowedList = [...allowed].join(", ");
+    throw new X402Error(
+      "UNSUPPORTED_SCHEME",
+      `Seller did not offer exact USDC on an allowed network (${allowedList}).`,
+    );
+  }
+  const network = requirement.network as X402Network;
+  if (requirement.asset.toLowerCase() !== ALL_NETWORKS[network].asset) {
     throw new X402Error(
       "UNSUPPORTED_SCHEME",
       `Seller requested unsupported asset ${requirement.asset}.`,
@@ -101,6 +187,12 @@ function selectRequirement(
   }
   if (!isAddress(requirement.payTo)) {
     throw new X402Error("SELLER_REJECTED", `Malformed payTo address: ${requirement.payTo}`);
+  }
+  if (expect?.payTo && expect.payTo.toLowerCase() !== requirement.payTo.toLowerCase()) {
+    throw new X402Error(
+      "PAYEE_MISMATCH",
+      `Seller asked to be paid at ${requirement.payTo}, but the approved payee is ${expect.payTo}.`,
+    );
   }
   if (blocklist.some((x) => x.toLowerCase() === requirement.payTo.toLowerCase())) {
     throw new X402Error(
@@ -122,7 +214,63 @@ function selectRequirement(
       `Seller price ${priceMicro} exceeds authorized ${authorizedMicro}`,
     );
   }
+  if (expect?.maxAmountMicro !== undefined && priceMicro > expect.maxAmountMicro) {
+    throw new X402Error(
+      "PRICE_EXCEEDS_AUTHORIZED",
+      `Seller price ${priceMicro} exceeds the registered price ${expect.maxAmountMicro}`,
+    );
+  }
   return { requirement, priceMicro, network };
+}
+
+/**
+ * Read the EIP-3009 authorization out of a signed exact-EVM payload and
+ * confirm it says exactly what was approved. The SDK builds this from the
+ * requirement we selected, so a mismatch means an SDK or custody bug — and
+ * this is the last point at which nothing has left the building.
+ */
+export function assertSignedPayloadMatches(
+  payload: unknown,
+  expected: { payTo: string; amountMicro: bigint; network: string; asset: string; from?: string },
+): void {
+  const root = (payload ?? {}) as Record<string, unknown>;
+  const accepted = (root.accepted ?? {}) as Record<string, unknown>;
+  const inner = (root.payload ?? {}) as Record<string, unknown>;
+  const auth = (inner.authorization ?? {}) as Record<string, unknown>;
+  const problems: string[] = [];
+  const eq = (a: unknown, b: string) =>
+    typeof a === "string" && a.toLowerCase() === b.toLowerCase();
+  if (accepted.network !== undefined && accepted.network !== expected.network) {
+    problems.push(`network ${String(accepted.network)}`);
+  }
+  if (accepted.asset !== undefined && !eq(accepted.asset, expected.asset)) {
+    problems.push(`asset ${String(accepted.asset)}`);
+  }
+  if (!eq(auth.to, expected.payTo)) problems.push(`to ${String(auth.to)}`);
+  if (expected.from && auth.from !== undefined && !eq(auth.from, expected.from)) {
+    problems.push(`from ${String(auth.from)}`);
+  }
+  let value: bigint | undefined;
+  try {
+    value = BigInt(String(auth.value));
+  } catch {
+    value = undefined;
+  }
+  if (value === undefined || value !== expected.amountMicro)
+    problems.push(`value ${String(auth.value)}`);
+  if (problems.length) {
+    throw new X402Error(
+      "SIGNED_PAYLOAD_MISMATCH",
+      `Signed authorization does not match the approved payment (${problems.join(", ")}).`,
+    );
+  }
+}
+
+function headerBytes(headers: Record<string, string>): number {
+  let total = 0;
+  for (const [k, v] of Object.entries(headers))
+    total += Buffer.byteLength(k) + Buffer.byteLength(v);
+  return total;
 }
 
 async function readBody(response: Response): Promise<unknown> {
@@ -131,15 +279,54 @@ async function readBody(response: Response): Promise<unknown> {
     : response.text();
 }
 
+function extractAuthNonce(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const root = payload as Record<string, unknown>;
+  const nested = root.payload;
+  const candidates = [
+    root,
+    nested && typeof nested === "object" ? (nested as Record<string, unknown>) : null,
+  ];
+  for (const obj of candidates) {
+    if (!obj) continue;
+    const auth = obj.authorization ?? obj.authorizations;
+    if (auth && typeof auth === "object") {
+      const nonce = (auth as Record<string, unknown>).nonce;
+      if (typeof nonce === "string" && nonce) return nonce;
+    }
+    if (typeof obj.nonce === "string" && obj.nonce) return obj.nonce;
+  }
+  return undefined;
+}
+
 export async function payViaX402(args: {
   url: string;
   authorizedMicro: MicroUsdc;
   orgId: string;
   blocklist?: string[];
+  /** Payee/network/price the approved intent pins, when known. */
+  expect?: X402Expectation;
   fetchImpl?: typeof fetch;
+  /**
+   * Called after the EIP-3009 authorization is signed and before it is sent to
+   * the seller. The marker must be persisted so a later seller/network failure
+   * is treated as needs_review rather than a clean failure that releases the hold.
+   */
+  onAuthorizationSigned?: (
+    marker: string,
+    details: { nonce?: string; validBefore?: string },
+  ) => void;
 }): Promise<{ receipt: X402Receipt; resource: unknown; contentType: string | null }> {
   const problem = outboundUrlProblem(args.url, "Payment destination");
   if (problem) throw new X402Error("INVALID_DESTINATION", problem);
+
+  // DNS pin on the real network path only. Injected fetchImpl is for tests and
+  // already controls what is reached; resolving seller.example (etc.) would
+  // fail the suite for an unrelated reason.
+  if (!args.fetchImpl) {
+    const pinned = await resolveAndPinOutboundUrl(args.url, "Payment destination");
+    if (!pinned.ok) throw new X402Error("INVALID_DESTINATION", pinned.problem);
+  }
 
   const custody = getCustodyProvider();
   const wallet = await custody.getAddress(args.orgId);
@@ -152,6 +339,14 @@ export async function payViaX402(args: {
     throw new X402Error("RAIL_FAILED", `Seller returned HTTP ${first.status}`);
   }
 
+  const challengeHeader =
+    first.headers.get("PAYMENT-REQUIRED") ?? first.headers.get("payment-required") ?? "";
+  if (Buffer.byteLength(challengeHeader) > MAX_X402_HEADER_BYTES) {
+    throw new X402Error(
+      "CHALLENGE_TOO_LARGE",
+      `PAYMENT-REQUIRED header is ${Buffer.byteLength(challengeHeader)} bytes (limit ${MAX_X402_HEADER_BYTES}).`,
+    );
+  }
   const challengeBody = await readBody(first);
   let paymentRequired: PaymentRequired;
   try {
@@ -165,21 +360,57 @@ export async function payViaX402(args: {
       `Invalid x402 challenge: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const selected = selectRequirement(paymentRequired, args.authorizedMicro, args.blocklist ?? []);
+  const selected = selectRequirement(
+    paymentRequired,
+    args.authorizedMicro,
+    args.blocklist ?? [],
+    args.expect,
+  );
   const signer: ClientEvmSigner = {
     address: wallet.address,
     signTypedData: (typedData) => custody.signTypedData({ orgId: args.orgId, typedData }),
   };
+  // Defence in depth: SDK spend controls capped at the ABI-authorized amount.
   const core = new x402Client((_version, requirements) => requirements[0])
     .register(selected.network, new ExactEvmScheme(signer))
-    .setSpendControls(false);
+    .setSpendControls({
+      maxAmountPerPayment: false,
+      allowedAssets: [
+        {
+          network: selected.network,
+          asset: selected.requirement.asset,
+          maxAmountPerPayment: args.authorizedMicro.toString(),
+        },
+      ],
+    });
   const http = new x402HTTPClient(core);
   const payload = await http.createPaymentPayload({
     ...paymentRequired,
     accepts: [selected.requirement],
   });
+  // Verify what was actually signed before it can leave the process.
+  assertSignedPayloadMatches(payload, {
+    payTo: selected.requirement.payTo,
+    amountMicro: selected.priceMicro,
+    network: selected.network,
+    asset: selected.requirement.asset,
+    from: wallet.address,
+  });
+  const signatureHeaders = http.encodePaymentSignatureHeader(payload);
+  if (headerBytes(signatureHeaders) > MAX_X402_HEADER_BYTES) {
+    throw new X402Error(
+      "CHALLENGE_TOO_LARGE",
+      `PAYMENT-SIGNATURE header is ${headerBytes(signatureHeaders)} bytes (limit ${MAX_X402_HEADER_BYTES}).`,
+    );
+  }
+  const nonce =
+    extractAuthNonce(payload) ??
+    `anon-${createHash("sha256").update(randomBytes(16)).digest("hex").slice(0, 16)}`;
+  // Irreversible: the seller can settle this signed authorization on-chain even
+  // if the HTTP response is non-2xx or the PAYMENT-RESPONSE is malformed.
+  args.onAuthorizationSigned?.(`x402-auth:${nonce}`, { nonce });
   const paid = await doFetch(args.url, {
-    headers: http.encodePaymentSignatureHeader(payload),
+    headers: signatureHeaders,
     signal: AbortSignal.timeout(30_000),
     redirect: "error",
   });
@@ -222,6 +453,7 @@ export async function payViaX402(args: {
       payTo: selected.requirement.payTo as `0x${string}`,
       txHash: settlement.transaction,
       settled: true,
+      authorizationNonce: nonce,
     },
     resource,
     contentType,
@@ -240,7 +472,14 @@ export class X402Rail implements PaymentRail {
       authorizedMicro: ctx.authorizedMicro,
       orgId: ctx.orgId,
       blocklist: ctx.blocklist,
+      expect: ctx.x402Expect,
+      onAuthorizationSigned: (marker) => {
+        // Persist before the seller sees the signature — this is the
+        // signed-but-unrecorded-spend guard.
+        ctx.onBroadcast?.(this.name, marker);
+      },
     });
+    // Upgrade the broadcast marker to the real facilitator transaction hash.
     ctx.onBroadcast?.(this.name, paid.receipt.txHash);
     return {
       chargedMicro: paid.receipt.amountMicro,

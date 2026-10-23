@@ -118,6 +118,7 @@ model Approvals {
   idempotencyKey String @map("idempotency_key")
   payeeAgentId String? @map("payee_agent_id")
   timeoutMinutes Int? @map("timeout_minutes")
+  subscriptionId String? @map("subscription_id")
   ruleIdsJson String @map("rule_ids_json")
   reasonsJson String @map("reasons_json")
   status String
@@ -177,6 +178,10 @@ model Decisions {
   amountUsdc String @map("amount_usdc")
   destination String
   at String
+  limitsJson String? @map("limits_json")
+  supersedes String?
+  policyVersion String? @map("policy_version")
+  receiptJson String? @map("receipt_json")
   @@index([orgId, id])
   @@map("decisions")
 }
@@ -530,6 +535,7 @@ model Subscriptions {
   vendor String
   amountMicro BigInt @map("amount_micro")
   intervalHours Int @map("interval_hours")
+  scheduleKind String @default("recurring") @map("schedule_kind")
   status String @default("active")
   createdAt String @map("created_at")
   nextRunAt String @map("next_run_at")
@@ -651,6 +657,7 @@ model WebhookDeliveries {
   lastError String? @map("last_error")
   createdAt String @map("created_at")
   deliveredAt String? @map("delivered_at")
+  nextAttemptAt String? @map("next_attempt_at")
   @@index([orgId, id])
   @@map("webhook_deliveries")
 }

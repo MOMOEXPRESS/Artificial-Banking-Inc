@@ -8,10 +8,13 @@
  *     (closes DNS-rebinding / URL-edit races)
  *   - the x402 rail, where an agent supplies the seller URL
  *
- * DNS resolution for pin/rebinding checks lives in `dns-resolve.ts` (DoH first)
- * so Cloudflare Workers and Node share one path. PR #61 adds the same
- * `resolveAndPinOutboundUrl` surface via `node:dns` — rebase should keep this
- * DoH-backed resolver and drop the bare `dns.lookup` import.
+ * Checks cover literal IPs (incl. IPv4-mapped IPv6 in both dotted and hex
+ * WHATWG forms), reserved ranges (CGNAT, benchmarking 198.18/15, multicast),
+ * and — when `resolveAndPinOutboundUrl` is used — every address DNS returns,
+ * with the request pinned to a verified public IP.
+ *
+ * DNS resolution lives in `dns-resolve.ts` (DoH first) so Cloudflare Workers
+ * and Node share one path.
  */
 
 import { isIP } from "node:net";
@@ -82,6 +85,7 @@ function isBlockedIpLiteral(host: string): boolean {
   const family = isIP(host);
   if (family === 4) return isBlockedIpv4(host);
   if (family === 6) return isBlockedIpv6(host);
+  // isIP does not always accept IPv4-mapped forms that WHATWG still serializes.
   if (host.includes(":")) return isBlockedIpv6(host);
   return isBlockedIpv4(host);
 }

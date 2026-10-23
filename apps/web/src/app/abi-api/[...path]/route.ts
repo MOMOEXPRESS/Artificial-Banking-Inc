@@ -40,17 +40,15 @@ function resolveOrigin(): string | null {
 }
 
 /**
- * Routes that mint a root guardian key without an existing credential. The API
- * gates them behind ABI_SIGNUP_TOKEN (roadmap P1-T4), and the browser must
- * never hold that token — so the console attaches it here, server-side, where
- * the secret already lives alongside ABI_API_ORIGIN.
+ * Routes that genuinely need the server-side signup token.
+ *
+ * Previously this also covered demo/status and guardian/orgs, which meant any
+ * caller of the public console proxy could mint/root-bootstrap without knowing
+ * the token — the token only gated direct API access. Keep the injection
+ * narrow: self-serve signup, and demo bootstrap (still also gated by
+ * POLICYVAULT_ALLOW_BOOTSTRAP on the API).
  */
-const SIGNUP_PATHS = new Set([
-  "v1/auth/signup",
-  "v1/demo/bootstrap",
-  "v1/demo/status",
-  "v1/guardian/orgs",
-]);
+const SIGNUP_PATHS = new Set(["v1/auth/signup", "v1/demo/bootstrap"]);
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -127,6 +125,32 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
       body: body && body.byteLength > 0 ? body : undefined,
       redirect: "manual",
     });
+    const contentType = upstream.headers.get("content-type") ?? "";
+    // Free-tier hosts (e.g. Render) sometimes return an HTML "waking up" page
+    // instead of JSON. Surface that as a structured console state, never as a
+    // cryptic HTML parse error in the browser.
+    if (contentType.includes("text/html") || (contentType === "" && upstream.status >= 500)) {
+      const preview = (await upstream.text()).slice(0, 240);
+      const waking =
+        /waking up|starting|cold start|loading/i.test(preview) || upstream.status === 503;
+      return NextResponse.json(
+        {
+          error: {
+            code: waking ? "API_WAKING_UP" : "API_BAD_GATEWAY",
+            message: waking
+              ? "The API host is waking up from sleep. Wait a few seconds and retry — free instances pause when idle."
+              : `The API returned a non-JSON response (HTTP ${upstream.status}). Check that ABI_API_ORIGIN points at the ABI API, not a status page.`,
+            setup: waking
+              ? {
+                  tip: "Keep-alive pings or an always-on free host (Fly.io free allowance, Oracle Cloud free tier, a campus VPS) avoid cold starts. Paid Render disks are optional.",
+                }
+              : undefined,
+          },
+        },
+        { status: waking ? 503 : 502, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     const outHeaders = new Headers();
     for (const pass of ["content-type", "www-authenticate", "retry-after"]) {
       const v = upstream.headers.get(pass);
@@ -135,11 +159,18 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
     // Session cookies are issued by the API but must reach the browser, and
     // there may be several (session + CSRF) — `get` would collapse them into
     // one comma-joined value that browsers mis-parse.
+    // Strip any Domain= from upstream so the cookie binds to this console host
+    // (the proxy is same-origin; a Render Domain= would never stick here).
     const setCookies =
       typeof upstream.headers.getSetCookie === "function"
         ? upstream.headers.getSetCookie()
         : ([] as string[]);
-    for (const cookie of setCookies) outHeaders.append("set-cookie", cookie);
+    for (const cookie of setCookies) {
+      outHeaders.append(
+        "set-cookie",
+        cookie.replace(/;\s*Domain=[^;]*/gi, "").replace(/;\s*domain=[^;]*/g, ""),
+      );
+    }
 
     outHeaders.set("Cache-Control", "no-store");
     return new NextResponse(upstream.body, { status: upstream.status, headers: outHeaders });

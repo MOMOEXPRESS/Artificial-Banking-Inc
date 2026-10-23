@@ -24,8 +24,10 @@ import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
 import { explainApiResponse, relatedConsoleViews } from "./scenario-result";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "/abi-api";
-const SELLER = process.env.NEXT_PUBLIC_SELLER_URL ?? "http://localhost:9402/report";
+import { browserApiBase, sellerUrl } from "./browser-api";
+
+const API = browserApiBase();
+const SELLER = sellerUrl();
 
 const SCENARIO_GROUPS: {
   id: Mission["category"];
@@ -775,6 +777,19 @@ export function Playground({
                 <p>Choose intensity and acting agent.</p>
               </div>
             </div>
+            {!SELLER && (
+              <div className="banner warn" style={{ marginBottom: 12 }}>
+                <span className="txt">
+                  <b>x402 seller not configured</b>
+                  <span>
+                    Set <span className="mono">NEXT_PUBLIC_SELLER_URL</span> on the console host to
+                    a public seller endpoint. The bundled seller at localhost:9402 is only reachable
+                    during local development; x402 missions will report a clear soft-fail until
+                    then.
+                  </span>
+                </span>
+              </div>
+            )}
             <div className="run-mode-grid">
               {RUN_MODES.filter((mode) => !(source === "custom" && mode.id === "smoke_chain")).map(
                 (mode) => (
@@ -794,7 +809,7 @@ export function Playground({
             {session.agentKeys.length === 0 ? (
               <>
                 <p className="lab-help">
-                  Create an agent on Overview, or add an agent key for this browser session.
+                  Create an agent under API, or add an agent key for this browser session.
                 </p>
                 <div className="lab-add-key">
                   <input

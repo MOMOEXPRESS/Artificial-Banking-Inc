@@ -34,7 +34,7 @@
     "vercel:harden": "node scripts/vercel-harden.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "overrides": {
     "zod": "3.25.76",

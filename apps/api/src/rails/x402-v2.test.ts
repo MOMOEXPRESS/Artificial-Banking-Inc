@@ -8,7 +8,7 @@ import {
   encodePaymentResponseHeader,
 } from "@x402/core/http";
 import { privateKeyToAccount } from "viem/accounts";
-import { payViaX402 } from "./x402.js";
+import { allowedX402Networks, payViaX402, X402Error } from "./x402.js";
 
 const PRIVATE_KEY = `0x${"11".repeat(32)}` as `0x${string}`;
 const account = privateKeyToAccount(PRIVATE_KEY);
@@ -113,5 +113,83 @@ describe("x402 V2 rail", () => {
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "PRICE_EXCEEDS_AUTHORIZED",
     );
+  });
+
+  it("records authorization before handing the signature to the seller", async () => {
+    setCustodyProvider(
+      new DevLocalProvider(
+        () => ({ address: account.address, privateKey: PRIVATE_KEY, network: "base-sepolia" }),
+        async (_key, typedData) =>
+          account.signTypedData(typedData as Parameters<typeof account.signTypedData>[0]),
+      ),
+    );
+    const required: PaymentRequired = {
+      x402Version: 2,
+      resource: { url: "https://seller.example/report", mimeType: "application/json" },
+      accepts: [
+        {
+          scheme: "exact",
+          network: "eip155:84532",
+          asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+          amount: "10000",
+          payTo,
+          maxTimeoutSeconds: 120,
+          extra: { name: "USDC", version: "2" },
+        },
+      ],
+    };
+    let calls = 0;
+    let signedBeforeReject = false;
+    const markers: string[] = [];
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(JSON.stringify(required), {
+          status: 402,
+          headers: {
+            "content-type": "application/json",
+            "PAYMENT-REQUIRED": encodePaymentRequiredHeader(required),
+          },
+        });
+      }
+      // Seller returns non-2xx after receiving the signed authorization.
+      assert.ok(init?.headers, "signed payment must be sent");
+      signedBeforeReject = markers.length > 0;
+      return new Response("nope", { status: 500 });
+    };
+
+    await assert.rejects(
+      () =>
+        payViaX402({
+          url: "https://seller.example/report",
+          authorizedMicro: 10_000n,
+          orgId: "org_test",
+          fetchImpl,
+          onAuthorizationSigned: (marker) => {
+            markers.push(marker);
+          },
+        }),
+      (error: unknown) => error instanceof X402Error && error.code === "SELLER_REJECTED",
+    );
+    assert.equal(markers.length, 1);
+    assert.match(markers[0]!, /^x402-auth:/);
+    assert.equal(signedBeforeReject, true, "marker must be durable before seller rejection");
+  });
+
+  it("pins allowed networks to CHAIN (Sepolia by default)", () => {
+    const prev = process.env.CHAIN;
+    const prevNetworks = process.env.ABI_X402_NETWORKS;
+    try {
+      delete process.env.ABI_X402_NETWORKS;
+      process.env.CHAIN = "base-sepolia";
+      assert.deepEqual([...allowedX402Networks()], ["eip155:84532"]);
+      process.env.CHAIN = "base";
+      assert.deepEqual([...allowedX402Networks()], ["eip155:8453"]);
+    } finally {
+      if (prev === undefined) delete process.env.CHAIN;
+      else process.env.CHAIN = prev;
+      if (prevNetworks === undefined) delete process.env.ABI_X402_NETWORKS;
+      else process.env.ABI_X402_NETWORKS = prevNetworks;
+    }
   });
 });

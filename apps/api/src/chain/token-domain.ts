@@ -74,8 +74,20 @@ export function tokenDomain(network: AbiChain, token: Address): TokenDomain {
 }
 
 const erc20DomainAbi = [
-  { type: "function", name: "name", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
-  { type: "function", name: "version", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] },
+  {
+    type: "function",
+    name: "name",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "string" }],
+  },
+  {
+    type: "function",
+    name: "version",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "string" }],
+  },
 ] as const;
 
 /**
@@ -88,7 +100,12 @@ const erc20DomainAbi = [
 export async function verifyTokenDomainOnchain(
   network: AbiChain = activeChain().id,
   token: Address = activeChain().usdc,
-): Promise<{ ok: boolean; expected?: TokenDomain; onchain?: { name: string; version: string }; error?: string }> {
+): Promise<{
+  ok: boolean;
+  expected?: TokenDomain;
+  onchain?: { name: string; version: string };
+  error?: string;
+}> {
   let expected: TokenDomain;
   try {
     expected = tokenDomain(network, token);
@@ -111,7 +128,11 @@ export async function verifyTokenDomainOnchain(
     }
     return { ok, expected, onchain: { name, version } };
   } catch (e) {
-    return { ok: true, expected, error: `RPC unavailable: ${e instanceof Error ? e.message : String(e)}` };
+    return {
+      ok: true,
+      expected,
+      error: `RPC unavailable: ${e instanceof Error ? e.message : String(e)}`,
+    };
   }
 }
 

@@ -1,17 +1,22 @@
 /**
- * Webhook dispatcher: signed, at-least-once, with bounded retries.
+ * Webhook dispatcher: signed, at-least-once, with durable retries.
  *
  * Every event POST carries:
  *   x-policyvault-event:     event name (e.g. payment.succeeded)
  *   x-policyvault-delivery:  delivery id (dedupe key for receivers)
- *   x-policyvault-signature: sha256=<hex HMAC of raw body with endpoint secret>
+ *   x-abi-signature:         t=<unix>,v1=<hex HMAC of `${t}.${rawBody}`>
+ *   x-policyvault-signature: sha256=<hex> (legacy body-only; kept during rotation)
  *
- * Receivers must verify the signature and dedupe on the delivery id.
+ * Receivers must verify the timestamped signature (reject |now - t| > 5 minutes)
+ * and dedupe on the delivery id. During secret rotation, accept either the
+ * current or previous secret (`webhook.secret` / `webhook.previousSecret`).
+ *
+ * Retries are persisted in `webhook_deliveries` and swept by the scheduler so a
+ * process restart cannot leave deliveries stuck as `pending` forever.
  */
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { store } from "./store.js";
 import { webhookUrlProblem } from "./outbound-url.js";
-import { unrefTimer } from "./platform/timers.js";
 
 export type WebhookEvent =
   | "payment.succeeded"
@@ -35,16 +40,65 @@ export type WebhookEvent =
   | "treasury.drift.detected";
 
 const MAX_ATTEMPTS = 3;
-const RETRY_DELAYS_MS = [2_000, 10_000];
+const RETRY_DELAYS_MS = [2_000, 10_000, 60_000];
+/** Receivers should reject signatures older than this. */
+export const WEBHOOK_SIGNATURE_MAX_SKEW_SEC = 5 * 60;
 
+/** Legacy body-only HMAC — kept so existing receivers keep working during rotation. */
 export function signPayload(secret: string, rawBody: string): string {
   return `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}`;
 }
 
-async function attemptDelivery(args: {
+/** Timestamped signature: `t=<unix>,v1=<hex>`. */
+export function signPayloadV1(
+  secret: string,
+  rawBody: string,
+  timestampSec = Math.floor(Date.now() / 1000),
+): string {
+  const t = String(timestampSec);
+  const v1 = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
+  return `t=${t},v1=${v1}`;
+}
+
+export function verifyPayloadV1(
+  secret: string,
+  rawBody: string,
+  header: string,
+  nowSec = Math.floor(Date.now() / 1000),
+  maxSkewSec = WEBHOOK_SIGNATURE_MAX_SKEW_SEC,
+): boolean {
+  const parts = Object.fromEntries(
+    header.split(",").map((p) => {
+      const i = p.indexOf("=");
+      return i === -1 ? [p, ""] : [p.slice(0, i), p.slice(i + 1)];
+    }),
+  ) as Record<string, string>;
+  const t = parts.t;
+  const v1 = parts.v1;
+  if (!t || !v1) return false;
+  const ts = Number(t);
+  if (!Number.isFinite(ts)) return false;
+  if (Math.abs(nowSec - ts) > maxSkewSec) return false;
+  const expected = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
+  try {
+    const a = Buffer.from(expected, "utf8");
+    const b = Buffer.from(v1, "utf8");
+    return a.length === b.length && timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+function nextAttemptAt(attempt: number): string {
+  const delay = RETRY_DELAYS_MS[attempt - 1] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1]!;
+  return new Date(Date.now() + delay).toISOString();
+}
+
+export async function attemptDelivery(args: {
   deliveryId: number;
   url: string;
   secret: string;
+  previousSecret?: string;
   event: WebhookEvent;
   body: string;
   attempt: number;
@@ -63,12 +117,15 @@ async function attemptDelivery(args: {
       });
       return;
     }
+    const timestamped = signPayloadV1(args.secret, args.body);
     const res = await fetch(args.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-policyvault-event": args.event,
         "x-policyvault-delivery": String(args.deliveryId),
+        "x-abi-signature": timestamped,
+        // Legacy header for receivers that have not migrated yet.
         "x-policyvault-signature": signPayload(args.secret, args.body),
       },
       body: args.body,
@@ -90,19 +147,8 @@ async function attemptDelivery(args: {
       status: failedForGood ? "failed" : "pending",
       attempts: args.attempt,
       lastError: String(e),
+      nextAttemptAt: failedForGood ? undefined : nextAttemptAt(args.attempt),
     });
-    if (!failedForGood) {
-      // Workers: Durable Object alarm re-drives pending rows (no setTimeout).
-      // Node/Render: keep in-process delayed retry; PR #61 moves this fully to DB.
-      if (process.env.ABI_RUNTIME === "cloudflare-workers") {
-        return;
-      }
-      const delay = RETRY_DELAYS_MS[args.attempt - 1] ?? 10_000;
-      const timer = setTimeout(() => {
-        void attemptDelivery({ ...args, attempt: args.attempt + 1 });
-      }, delay);
-      unrefTimer(timer);
-    }
   }
 }
 
@@ -137,37 +183,11 @@ export function emitEvent(orgId: string, event: WebhookEvent, payload: unknown):
 }
 
 /**
- * Re-drive pending deliveries.
- *
- * Seam for PR #61: that branch adds `next_attempt_at` + `store.listDueWebhookDeliveries`.
- * On main we sweep `status='pending'` rows and skip setTimeout when running under
- * the Workers Durable Object alarm (`ABI_RUNTIME=cloudflare-workers`).
+ * Re-drive pending deliveries whose next_attempt_at has passed.
+ * Safe across restarts — state lives in SQLite, not setTimeout.
  */
 export async function retryPendingWebhookDeliveries(): Promise<{ attempted: number }> {
-  const storeAny = store as unknown as {
-    listDueWebhookDeliveries?: (limit: number) => Array<{
-      id: number;
-      webhookId: string;
-      url: string;
-      event: string;
-      attempts: number;
-      payload: unknown;
-    }>;
-    listPendingWebhookDeliveries?: (limit: number) => Array<{
-      id: number;
-      webhookId: string;
-      url: string;
-      event: string;
-      attempts: number;
-      payload: unknown;
-    }>;
-  };
-
-  const due =
-    storeAny.listDueWebhookDeliveries?.(50) ??
-    storeAny.listPendingWebhookDeliveries?.(50) ??
-    listPendingDeliveriesFallback(50);
-
+  const due = store.listDueWebhookDeliveries(50);
   let attempted = 0;
   for (const row of due) {
     const endpoint = store.getWebhookAnyOrg(row.webhookId);
@@ -195,38 +215,4 @@ export async function retryPendingWebhookDeliveries(): Promise<{ attempted: numb
     });
   }
   return { attempted };
-}
-
-function listPendingDeliveriesFallback(limit: number): Array<{
-  id: number;
-  webhookId: string;
-  url: string;
-  event: string;
-  attempts: number;
-  payload: unknown;
-}> {
-  // Use public store surface: scan recent deliveries per org.
-  const out: Array<{
-    id: number;
-    webhookId: string;
-    url: string;
-    event: string;
-    attempts: number;
-    payload: unknown;
-  }> = [];
-  for (const orgId of store.listOrgIds()) {
-    for (const row of store.listDeliveries(orgId, 100)) {
-      if (row.status !== "pending") continue;
-      out.push({
-        id: row.id,
-        webhookId: row.webhookId,
-        url: row.url,
-        event: row.event,
-        attempts: row.attempts,
-        payload: row.payload,
-      });
-      if (out.length >= limit) return out;
-    }
-  }
-  return out;
 }

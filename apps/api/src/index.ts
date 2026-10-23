@@ -8,10 +8,20 @@ import {
 } from "@policyvault/custody";
 import { recogniseRevenue } from "@policyvault/ledger";
 import { evaluatePolicy, matchedAutomationRules } from "@policyvault/policy";
+import {
+  canonicalJson,
+  limitsView,
+  sha256Hex,
+  verifyDecisionReceipt,
+} from "./decision-receipts.js";
 import cors from "cors";
 import express from "express";
+import helmet from "helmet";
+import type { Server } from "node:http";
 import { privateKeyToAccount } from "viem/accounts";
 import { z } from "zod";
+import { loadConfig, getConfig, ConfigError } from "./config.js";
+import { getLogger, requestLogMiddleware } from "./platform/logger.js";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import type { PaymentRequired } from "@x402/core/types";
 import {
@@ -81,7 +91,23 @@ import { registerTreasuryRoutes } from "./routes/treasury-routes.js";
 import { registerRemoteMcp } from "./remote-mcp.js";
 import { unrefTimer } from "./platform/timers.js";
 
+// Validate env before wiring routes. Tests set process.env, then import this
+// module — so this runs with the test env already applied.
+try {
+  loadConfig();
+} catch (e) {
+  if (e instanceof ConfigError) {
+    console.error(e.message);
+    if (process.env.ABI_NO_LISTEN !== "1") process.exit(1);
+    throw e;
+  }
+  throw e;
+}
+
 const app = express();
+const config = getConfig();
+const log = getLogger();
+
 /**
  * CORS.
  *
@@ -90,15 +116,10 @@ const app = express();
  * fail cross-origin. The console calls same-origin `/abi-api` and needs no
  * CORS at all; anything else must be named explicitly in ABI_CORS_ORIGINS.
  */
-const corsOrigins = (process.env.ABI_CORS_ORIGINS ?? "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
 app.use(
   cors({
-    origin: corsOrigins.length ? corsOrigins : false,
-    credentials: corsOrigins.length > 0,
+    origin: config.corsOrigins.length ? config.corsOrigins : false,
+    credentials: config.corsOrigins.length > 0,
   }),
 );
 // Behind the Next proxy / a load balancer, so req.ip must come from
@@ -115,9 +136,17 @@ app.use((req, _res, next) => {
   }
   next();
 });
-app.use(express.json());
+app.use(
+  helmet({
+    // API is JSON-only; CSP is for HTML. HSTS is for TLS terminators in front.
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  }),
+);
+app.use(express.json({ limit: "1mb" }));
+app.use(requestLogMiddleware);
 
-const PORT = Number(process.env.PORT ?? 8787);
+const PORT = config.PORT;
 const STARTED_AT = Date.now();
 
 registerInAppNotifier();
@@ -314,10 +343,10 @@ registerNotifier("webhook", (payload) => {
 // Rate limiting: sliding window per bearer key (falls back to IP).
 // Generous dev default — this is abuse protection, not throttling.
 // ---------------------------------------------------------------------------
-const RATE_LIMIT_PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN ?? 5000);
+const RATE_LIMIT_PER_MIN = config.rateLimitPerMin;
 /** Credential-minting routes get their own, far tighter budget per IP. */
 const SIGNUP_LIMIT_PER_HOUR = Number(
-  process.env.ABI_SIGNUP_LIMIT_PER_HOUR ?? (process.env.NODE_ENV === "production" ? 10 : 1000),
+  process.env.ABI_SIGNUP_LIMIT_PER_HOUR ?? (config.isProduction ? 10 : 1000),
 );
 /** Cap the window map so a key-rotating caller cannot exhaust memory. */
 const RATE_MAX_KEYS = 50_000;
@@ -360,7 +389,7 @@ const AUTH_LIMITS: Record<string, { ipLimit: number; accountLimit: number; windo
 };
 
 app.use((req, res, next) => {
-  if (req.path === "/health" || req.path === "/metrics") return next();
+  if (req.path === "/health" || req.path === "/ready" || req.path === "/metrics") return next();
 
   const authLimit = req.method === "POST" ? AUTH_LIMITS[req.path] : undefined;
   if (authLimit) {
@@ -574,8 +603,8 @@ function guardianRoute(
           error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
         });
       }
-      console.error("guardian route error:", e);
-      res.status(500).json({ error: { code: "RAIL_FAILED", message: String(e) } });
+      (req.log ?? log).error({ err: e }, "guardian route error");
+      res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
     });
   };
 }
@@ -604,8 +633,8 @@ function asyncRoute(
           error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
         });
       }
-      console.error("route error:", e);
-      res.status(500).json({ error: { code: "RAIL_FAILED", message: String(e) } });
+      (req.log ?? log).error({ err: e }, "route error");
+      res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
     });
   };
 }
@@ -689,10 +718,31 @@ function escrowView(e: EscrowRow) {
 }
 
 /** Policy-gated agent intent entrypoint. */
+/**
+ * Validate a re-proposal's `supersedes` link: the referenced intent must
+ * belong to the same org and agent, and its latest decision must be a deny.
+ * Lets an auditor tell a fair retry from an attempt to dodge a cap.
+ */
+function supersedesProblem(orgId: string, agentId: string, supersedes: string): string | null {
+  const prior = store.getDecision(orgId, supersedes);
+  if (!prior || prior.agentId !== agentId)
+    return "supersedes must reference one of your own intents";
+  if (prior.outcome !== "deny") return "supersedes must reference an intent that was refused";
+  return null;
+}
+
 async function handleIntent(
   res: express.Response,
-  input: Omit<ExecInput, "intentId"> & { idempotencyKey: string },
+  input: Omit<ExecInput, "intentId"> & { idempotencyKey: string; supersedes?: string },
 ) {
+  if (input.supersedes) {
+    const problem = supersedesProblem(input.orgId, input.agentId, input.supersedes);
+    if (problem) {
+      return res.status(400).json({
+        error: { code: "VALIDATION_ERROR", message: problem, field: "supersedes" },
+      });
+    }
+  }
   const idemKey = scopedIdempotencyKey(input.agentId, input.idempotencyKey);
   // Claim the key first. Anything already recorded — settled, denied, parked
   // or in flight — replays instead of executing a second time.
@@ -732,7 +782,7 @@ async function handleIntent(
     store.getPolicyVersion(input.orgId),
   );
   const intentId = id("int");
-  recordDecision({
+  const recorded = recordDecision({
     intentId,
     orgId: input.orgId,
     agentId: input.agentId,
@@ -742,6 +792,21 @@ async function handleIntent(
     tool: input.tool,
     amountUsdc: input.amountUsdc,
     destination: input.destination,
+    limits: decision.limits,
+    supersedes: input.supersedes,
+    policyVersion: decision.policyVersion,
+    requestHash: sha256Hex(
+      canonicalJson({
+        agentId: input.agentId,
+        tool: input.tool,
+        amountUsdc: input.amountUsdc,
+        destination: input.destination,
+        idempotencyKey: input.idempotencyKey,
+        jobId: input.jobId ?? null,
+        memo: input.memo ?? null,
+        payeeAgentId: input.payeeAgentId ?? null,
+      }),
+    ),
   });
 
   // Automation side-effects (notify / freeze) — money outcome already decided.
@@ -765,6 +830,9 @@ async function handleIntent(
       outcome: "deny" as const,
       error: { code: "POLICY_DENIED" as const, message: decision.reasons.join("; ") },
       ruleIds: decision.ruleIds,
+      ...(recorded.limits && { limits: recorded.limits }),
+      ...(input.supersedes && { supersedes: input.supersedes }),
+      receipt: recorded.receipt,
     };
     store.setIdempotent(input.orgId, idemKey, { ...payload, httpStatus: 403 });
     emitEvent(input.orgId, "policy.denied", {
@@ -775,6 +843,7 @@ async function handleIntent(
       destination: input.destination,
       ruleIds: decision.ruleIds,
       reasons: decision.reasons,
+      ...(recorded.limits && { limits: recorded.limits }),
     });
     void notify({
       kind: "policy.denied",
@@ -824,20 +893,14 @@ async function handleIntent(
       error: { code: "NEEDS_APPROVAL" as const, message: decision.reasons.join("; ") },
       ruleIds: decision.ruleIds,
       hint: "Poll GET /v1/agent/approvals/:id until approved/denied/expired.",
+      receipt: recorded.receipt,
       httpStatus: 202,
     };
     store.setIdempotent(input.orgId, idemKey, reviewPayload);
+    // notify() already fans approval.pending into the webhook channel via
+    // registerNotifier("webhook"). Do not also call emitEvent here — that
+    // duplicated every approval.pending delivery in the webhook log.
     void notify({ kind: "approval.pending", approval });
-    emitEvent(input.orgId, "approval.pending", {
-      approvalId: approval.id,
-      intentId,
-      agentId: input.agentId,
-      tool: input.tool,
-      amountUsdc: input.amountUsdc,
-      destination: input.destination,
-      reasons: decision.reasons,
-      expiresAt: approval.expiresAt,
-    });
     return res.status(202).json({
       intentId,
       outcome: "review" as const,
@@ -846,13 +909,16 @@ async function handleIntent(
       error: { code: "NEEDS_APPROVAL" as const, message: decision.reasons.join("; ") },
       ruleIds: decision.ruleIds,
       hint: "Poll GET /v1/agent/approvals/:id until approved/denied/expired.",
+      receipt: recorded.receipt,
     });
   }
 
-  const result = await executeIntent({ ...input, intentId });
+  const { supersedes: _supersedes, ...execInput } = input;
+  const result = await executeIntent({ ...execInput, intentId });
   if (result.ok) {
-    store.setIdempotent(input.orgId, idemKey, { ...result.payload, httpStatus: 200 });
-    return res.json(result.payload);
+    const payload = { ...result.payload, receipt: recorded.receipt };
+    store.setIdempotent(input.orgId, idemKey, { ...payload, httpStatus: 200 });
+    return res.json(payload);
   }
   // A rail failure is transient — free the key so the caller may genuinely retry.
   store.releaseIdempotent(input.orgId, idemKey);
@@ -860,6 +926,8 @@ async function handleIntent(
 }
 
 app.get("/health", (_req, res) => {
+  // Liveness: process is up. Do not touch the DB here — Render/Fly free probes
+  // should stay cheap even when SQLite is briefly busy.
   res.json({
     ok: true,
     service: "abi-api",
@@ -870,6 +938,30 @@ app.get("/health", (_req, res) => {
     legal: LEGAL_FOOTER,
     telegram: telegramEnabled(),
   });
+});
+
+app.get("/ready", (_req, res) => {
+  // Readiness: can serve money-path traffic. Checks SQLite responds.
+  try {
+    const orgCount = store.listOrgIds().length;
+    res.json({
+      ok: true,
+      service: "abi-api",
+      ready: true,
+      db: "ok",
+      orgs: orgCount,
+      demoMode: config.allowBootstrap,
+      mockTransfer: config.mockTransfer,
+    });
+  } catch (e) {
+    log.error({ err: e }, "readiness check failed");
+    res.status(503).json({
+      ok: false,
+      service: "abi-api",
+      ready: false,
+      error: { code: "NOT_READY", message: "Database not ready" },
+    });
+  }
 });
 
 /** Prometheus text exposition (Observability pillar). */
@@ -896,13 +988,18 @@ app.get("/v1/openapi.json", (_req, res) => {
  * Still gated, because it mints a root guardian key: an open endpoint that
  * hands out credentials is an abuse vector even when it is non-destructive.
  */
-const ALLOW_DEMO_SEED =
-  process.env.POLICYVAULT_ALLOW_BOOTSTRAP === "1" ||
-  (process.env.NODE_ENV !== "production" && process.env.POLICYVAULT_ALLOW_BOOTSTRAP !== "0");
+const ALLOW_DEMO_SEED = config.allowBootstrap;
 
-app.get("/v1/demo/status", (req, res) => {
+app.get("/v1/demo/status", (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  res.json({ enabled: ALLOW_DEMO_SEED && !signupTokenProblem(req) });
+  // Status is informational and must not require the signup token — otherwise
+  // the console proxy attaching the token to this path made the token a
+  // public capability. Bootstrap POST still checks the token.
+  res.json({
+    enabled: ALLOW_DEMO_SEED,
+    requiresSignupToken: Boolean(config.ABI_SIGNUP_TOKEN?.trim()),
+    productionSafe: config.isProduction && !ALLOW_DEMO_SEED,
+  });
 });
 
 app.post("/v1/demo/bootstrap", async (req, res) => {
@@ -910,7 +1007,9 @@ app.post("/v1/demo/bootstrap", async (req, res) => {
     return res.status(403).json({
       error: {
         code: "UNAUTHORIZED",
-        message: "Demo seeding is disabled. Set POLICYVAULT_ALLOW_BOOTSTRAP=1 to enable.",
+        message:
+          "Demo seeding is disabled in this environment. For disposable demos only, set " +
+          "POLICYVAULT_ALLOW_BOOTSTRAP=1 and ABI_ALLOW_UNSAFE_PROD=1 (never with real funds).",
       },
     });
   }
@@ -927,11 +1026,15 @@ app.post("/v1/demo/bootstrap", async (req, res) => {
       note: "Demo org seeded. agentApiKey = agent Bearer token; guardianKey = guardian Bearer token. Existing organizations were not modified.",
     });
   } catch (e) {
-    console.error("demo seed failed:", e);
+    log.error({ err: e }, "demo seed failed");
     return res.status(500).json({
       error: {
         code: "BOOTSTRAP_FAILED",
-        message: e instanceof Error ? e.message : String(e),
+        message: config.isProduction
+          ? "Demo bootstrap failed"
+          : e instanceof Error
+            ? e.message
+            : String(e),
       },
     });
   }
@@ -951,17 +1054,16 @@ app.post("/v1/demo/bootstrap", async (req, res) => {
  * Ledger `depositUsdc` is optional mock float; live USDC comes from on-chain
  * vault funding + auto-credit.
  */
-const ALLOW_PUBLIC_ORG_CREATE =
-  process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE === "1" ||
-  (process.env.NODE_ENV !== "production" &&
-    process.env.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE !== "0");
+const ALLOW_PUBLIC_ORG_CREATE = config.allowPublicOrgCreate;
 
 app.post("/v1/guardian/orgs", async (req, res) => {
   if (!ALLOW_PUBLIC_ORG_CREATE) {
     return res.status(403).json({
       error: {
         code: "UNAUTHORIZED",
-        message: "Public org creation disabled — set POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE=1",
+        message:
+          "Public org creation disabled. Use /v1/auth/signup, or for disposable demos set " +
+          "POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE=1 with ABI_ALLOW_UNSAFE_PROD=1.",
       },
     });
   }
@@ -2328,12 +2430,41 @@ app.get("/v1/agent/decisions/:intentId", (req, res) => {
   res.json({ decision });
 });
 
+/** Check a decision receipt's signature (agent side). */
+app.post("/v1/agent/decision-receipts/verify", (req, res) => {
+  const auth = authAgent(req);
+  if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  const receipt = (req.body as { receipt?: unknown } | undefined)?.receipt;
+  const result = verifyDecisionReceipt(receipt);
+  const body = (receipt as { body?: { orgId?: string } } | undefined)?.body;
+  if (result.valid && body?.orgId !== auth.orgId) {
+    return res.status(404).json({ error: { code: "NOT_FOUND" } });
+  }
+  res.json(result);
+});
+
+/** Check a decision receipt's signature (guardian side). */
+app.post(
+  "/v1/guardian/decision-receipts/verify",
+  guardianRoute((org, req, res) => {
+    const receipt = (req.body as { receipt?: unknown } | undefined)?.receipt;
+    const result = verifyDecisionReceipt(receipt);
+    const body = (receipt as { body?: { orgId?: string } } | undefined)?.body;
+    if (result.valid && body?.orgId !== org.id) {
+      return res.status(404).json({ error: { code: "NOT_FOUND" } });
+    }
+    res.json(result);
+  }),
+);
+
 const payBody = z.object({
   amountUsdc: z.string(),
   destination: z.string(),
   idempotencyKey: z.string().min(8),
   jobId: z.string().optional(),
   memo: z.string().optional(),
+  /** Intent id of an earlier refused intent this payment re-proposes. */
+  supersedes: z.string().min(1).max(64).optional(),
 });
 
 async function handlePay(req: express.Request, res: express.Response, tool: "pay" | "pay_api") {
@@ -2354,6 +2485,7 @@ async function handlePay(req: express.Request, res: express.Response, tool: "pay
     jobId: parsed.jobId,
     memo: parsed.memo,
     idempotencyKey: parsed.idempotencyKey,
+    supersedes: parsed.supersedes,
   });
 }
 
@@ -2391,7 +2523,7 @@ app.post("/v1/agent/simulate", (req, res) => {
     },
     rulesFor(auth.agentId, auth.orgId, body.destination),
   );
-  res.json(decision);
+  res.json({ ...decision, limits: limitsView(decision.limits) });
 });
 
 app.get("/v1/agent/approvals/:id", (req, res) => {
@@ -2428,6 +2560,7 @@ app.post(
           .positive()
           .max(7 * 24 * 60)
           .optional(),
+        supersedes: z.string().min(1).max(64).optional(),
       })
       .parse(req.body);
     const payee = scopedStore(auth.orgId).getAgent(body.payeeAgentId);
@@ -2453,6 +2586,7 @@ app.post(
       idempotencyKey: body.idempotencyKey,
       payeeAgentId: body.payeeAgentId,
       timeoutMinutes: body.timeoutMinutes,
+      supersedes: body.supersedes,
     });
   }),
 );
@@ -2536,7 +2670,7 @@ app.use(
         error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
       });
     }
-    console.error("unhandled route error:", err);
+    log.error({ err }, "unhandled route error");
     res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
   },
 );
@@ -2548,37 +2682,52 @@ export { app };
  * Tests import `app` to drive it over an ephemeral port, so they suppress the
  * listener. Everything else — including every deployment — listens.
  */
-const noListen = process.env.ABI_NO_LISTEN === "1";
+const noListen = config.ABI_NO_LISTEN === true;
 
 /**
  * Background jobs run in-process by default, which is correct for the
  * single-instance topology. Set ABI_RUN_JOBS=0 when running `apps/worker`
  * alongside the API so the two do not compete for the same leases.
  */
-const runJobsInProcess = process.env.ABI_RUN_JOBS !== "0";
+const runJobsInProcess = config.runJobsInProcess;
+
+let httpServer: Server | undefined;
+let schedulerHandle: ReturnType<typeof startScheduler> | undefined;
 
 if (!noListen) {
   // Do not advertise a healthy API that cannot create accounts or sessions.
-  // In explicit demo mode, missing values are purpose-derived from the existing
-  // server-side signup token; normal production still requires dedicated keys.
   assertAuthRuntimeReady();
 
   if (runJobsInProcess) {
-    startScheduler();
+    schedulerHandle = startScheduler();
     startTelegramPolling();
   } else {
-    console.log(
-      JSON.stringify({
-        type: "abi.jobs.delegated",
-        note: "ABI_RUN_JOBS=0 — background jobs are expected from the worker process.",
-      }),
+    log.info(
+      { type: "abi.jobs.delegated" },
+      "ABI_RUN_JOBS=0 — background jobs are expected from the worker process.",
     );
   }
 
-  app.listen(PORT, () => {
-    console.log(`ABI API on http://localhost:${PORT} (SQLite-backed, persistent process)`);
-    console.log(LEGAL_FOOTER);
+  httpServer = app.listen(PORT, () => {
+    log.info({ port: PORT }, "ABI API listening (SQLite-backed)");
+    log.info(LEGAL_FOOTER);
   });
+  httpServer.requestTimeout = 60_000;
+  httpServer.headersTimeout = 65_000;
+  httpServer.keepAliveTimeout = 72_000;
+
+  const shutdown = (signal: string) => {
+    log.info({ signal }, "shutting down");
+    schedulerHandle?.stop();
+    httpServer?.close((err) => {
+      if (err) log.error({ err }, "error during server.close");
+      process.exit(err ? 1 : 0);
+    });
+    // Hard ceiling so a stuck keep-alive cannot hang the process forever.
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 export { closeDb, getDbPath } from "./store.js";

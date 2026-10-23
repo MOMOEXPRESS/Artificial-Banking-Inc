@@ -136,17 +136,25 @@ export class SelfCustodyVaultProvider implements CustodyProvider {
 }
 
 /**
- * Whether the application-managed signer is enabled. Legacy CDP credentials
- * still toggle this for compatibility, but they are never used to call Coinbase.
+ * Whether the application-managed signer is enabled.
+ *
+ * Prefer `ABI_ONCHAIN_ENABLED=1`. Legacy `CDP_API_KEY_*` variables still toggle
+ * this for compatibility with older deploys, but they are never used to call
+ * Coinbase and do not enable CDP custody — see {@link CdpProviderStub}.
  */
 export function onchainSignerConfigured(): boolean {
-  // ABI_ONCHAIN_ENABLED is the explicit self-custody switch. The CDP variable
-  // check remains temporarily for existing deployments, but those credentials
-  // are not used to authenticate with Coinbase or provide CDP custody.
-  return (
-    process.env.ABI_ONCHAIN_ENABLED === "1" ||
-    Boolean(process.env.CDP_API_KEY_ID?.trim() && process.env.CDP_API_KEY_SECRET?.trim())
+  if (process.env.ABI_ONCHAIN_ENABLED === "1") return true;
+  if (process.env.ABI_ONCHAIN_ENABLED === "0") return false;
+  const legacyCdp = Boolean(
+    process.env.CDP_API_KEY_ID?.trim() && process.env.CDP_API_KEY_SECRET?.trim(),
   );
+  if (legacyCdp && process.env.NODE_ENV !== "test") {
+    console.warn(
+      "[custody] CDP_API_KEY_* enables the local self-custody signer only — " +
+        "it does not connect Coinbase CDP. Prefer ABI_ONCHAIN_ENABLED=1.",
+    );
+  }
+  return legacyCdp;
 }
 
 let active: CustodyProvider | null = null;

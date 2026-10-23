@@ -2,13 +2,7 @@
  * Outbound USDC transfer from the org vault EOA (Base / Base Sepolia).
  * Used by the agent `pay` rail so settlement is a real ERC-20 Transfer, not a mock hash.
  */
-import {
-  createPublicClient,
-  createWalletClient,
-  http,
-  type Address,
-  type Hex,
-} from "viem";
+import { createPublicClient, createWalletClient, http, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base, baseSepolia } from "viem/chains";
 import { activeChain, rpcUrl, type ChainConfig } from "./network.js";
@@ -177,10 +171,7 @@ async function broadcastUsdcTransfer(input: {
     if (e instanceof VaultTransferError) throw e;
     const msg = e instanceof Error ? e.message : String(e);
     if (/insufficient funds|gas|intrinsic/i.test(msg)) {
-      throw new VaultTransferError(
-        "INSUFFICIENT_GAS",
-        `Vault needs more ETH for gas: ${msg}`,
-      );
+      throw new VaultTransferError("INSUFFICIENT_GAS", `Vault needs more ETH for gas: ${msg}`);
     }
     throw new VaultTransferError("TRANSFER_FAILED", msg);
   }
