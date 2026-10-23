@@ -1,0 +1,54 @@
+# ABI API on Cloudflare Workers (Durable Object + SQLite).
+# Preview / local only until Maurice approves a live deploy.
+#
+# Dashboard (Maurice): set Worker root directory to apps/api-worker,
+# deploy command `npx wrangler deploy`, non-prod `npx wrangler versions upload`.
+# Or disconnect Git builds so merges to main do not auto-deploy.
+
+name = "abi-api"
+main = "src/worker.ts"
+# Use a date supported by the installed workerd; nodejs_compat is explicit for clarity.
+compatibility_date = "2025-10-11"
+compatibility_flags = ["nodejs_compat"]
+
+# Free-plan observability (Workers Logs).
+[observability]
+enabled = true
+
+# Plain text vars — override per environment as needed.
+# POLICYVAULT_ALLOW_BOOTSTRAP: Maurice decides (1 keeps Demo mode).
+[vars]
+CHAIN = "base-sepolia"
+ABI_CONSOLE_URL = "https://artificial-banking-inc-web.vercel.app"
+ABI_CORS_ORIGINS = "https://artificial-banking-inc-web.vercel.app"
+ABI_NOTIFY_EMAIL_FROM = "ABI <noreply@example.com>"
+ABI_RUNTIME = "cloudflare-workers"
+ABI_NO_LISTEN = "1"
+ABI_RUN_JOBS = "0"
+POLICYVAULT_ALLOW_BOOTSTRAP = "1"
+ABI_ALLOW_UNVERIFIED_SIGNUP = "1"
+
+# Secrets (set via `npx wrangler secret put <NAME>` after Maurice's login/approval):
+#   BREVO_API_KEY          — primary email (free HTTP API; preferred)
+#   RESEND_API_KEY         — optional email fallback (fetch)
+#   ABI_KEK
+#   ABI_KEY_PEPPER
+#   ABI_SIGNUP_TOKEN
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_CHAT_ID
+#   TELEGRAM_ALLOWED_USER_IDS
+#   TELEGRAM_WEBHOOK_SECRET
+#   CHAIN_RPC_URL          — if it embeds a provider key
+# Do NOT put SMTP_* secrets here for the Worker path — SMTP/nodemailer is Node-only (#63).
+
+[[durable_objects.bindings]]
+name = "ABI"
+class_name = "AbiApi"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AbiApi"]
+
+# Alias native better-sqlite3 to the Durable Object SQL shim when bundling.
+[alias]
+"better-sqlite3" = "./src/shims/better-sqlite3.ts"

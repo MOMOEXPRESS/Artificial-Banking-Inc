@@ -355,9 +355,16 @@ const DB_PATH =
     ? join("/tmp", "policyvault.db")
     : join(process.cwd(), "data", "policyvault.db"));
 
-mkdirSync(dirname(DB_PATH), { recursive: true });
+function isWorkersRuntime(): boolean {
+  return (
+    process.env.ABI_RUNTIME === "cloudflare-workers" ||
+    (globalThis as { __ABI_STORE_DB__?: unknown }).__ABI_STORE_DB__ != null
+  );
+}
 
 function applyEssentialPragmas(database: Database.Database): void {
+  // Durable Object SQLite ignores / owns journaling; skip pragmas there.
+  if (isWorkersRuntime()) return;
   // DELETE on Vercel so a single file can be synced via Runtime Cache (no -wal/-shm).
   database.pragma(process.env.VERCEL ? "journal_mode = DELETE" : "journal_mode = WAL");
   database.pragma("foreign_keys = ON");
@@ -386,8 +393,55 @@ function installPrepareRevisionHook(database: Database.Database): void {
   };
 }
 
-let db = new Database(DB_PATH);
-applyEssentialPragmas(db);
+/**
+ * Open SQLite lazily so Cloudflare Workers can inject a Durable Object
+ * SqlStorage adapter (`globalThis.__ABI_STORE_DB__`) before first use.
+ * Node / Render keep the previous on-disk better-sqlite3 path.
+ */
+function openStoreDatabase(): Database.Database {
+  const injected = (globalThis as { __ABI_STORE_DB__?: Database.Database }).__ABI_STORE_DB__;
+  if (injected) return injected;
+  if (!isWorkersRuntime()) {
+    mkdirSync(dirname(DB_PATH), { recursive: true });
+  }
+  const database = new Database(DB_PATH);
+  applyEssentialPragmas(database);
+  return database;
+}
+
+let dbInstance: Database.Database | null = null;
+let prepareHookInstalled = false;
+
+function ensureDb(): Database.Database {
+  if (!dbInstance) {
+    dbInstance = openStoreDatabase();
+  }
+  return dbInstance;
+}
+
+/**
+ * Proxy so existing `db.prepare` / `db.transaction` call sites stay sync and
+ * unchanged, while construction becomes lazy/injectable for Workers.
+ */
+const db: Database.Database = new Proxy({} as Database.Database, {
+  get(_target, prop, _receiver) {
+    const real = ensureDb();
+    const value = Reflect.get(real, prop, real);
+    return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(real) : value;
+  },
+  set(_target, prop, value) {
+    return Reflect.set(ensureDb(), prop, value);
+  },
+});
+
+/** Test / Worker helper: replace the live handle (must be called before first use). */
+export function injectStoreDatabase(database: Database.Database): void {
+  if (dbInstance) {
+    throw new Error("injectStoreDatabase: store database already opened");
+  }
+  dbInstance = database;
+  (globalThis as { __ABI_STORE_DB__?: Database.Database }).__ABI_STORE_DB__ = database;
+}
 
 /** A13 — rehash any leftover plaintext secrets once at boot (idempotent). */
 function migrateSecretsAtRest(): void {
@@ -457,10 +511,12 @@ export function getDbPath(): string {
 /** Release the SQLite handle so hydrate can safely replace the file on disk. */
 export function closeDb(): void {
   try {
-    db.close();
+    ensureDb().close();
   } catch {
     /* already closed */
   }
+  dbInstance = null;
+  prepareHookInstalled = false;
 }
 
 /**
@@ -469,9 +525,9 @@ export function closeDb(): void {
  */
 export function reloadDbFromDisk(): void {
   closeDb();
-  db = new Database(DB_PATH);
-  applyEssentialPragmas(db);
-  installPrepareRevisionHook(db);
+  dbInstance = openStoreDatabase();
+  installPrepareRevisionHook(dbInstance);
+  prepareHookInstalled = true;
   migrateSecretsAtRest();
   migrateVaultKeysAtRest();
   bumpRevision();
@@ -479,9 +535,10 @@ export function reloadDbFromDisk(): void {
 
 /** Flush WAL into the main DB file before persisting a single-file snapshot. */
 export function flushDbForPersist(): void {
-  const mode = String(db.pragma("journal_mode", { simple: true }) ?? "").toLowerCase();
+  if (isWorkersRuntime()) return;
+  const mode = String(ensureDb().pragma("journal_mode", { simple: true }) ?? "").toLowerCase();
   if (mode === "wal") {
-    db.pragma("wal_checkpoint(TRUNCATE)");
+    ensureDb().pragma("wal_checkpoint(TRUNCATE)");
   }
   // DELETE mode: better-sqlite3 writes sync to the main file.
 }
@@ -1306,8 +1363,14 @@ function cached<T>(key: string, compute: () => T): T {
  * Single choke point for invalidation: every mutating statement bumps the
  * revision automatically. Hand-placing bump calls in each writer would
  * eventually miss one and serve a stale balance — this cannot.
+ *
+ * Installed on first ensureDb() after schema bootstrap (module-level SQL below
+ * already opened the handle via the Proxy).
  */
-installPrepareRevisionHook(db);
+if (!prepareHookInstalled) {
+  installPrepareRevisionHook(ensureDb());
+  prepareHookInstalled = true;
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;

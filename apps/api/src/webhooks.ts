@@ -91,6 +91,11 @@ async function attemptDelivery(args: {
       lastError: String(e),
     });
     if (!failedForGood) {
+      // Workers: Durable Object alarm re-drives pending rows (no setTimeout).
+      // Node/Render: keep in-process delayed retry; PR #61 moves this fully to DB.
+      if (process.env.ABI_RUNTIME === "cloudflare-workers") {
+        return;
+      }
       const delay = RETRY_DELAYS_MS[args.attempt - 1] ?? 10_000;
       setTimeout(() => {
         void attemptDelivery({ ...args, attempt: args.attempt + 1 });
@@ -127,4 +132,99 @@ export function emitEvent(orgId: string, event: WebhookEvent, payload: unknown):
       attempt: 1,
     });
   }
+}
+
+/**
+ * Re-drive pending deliveries.
+ *
+ * Seam for PR #61: that branch adds `next_attempt_at` + `store.listDueWebhookDeliveries`.
+ * On main we sweep `status='pending'` rows and skip setTimeout when running under
+ * the Workers Durable Object alarm (`ABI_RUNTIME=cloudflare-workers`).
+ */
+export async function retryPendingWebhookDeliveries(): Promise<{ attempted: number }> {
+  const storeAny = store as unknown as {
+    listDueWebhookDeliveries?: (limit: number) => Array<{
+      id: number;
+      webhookId: string;
+      url: string;
+      event: string;
+      attempts: number;
+      payload: unknown;
+    }>;
+    listPendingWebhookDeliveries?: (limit: number) => Array<{
+      id: number;
+      webhookId: string;
+      url: string;
+      event: string;
+      attempts: number;
+      payload: unknown;
+    }>;
+  };
+
+  const due =
+    storeAny.listDueWebhookDeliveries?.(50) ??
+    storeAny.listPendingWebhookDeliveries?.(50) ??
+    listPendingDeliveriesFallback(50);
+
+  let attempted = 0;
+  for (const row of due) {
+    const endpoint = store.getWebhookAnyOrg(row.webhookId);
+    if (!endpoint) {
+      store.updateDelivery(row.id, {
+        status: "failed",
+        attempts: row.attempts,
+        lastError: "Webhook endpoint deleted",
+      });
+      continue;
+    }
+    const payload =
+      row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+        ? (row.payload as Record<string, unknown>)
+        : { data: row.payload };
+    const body = JSON.stringify({ ...payload, deliveryId: row.id });
+    attempted += 1;
+    await attemptDelivery({
+      deliveryId: row.id,
+      url: row.url,
+      secret: endpoint.secret,
+      event: row.event as WebhookEvent,
+      body,
+      attempt: Math.max(1, row.attempts + 1),
+    });
+  }
+  return { attempted };
+}
+
+function listPendingDeliveriesFallback(limit: number): Array<{
+  id: number;
+  webhookId: string;
+  url: string;
+  event: string;
+  attempts: number;
+  payload: unknown;
+}> {
+  // Use public store surface: scan recent deliveries per org.
+  const out: Array<{
+    id: number;
+    webhookId: string;
+    url: string;
+    event: string;
+    attempts: number;
+    payload: unknown;
+  }> = [];
+  for (const orgId of store.listOrgIds()) {
+    for (const row of store.listDeliveries(orgId, 100)) {
+      if (row.status !== "pending") continue;
+      out.push({
+        id: row.id,
+        webhookId: row.webhookId,
+        url: row.url,
+        event: row.event,
+        attempts: row.attempts,
+        payload: row.payload,
+      });
+      if (out.length >= limit) return out;
+    }
+  }
+  return out;
 }

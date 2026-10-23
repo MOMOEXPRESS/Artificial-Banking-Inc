@@ -21,6 +21,11 @@ const DEV_PEPPER = "abi-dev-pepper-change-me";
  */
 export function demoDerivedSecret(purpose: "key-pepper" | "key-encryption"): string | undefined {
   if (process.env.POLICYVAULT_ALLOW_BOOTSTRAP !== "1") return undefined;
+  // Cloudflare Workers: no durable local disk for abi-demo-secrets.json (PR #61)
+  // and no silent derive-from-signup-token. Require ABI_KEY_PEPPER / ABI_KEK secrets.
+  if (process.env.ABI_RUNTIME === "cloudflare-workers") {
+    return undefined;
+  }
   const signupToken = process.env.ABI_SIGNUP_TOKEN?.trim();
   if (!signupToken) return undefined;
   return createHmac("sha256", signupToken)

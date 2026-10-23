@@ -15,6 +15,21 @@
       "types": "./dist/jobs/scheduler.d.ts",
       "import": "./dist/jobs/scheduler.js",
       "default": "./dist/jobs/scheduler.js"
+    },
+    "./worker-app": {
+      "types": "./src/worker-app.ts",
+      "import": "./src/worker-app.ts",
+      "default": "./src/worker-app.ts"
+    },
+    "./mcp-internal": {
+      "types": "./src/mcp-internal.ts",
+      "import": "./src/mcp-internal.ts",
+      "default": "./src/mcp-internal.ts"
+    },
+    "./password": {
+      "types": "./src/password-export.ts",
+      "import": "./src/password-export.ts",
+      "default": "./src/password-export.ts"
     }
   },
   "scripts": {

@@ -41,7 +41,12 @@ import {
   type RunRow,
 } from "./store.js";
 import { reconcileOrgOnchain } from "./treasury-backing.js";
-import { startTelegramPolling, telegramEnabled, registerTelegramNotifier } from "./telegram.js";
+import {
+  startTelegramPolling,
+  telegramEnabled,
+  registerTelegramNotifier,
+  registerTelegramWebhookRoute,
+} from "./telegram.js";
 import { notify, registerInAppNotifier, registerNotifier } from "./platform/notifier.js";
 import { presentAnswer, setFactRephraser } from "./platform/ai.js";
 import {
@@ -97,7 +102,18 @@ app.use(
 );
 // Behind the Next proxy / a load balancer, so req.ip must come from
 // X-Forwarded-For or every caller shares one rate-limit bucket.
+// On Cloudflare Workers, prefer CF-Connecting-IP (set by the edge).
 app.set("trust proxy", true);
+app.use((req, _res, next) => {
+  const cf = req.header("cf-connecting-ip")?.trim();
+  if (cf) {
+    // Express trust-proxy uses x-forwarded-for; ensure CF IP is visible.
+    if (!req.headers["x-forwarded-for"]) {
+      req.headers["x-forwarded-for"] = cf;
+    }
+  }
+  next();
+});
 app.use(express.json());
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -567,6 +583,7 @@ registerPolicyRoutes(app, { guardianRoute });
 registerPaymentRoutes(app, { guardianRoute });
 registerPlatformRoutes(app, { guardianRoute });
 registerRemoteMcp(app);
+registerTelegramWebhookRoute(app);
 
 /** Wrap an async route handler so rejections become clean HTTP errors. */
 function asyncRoute(
@@ -846,7 +863,7 @@ app.get("/health", (_req, res) => {
       : null,
     uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
     legal: LEGAL_FOOTER,
-    telegram: telegramEnabled,
+    telegram: telegramEnabled(),
   });
 });
 
@@ -2020,7 +2037,7 @@ app.get(
           custodyName === "dev-local"
             ? "Dev-local signer. Set ABI_ONCHAIN_ENABLED=1 to enable the on-chain self-custody signer; this does not connect Coinbase CDP."
             : "On-chain mode with application-managed self-custody. Managed custody (Coinbase CDP Server Wallets) is not implemented.",
-        telegram: telegramEnabled,
+        telegram: telegramEnabled(),
         rateLimitPerMin: RATE_LIMIT_PER_MIN,
         approvalTtlMinutes: APPROVAL_TTL_MINUTES,
       },

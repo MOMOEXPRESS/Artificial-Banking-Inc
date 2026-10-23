@@ -1,0 +1,14 @@
+# Local-only secrets for `wrangler dev` (copy to .dev.vars — gitignored).
+# Generate: openssl rand -base64 32
+
+ABI_KEK=
+ABI_KEY_PEPPER=
+ABI_SIGNUP_TOKEN=
+BREVO_API_KEY=
+RESEND_API_KEY=
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+TELEGRAM_ALLOWED_USER_IDS=
+TELEGRAM_WEBHOOK_SECRET=
+CHAIN_RPC_URL=
+ABI_ALLOW_UNVERIFIED_SIGNUP=1
