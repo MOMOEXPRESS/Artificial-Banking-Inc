@@ -114,7 +114,10 @@ export function ChatView({
     });
 
   return (
-    <div className="chat-shell card console-page assistant-page" style={{ display: "flex", flexDirection: "column", minHeight: "70vh" }}>
+    <div
+      className="chat-shell card console-page assistant-page"
+      style={{ display: "flex", flexDirection: "column", minHeight: "70vh" }}
+    >
       <div className="card-head">
         <div>
           <h2>ABI Assistant</h2>
@@ -146,7 +149,12 @@ export function ChatView({
                 <Button size="sm" disabled={locked} onClick={() => void resolve(a.id, true)}>
                   Approve
                 </Button>
-                <Button variant="destructive" size="sm" disabled={locked} onClick={() => void resolve(a.id, false)}>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={locked}
+                  onClick={() => void resolve(a.id, false)}
+                >
                   Deny
                 </Button>
               </div>
@@ -162,7 +170,8 @@ export function ChatView({
           </div>
         ) : messages.length === 0 ? (
           <Empty icon="spark">
-            ABI can survey agents, explain denials against policy bands, or recommend next steps — try a chip below.
+            ABI can survey agents, explain denials against policy bands, or recommend next steps —
+            try a chip below.
           </Empty>
         ) : (
           messages.map((m) => {
@@ -183,13 +192,16 @@ export function ChatView({
                 )}
                 {m.kind === "approval_request" && m.approvalId && (
                   <div className="row" style={{ marginTop: 10, gap: 8 }}>
-                    <Button size="sm"
+                    <Button
+                      size="sm"
                       disabled={locked || !pending.some((p) => p.id === m.approvalId)}
                       onClick={() => void resolve(m.approvalId!, true)}
                     >
                       Approve
                     </Button>
-                    <Button variant="destructive" size="sm"
+                    <Button
+                      variant="destructive"
+                      size="sm"
                       disabled={locked || !pending.some((p) => p.id === m.approvalId)}
                       onClick={() => void resolve(m.approvalId!, false)}
                     >
@@ -198,7 +210,12 @@ export function ChatView({
                   </div>
                 )}
                 {typeof m.meta?.goto === "string" && m.meta.goto !== "chat" && (
-                  <Button variant="ghost" size="sm" style={{ marginTop: 8 }} onClick={() => onGoto(String(m.meta!.goto))}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    style={{ marginTop: 8 }}
+                    onClick={() => onGoto(String(m.meta!.goto))}
+                  >
                     Open {viewLabel(String(m.meta.goto))} <Icon name="arrowRight" size={12} />
                   </Button>
                 )}
@@ -230,7 +247,11 @@ export function ChatView({
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void send(draft)}
         />
-        <button onClick={() => void send(draft)} disabled={locked || !draft.trim()} aria-label="Send">
+        <button
+          onClick={() => void send(draft)}
+          disabled={locked || !draft.trim()}
+          aria-label="Send"
+        >
           <Icon name="send" />
         </button>
       </div>

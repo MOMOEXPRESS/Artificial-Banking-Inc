@@ -43,10 +43,7 @@ export function ConsoleCommandPalette({
 }) {
   const views = useMemo(() => GO_MAP, []);
   const denials = useMemo(
-    () =>
-      decisions
-        .filter((d) => d.outcome === "deny" || d.outcome === "denied")
-        .slice(0, 40),
+    () => decisions.filter((d) => d.outcome === "deny" || d.outcome === "denied").slice(0, 40),
     [decisions],
   );
 

@@ -26,7 +26,11 @@ const Database = (await import("better-sqlite3")).default;
 const db = new Database(process.env.POLICYVAULT_DB, { readonly: true });
 
 /** snake_case table -> PascalCase model. */
-const model = (t) => t.split("_").map((p) => p[0].toUpperCase() + p.slice(1)).join("");
+const model = (t) =>
+  t
+    .split("_")
+    .map((p) => p[0].toUpperCase() + p.slice(1))
+    .join("");
 /** snake_case column -> camelCase field. */
 const field = (c) => c.replace(/_([a-z])/g, (_, x) => x.toUpperCase());
 
@@ -61,7 +65,9 @@ function defaultFor(col) {
 }
 
 const tables = db
-  .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+  .prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+  )
   .all();
 
 const lines = [
@@ -90,7 +96,7 @@ const lines = [
   "",
   "datasource db {",
   '  provider = "postgresql"',
-  "  url      = env(\"DATABASE_URL\")",
+  '  url      = env("DATABASE_URL")',
   "}",
   "",
 ];
@@ -130,7 +136,12 @@ for (const { name } of tables) {
     const names = info.map((i) => field(i.name)).filter(Boolean);
     if (!names.length) continue;
     // A single-column unique on the primary key is already expressed by @id.
-    if (idx.unique && pkCols.length === 1 && names.length === 1 && names[0] === field(pkCols[0].name)) {
+    if (
+      idx.unique &&
+      pkCols.length === 1 &&
+      names.length === 1 &&
+      names[0] === field(pkCols[0].name)
+    ) {
       continue;
     }
     lines.push(`  ${idx.unique ? "@@unique" : "@@index"}([${names.join(", ")}])`);

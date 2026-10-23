@@ -201,7 +201,10 @@ describe("x402 client guard", () => {
     assert.doesNotThrow(() => assertSignedPayloadMatches(good, expected));
     const wrongTo = structuredClone(good);
     wrongTo.payload.authorization.to = attacker;
-    assert.throws(() => assertSignedPayloadMatches(wrongTo, expected), isCode("SIGNED_PAYLOAD_MISMATCH"));
+    assert.throws(
+      () => assertSignedPayloadMatches(wrongTo, expected),
+      isCode("SIGNED_PAYLOAD_MISMATCH"),
+    );
     const wrongValue = structuredClone(good);
     wrongValue.payload.authorization.value = "10001";
     assert.throws(
@@ -210,6 +213,9 @@ describe("x402 client guard", () => {
     );
     const wrongNet = structuredClone(good);
     wrongNet.accepted.network = "eip155:8453";
-    assert.throws(() => assertSignedPayloadMatches(wrongNet, expected), isCode("SIGNED_PAYLOAD_MISMATCH"));
+    assert.throws(
+      () => assertSignedPayloadMatches(wrongNet, expected),
+      isCode("SIGNED_PAYLOAD_MISMATCH"),
+    );
   });
 });

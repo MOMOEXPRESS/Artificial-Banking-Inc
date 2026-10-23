@@ -6,7 +6,11 @@ const { store } = await import("../src/store.js");
 store.createOrg("Schema Probe", 0n); // force migrations + seeds to run
 const Database = (await import("better-sqlite3")).default;
 const db = new Database(process.env.POLICYVAULT_DB, { readonly: true });
-const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+const tables = db
+  .prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+  )
+  .all();
 const out = [];
 for (const { name } of tables) {
   const cols = db.prepare(`PRAGMA table_info(${name})`).all();

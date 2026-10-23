@@ -52,7 +52,9 @@ describe("runAbiAgent", () => {
         meta: { toolsUsed: first.toolsUsed, scratchpad: first.scratchpad },
       },
     ]);
-    assert.ok(second.toolsUsed.includes("list_agents") || second.toolsUsed.includes("agent_detail"));
+    assert.ok(
+      second.toolsUsed.includes("list_agents") || second.toolsUsed.includes("agent_detail"),
+    );
   });
 
   it("drafts a marketing blurb without moving money", async () => {
@@ -138,7 +140,9 @@ describe("runAbiAgent", () => {
       at: new Date().toISOString(),
     });
     const res = await runAbiAgent(demo.orgId, "why was api.pricey.example denied?");
-    assert.ok(res.toolsUsed.includes("explain_decision") || res.toolsUsed.includes("lookup_decision"));
+    assert.ok(
+      res.toolsUsed.includes("explain_decision") || res.toolsUsed.includes("lookup_decision"),
+    );
     assert.match(res.answer, /api\.pricey\.example|DENY|Band context|per-payment|ask-me/i);
   });
 
@@ -162,7 +166,8 @@ describe("runAbiAgent", () => {
     const e = bindEntities(demo.orgId, "Why was $25 to api.pricey.example blocked?");
     assert.equal(e.amountUsdc, "25");
     assert.ok(
-      e.destinations.some((d) => /pricey/i.test(d)) || e.destinations.includes("api.pricey.example"),
+      e.destinations.some((d) => /pricey/i.test(d)) ||
+        e.destinations.includes("api.pricey.example"),
     );
   });
 

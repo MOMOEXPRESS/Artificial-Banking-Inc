@@ -44,8 +44,7 @@ export function bindAgents(orgId: string, message: string): { id: string; name: 
 /** Pull a $amount or bare number that looks like USDC. */
 export function bindAmountUsdc(message: string): string | undefined {
   const m =
-    message.match(/\$\s*(\d+(?:\.\d{1,6})?)/) ||
-    message.match(/\b(\d+(?:\.\d{1,6})?)\s*usdc\b/i);
+    message.match(/\$\s*(\d+(?:\.\d{1,6})?)/) || message.match(/\b(\d+(?:\.\d{1,6})?)\s*usdc\b/i);
   return m?.[1];
 }
 

@@ -152,7 +152,9 @@ const PATHS: Record<string, ReactNode> = {
       <circle cx="12" cy="3.4" r="1.3" />
     </>
   ),
-  external: <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />,
+  external: (
+    <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+  ),
   download: <path d="M12 3.5v11m0 0 4-4m-4 4-4-4M4 18.5v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1" />,
   send: <path d="M21.5 3.5 2.5 10.8l7.3 2.9 2.9 7.3 8.8-17.5zM9.8 13.7l4.6-4.6" />,
   clock: (
@@ -322,7 +324,13 @@ export function Donut({
   );
 }
 
-export function Sparkline({ values, highlightLast = true }: { values: number[]; highlightLast?: boolean }) {
+export function Sparkline({
+  values,
+  highlightLast = true,
+}: {
+  values: number[];
+  highlightLast?: boolean;
+}) {
   const max = Math.max(...values, 1);
   return (
     <div className="spark">
@@ -367,7 +375,8 @@ export function Calendar({ marks }: { marks: string[] }) {
             <Icon name="arrowRight" />
           </span>
         </button>
-        <Button variant="bare"
+        <Button
+          variant="bare"
           onClick={() => setOffset(0)}
           title={offset === 0 ? "Current month" : "Back to this month"}
           style={{ fontSize: 14.5, fontWeight: 600, color: "var(--text)" }}
@@ -451,7 +460,16 @@ export function Empty({
     <div className="empty empty-rich">
       <div className="empty-art" aria-hidden>
         <svg viewBox="0 0 120 80" width="96" height="64" fill="none">
-          <rect x="8" y="18" width="104" height="52" rx="2" stroke="currentColor" strokeWidth="2" opacity="0.35" />
+          <rect
+            x="8"
+            y="18"
+            width="104"
+            height="52"
+            rx="2"
+            stroke="currentColor"
+            strokeWidth="2"
+            opacity="0.35"
+          />
           <path d="M8 34h104" stroke="currentColor" strokeWidth="2" opacity="0.25" />
           <circle cx="22" cy="26" r="3" fill="currentColor" opacity="0.4" />
           <circle cx="34" cy="26" r="3" fill="currentColor" opacity="0.4" />

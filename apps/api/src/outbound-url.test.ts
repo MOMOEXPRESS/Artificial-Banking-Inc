@@ -92,7 +92,10 @@ describe("outboundUrlProblem", () => {
 
   it("names the caller so the message is actionable", () => {
     setEnv("production");
-    assert.match(String(outboundUrlProblem("http://127.0.0.1/x", "Payment destination")), /Payment destination/);
+    assert.match(
+      String(outboundUrlProblem("http://127.0.0.1/x", "Payment destination")),
+      /Payment destination/,
+    );
     assert.match(String(webhookUrlProblem("http://127.0.0.1/x")), /Webhook URL/);
   });
 

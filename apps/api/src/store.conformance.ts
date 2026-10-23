@@ -38,7 +38,9 @@ export type StoreUnderTest = {
   scopedStore: typeof ScopedStoreFn;
 };
 
-const j = (over: Partial<JournalEntry> & { orgId: string; lines: JournalEntry["lines"] }): JournalEntry => ({
+const j = (
+  over: Partial<JournalEntry> & { orgId: string; lines: JournalEntry["lines"] },
+): JournalEntry => ({
   id: `j_${Math.random().toString(16).slice(2, 10)}`,
   memo: "conformance",
   createdAt: new Date().toISOString(),

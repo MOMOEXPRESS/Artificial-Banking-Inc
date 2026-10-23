@@ -119,7 +119,13 @@ function buildSummaryUncached(orgId: string, hours = 24): Summary {
     );
   } else {
     const dir =
-      change === null ? "" : change > 0 ? ` — up ${change}% on the prior period` : change < 0 ? ` — down ${Math.abs(change)}% on the prior period` : " — flat on the prior period";
+      change === null
+        ? ""
+        : change > 0
+          ? ` — up ${change}% on the prior period`
+          : change < 0
+            ? ` — down ${Math.abs(change)}% on the prior period`
+            : " — flat on the prior period";
     sentences.push(
       `Agents settled ${usdNum(spend)} across ${recent.filter((d) => d.outcome === "allow").length} payments in ${period}${dir}.`,
     );
@@ -135,7 +141,8 @@ function buildSummaryUncached(orgId: string, hours = 24): Summary {
 
   if (denied.length) {
     const reasons = new Map<string, number>();
-    for (const d of denied) reasons.set(d.ruleIds[0] ?? "policy", (reasons.get(d.ruleIds[0] ?? "policy") ?? 0) + 1);
+    for (const d of denied)
+      reasons.set(d.ruleIds[0] ?? "policy", (reasons.get(d.ruleIds[0] ?? "policy") ?? 0) + 1);
     const top = [...reasons.entries()].sort((a, b) => b[1] - a[1])[0];
     sentences.push(
       `The policy engine blocked ${denied.length} attempt${denied.length === 1 ? "" : "s"}, mostly on ${top[0].replace(/_/g, " ")} — that is the guardrail doing its job, not an error.`,
@@ -148,7 +155,9 @@ function buildSummaryUncached(orgId: string, hours = 24): Summary {
       `${pending.length} payment${pending.length === 1 ? " is" : "s are"} parked waiting on you, the oldest since ${new Date(oldest.createdAt).toLocaleTimeString()} — agents are blocked until you decide.`,
     );
   } else if (reviewed.length) {
-    sentences.push(`All ${reviewed.length} escalation${reviewed.length === 1 ? "" : "s"} this period have been resolved.`);
+    sentences.push(
+      `All ${reviewed.length} escalation${reviewed.length === 1 ? "" : "s"} this period have been resolved.`,
+    );
   }
 
   if (locked.length) {
@@ -182,7 +191,9 @@ function buildSummaryUncached(orgId: string, hours = 24): Summary {
     );
   }
   if (failedHooks.length) {
-    sentences.push(`${failedHooks.length} webhook deliveries failed permanently; downstream systems may be out of sync.`);
+    sentences.push(
+      `${failedHooks.length} webhook deliveries failed permanently; downstream systems may be out of sync.`,
+    );
   }
 
   const headline =
@@ -234,7 +245,10 @@ function buildSummaryUncached(orgId: string, hours = 24): Summary {
 
 /* ------------------------------------------------------------------ Q & A */
 
-export function answerQuestion(orgId: string, questionRaw: string): { answer: string; goto?: string } {
+export function answerQuestion(
+  orgId: string,
+  questionRaw: string,
+): { answer: string; goto?: string } {
   const q = questionRaw.toLowerCase().trim();
   const decisions = store.listDecisions(orgId, 500);
   const allow = decisions.filter((d) => d.outcome === "allow");
@@ -257,16 +271,24 @@ export function answerQuestion(orgId: string, questionRaw: string): { answer: st
 
   if (has("deny", "denied", "blocked", "refuse", "reject")) {
     const denied = decisions.filter((d) => d.outcome === "deny");
-    if (!denied.length) return { answer: "Nothing has been blocked — no agent has tried anything outside policy yet." };
+    if (!denied.length)
+      return {
+        answer: "Nothing has been blocked — no agent has tried anything outside policy yet.",
+      };
     const byRule = new Map<string, number>();
-    for (const d of denied) byRule.set(d.ruleIds[0] ?? "policy", (byRule.get(d.ruleIds[0] ?? "policy") ?? 0) + 1);
+    for (const d of denied)
+      byRule.set(d.ruleIds[0] ?? "policy", (byRule.get(d.ruleIds[0] ?? "policy") ?? 0) + 1);
     const list = [...byRule.entries()].map(([r, n]) => `${n}× ${r.replace(/_/g, " ")}`).join(", ");
-    return { answer: `${denied.length} attempts were blocked: ${list}. The most recent was ${usd(BigInt(Math.round(Number(denied[0].amountUsdc) * 1e6)))} to ${denied[0].destination}.`, goto: "activity" };
+    return {
+      answer: `${denied.length} attempts were blocked: ${list}. The most recent was ${usd(BigInt(Math.round(Number(denied[0].amountUsdc) * 1e6)))} to ${denied[0].destination}.`,
+      goto: "activity",
+    };
   }
 
   if (has("approval", "waiting", "pending", "approve")) {
     const pending = store.listApprovals(orgId, "pending", 50);
-    if (!pending.length) return { answer: "Nothing is waiting on you — inbox zero.", goto: "approvals" };
+    if (!pending.length)
+      return { answer: "Nothing is waiting on you — inbox zero.", goto: "approvals" };
     return {
       answer: `${pending.length} payment${pending.length === 1 ? "" : "s"} waiting: ${pending
         .map((p) => `${usd(p.amountMicro)} to ${p.destination}`)
@@ -310,7 +332,12 @@ export function answerQuestion(orgId: string, questionRaw: string): { answer: st
   if (has("invoice", "revenue", "income", "owed", "billed")) {
     const paid = invoices.filter((i) => i.status === "paid");
     const open = invoices.filter((i) => i.status === "sent" || i.status === "overdue");
-    if (!invoices.length) return { answer: "No invoices yet. Create one from the Invoices screen to bill a client for agent work.", goto: "invoices" };
+    if (!invoices.length)
+      return {
+        answer:
+          "No invoices yet. Create one from the Invoices screen to bill a client for agent work.",
+        goto: "invoices",
+      };
     return {
       answer: `${invoices.length} invoices: ${usd(paid.reduce((a, i) => a + i.amountMicro, 0n))} collected, ${usd(open.reduce((a, i) => a + i.amountMicro, 0n))} outstanding across ${open.length} unpaid.`,
       goto: "invoices",
