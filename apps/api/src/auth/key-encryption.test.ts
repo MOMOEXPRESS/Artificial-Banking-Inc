@@ -18,9 +18,8 @@ process.env.ABI_NO_LISTEN = "1";
 process.env.ABI_KEK = "test-key-encryption-key";
 
 const { store } = await import("../store.js");
-const { decryptSecret, encryptSecret, isEncrypted, KeyEncryptionError } = await import(
-  "./key-encryption.js"
-);
+const { decryptSecret, encryptSecret, isEncrypted, KeyEncryptionError } =
+  await import("./key-encryption.js");
 const Database = (await import("better-sqlite3")).default;
 
 const ORIGINAL_ENV = process.env.NODE_ENV;

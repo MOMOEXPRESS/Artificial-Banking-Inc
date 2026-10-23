@@ -70,7 +70,12 @@ export function runTool(
     case "list_agents": {
       const agents = store.listAgents(orgId).filter((a) => a.status !== "archived");
       if (!agents.length) {
-        return { tool: name, title: "Agents", text: "No agents on the roster yet.", goto: "agents" };
+        return {
+          tool: name,
+          title: "Agents",
+          text: "No agents on the roster yet.",
+          goto: "agents",
+        };
       }
       const accounts = store.getAccountMap(orgId);
       const lines = agents.map((a) => {
@@ -92,7 +97,9 @@ export function runTool(
     case "agent_detail": {
       const agents = store.listAgents(orgId).filter((a) => a.status !== "archived");
       const wantId = String(args.agentId ?? "").trim();
-      const wantName = String(args.agentName ?? args.query ?? "").toLowerCase().trim();
+      const wantName = String(args.agentName ?? args.query ?? "")
+        .toLowerCase()
+        .trim();
       let agent =
         (wantId && agents.find((a) => a.id === wantId)) ||
         (wantName && agents.find((a) => a.name.toLowerCase() === wantName)) ||
@@ -120,10 +127,12 @@ export function runTool(
         .listFreezes(orgId, 30)
         .filter((f) => f.agentId === agent!.id)
         .slice(0, 2);
-      const recent = decisions.slice(0, 4).map(
-        (d) =>
-          `  · ${d.outcome.toUpperCase()} $${d.amountUsdc} → ${d.destination} (${d.ruleIds[0] ?? "policy"})`,
-      );
+      const recent = decisions
+        .slice(0, 4)
+        .map(
+          (d) =>
+            `  · ${d.outcome.toUpperCase()} $${d.amountUsdc} → ${d.destination} (${d.ruleIds[0] ?? "policy"})`,
+        );
       const lines = [
         `${agent.name} — ${agent.status}`,
         `Stipend available: ${usd(bal)} · 24h spend: ${usd(spent)}`,
@@ -131,7 +140,9 @@ export function runTool(
         freezes.length
           ? `Freeze history: ${freezes.map((f) => f.reason).join("; ")}`
           : "No freezes on file.",
-        recent.length ? `Latest:\n${recent.join("\n")}` : "No payment decisions yet for this agent.",
+        recent.length
+          ? `Latest:\n${recent.join("\n")}`
+          : "No payment decisions yet for this agent.",
       ];
       return {
         tool: name,
@@ -349,7 +360,9 @@ export function runTool(
       };
     }
     case "lookup_decision": {
-      const q = String(args.query ?? args.destination ?? "").toLowerCase().trim();
+      const q = String(args.query ?? args.destination ?? "")
+        .toLowerCase()
+        .trim();
       const decisions = store.listDecisions(orgId, 400);
       const matched = q
         ? decisions.filter(
@@ -385,7 +398,9 @@ export function runTool(
       };
     }
     case "explain_decision": {
-      const q = String(args.query ?? args.destination ?? "").toLowerCase().trim();
+      const q = String(args.query ?? args.destination ?? "")
+        .toLowerCase()
+        .trim();
       const agentId = String(args.agentId ?? "").trim();
       const decisions = agentId
         ? store.listDecisionsForAgent(orgId, agentId, 80)
@@ -477,7 +492,9 @@ export function runTool(
         if (g.conditions?.note) bits.push(g.conditions.note);
         lines.push(`• ${bits.join(" · ")}`);
       }
-      const secondaryApprovers = guardians.filter((g) => g.role === "owner" || g.role === "approver").length;
+      const secondaryApprovers = guardians.filter(
+        (g) => g.role === "owner" || g.role === "approver",
+      ).length;
       const seats = 1 + guardians.length;
       const canApprove = 1 + secondaryApprovers;
       return {
@@ -541,8 +558,7 @@ export function runTool(
         })
         .sort((x, y) => (y.spent > x.spent ? 1 : y.spent < x.spent ? -1 : 0));
       const lines = ranked.map(
-        (r) =>
-          `• ${r.a.name} — ${r.a.status}; stipend ${usd(r.bal)}; 24h spend ${usd(r.spent)}`,
+        (r) => `• ${r.a.name} — ${r.a.status}; stipend ${usd(r.bal)}; 24h spend ${usd(r.spent)}`,
       );
       const top = ranked[0]!;
       return {
@@ -618,7 +634,9 @@ export function runTool(
         /* ignore */
       }
       if (!bullets.length) {
-        bullets.push("Inbox clear — optional: review Policy bands or run Simulate on a draft change.");
+        bullets.push(
+          "Inbox clear — optional: review Policy bands or run Simulate on a draft change.",
+        );
       }
       return {
         tool: name,
@@ -634,7 +652,7 @@ export function runTool(
         return {
           tool: name,
           title: "Memory",
-          text: 'Tell me what to remember, e.g. “Remember that Researcher only pays pricing APIs.”',
+          text: "Tell me what to remember, e.g. “Remember that Researcher only pays pricing APIs.”",
           goto: "chat",
         };
       }
@@ -749,7 +767,17 @@ export function pickTools(qRaw: string): ToolName[] {
   }
   if (has("burn", "runway")) tools.add("burn_forecast");
   if (
-    has("policy", "band", "bands", "threshold", "ask me", "per payment", "per tx", "hitl above", "daily max")
+    has(
+      "policy",
+      "band",
+      "bands",
+      "threshold",
+      "ask me",
+      "per payment",
+      "per tx",
+      "hitl above",
+      "daily max",
+    )
   ) {
     tools.add("get_policy");
   }
@@ -757,7 +785,15 @@ export function pickTools(qRaw: string): ToolName[] {
     tools.add("quiet_hours_status");
   }
   if (
-    has("why was", "why did", "look up", "lookup", "that payment", "this payment", "decision trail") ||
+    has(
+      "why was",
+      "why did",
+      "look up",
+      "lookup",
+      "that payment",
+      "this payment",
+      "decision trail",
+    ) ||
     (has("denied") && has("to", "for", "at"))
   ) {
     tools.add("lookup_decision");
@@ -786,8 +822,8 @@ export function pickTools(qRaw: string): ToolName[] {
     tools.add("draft_marketing_blurb");
   }
   // Asking for a social post gets a draft, not a promise to publish: ABI has
-   // no way to post anywhere, and an approval flow that ends in nothing erodes
-   // the credibility of the approval flows that do move money (P8-T3).
+  // no way to post anywhere, and an approval flow that ends in nothing erodes
+  // the credibility of the approval flows that do move money (P8-T3).
   if (
     has("maltbook", "linkedin") ||
     (has("post") && has("web", "online", "twitter", " x ")) ||

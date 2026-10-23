@@ -129,10 +129,7 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
     // Free-tier hosts (e.g. Render) sometimes return an HTML "waking up" page
     // instead of JSON. Surface that as a structured console state, never as a
     // cryptic HTML parse error in the browser.
-    if (
-      contentType.includes("text/html") ||
-      (contentType === "" && upstream.status >= 500)
-    ) {
+    if (contentType.includes("text/html") || (contentType === "" && upstream.status >= 500)) {
       const preview = (await upstream.text()).slice(0, 240);
       const waking =
         /waking up|starting|cold start|loading/i.test(preview) || upstream.status === 503;

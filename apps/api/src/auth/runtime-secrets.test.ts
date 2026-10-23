@@ -3,11 +3,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  assertAuthRuntimeReady,
-  decryptSecret,
-  encryptSecret,
-} from "./key-encryption.js";
+import { assertAuthRuntimeReady, decryptSecret, encryptSecret } from "./key-encryption.js";
 import { demoDerivedSecret, demoSecretsPath, keyPepper } from "../secrets.js";
 
 const KEYS = [
@@ -67,10 +63,7 @@ describe("free demo runtime secrets", () => {
     assert.equal(decryptSecret(ciphertext, "org_test"), "vault-private-key");
 
     // A second org's ciphertext uses the same KEK but distinct AAD — still round-trips.
-    assert.equal(
-      decryptSecret(encryptSecret("other-key", "org_other"), "org_other"),
-      "other-key",
-    );
+    assert.equal(decryptSecret(encryptSecret("other-key", "org_other"), "org_other"), "other-key");
   });
 
   it("does not derive secrets from ABI_SIGNUP_TOKEN by default", async () => {

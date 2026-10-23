@@ -12,12 +12,8 @@ process.env.ABI_NO_LISTEN = "1";
 process.env.ABI_ALLOW_LOCAL_TARGETS = "1";
 
 const { store } = await import("./store.js");
-const {
-  signPayloadV1,
-  verifyPayloadV1,
-  retryPendingWebhookDeliveries,
-  emitEvent,
-} = await import("./webhooks.js");
+const { signPayloadV1, verifyPayloadV1, retryPendingWebhookDeliveries, emitEvent } =
+  await import("./webhooks.js");
 
 after(() => {
   try {
@@ -50,7 +46,12 @@ describe("durable webhook retries", () => {
       orgId: org.id,
       webhookId: hook.id,
       event: "payment.succeeded",
-      payload: { event: "payment.succeeded", orgId: org.id, at: new Date().toISOString(), data: {} },
+      payload: {
+        event: "payment.succeeded",
+        orgId: org.id,
+        at: new Date().toISOString(),
+        data: {},
+      },
       url: "abi://demo-inbox",
     });
     store.updateDelivery(deliveryId, {

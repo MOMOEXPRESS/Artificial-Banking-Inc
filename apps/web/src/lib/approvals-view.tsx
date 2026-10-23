@@ -40,7 +40,9 @@ export function Approvals({
 
   const resolve = (id: string, approve: boolean) => {
     const card = listRef.current?.querySelector(`[data-approval-id="${id}"]`) as HTMLElement | null;
-    const reduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const reduced =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (card && !reduced) {
       const state = Flip.getState(card);
       gsap.to(card, {
@@ -77,7 +79,11 @@ export function Approvals({
   return (
     <div className="approval-workspace">
       <div className="grid g-4">
-        <Stat label="Waiting on you" value={String(pending.length)} foot="agents parked right now" />
+        <Stat
+          label="Waiting on you"
+          value={String(pending.length)}
+          foot="agents parked right now"
+        />
         <Stat label="Approved" value={String(approved)} foot="you let these through" />
         <Stat
           label="Denied or expired"
@@ -96,8 +102,8 @@ export function Approvals({
           <div>
             <h2>Pending decisions</h2>
             <div className="sub">
-              Agents are waiting here. Approving runs the payment; denying makes them replan.
-              Funds are not locked until you approve.
+              Agents are waiting here. Approving runs the payment; denying makes them replan. Funds
+              are not locked until you approve.
             </div>
           </div>
         </div>
@@ -106,7 +112,12 @@ export function Approvals({
             icon="shield"
             action={
               <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setView("playground")}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setView("playground")}
+                >
                   Run a playground mission
                 </Button>
                 <Button type="button" variant="ghost" size="sm" onClick={() => setView("policy")}>
@@ -158,7 +169,8 @@ export function Approvals({
                     <button disabled={busy || readOnly} onClick={() => void resolve(a.id, true)}>
                       Approve payment
                     </button>
-                    <Button variant="destructive"
+                    <Button
+                      variant="destructive"
                       disabled={busy || readOnly}
                       onClick={() => void resolve(a.id, false)}
                     >

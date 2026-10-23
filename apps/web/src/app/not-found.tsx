@@ -12,7 +12,8 @@ export default function NotFound() {
         <p className="not-found-code mono">404</p>
         <h1>This route is off the allowlist.</h1>
         <p className="muted">
-          The page you wanted doesn&rsquo;t exist — or policy denied the hop. Pick a known destination.
+          The page you wanted doesn&rsquo;t exist — or policy denied the hop. Pick a known
+          destination.
         </p>
         <div className="not-found-actions">
           <Link className="btn-primary" href="/">

@@ -111,7 +111,8 @@ function selectRequirement(
   }
   const allowed = allowedX402Networks();
   const requirement = required.accepts.find(
-    (r) => r.scheme === "exact" && r.network in ALL_NETWORKS && allowed.has(r.network as X402Network),
+    (r) =>
+      r.scheme === "exact" && r.network in ALL_NETWORKS && allowed.has(r.network as X402Network),
   );
   if (!requirement) {
     const allowedList = [...allowed].join(", ");
@@ -163,7 +164,10 @@ function extractAuthNonce(payload: unknown): string | undefined {
   if (!payload || typeof payload !== "object") return undefined;
   const root = payload as Record<string, unknown>;
   const nested = root.payload;
-  const candidates = [root, nested && typeof nested === "object" ? (nested as Record<string, unknown>) : null];
+  const candidates = [
+    root,
+    nested && typeof nested === "object" ? (nested as Record<string, unknown>) : null,
+  ];
   for (const obj of candidates) {
     if (!obj) continue;
     const auth = obj.authorization ?? obj.authorizations;
@@ -187,7 +191,10 @@ export async function payViaX402(args: {
    * the seller. The marker must be persisted so a later seller/network failure
    * is treated as needs_review rather than a clean failure that releases the hold.
    */
-  onAuthorizationSigned?: (marker: string, details: { nonce?: string; validBefore?: string }) => void;
+  onAuthorizationSigned?: (
+    marker: string,
+    details: { nonce?: string; validBefore?: string },
+  ) => void;
 }): Promise<{ receipt: X402Receipt; resource: unknown; contentType: string | null }> {
   const problem = outboundUrlProblem(args.url, "Payment destination");
   if (problem) throw new X402Error("INVALID_DESTINATION", problem);

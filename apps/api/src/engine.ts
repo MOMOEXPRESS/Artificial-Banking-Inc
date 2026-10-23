@@ -544,9 +544,7 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     // Releasing the hold in that case would let the agent re-spend while the
     // seller settles the prior authorization.
     const attempt = store.getSettlement(input.intentId);
-    const maybeMoved = Boolean(
-      attempt?.txHash || attempt?.state === "broadcast",
-    );
+    const maybeMoved = Boolean(attempt?.txHash || attempt?.state === "broadcast");
     if (!maybeMoved) {
       releaseFullHold();
     }

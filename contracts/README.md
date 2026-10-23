@@ -8,14 +8,14 @@
 
 Fixed-supply ERC-20 for **Artificial Banking Incorporated** fundraising / community float.
 
-| | |
-| --- | --- |
-| **Name** | Artificial Banking |
-| **Symbol** | `ABINC` |
-| **Supply** | 1,000,000,000 (fixed, minted once to treasury) |
-| **Decimals** | 18 |
-| **Chain** | Base Sepolia → Base mainnet |
-| **Extras** | Burnable, EIP-2612 Permit |
+|              |                                                |
+| ------------ | ---------------------------------------------- |
+| **Name**     | Artificial Banking                             |
+| **Symbol**   | `ABINC`                                        |
+| **Supply**   | 1,000,000,000 (fixed, minted once to treasury) |
+| **Decimals** | 18                                             |
+| **Chain**    | Base Sepolia → Base mainnet                    |
+| **Extras**   | Burnable, EIP-2612 Permit                      |
 
 ## What this is / isn’t
 
@@ -95,8 +95,8 @@ forge script script/DeployAbinc.s.sol:DeployAbinc \
 
 ### 5. After deploy
 
-1. Add liquidity yourself (Aerodrome / Uniswap on Base) if you want a market — **not** automated here on purpose  
-2. Publish contract + Basescan link; say clearly it’s **not** part of the console  
+1. Add liquidity yourself (Aerodrome / Uniswap on Base) if you want a market — **not** automated here on purpose
+2. Publish contract + Basescan link; say clearly it’s **not** part of the console
 3. Prefer locked LP + honest treasury disclosure if you’re raising from community
 
 ## Verify later (if `--verify` failed)
