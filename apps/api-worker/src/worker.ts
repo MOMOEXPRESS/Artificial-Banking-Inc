@@ -32,20 +32,10 @@ function bindStore(ctx: DurableObjectState): void {
 async function ensureExpressServer(app: ExpressApp): Promise<number> {
   if (sharedPort != null && sharedServer) return sharedPort;
 
-  app.use(
-    (
-      req: { headers: Record<string, string | string[] | undefined>; ip?: string },
-      _res: unknown,
-      next: () => void,
-    ) => {
-      const cf = header(req.headers, "cf-connecting-ip");
-      const xff = header(req.headers, "x-forwarded-for")?.split(",")[0]?.trim();
-      const ip = cf || xff;
-      if (ip) req.ip = ip;
-      next();
-    },
-  );
-
+  // Client IP: Express `trust proxy` in @policyvault/api derives req.ip from
+  // CF-Connecting-IP / X-Forwarded-For (set by withClientIpHeaders) before any
+  // route runs. Do not assign req.ip here — it is a getter on Express requests,
+  // and a trailing middleware only ran for unmatched paths, turning 404s into 500s.
   sharedServer = createServer(app as unknown as Parameters<typeof createServer>[0]);
   sharedPort = await new Promise<number>((resolve, reject) => {
     sharedServer!.once("error", reject);
@@ -101,15 +91,6 @@ export class AbiApi extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(Date.now() + ALARM_MS);
     }
   }
-}
-
-function header(
-  headers: Record<string, string | string[] | undefined>,
-  name: string,
-): string | undefined {
-  const value = headers[name] ?? headers[name.toLowerCase()];
-  if (Array.isArray(value)) return value[0];
-  return value;
 }
 
 /** Forward every request to the singleton Durable Object. */

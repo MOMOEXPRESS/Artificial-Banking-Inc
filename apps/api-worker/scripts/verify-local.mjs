@@ -122,6 +122,10 @@ async function main() {
     const openapi = await fetch(`${BASE}/v1/openapi.json`);
     results.steps.push({ name: "openapi", status: openapi.status });
 
+    // Unknown paths must fall through to Express's 404, not a 500.
+    const notFound = await fetch(`${BASE}/definitely-not-a-route`);
+    results.steps.push({ name: "unknown_path_404", status: notFound.status });
+
     const email = `verify-${Date.now()}@example.com`;
     const signup = await fetch(`${BASE}/v1/auth/signup`, {
       method: "POST",
@@ -150,6 +154,7 @@ async function main() {
     }
     if (tgBad.status !== 401 || tgGood.status !== 200) results.ok = false;
     if (openapi.status !== 200) results.ok = false;
+    if (notFound.status !== 404) results.ok = false;
 
     writeFileSync(join(artifactDir, "workers-verify.json"), JSON.stringify(results, null, 2));
     writeFileSync(join(artifactDir, "spike-results.json"), JSON.stringify(scryptBody, null, 2));
