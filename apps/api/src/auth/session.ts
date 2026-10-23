@@ -65,16 +65,22 @@ function serialize(
 }
 
 export function setSessionCookies(res: express.Response, sessionToken: string, csrfToken: string) {
-  res.append("Set-Cookie", serialize(SESSION_COOKIE, sessionToken, {
-    maxAgeMs: SESSION_TTL_MS,
-    httpOnly: true,
-  }));
-  res.append("Set-Cookie", serialize(CSRF_COOKIE, csrfToken, {
-    maxAgeMs: SESSION_TTL_MS,
-    // Deliberately readable: the client must echo it back in a header, which
-    // a cross-site attacker cannot do.
-    httpOnly: false,
-  }));
+  res.append(
+    "Set-Cookie",
+    serialize(SESSION_COOKIE, sessionToken, {
+      maxAgeMs: SESSION_TTL_MS,
+      httpOnly: true,
+    }),
+  );
+  res.append(
+    "Set-Cookie",
+    serialize(CSRF_COOKIE, csrfToken, {
+      maxAgeMs: SESSION_TTL_MS,
+      // Deliberately readable: the client must echo it back in a header, which
+      // a cross-site attacker cannot do.
+      httpOnly: false,
+    }),
+  );
 }
 
 export function clearSessionCookies(res: express.Response) {

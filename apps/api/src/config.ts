@@ -40,9 +40,7 @@ const envSchema = z.object({
   ABI_DEMO_DERIVE_FROM_SIGNUP_TOKEN: z.enum(["0", "1"]).optional(),
   /** Escape hatch: allow unsafe demo flags in NODE_ENV=production (never for real funds). */
   ABI_ALLOW_UNSAFE_PROD: z.enum(["0", "1"]).optional(),
-  ABI_LOG_LEVEL: z
-    .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
-    .optional(),
+  ABI_LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).optional(),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_CHAT_ID: z.string().optional(),
   TELEGRAM_ALLOWED_USER_IDS: z.string().optional(),
@@ -127,9 +125,7 @@ function parseEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
       problems.push("ABI_SIGNUP_TOKEN is required when public org create is enabled");
     }
     if (problems.length) {
-      throw new ConfigError(
-        `Production configuration refused:\n- ${problems.join("\n- ")}`,
-      );
+      throw new ConfigError(`Production configuration refused:\n- ${problems.join("\n- ")}`);
     }
   }
 
@@ -160,7 +156,10 @@ function parseEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
 let cached: AppConfig | undefined;
 
 /** Parse and cache config. Throws {@link ConfigError} on invalid/unsafe prod. */
-export function loadConfig(env: NodeJS.ProcessEnv = process.env, opts?: { reload?: boolean }): AppConfig {
+export function loadConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  opts?: { reload?: boolean },
+): AppConfig {
   if (cached && !opts?.reload) return cached;
   cached = parseEnv(env);
   return cached;

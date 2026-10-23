@@ -50,10 +50,13 @@ export function classifyIntent(message: string): AbiIntent {
     return "governance";
   }
   if (/\b(quiet|after hours|off hours)\b/.test(q)) return "quiet";
-  if (/\b(policy|band|bands|hitl|ask me|per payment|per tx|daily max|threshold|ceiling)\b/.test(q)) {
+  if (
+    /\b(policy|band|bands|hitl|ask me|per payment|per tx|daily max|threshold|ceiling)\b/.test(q)
+  ) {
     return "policy";
   }
-  if (/\b(treasury|vault|deposit|withdraw|holding|btc|eth|usdc balance)\b/.test(q)) return "treasury";
+  if (/\b(treasury|vault|deposit|withdraw|holding|btc|eth|usdc balance)\b/.test(q))
+    return "treasury";
   if (/\b(burn|runway)\b/.test(q)) return "burn";
   if (/\b(reconcile|books|drift|ledger clean)\b/.test(q)) return "books";
   if (/\b(approval|pending|waiting|inbox|parked)\b/.test(q)) return "approvals";

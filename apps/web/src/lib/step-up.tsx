@@ -136,7 +136,9 @@ export function useStepUp(fetcher: (path: string, init?: RequestInit) => Promise
           {pending.amountUsdc
             ? `Approving $${pending.amountUsdc} needs a fresh check.`
             : "This approval needs a fresh check."}
-          {pending.thresholdUsdc ? ` Anything at or above $${pending.thresholdUsdc} asks for it.` : ""}{" "}
+          {pending.thresholdUsdc
+            ? ` Anything at or above $${pending.thresholdUsdc} asks for it.`
+            : ""}{" "}
           An open tab should not be enough on its own to move money.
         </p>
 
@@ -179,7 +181,12 @@ export function useStepUp(fetcher: (path: string, init?: RequestInit) => Promise
           <Button type="button" variant="ghost" size="sm" onClick={cancel} disabled={busy}>
             Cancel
           </Button>
-          <Button type="button" size="sm" disabled={busy || !secret.trim()} onClick={() => void submit()}>
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy || !secret.trim()}
+            onClick={() => void submit()}
+          >
             {busy ? "Checking…" : "Confirm"}
           </Button>
         </div>

@@ -5,13 +5,13 @@ ABI is two services: a **persistent API** (SQLite + jobs) and a **console**
 
 ## Recommended free topology
 
-| Piece | Free option | Notes |
-| --- | --- | --- |
-| Console | Vercel Hobby | Set `ABI_API_ORIGIN` to the API URL |
-| API + worker + SQLite | Fly.io free allowance **or** Oracle Cloud free VM + `docker compose` | Needs a volume/disk |
-| Keep-alive (optional) | [UptimeRobot](https://uptimerobot.com) free HTTP ping on `/health` | Avoids sleeper cold starts |
-| Email | Brevo free transactional API (`BREVO_API_KEY`) | Required for production signup; see API email below |
-| Monitoring | stdout JSON logs (`pino`) + `GET /metrics` | No paid APM |
+| Piece                 | Free option                                                          | Notes                                               |
+| --------------------- | -------------------------------------------------------------------- | --------------------------------------------------- |
+| Console               | Vercel Hobby                                                         | Set `ABI_API_ORIGIN` to the API URL                 |
+| API + worker + SQLite | Fly.io free allowance **or** Oracle Cloud free VM + `docker compose` | Needs a volume/disk                                 |
+| Keep-alive (optional) | [UptimeRobot](https://uptimerobot.com) free HTTP ping on `/health`   | Avoids sleeper cold starts                          |
+| Email                 | Brevo free transactional API (`BREVO_API_KEY`)                       | Required for production signup; see API email below |
+| Monitoring            | stdout JSON logs (`pino`) + `GET /metrics`                           | No paid APM                                         |
 
 Render `starter` + disk works but **requires a card**. Render `free` sleeps and
 cannot attach a disk — do not use it for a ledger you care about.

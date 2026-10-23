@@ -175,12 +175,14 @@ export function rulesFor(agentId: string, orgId: string, destination?: string): 
  * onboarded, the seller must ask to be paid at the declared payout address, on
  * the declared network, at no more than the declared price.
  */
-export function x402ExpectationFor(orgId: string, destination: string): X402Expectation | undefined {
+export function x402ExpectationFor(
+  orgId: string,
+  destination: string,
+): X402Expectation | undefined {
   const key = destination.trim().toLowerCase();
   const merchant = store.listMerchants(orgId).find((m) => m.key === key);
   const gateway = merchant?.meta?.gateway as
-    | { payoutAddress?: unknown; network?: unknown; amountMicro?: unknown }
-    | undefined;
+    { payoutAddress?: unknown; network?: unknown; amountMicro?: unknown } | undefined;
   if (!gateway || typeof gateway.payoutAddress !== "string") return undefined;
   let maxAmountMicro: bigint | undefined;
   try {
@@ -572,9 +574,7 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     // Releasing the hold in that case would let the agent re-spend while the
     // seller settles the prior authorization.
     const attempt = store.getSettlement(input.intentId);
-    const maybeMoved = Boolean(
-      attempt?.txHash || attempt?.state === "broadcast",
-    );
+    const maybeMoved = Boolean(attempt?.txHash || attempt?.state === "broadcast");
     if (!maybeMoved) {
       releaseFullHold();
     }

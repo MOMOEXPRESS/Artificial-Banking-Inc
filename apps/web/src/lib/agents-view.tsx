@@ -321,9 +321,7 @@ export function AgentsView({
               </div>
             ) : null}
             {agents.length === 0 ? (
-              <Empty icon="key">
-                No API yet. Choose a name and budget to create an API key.
-              </Empty>
+              <Empty icon="key">No API yet. Choose a name and budget to create an API key.</Empty>
             ) : (
               <div
                 className="agent-roster-table"

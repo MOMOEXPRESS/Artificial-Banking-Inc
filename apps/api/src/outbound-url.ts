@@ -136,7 +136,11 @@ export function outboundUrlProblem(raw: string, label = "Outbound URL"): string 
   if (!isPrivate) return null;
   // Cloud metadata is never acceptable, even in development: a leaked instance
   // credential is not a local-convenience trade worth making.
-  if (METADATA_HOSTS.has(host) || host === "169.254.169.254" || ipv4MappedToDotted(host) === "169.254.169.254") {
+  if (
+    METADATA_HOSTS.has(host) ||
+    host === "169.254.169.254" ||
+    ipv4MappedToDotted(host) === "169.254.169.254"
+  ) {
     return `${label} cannot target a cloud metadata endpoint`;
   }
   if (localSellersAllowed()) return null;

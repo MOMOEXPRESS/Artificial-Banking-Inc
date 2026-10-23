@@ -19,8 +19,7 @@ export function quietWindowStatus(
   countdown: string;
   clock: string;
 } {
-  const nowSec =
-    now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
+  const nowSec = now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds();
   const startSec = quiet.startHour * 3600;
   const endSec = quiet.endHour * 3600;
   const day = 24 * 3600;
@@ -180,16 +179,7 @@ export function RailQuietClock({
           const y1 = 32 + Math.sin(a) * 24;
           const x2 = 32 + Math.cos(a) * 27;
           const y2 = 32 + Math.sin(a) * 27;
-          return (
-            <line
-              key={i}
-              x1={x1}
-              y1={y1}
-              x2={x2}
-              y2={y2}
-              className="rail-clock-tick"
-            />
-          );
+          return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} className="rail-clock-tick" />;
         })}
         <g clipPath={`url(#rail-clock-clip-${clipId})`}>
           <g transform={`rotate(${hourDeg} 32 32)`}>
@@ -206,13 +196,7 @@ export function RailQuietClock({
       </svg>
       <span className="rail-clock-meta">
         <b>
-          {!enabled
-            ? "Clock"
-            : inQuiet
-              ? denyMode
-                ? "Quiet · deny"
-                : "Quiet · hold"
-              : "Open"}
+          {!enabled ? "Clock" : inQuiet ? (denyMode ? "Quiet · deny" : "Quiet · hold") : "Open"}
         </b>
         <span className="mono">
           {enabled && status

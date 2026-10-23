@@ -22,12 +22,8 @@ process.env.ABI_STEP_UP_ABOVE_USDC = "100";
 
 const { store } = await import("./store.js");
 const { resolveApproval, guardianApproveGate, id } = await import("./engine.js");
-const {
-  escapeTelegramText,
-  resolveTelegramVoter,
-  telegramChatForOrg,
-  notifyApprovalPending,
-} = await import("./telegram.js");
+const { escapeTelegramText, resolveTelegramVoter, telegramChatForOrg, notifyApprovalPending } =
+  await import("./telegram.js");
 
 after(() => {
   try {
@@ -86,7 +82,13 @@ describe("Telegram approval security", () => {
     assert.equal(voter.ok, true);
     if (!voter.ok) return;
 
-    const outcome = await resolveApproval(org.id, approval.id, true, "telegram:eve", voter.guardianId);
+    const outcome = await resolveApproval(
+      org.id,
+      approval.id,
+      true,
+      "telegram:eve",
+      voter.guardianId,
+    );
     assert.equal(outcome.kind, "forbidden");
   });
 
@@ -97,7 +99,13 @@ describe("Telegram approval security", () => {
     const voter = resolveTelegramVoter(org.id, "777");
     assert.equal(voter.ok, true);
     if (!voter.ok) return;
-    const outcome = await resolveApproval(org.id, approval.id, true, "telegram:dana", voter.guardianId);
+    const outcome = await resolveApproval(
+      org.id,
+      approval.id,
+      true,
+      "telegram:dana",
+      voter.guardianId,
+    );
     assert.equal(outcome.kind, "forbidden");
   });
 

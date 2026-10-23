@@ -24,9 +24,8 @@ process.env.POLICYVAULT_ALLOW_BOOTSTRAP = "0";
 
 const { store } = await import("./store.js");
 const { app } = await import("./index.js");
-const { __resetTreasuryGuardForTests, TREASURY_WITHDRAW_TOOL } = await import(
-  "./treasury-guard.js"
-);
+const { __resetTreasuryGuardForTests, TREASURY_WITHDRAW_TOOL } =
+  await import("./treasury-guard.js");
 
 let base = "";
 let server: ReturnType<typeof app.listen>;

@@ -62,8 +62,8 @@ function Hero() {
           <p className="hero-sub">
             ABI sits between an AI agent and company funds. Each agent receives a governed spending
             budget from the organization vault. You set the rules; exceptions wait for a person.
-            Settlement depends on the configured payment rail: sandbox mock, or Base Sepolia
-            testnet USDC. Mainnet and managed custody are not wired yet.
+            Settlement depends on the configured payment rail: sandbox mock, or Base Sepolia testnet
+            USDC. Mainnet and managed custody are not wired yet.
           </p>
           <div className="hero-ctas">
             <Link className="btn-primary" href="/console">
