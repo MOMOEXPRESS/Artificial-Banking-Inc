@@ -127,7 +127,8 @@ apps/
   mcp-server/    MCP tools so Claude / LangGraph / Eliza runtimes can spend
   worker/        Background jobs (subscriptions, escrow, settlement recovery, webhooks)
   demo-agent/    Runnable example: budget → simulate → pay → denied → HITL → escrow
-  x402-seller/   x402 V2 paid API; real facilitator settlement
+  x402-seller/   x402 V2 paid API (local Node/Express); real facilitator settlement
+  x402-seller-worker/  the same seller as a Cloudflare Worker — the hosted demo seller
 
 packages/
   common/        Money types (micro-USDC bigint), error codes, account ids
@@ -231,6 +232,16 @@ curl -s -X POST http://localhost:8787/v1/agent/pay_api \
   -H "Authorization: Bearer pv_agent_..." -H "Content-Type: application/json" \
   -d '{"amountUsdc":"2","destination":"http://localhost:9402/report","idempotencyKey":"try_x402_1"}'
 ```
+
+The hosted demo seller is the Cloudflare Worker in `apps/x402-seller-worker`
+(`https://abi-x402-seller.momomaurice20006.workers.dev`, `GET /health`, paid
+`GET /report`). Deploy it with
+`cd apps/x402-seller-worker && npx wrangler deploy --config ./wrangler.toml`;
+the console reads its URL from `NEXT_PUBLIC_SELLER_URL` (ending in `/report`).
+ABI pays it from the API Worker, which is on the same Cloudflare account: a
+same-account `workers.dev` fetch fails with Cloudflare error 1042 unless the
+calling Worker has the `global_fetch_strictly_public` compatibility flag (or a
+service binding), so the API Worker needs one before the console points here.
 
 The seller uses x402 V2 (`eip155:84532`) and delegates verification and
 settlement to the configured facilitator. ABI books the payment only when the

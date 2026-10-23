@@ -1,0 +1,31 @@
+# ABI x402 demo seller on Cloudflare Workers (replaces the old Node host).
+#
+# Deploy from apps/x402-seller-worker only, always with this file:
+#   npx wrangler deploy --config ./wrangler.toml
+# Rollback: npx wrangler rollback <version-id> --config ./wrangler.toml
+#
+# Public URL: https://abi-x402-seller.momomaurice20006.workers.dev
+#   GET /health  — seller config
+#   GET /report  — x402 V2 paid route (402 challenge → payment → report)
+# The console reads it from NEXT_PUBLIC_SELLER_URL (…/report) on Vercel.
+#
+# Callers on the SAME Cloudflare account (the abi-api Worker) get error 1042 on a
+# plain fetch to this workers.dev URL; the caller needs the
+# `global_fetch_strictly_public` compatibility flag or a service binding.
+
+name = "abi-x402-seller"
+main = "src/worker.ts"
+compatibility_date = "2025-10-11"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = false
+
+[observability]
+enabled = true
+
+# No secrets: every value here is public (the payout wallet is shown on /health).
+[vars]
+CHAIN = "base-sepolia"
+X402_FACILITATOR_URL = "https://x402.org/facilitator"
+X402_PRICE_USDC = "$0.01"
+X402_SELLER_ADDRESS = "0x001f2Bd37f9847b24D220a499b48eC3661258EEc"

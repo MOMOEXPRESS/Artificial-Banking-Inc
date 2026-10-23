@@ -8,10 +8,11 @@ handler for HEAD and drops the body: the paid work runs unpaid. Upstream fixed
 this in x402 PR #3796 (merged 2026-10-13, **not in any release yet**); that fix
 in turn lets a HEAD carrying a payment settle with no body (x402 issue #3810).
 
-ABI's only x402 server is `apps/x402-seller`. It now mounts
-`paidMethodGuard` before the payment middleware: any method other than the
-configured one on a paid path gets `405` with `Allow: GET`, before the paywall
-or the handler runs. The ABI API itself serves no paid routes (merchant gateway
+ABI's x402 servers are the hosted demo seller `apps/x402-seller-worker`
+(Cloudflare Worker) and the local Node/Express seller `apps/x402-seller`. Both
+refuse any method other than the configured one on a paid path with `405` and
+`Allow: GET` before the paywall or the handler runs (Express via
+`paidMethodGuard`, the Worker in its router). The ABI API itself serves no paid routes (merchant gateway
 onboarding only _reads_ a seller's challenge).
 
 When an `@x402/*` release ships #3796, unpack it and grep for the fix before
