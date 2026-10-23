@@ -8501,6 +8501,8 @@ button.user-chip {
 
 .vault-balance-panel {
   position: relative;
+  /* Lets the vault bank card size its height from the panel width. */
+  container-type: inline-size;
   display: flex;
   min-height: 320px;
   flex-direction: column;
@@ -8658,9 +8660,9 @@ button.user-chip {
   z-index: 1;
   display: flex;
   width: 100%;
-  max-width: 420px;
   min-width: 0;
-  aspect-ratio: 1.586 / 1;
+  /* Full panel width; card proportions (1.586:1) on narrow panels, height capped on wide ones. */
+  height: clamp(190px, calc(100cqi / 1.586), 270px);
   flex-direction: column;
   justify-content: space-between;
   gap: 8px;
@@ -8748,7 +8750,7 @@ button.user-chip {
   gap: 3px;
   color: var(--vbc-fg);
   /* ≈17.5em per 5-group line, so the two lines never re-wrap at any card width. */
-  font-size: clamp(9px, calc((100cqi - var(--vbc-reserve)) / 17.5), 15px);
+  font-size: clamp(9px, calc((100cqi - var(--vbc-reserve)) / 17.5), 18px);
   letter-spacing: 0.06em;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
   font-variant-numeric: tabular-nums;
@@ -8839,8 +8841,6 @@ button.user-chip {
 @media (max-width: 420px) {
   .vault-bank-card {
     --vbc-reserve: 76px;
-    aspect-ratio: auto;
-    min-height: 190px;
   }
 
   .vbc-copy span {
