@@ -4,12 +4,15 @@ import { hashSecret, isHashedSecret, keyPepper, secretMatches } from "./secrets.
 
 const ORIGINAL_ENV = process.env.NODE_ENV;
 const ORIGINAL_PEPPER = process.env.ABI_KEY_PEPPER;
+const ORIGINAL_BOOTSTRAP = process.env.POLICYVAULT_ALLOW_BOOTSTRAP;
 
 afterEach(() => {
   if (ORIGINAL_ENV === undefined) delete process.env.NODE_ENV;
   else process.env.NODE_ENV = ORIGINAL_ENV;
   if (ORIGINAL_PEPPER === undefined) delete process.env.ABI_KEY_PEPPER;
   else process.env.ABI_KEY_PEPPER = ORIGINAL_PEPPER;
+  if (ORIGINAL_BOOTSTRAP === undefined) delete process.env.POLICYVAULT_ALLOW_BOOTSTRAP;
+  else process.env.POLICYVAULT_ALLOW_BOOTSTRAP = ORIGINAL_BOOTSTRAP;
 });
 
 describe("A13 secrets", () => {
@@ -53,6 +56,7 @@ describe("A13 secrets", () => {
     // The built-in fallback is a literal in a public repository, so silently
     // accepting it would mean real credentials salted with a known value.
     process.env.NODE_ENV = "production";
+    process.env.POLICYVAULT_ALLOW_BOOTSTRAP = "0";
     delete process.env.ABI_KEY_PEPPER;
     delete process.env.POLICYVAULT_KEY_PEPPER;
     assert.throws(() => keyPepper(), /ABI_KEY_PEPPER is required in production/);

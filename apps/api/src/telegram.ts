@@ -1,14 +1,18 @@
 import { timingSafeEqual } from "node:crypto";
 import type express from "express";
 import { resolveApproval } from "./engine.js";
+import { stepUpThresholdMicro } from "./routes/mfa-routes.js";
 import { registerNotifier } from "./platform/notifier.js";
 import { unrefTimer } from "./platform/timers.js";
-import { scopedStore, store, type ApprovalRow } from "./store.js";
+import { scopedStore, store, type ApprovalRow, type OrgRow } from "./store.js";
 
+// Env is read lazily (not at import time) so Cloudflare Workers, which only
+// populate process.env per request/binding, see the configured values.
 function botToken(): string {
   return process.env.TELEGRAM_BOT_TOKEN ?? "";
 }
-function chatId(): string {
+/** Process-wide fallback chat. Prefer per-org `settings.telegramChatId`. */
+function globalChatId(): string {
   return process.env.TELEGRAM_CHAT_ID ?? "";
 }
 function webhookSecret(): string {
@@ -28,9 +32,56 @@ function apiBase(): string {
   return `https://api.telegram.org/bot${botToken()}`;
 }
 
-/** True when Telegram outbound notifications can be sent. */
+/**
+ * True when a Telegram bot token is configured. Delivery additionally needs a
+ * chat: per-org `settings.telegramChatId`, or `TELEGRAM_CHAT_ID` as a
+ * single-tenant fallback.
+ */
 export function telegramEnabled(): boolean {
-  return Boolean(botToken() && chatId());
+  return Boolean(botToken());
+}
+
+type TelegramOrgSettings = {
+  telegramChatId?: string;
+  telegramAllowedUserIds?: string[];
+};
+
+function orgTelegramSettings(org: OrgRow | undefined): TelegramOrgSettings {
+  const settings = (org?.settings ?? {}) as TelegramOrgSettings;
+  return {
+    telegramChatId:
+      typeof settings.telegramChatId === "string" ? settings.telegramChatId.trim() : undefined,
+    telegramAllowedUserIds: Array.isArray(settings.telegramAllowedUserIds)
+      ? settings.telegramAllowedUserIds.map((s) => String(s).trim()).filter(Boolean)
+      : undefined,
+  };
+}
+
+/** Chat id that should receive approvals for this org, if any. */
+export function telegramChatForOrg(orgId: string): string | null {
+  if (!botToken()) return null;
+  const org = store.getOrg(orgId);
+  const perOrg = orgTelegramSettings(org).telegramChatId;
+  if (perOrg) return perOrg;
+  // Global fallback is single-tenant / demo only. Multi-tenant deployments
+  // must set settings.telegramChatId per org so amounts never cross tenants.
+  return globalChatId() || null;
+}
+
+function allowedUsersForOrg(orgId: string): Set<string> {
+  const org = store.getOrg(orgId);
+  const perOrg = orgTelegramSettings(org).telegramAllowedUserIds;
+  if (perOrg && perOrg.length > 0) return new Set(perOrg);
+  return allowedUsersGlobal();
+}
+
+/**
+ * Strip Telegram Markdown / MarkdownV2 metacharacters.
+ * Notifications are sent as plain text (no parse_mode); this helper remains
+ * for any future formatted path and for unit tests.
+ */
+export function escapeTelegramText(value: string): string {
+  return value.replace(/[_*`[\]()~>#+\-=|{}.!\\]/g, "\\$&");
 }
 
 async function tg(method: string, payload: Record<string, unknown>): Promise<unknown> {
@@ -45,22 +96,16 @@ async function tg(method: string, payload: Record<string, unknown>): Promise<unk
   return body.result;
 }
 
-/**
- * Per-org chat override seam (PR #61 adds store-backed chat ids).
- * On main: fall back to the process-wide TELEGRAM_CHAT_ID.
- */
-export function telegramChatForOrg(_orgId: string): string | null {
-  const chat = chatId();
-  return chat || null;
-}
-
 export function notifyApprovalPending(approval: ApprovalRow): void {
   if (!telegramEnabled()) return;
   const dest = telegramChatForOrg(approval.orgId);
   if (!dest) return;
   const agent = scopedStore(approval.orgId).getAgent(approval.agentId);
+  // Plain text only — no parse_mode — so agent-controlled memo/destination
+  // cannot inject Telegram Markdown that misleads the approver.
   const text = [
-    `🔐 *Approval needed*`,
+    "Approval needed",
+    `Org: ${approval.orgId}`,
     `Agent: ${agent?.name ?? approval.agentId}`,
     `Tool: ${approval.tool}`,
     `Amount: $${approval.amountUsdc} USDC`,
@@ -71,22 +116,15 @@ export function notifyApprovalPending(approval: ApprovalRow): void {
   ]
     .filter(Boolean)
     .join("\n");
-  // Org-scoped callback (PR #61 format) so webhook handlers are tenant-safe.
+  // Callback embeds org id so handlers never need a cross-tenant lookup.
   tg("sendMessage", {
     chat_id: dest,
     text,
-    parse_mode: "Markdown",
     reply_markup: {
       inline_keyboard: [
         [
-          {
-            text: "✅ Approve",
-            callback_data: `apr:${approval.orgId}:${approval.id}:approve`,
-          },
-          {
-            text: "🛑 Deny",
-            callback_data: `apr:${approval.orgId}:${approval.id}:deny`,
-          },
+          { text: "Approve", callback_data: `apr:${approval.orgId}:${approval.id}:approve` },
+          { text: "Deny", callback_data: `apr:${approval.orgId}:${approval.id}:deny` },
         ],
       ],
     },
@@ -115,11 +153,8 @@ export interface TgUpdate {
 
 /**
  * Resolve a Telegram user to a guardian seat in the approval's org.
- *
- * Signature matches PR #61. On main (no telegramUserId column yet) we use the
- * allowlist and map allowlisted voters to guardianId `owner`. When #61 merges,
- * its `store.findGuardianByTelegramUserId` path is preferred via the optional
- * call below.
+ * Prefer an explicit seat link; fall back to allowlist + founding owner only
+ * when the allowlist is non-empty (fail-closed otherwise).
  */
 export function resolveTelegramVoter(
   orgId: string,
@@ -128,55 +163,44 @@ export function resolveTelegramVoter(
   if (!telegramUserId) {
     return { ok: false, message: "Telegram user id missing" };
   }
-  const storeAny = store as unknown as {
-    findGuardianByTelegramUserId?: (
-      org: string,
-      tgUser: string,
-    ) => { id: string; name: string } | undefined;
-  };
-  const linked = storeAny.findGuardianByTelegramUserId?.(orgId, telegramUserId);
+  const linked = store.findGuardianByTelegramUserId(orgId, telegramUserId);
   if (linked) {
     return { ok: true, guardianId: linked.id, label: linked.name };
   }
-
-  const allowed = allowedUsersGlobal();
+  const allowed = allowedUsersForOrg(orgId);
   if (allowed.size === 0) {
     return {
       ok: false,
       message:
         "No Telegram allowlist and no guardian linked to this user. " +
-        "Set TELEGRAM_ALLOWED_USER_IDS or link a guardian seat (PR #61).",
+        "Set TELEGRAM_ALLOWED_USER_IDS, org settings.telegramAllowedUserIds, " +
+        "or conditions.telegramUserId on a guardian seat.",
     };
   }
   if (!allowed.has(telegramUserId)) {
     return { ok: false, message: "Not an authorised guardian" };
   }
+  // Allowlisted but unlinked: treat as founding owner only when the allowlist
+  // is the sole gate (demo). Prefer linking seats in multi-guardian orgs.
   return { ok: true, guardianId: "owner", label: `telegram:${telegramUserId}` };
 }
 
 /** Process one Telegram update (polling or webhook). */
 export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
-  const cq = update.callback_query;
+  const cq = update?.callback_query;
   if (!cq?.data?.startsWith("apr:")) return;
 
   const parts = cq.data.split(":");
-  let orgId: string | undefined;
-  let approvalId: string | undefined;
-  let action: string | undefined;
-  if (parts.length === 4) {
-    [, orgId, approvalId, action] = parts;
-  } else if (parts.length === 3) {
-    // Legacy Render format — accepted until #61's org-scoped buttons are universal.
-    [, approvalId, action] = parts;
-    orgId = store.getApprovalAnyOrg(approvalId!)?.orgId;
-  } else {
+  // Format: apr:<orgId>:<approvalId>:<action>
+  // Legacy format apr:<approvalId>:<action> is rejected (cross-tenant risk).
+  if (parts.length !== 4) {
     await tg("answerCallbackQuery", {
       callback_query_id: cq.id,
-      text: "Malformed approval callback",
+      text: "Stale approval button — request a new notification",
     }).catch(() => {});
     return;
   }
-
+  const [, orgId, approvalId, action] = parts;
   if (!orgId || !approvalId || (action !== "approve" && action !== "deny")) {
     await tg("answerCallbackQuery", {
       callback_query_id: cq.id,
@@ -204,42 +228,54 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
     return;
   }
 
-  const approval = store.getApprovalAnyOrg(approvalId);
+  const approval = store.getApproval(approvalId, orgId);
+  const resolvedBy = `telegram:${cq.from?.username ?? fromId}`;
   let answer: string;
-  if (!approval || approval.orgId !== orgId) {
+  if (!approval) {
     answer = "Approval not found";
+  } else if (action === "approve") {
+    const threshold = stepUpThresholdMicro();
+    if (threshold > 0n && approval.amountMicro >= threshold) {
+      answer =
+        `Approving $${approval.amountUsdc} requires MFA step-up in the console ` +
+        `(threshold $${(Number(threshold) / 1e6).toFixed(2)}). Telegram cannot satisfy step-up.`;
+    } else {
+      const outcome = await resolveApproval(orgId, approvalId, true, resolvedBy, voter.guardianId);
+      answer =
+        outcome.kind === "resolved"
+          ? "Approved"
+          : outcome.kind === "pending_quorum"
+            ? `Vote recorded — ${outcome.have} of ${outcome.need}`
+            : outcome.kind === "forbidden"
+              ? outcome.message
+              : `No action: ${outcome.kind}`;
+    }
   } else {
-    const resolvedBy = `telegram:${cq.from?.username ?? fromId}`;
-    const outcome = await resolveApproval(
-      approval.orgId,
-      approvalId,
-      action === "approve",
-      resolvedBy,
-      voter.guardianId,
-    );
+    const outcome = await resolveApproval(orgId, approvalId, false, resolvedBy, voter.guardianId);
     answer =
       outcome.kind === "resolved"
-        ? `${action === "approve" ? "Approved" : "Denied"} ✔`
-        : outcome.kind === "pending_quorum"
-          ? `Vote recorded — ${outcome.have} of ${outcome.need}`
-          : outcome.kind === "forbidden"
-            ? outcome.message
-            : `No action: ${outcome.kind}`;
-    if (cq.message) {
-      tg("editMessageText", {
-        chat_id: cq.message.chat.id,
-        message_id: cq.message.message_id,
-        text: `Approval ${approvalId}: ${answer} (by ${resolvedBy})`,
-      }).catch(() => {});
-    }
+        ? "Denied"
+        : outcome.kind === "forbidden"
+          ? outcome.message
+          : `No action: ${outcome.kind}`;
   }
-  await tg("answerCallbackQuery", { callback_query_id: cq.id, text: answer }).catch(() => {});
+  if (cq.message) {
+    tg("editMessageText", {
+      chat_id: cq.message.chat.id,
+      message_id: cq.message.message_id,
+      text: `Approval ${approvalId}: ${answer} (by ${resolvedBy})`,
+    }).catch(() => {});
+  }
+  await tg("answerCallbackQuery", { callback_query_id: cq.id, text: answer.slice(0, 180) }).catch(
+    () => {},
+  );
 }
 
 let offset = 0;
 let polling = false;
 
-async function pollOnce(): Promise<void> {
+/** Exported for tests — process one batch of Telegram updates. */
+export async function pollOnce(): Promise<void> {
   if (!botToken()) return;
   const updates = (await tg("getUpdates", {
     offset,
@@ -261,8 +297,14 @@ export function startTelegramPolling(): void {
     return;
   }
   if (!telegramEnabled()) {
-    console.log("Telegram approvals disabled (set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID).");
+    console.log("Telegram approvals disabled (set TELEGRAM_BOT_TOKEN).");
     return;
+  }
+  if (!globalChatId()) {
+    console.log(
+      "Telegram bot token set — per-org settings.telegramChatId required to deliver approvals " +
+        "(or set TELEGRAM_CHAT_ID as a single-tenant fallback).",
+    );
   }
   if (polling) return;
   polling = true;

@@ -67,9 +67,23 @@ export class EnvDenylistScreener implements ComplianceScreener {
 }
 
 /**
+ * Whether compliance should fail closed when the optional HTTP vendor is down.
+ *
+ * Default: fail-closed in production (safer for money movement). Override with
+ * ABI_COMPLIANCE_FAIL_CLOSED=0 to fail open, or =1 to force closed in any env.
+ * Paid KYT vendors (Chainalysis/TRM/Circle) remain deferred — use the free
+ * env denylist + optional self-hosted webhook until then.
+ */
+export function complianceFailClosed(): boolean {
+  if (process.env.ABI_COMPLIANCE_FAIL_CLOSED === "1") return true;
+  if (process.env.ABI_COMPLIANCE_FAIL_CLOSED === "0") return false;
+  return process.env.NODE_ENV === "production";
+}
+
+/**
  * Optional HTTP vendor screener — POST destination to ABI_COMPLIANCE_WEBHOOK_URL.
- * Expects `{ "ok": true|false, "reason"?: string }` JSON. Fail-open on network errors
- * unless ABI_COMPLIANCE_FAIL_CLOSED=1.
+ * Expects `{ "ok": true|false, "reason"?: string }` JSON.
+ * Fail-closed by default in production (see {@link complianceFailClosed}).
  */
 export class HttpVendorScreener implements ComplianceScreener {
   readonly name = "http-vendor";
@@ -87,7 +101,7 @@ export class HttpVendorScreener implements ComplianceScreener {
         signal: AbortSignal.timeout(5_000),
       });
       if (!res.ok) {
-        if (process.env.ABI_COMPLIANCE_FAIL_CLOSED === "1") {
+        if (complianceFailClosed()) {
           return {
             ok: false,
             code: "COMPLIANCE_UNAVAILABLE",
@@ -108,7 +122,7 @@ export class HttpVendorScreener implements ComplianceScreener {
       }
       return { ok: true };
     } catch (e) {
-      if (process.env.ABI_COMPLIANCE_FAIL_CLOSED === "1") {
+      if (complianceFailClosed()) {
         return {
           ok: false,
           code: "COMPLIANCE_UNAVAILABLE",

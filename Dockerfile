@@ -29,15 +29,17 @@ RUN npm run build -w @policyvault/common \
   && npm run build -w @policyvault/worker \
   && npm run build -w @policyvault/web
 
+# Runtime images: no compilers, non-root user. Build tools stay in deps/build only.
 FROM node:22-bookworm-slim AS api
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8787
 ENV POLICYVAULT_DB=/data/policyvault.db
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
-  && rm -rf /var/lib/apt/lists/*
-COPY --from=build /app /app
-RUN mkdir -p /data
+RUN groupadd --system --gid 10001 abi \
+  && useradd --system --uid 10001 --gid abi --home-dir /app --shell /usr/sbin/nologin abi \
+  && mkdir -p /data && chown abi:abi /data
+COPY --from=build --chown=abi:abi /app /app
+USER abi
 EXPOSE 8787
 CMD ["node", "apps/api/dist/index.js"]
 
@@ -45,7 +47,10 @@ FROM node:22-bookworm-slim AS web
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
-COPY --from=build /app /app
+RUN groupadd --system --gid 10001 abi \
+  && useradd --system --uid 10001 --gid abi --home-dir /app --shell /usr/sbin/nologin abi
+COPY --from=build --chown=abi:abi /app /app
+USER abi
 EXPOSE 3000
 CMD ["npm", "run", "start", "-w", "@policyvault/web"]
 
@@ -56,9 +61,11 @@ FROM node:22-bookworm-slim AS worker
 WORKDIR /app
 ENV NODE_ENV=production
 ENV POLICYVAULT_DB=/data/policyvault.db
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++   && rm -rf /var/lib/apt/lists/*
-COPY --from=build /app /app
-RUN mkdir -p /data
+RUN groupadd --system --gid 10001 abi \
+  && useradd --system --uid 10001 --gid abi --home-dir /app --shell /usr/sbin/nologin abi \
+  && mkdir -p /data && chown abi:abi /data
+COPY --from=build --chown=abi:abi /app /app
+USER abi
 CMD ["node", "apps/worker/dist/index.js"]
 
 # Render builds the final Dockerfile stage when no target is specified. Keep the

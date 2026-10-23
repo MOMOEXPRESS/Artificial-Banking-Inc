@@ -120,7 +120,7 @@ apps/
   api/           Guardian + agent HTTP API — policy, ledger, rails, engine
   web/           Guardian console + marketing site (Next.js 15, App Router)
   mcp-server/    MCP tools so Claude / LangGraph / Eliza runtimes can spend
-  worker/        Background jobs (stub — becomes the job runner in P2-T3)
+  worker/        Background jobs (subscriptions, escrow, settlement recovery, webhooks)
   demo-agent/    Runnable example: budget → simulate → pay → denied → HITL → escrow
   x402-seller/   x402 V2 paid API; real facilitator settlement
 
@@ -353,10 +353,10 @@ service, owns the database), `worker` (background sweeps), and `web` (console,
 proxying `/abi-api` to the API). Set `ABI_KEY_PEPPER` first — the API refuses to
 boot in production without it.
 
-> **Still not ready for real customer funds.** Persistence and background jobs
-> are fixed, but there is no authentication system and vault keys are held
-> unencrypted by the application (roadmap Phases 3–4). Keep any deployment
-> behind access control.
+> **Still not ready for real customer funds.** Authentication, hashed API keys,
+> and encrypted-at-rest vault keys are built, but keys still live in this
+> process (managed CDP/MPC custody is not). Keep any deployment behind access
+> control and use testnet only.
 
 Details: [`docs/DEPLOY.md`](docs/DEPLOY.md).
 

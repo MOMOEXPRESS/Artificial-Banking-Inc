@@ -7,11 +7,18 @@ records provide an audit trail for decisions and settlements.
 
 ## Current posture
 
-- Local vault keys are encrypted at rest by the API. Managed custody is a
-  separate roadmap item and should not be represented as enabled in this
-  release.
-- Authentication and budget controls have automated test coverage. Review the
-  release checks before changing payment or identity behavior.
+- Local vault keys are encrypted at rest (`ABI_KEK`). Managed custody (CDP/MPC)
+  is not built — see [FREE-STACK.md](./FREE-STACK.md). Never derive the pepper
+  or KEK from `ABI_SIGNUP_TOKEN`.
+- Telegram approvals require a per-org chat (or documented single-tenant
+  fallback), an allowlist or linked `conditions.telegramUserId`, and the same
+  role / max-approve gates as the console. Amounts at/above the step-up
+  threshold must be approved in the console (Telegram cannot satisfy MFA).
+- x402 persists an authorization marker before the seller receives the signed
+  payload; post-sign failures become `needs_review` and keep the hold.
+- Outbound URL checks cover IPv4-mapped IPv6 (hex + dotted), reserved ranges,
+  and DNS resolution/pinning on real fetches.
+- Webhook signatures are timestamped (`t=,v1=`); retries are durable in SQLite.
 - Base Sepolia is the intended development network. A successful test-network
   run does not establish production readiness.
 - ABI is software infrastructure, not a bank or a compliance certification.

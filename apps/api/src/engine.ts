@@ -538,12 +538,20 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     txHash = settled.txHash;
     resource = settled.resource;
   } catch (e) {
-    releaseFullHold();
-    // Distinguish "never left" from "may already be on-chain": if a hash was
-    // recorded, a human must reconcile rather than assume nothing happened.
+    // Distinguish "never left" from "may already be on-chain / authorized":
+    // x402 signs an EIP-3009 authorization before the seller responds, so a
+    // broadcast marker (or any recorded hash) means funds may still move.
+    // Releasing the hold in that case would let the agent re-spend while the
+    // seller settles the prior authorization.
     const attempt = store.getSettlement(input.intentId);
+    const maybeMoved = Boolean(
+      attempt?.txHash || attempt?.state === "broadcast",
+    );
+    if (!maybeMoved) {
+      releaseFullHold();
+    }
     store.finishSettlement(input.intentId, {
-      state: attempt?.txHash ? "needs_review" : "failed",
+      state: maybeMoved ? "needs_review" : "failed",
       error: e instanceof Error ? e.message : String(e),
     });
     const railCode =
@@ -711,17 +719,31 @@ export type ApprovalResolution =
 
 /**
  * Enforce secondary-guardian role + optional max-approve cap.
- * Founding owner (`guardianId === "owner"`) and Telegram stubs skip seat checks.
+ * Founding owner (`guardianId === "owner"`) skips seat checks.
+ * Telegram voters must resolve to a real guardian seat or membership first —
+ * a bare `tg:<id>` stub no longer bypasses viewer / max-approve rules.
  * Deny votes are always allowed (safe asymmetry).
  */
-function guardianApproveGate(
+export function guardianApproveGate(
   orgId: string,
   guardianId: string,
   approve: boolean,
   approval: ApprovalRow,
 ): { ok: true } | { ok: false; message: string } {
   if (!approve) return { ok: true };
-  if (guardianId === "owner" || guardianId.startsWith("tg:")) return { ok: true };
+  if (guardianId === "owner") return { ok: true };
+
+  // Legacy Telegram stubs are never trusted as an identity. The Telegram
+  // adapter must map chat users onto a guardian seat (or user membership)
+  // before calling resolveApproval.
+  if (guardianId === "telegram" || guardianId.startsWith("tg:")) {
+    return {
+      ok: false,
+      message:
+        "Telegram approvals require a linked guardian seat. Link your Telegram user id " +
+        "on a guardian (conditions.telegramUserId) before approving.",
+    };
+  }
 
   // Signed-in users authorize through their org membership, not a guardian
   // seat. Without this branch every session-authenticated approval was refused

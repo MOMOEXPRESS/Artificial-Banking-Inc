@@ -1,5 +1,11 @@
 # ABINC — community / build token
 
+> **Not part of the product.** This ERC-20 is fundraising float only. It is not
+> imported by `apps/*` or `packages/*`, is excluded from the product money path,
+> and should not appear in customer-facing docs as a settlement asset.
+> Long-term: move to a separate repo when packaging allows (zero-cost; deferred
+> until a clean git split is worth the churn).
+
 Fixed-supply ERC-20 for **Artificial Banking Incorporated** fundraising / community float.
 
 | | |

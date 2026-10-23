@@ -44,11 +44,26 @@ describe("outboundUrlProblem", () => {
       "http://192.168.1.1/x",
       "http://172.16.0.1/x",
       "http://100.64.0.1/x",
+      "http://198.18.0.1/x",
+      "http://224.0.0.1/x",
       "http://[::1]/x",
       "http://[fd00::1]/x",
+      // WHATWG serializes IPv4-mapped as hex; the old dotted-only check missed these.
+      "http://[::ffff:127.0.0.1]/x",
+      "http://[::ffff:7f00:1]/x",
+      "http://[::ffff:a9fe:a9fe]/x",
     ]) {
       assert.ok(outboundUrlProblem(url), `expected ${url} to be blocked`);
     }
+  });
+
+  it("decodes IPv4-mapped IPv6 in both dotted and hex forms", async () => {
+    const { ipv4MappedToDotted, isBlockedIpv6 } = await import("./outbound-url.js");
+    assert.equal(ipv4MappedToDotted("::ffff:127.0.0.1"), "127.0.0.1");
+    assert.equal(ipv4MappedToDotted("::ffff:7f00:1"), "127.0.0.1");
+    assert.equal(ipv4MappedToDotted("::ffff:0a00:0001"), "10.0.0.1");
+    assert.equal(isBlockedIpv6("::ffff:7f00:1"), true);
+    assert.equal(isBlockedIpv6("::ffff:a9fe:a9fe"), true);
   });
 
   it("permits local targets in development so the bundled seller works", () => {

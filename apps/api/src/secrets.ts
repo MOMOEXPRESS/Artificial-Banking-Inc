@@ -2,33 +2,89 @@
  * A13 — secrets at rest. Plaintext keys are revealed once on create/rotate;
  * SQLite stores only `h1:<sha256(pepper || raw)>`. Auth hashes the bearer and compares.
  */
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 const HASH_PREFIX = "h1:";
 
 /** Publicly-known fallback. Usable in development, refused in production. */
 const DEV_PEPPER = "abi-dev-pepper-change-me";
 
+type DemoPurpose = "key-pepper" | "key-encryption";
+
+type DiskSecrets = {
+  "key-pepper"?: string;
+  "key-encryption"?: string;
+};
+
+/**
+ * Path for auto-generated demo secrets. Prefer the SQLite directory so a
+ * Render/Fly disk that keeps the DB also keeps the pepper/KEK across restarts
+ * without deriving either from ABI_SIGNUP_TOKEN (which would let one leaked
+ * signup token decrypt every vault key).
+ */
+export function demoSecretsPath(): string {
+  const configured = process.env.ABI_DEMO_SECRETS_PATH?.trim();
+  if (configured) return configured;
+  const dbPath = process.env.POLICYVAULT_DB?.trim();
+  if (dbPath) return join(dirname(dbPath), "abi-demo-secrets.json");
+  return join(process.cwd(), "apps/api/data/abi-demo-secrets.json");
+}
+
+function readDiskSecrets(): DiskSecrets {
+  const path = demoSecretsPath();
+  if (!existsSync(path)) return {};
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as DiskSecrets;
+  } catch {
+    return {};
+  }
+}
+
+function writeDiskSecrets(secrets: DiskSecrets): void {
+  const path = demoSecretsPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(secrets, null, 2)}\n`, { mode: 0o600 });
+}
+
 /**
  * Free-hosting demo fallback.
  *
- * A Render free instance cannot preserve SQLite across restarts, so a deployment
- * with demo bootstrap explicitly enabled is already disposable. Reuse the
- * existing server-only signup token as input keying material and derive
- * purpose-separated secrets with HMAC. This keeps the YC demo operable without
- * committing secrets or requiring a paid disk. Explicit ABI_KEY_PEPPER and
- * ABI_KEK values always take precedence.
+ * Previously both the pepper and the vault KEK were HMAC-derived from
+ * `ABI_SIGNUP_TOKEN`, so one leaked signup token decrypted every wallet key.
+ * Demo mode now loads or generates independent random secrets on disk under
+ * the database directory (no card, no KMS). Explicit `ABI_KEY_PEPPER` /
+ * `ABI_KEK` always win. Production without bootstrap still fail-closes.
+ *
+ * Real KMS/HSM envelope encryption remains deferred (paid); see SECURITY.md.
  */
-export function demoDerivedSecret(purpose: "key-pepper" | "key-encryption"): string | undefined {
+export function demoDerivedSecret(purpose: DemoPurpose): string | undefined {
   if (process.env.POLICYVAULT_ALLOW_BOOTSTRAP !== "1") return undefined;
-  // Cloudflare Workers: no durable local disk for abi-demo-secrets.json (PR #61)
-  // and no silent derive-from-signup-token. Require ABI_KEY_PEPPER / ABI_KEK secrets.
+  // Cloudflare Workers: no durable local disk for abi-demo-secrets.json and no
+  // silent derive-from-signup-token. Require ABI_KEY_PEPPER / ABI_KEK secrets.
   if (process.env.ABI_RUNTIME === "cloudflare-workers") {
     return undefined;
   }
-  const signupToken = process.env.ABI_SIGNUP_TOKEN?.trim();
-  if (!signupToken) return undefined;
-  return createHmac("sha256", signupToken).update(`abi-free-demo:${purpose}:v1`).digest("base64");
+
+  // Legacy escape hatch: only when explicitly opted in. Default path never
+  // derives cryptography from the signup token.
+  if (process.env.ABI_DEMO_DERIVE_FROM_SIGNUP_TOKEN === "1") {
+    const signupToken = process.env.ABI_SIGNUP_TOKEN?.trim();
+    if (!signupToken) return undefined;
+    return createHmac("sha256", signupToken)
+      .update(`abi-free-demo:${purpose}:v1`)
+      .digest("base64");
+  }
+
+  const existing = readDiskSecrets();
+  const cached = existing[purpose];
+  if (cached) return cached;
+
+  const generated = randomBytes(32).toString("base64");
+  const next: DiskSecrets = { ...existing, [purpose]: generated };
+  writeDiskSecrets(next);
+  return generated;
 }
 
 /**

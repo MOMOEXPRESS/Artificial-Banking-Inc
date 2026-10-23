@@ -36,6 +36,9 @@ export class KeyEncryptionError extends Error {}
  * a passphrase or a base64 blob without it silently truncating.
  */
 function kek(): Buffer {
+  // Never fall back to ABI_SIGNUP_TOKEN-derived material by default. Demo
+  // bootstrap may persist an independent random KEK on disk (see secrets.ts);
+  // production without bootstrap still requires an explicit ABI_KEK.
   const configured = process.env.ABI_KEK?.trim() || demoDerivedSecret("key-encryption");
   if (!configured) {
     if (process.env.NODE_ENV === "production") {
