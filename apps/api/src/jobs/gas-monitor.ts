@@ -11,6 +11,7 @@
  * warning with enough lead time to act.
  */
 import { readVaultOnchain } from "../chain/deposits.js";
+import { isRpcBudgetError } from "../chain/rpc-budget.js";
 import { notify } from "../platform/notifier.js";
 import { recordObs } from "../platform/observability.js";
 import { store } from "../store.js";
@@ -53,6 +54,8 @@ export async function checkVaultGas(): Promise<{ checked: number; low: number }>
       // alarm on it. RPC health is a separate concern.
       continue;
     }
+    // Out of this tick's RPC allowance: stop; the next tick continues.
+    if (!snap.ok && isRpcBudgetError(snap.error)) break;
     if (!snap.ok) continue;
     checked += 1;
 

@@ -13,6 +13,7 @@ import { formatMicroToUsdc } from "@policyvault/common";
 import { createPublicClient, http, parseAbiItem, type Address, type Hex } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import { activeChain, rpcUrl, type ChainConfig } from "./network.js";
+import { RPC_BUDGET_EXHAUSTED, tryTakeRpc } from "./rpc-budget.js";
 
 const transferEvent = parseAbiItem(
   "event Transfer(address indexed from, address indexed to, uint256 value)",
@@ -226,6 +227,9 @@ export async function scanTransferLogs(input: {
     if (calls >= maxCalls) {
       return { logs, through, complete: false, calls };
     }
+    if (!tryTakeRpc(1)) {
+      return { logs, through, complete: false, calls };
+    }
     let end = start + span - 1n;
     if (end > to) end = to;
     calls += 1;
@@ -261,6 +265,23 @@ export async function scanTransferLogs(input: {
     }
   }
   return { logs, through, complete: true, calls };
+}
+
+/**
+ * Balance reads are shared for a few seconds, so the gas monitor and backing
+ * sweep in the same alarm tick reuse the deposit sweep's reads instead of
+ * spending three more subrequests per org. Short enough that a console
+ * Refresh still shows a fresh balance moments after a transfer.
+ */
+const BALANCE_CACHE_MS = 15_000;
+const balanceCache = new Map<
+  string,
+  { at: number; latest: bigint; balance: bigint; ethBal: bigint }
+>();
+
+/** Drop cached balance reads (after a send, or in tests). */
+export function clearVaultBalanceCache(): void {
+  balanceCache.clear();
 }
 
 function formatEth(wei: bigint): string {
@@ -307,17 +328,25 @@ export async function readVaultOnchain(
   let latest: bigint;
   let balance: bigint;
   let ethBal: bigint;
+  const cacheKey = `${rpc}|${vault.toLowerCase()}`;
+  const cached = opts.client ? undefined : balanceCache.get(cacheKey);
   try {
-    [latest, balance, ethBal] = await Promise.all([
-      client.getBlockNumber(),
-      client.readContract({
-        address: cfg.usdc,
-        abi: erc20Abi,
-        functionName: "balanceOf",
-        args: [vault],
-      }),
-      client.getBalance({ address: vault }),
-    ]);
+    if (cached && Date.now() - cached.at < BALANCE_CACHE_MS) {
+      ({ latest, balance, ethBal } = cached);
+    } else {
+      if (!tryTakeRpc(3)) throw new Error(RPC_BUDGET_EXHAUSTED);
+      [latest, balance, ethBal] = await Promise.all([
+        client.getBlockNumber(),
+        client.readContract({
+          address: cfg.usdc,
+          abi: erc20Abi,
+          functionName: "balanceOf",
+          args: [vault],
+        }),
+        client.getBalance({ address: vault }),
+      ]);
+      if (!opts.client) balanceCache.set(cacheKey, { at: Date.now(), latest, balance, ethBal });
+    }
   } catch (e) {
     return {
       ...baseSnap,

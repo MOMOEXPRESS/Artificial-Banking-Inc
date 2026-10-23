@@ -334,3 +334,47 @@ describe("vault rotation guard", () => {
     assert.equal(store.getVaultAddress(org.id), before, "vault unchanged");
   });
 });
+
+describe("shared RPC budget for an alarm tick", () => {
+  it("stops every chain reader once the tick's allowance is spent", async () => {
+    const { runWithRpcBudget, rpcRemaining, isRpcBudgetError } = await import("./rpc-budget.js");
+    const rpc = mockRpc({ head: 1_000_000n, cap: 200 });
+    let realCalls = 0;
+    const counted = {
+      getBlockNumber: async () => (realCalls++, rpc.client.getBlockNumber()),
+      readContract: async () => (realCalls++, rpc.client.readContract()),
+      getBalance: async () => (realCalls++, rpc.client.getBalance()),
+      getLogs: async (a: Parameters<typeof rpc.client.getLogs>[0]) => (
+        realCalls++,
+        rpc.client.getLogs(a)
+      ),
+    };
+    await runWithRpcBudget(10, async () => {
+      // Deposit sweep spends what it can, then a balance read is refused.
+      await sync.runOnchainDepositSweep({ force: true, budget: 100, client: counted });
+      const left = rpcRemaining() ?? 0;
+      assert.ok(left < 4);
+      const snap = await deposits.readVaultOnchain("0x2222222222222222222222222222222222222222", {
+        client: counted,
+        balancesOnly: true,
+      });
+      if (left < 3) {
+        assert.equal(snap.ok, false);
+        assert.ok(isRpcBudgetError(snap.error));
+      } else {
+        assert.equal(snap.ok, true);
+      }
+    });
+    assert.ok(realCalls <= 10, `used ${realCalls} calls`);
+    // Outside the tick there is no cap.
+    assert.equal(rpcRemaining(), null);
+  });
+
+  it("the backing sweep defers rather than marking vaults unreadable", async () => {
+    const { runWithRpcBudget } = await import("./rpc-budget.js");
+    const { runOnchainBackingSweep } = await import("../treasury-backing.js");
+    const out = await runWithRpcBudget(0, () => runOnchainBackingSweep());
+    assert.equal(out.unreadable, 0);
+    assert.ok(out.deferred > 0);
+  });
+});

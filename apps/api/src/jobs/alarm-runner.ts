@@ -8,6 +8,7 @@
  */
 import { retryPendingWebhookDeliveries } from "../webhooks.js";
 import { JOBS, type JobDefinition } from "./scheduler.js";
+import { runWithRpcBudget } from "../chain/rpc-budget.js";
 
 const lastRun = new Map<string, number>();
 
@@ -23,7 +24,21 @@ const WEBHOOK_RETRY_JOB: JobDefinition = {
   },
 };
 
+/**
+ * Chain reads one tick may make, shared by every job. Workers allows 50
+ * subrequests per invocation on the free plan; the rest is headroom for
+ * webhook retries and settlement-recovery receipt checks.
+ */
+export const ALARM_RPC_BUDGET = Number(process.env.ABI_ALARM_RPC_BUDGET ?? 35);
+
 export async function runAlarmJobs(jobs: JobDefinition[] = [...JOBS, WEBHOOK_RETRY_JOB]): Promise<{
+  ran: string[];
+  skipped: string[];
+}> {
+  return runWithRpcBudget(ALARM_RPC_BUDGET, () => runAlarmJobsInner(jobs));
+}
+
+async function runAlarmJobsInner(jobs: JobDefinition[]): Promise<{
   ran: string[];
   skipped: string[];
 }> {

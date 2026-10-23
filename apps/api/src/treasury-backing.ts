@@ -22,6 +22,7 @@
  */
 import { formatMicroToUsdc } from "@policyvault/common";
 import { readVaultOnchain, type OnchainVaultSnapshot } from "./chain/deposits.js";
+import { isRpcBudgetError } from "./chain/rpc-budget.js";
 import { notify } from "./platform/notifier.js";
 import { recordObs } from "./platform/observability.js";
 import { store } from "./store.js";
@@ -127,13 +128,27 @@ export async function runOnchainBackingSweep(): Promise<{
   checked: number;
   drifted: number;
   unreadable: number;
+  /** Orgs left for the next tick because this tick's RPC budget ran out. */
+  deferred: number;
 }> {
   let checked = 0;
   let drifted = 0;
   let unreadable = 0;
+  let deferred = 0;
 
-  for (const orgId of store.listOrgIds()) {
+  // Round-robin, so a tick that runs out of RPC allowance does not starve the
+  // same orgs at the end of the list every time.
+  const all = store.listOrgIds();
+  const start = all.length ? backingOffset % all.length : 0;
+  const ordered = [...all.slice(start), ...all.slice(0, start)];
+  let visited = 0;
+  for (const orgId of ordered) {
     const report = await reconcileOrgOnchain(orgId);
+    if (!report.checked && isRpcBudgetError(report.error)) {
+      deferred = ordered.length - visited;
+      break;
+    }
+    visited++;
     if (!report.checked) {
       unreadable++;
       continue;
@@ -177,5 +192,8 @@ export async function runOnchainBackingSweep(): Promise<{
     });
   }
 
-  return { checked, drifted, unreadable };
+  backingOffset = all.length ? (start + visited) % all.length : 0;
+  return { checked, drifted, unreadable, deferred };
 }
+
+let backingOffset = 0;
