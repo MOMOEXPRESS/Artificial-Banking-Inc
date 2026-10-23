@@ -50,7 +50,11 @@ export function signPayload(secret: string, rawBody: string): string {
 }
 
 /** Timestamped signature: `t=<unix>,v1=<hex>`. */
-export function signPayloadV1(secret: string, rawBody: string, timestampSec = Math.floor(Date.now() / 1000)): string {
+export function signPayloadV1(
+  secret: string,
+  rawBody: string,
+  timestampSec = Math.floor(Date.now() / 1000),
+): string {
   const t = String(timestampSec);
   const v1 = createHmac("sha256", secret).update(`${t}.${rawBody}`).digest("hex");
   return `t=${t},v1=${v1}`;

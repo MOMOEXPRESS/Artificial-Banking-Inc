@@ -84,16 +84,19 @@ describe("ledger", () => {
     return new Map<string, LedgerAccount>([
       [
         "payer_av",
-        { id: "payer_av", orgId: "org1", kind: "agent_available", agentId: "a1", balanceMicro: 10_000_000n },
+        {
+          id: "payer_av",
+          orgId: "org1",
+          kind: "agent_available",
+          agentId: "a1",
+          balanceMicro: 10_000_000n,
+        },
       ],
       [
         "payee_av",
         { id: "payee_av", orgId: "org1", kind: "agent_available", agentId: "a2", balanceMicro: 0n },
       ],
-      [
-        "esc_1",
-        { id: "esc_1", orgId: "org1", kind: "escrow", balanceMicro: 0n },
-      ],
+      ["esc_1", { id: "esc_1", orgId: "org1", kind: "escrow", balanceMicro: 0n }],
     ]);
   }
 

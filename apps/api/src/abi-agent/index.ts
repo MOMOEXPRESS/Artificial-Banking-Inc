@@ -6,10 +6,7 @@
  */
 import { answerQuestion } from "../insights.js";
 import { buildOrgContext, formatOrgContext } from "./context.js";
-import {
-  bindEntities,
-  wantsAgentDetail,
-} from "./entities.js";
+import { bindEntities, wantsAgentDetail } from "./entities.js";
 import { classifyIntent } from "./intent.js";
 import { runLlmToolLoop } from "./llm-loop.js";
 import {
@@ -56,7 +53,13 @@ function composeAnswer(results: ToolResult[], orgId: string): string {
   }
   const blocks = results.map((r) => `${r.title}\n${r.text}`);
   const note = anomalyNote(orgId);
-  if (note && !results.some((r) => r.tool === "list_denials" || r.tool === "lookup_decision" || r.tool === "explain_decision")) {
+  if (
+    note &&
+    !results.some(
+      (r) =>
+        r.tool === "list_denials" || r.tool === "lookup_decision" || r.tool === "explain_decision",
+    )
+  ) {
     blocks.push(`Signals\n${note}`);
   }
   const ctx = buildOrgContext(orgId);
@@ -163,10 +166,7 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
   }
 
   // Auto-attach recall when surveying if memories exist
-  if (
-    (intent === "survey" || intent === "help") &&
-    !toolsUsed.includes("recall_facts")
-  ) {
+  if ((intent === "survey" || intent === "help") && !toolsUsed.includes("recall_facts")) {
     const mem = runTool(orgId, "recall_facts", {});
     if (!/No saved notes/i.test(mem.text)) {
       results.push(mem);

@@ -153,15 +153,15 @@ Goal: make a real payment safe to retry, explain, and reconcile.
 
 ## Near-term delivery blocks
 
-| Block | Deliverable | Paid dependency required? |
-| --- | --- | --- |
-| A | Group-budget migration, tests, cross-page links | No |
-| B | Organization profile, onboarding schema, settings shell | No |
-| C | Terminology glossary and full product copy pass | No |
-| D | Seller workspace shell and sandbox Merchant Gateway flow | No |
-| E | Production authentication hardening | Not necessarily; some delivery/scale services may cost |
-| F | Coinbase CDP provider and Base Sepolia proof | Account/provider requirements must be verified |
-| G | PostgreSQL, queues, observability and live reconciliation | Can start free; production capacity costs later |
+| Block | Deliverable                                               | Paid dependency required?                              |
+| ----- | --------------------------------------------------------- | ------------------------------------------------------ |
+| A     | Group-budget migration, tests, cross-page links           | No                                                     |
+| B     | Organization profile, onboarding schema, settings shell   | No                                                     |
+| C     | Terminology glossary and full product copy pass           | No                                                     |
+| D     | Seller workspace shell and sandbox Merchant Gateway flow  | No                                                     |
+| E     | Production authentication hardening                       | Not necessarily; some delivery/scale services may cost |
+| F     | Coinbase CDP provider and Base Sepolia proof              | Account/provider requirements must be verified         |
+| G     | PostgreSQL, queues, observability and live reconciliation | Can start free; production capacity costs later        |
 
 ## Definition of the next convincing demo
 

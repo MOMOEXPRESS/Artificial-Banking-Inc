@@ -13,7 +13,10 @@ export function Ledger({
   recon: Recon | null;
 }) {
   const short = (id: string) =>
-    id.replace(/^org:[^:]+:/, "treasury ").replace(/^agent:/, "").replace(/^escrow:/, "escrow ");
+    id
+      .replace(/^org:[^:]+:/, "treasury ")
+      .replace(/^agent:/, "")
+      .replace(/^escrow:/, "escrow ");
   const delta = (m: string) => {
     const n = Number(m) / 1e6;
     return `${n >= 0 ? "+" : ""}${n.toFixed(2)}`;
@@ -22,14 +25,30 @@ export function Ledger({
   return (
     <div className="console-page ledger-page">
       <div className="grid g-4">
-        <Stat label="Journal entries" value={String(metrics?.journals ?? 0)} foot="every balanced movement" />
-        <Stat label="In escrow" value={fmtUsd(metrics?.balancesUsdc?.escrow ?? "0")} foot="locked between agents" />
-        <Stat label="In flight" value={fmtUsd(metrics?.balancesUsdc?.agentHeld ?? "0")} foot="held mid-payment" />
+        <Stat
+          label="Journal entries"
+          value={String(metrics?.journals ?? 0)}
+          foot="every balanced movement"
+        />
+        <Stat
+          label="In escrow"
+          value={fmtUsd(metrics?.balancesUsdc?.escrow ?? "0")}
+          foot="locked between agents"
+        />
+        <Stat
+          label="In flight"
+          value={fmtUsd(metrics?.balancesUsdc?.agentHeld ?? "0")}
+          foot="held mid-payment"
+        />
         <Stat
           label="Reconciliation"
           value={recon?.ok ? "Clean" : "DRIFT"}
           foot={`${recon?.journalsReplayed ?? 0} entries replayed · ${recon?.accountsChecked ?? 0} accounts`}
-          delta={recon?.ok ? { dir: "up", text: "0 drift" } : { dir: "down", text: `${recon?.drift.length} bad` }}
+          delta={
+            recon?.ok
+              ? { dir: "up", text: "0 drift" }
+              : { dir: "down", text: `${recon?.drift.length} bad` }
+          }
         />
       </div>
 
@@ -64,9 +83,15 @@ export function Ledger({
                     </td>
                     <td className="wrap ledger-lines">
                       {j.lines.map((l, i) => (
-                        <span key={i} className="mono ledger-line" style={{ marginRight: 16, whiteSpace: "nowrap" }}>
+                        <span
+                          key={i}
+                          className="mono ledger-line"
+                          style={{ marginRight: 16, whiteSpace: "nowrap" }}
+                        >
                           <span className="muted">{short(l.accountId)}</span>{" "}
-                          <b className={Number(l.deltaMicro) >= 0 ? "ledger-credit" : "ledger-debit"}>
+                          <b
+                            className={Number(l.deltaMicro) >= 0 ? "ledger-credit" : "ledger-debit"}
+                          >
                             {delta(l.deltaMicro)}
                           </b>
                         </span>
@@ -82,4 +107,3 @@ export function Ledger({
     </div>
   );
 }
-

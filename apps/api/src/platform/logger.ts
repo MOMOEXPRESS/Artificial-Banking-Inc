@@ -66,7 +66,8 @@ export function requestLogMiddleware(
   res: ServerResponse,
   next: (err?: unknown) => void,
 ): void {
-  const headerId = typeof req.headers["x-request-id"] === "string" ? req.headers["x-request-id"] : "";
+  const headerId =
+    typeof req.headers["x-request-id"] === "string" ? req.headers["x-request-id"] : "";
   const requestId = headerId.trim() || newRequestId();
   req.requestId = requestId;
   res.setHeader("x-request-id", requestId);

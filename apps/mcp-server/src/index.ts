@@ -9,10 +9,7 @@
  */
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { PolicyVaultClient } from "@policyvault/sdk";
 
 const baseUrl = process.env.POLICYVAULT_API_URL ?? "http://localhost:8787";
@@ -118,7 +115,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "escrow_status",
-      description: "Get the state of an escrow (locked/settling/released/refunded/timeout_refunded)",
+      description:
+        "Get the state of an escrow (locked/settling/released/refunded/timeout_refunded)",
       inputSchema: {
         type: "object",
         properties: { escrowId: { type: "string" } },

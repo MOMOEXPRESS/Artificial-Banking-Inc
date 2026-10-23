@@ -3,13 +3,7 @@
  * Reads balanceOf + Transfer logs; callers credit the ledger idempotently.
  */
 import { formatMicroToUsdc } from "@policyvault/common";
-import {
-  createPublicClient,
-  http,
-  parseAbiItem,
-  type Address,
-  type Hex,
-} from "viem";
+import { createPublicClient, http, parseAbiItem, type Address, type Hex } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import { activeChain, rpcUrl, type ChainConfig } from "./network.js";
 
@@ -109,7 +103,9 @@ async function getTransferLogsChunked(
   return { logs, fromBlock };
 }
 
-export async function readVaultOnchain(vaultAddress: string | undefined): Promise<OnchainVaultSnapshot> {
+export async function readVaultOnchain(
+  vaultAddress: string | undefined,
+): Promise<OnchainVaultSnapshot> {
   const cfg = activeChain();
   const baseSnap: OnchainVaultSnapshot = {
     ok: false,
