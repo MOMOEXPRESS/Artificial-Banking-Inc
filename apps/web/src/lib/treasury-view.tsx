@@ -17,6 +17,8 @@ import { Empty, Icon, Stat } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
 import { okJson } from "./api-response";
+import { deriveVaultStatus, stripChips } from "./vault-status";
+import { VaultStatusStrip } from "./vault-status-strip";
 
 type Scope = "org" | "department" | "agent" | "shared";
 
@@ -450,6 +452,24 @@ export function TreasuryView({
       ? (wallets?.org?.availableUsdc ?? activeHolding.balance)
       : holdingBalance(activeHolding);
   const activeBalanceNumber = Number(activeBalance);
+  const vaultStatus = deriveVaultStatus({
+    assetId: activeHolding?.id ?? assetId,
+    symbol: activeHolding?.symbol ?? "USDC",
+    actionInFlight: busy,
+    moves: moves.map((m) => ({
+      ...m,
+      route: `${moveEndpointLabel(m.from, wallets)} → ${moveEndpointLabel(m.to, wallets)}`,
+    })),
+    deposits: onchain?.transfers ?? [],
+    activity: vaultActivity,
+  });
+  const vaultChips = stripChips({
+    assetId: activeHolding?.id ?? assetId,
+    chain: onchain,
+    checking: onchainBusy,
+    backing,
+    holding: selectedAsset,
+  });
 
   return (
     <div className="console-page treasury-page">
@@ -665,154 +685,37 @@ export function TreasuryView({
                 </div>
               </details>
             </section>
-          </div>
-
-          {assetId === "asset_usdc" && (
-            <div className="card onchain-status-card">
-              <div className="card-head">
-                <div>
-                  <div className="row" style={{ gap: 8 }}>
-                    <h2 style={{ margin: 0 }}>{onchain?.networkName ?? "Base Sepolia"}</h2>
-                    <span
-                      className={`pill ${onchainBusy ? "mute" : onchain?.ok ? "ok" : "warn"}`}
-                      title={onchain?.error ? "The latest chain balance check failed." : undefined}
-                    >
-                      <i />{" "}
-                      {onchainBusy
-                        ? "Checking"
-                        : onchain?.ok
-                          ? "Up to date"
-                          : onchain?.error
-                            ? "Chain read failed"
-                            : "Not checked"}
-                    </span>
-                  </div>
-                  <div className="sub">Vault balance and settlement health.</div>
-                </div>
-                <div className="onchain-actions">
-                  {onchain?.explorerAddress ? (
-                    <a href={onchain.explorerAddress} target="_blank" rel="noreferrer">
-                      View on Basescan
-                    </a>
-                  ) : null}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={onchainBusy || locked}
-                    onClick={() => void refreshOnchain()}
-                  >
-                    {onchainBusy ? "Checking…" : "Refresh"}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="wallet-onchain-stats">
-                <div>
-                  <span className="faint">Vault USDC</span>
-                  <b>{onchain?.ok ? onchain.onchainBalanceUsdc : "—"} USDC</b>
-                </div>
-                <div>
-                  <span className="faint">
-                    {ledgerMode === "sandbox" ? "Sandbox book balance" : "Ledger available"}
-                  </span>
-                  <b>{fmt(wallets?.org?.availableUsdc)}</b>
-                </div>
-                <div>
-                  <span className="faint">Network gas</span>
-                  <b style={{ color: onchain?.hasGas ? undefined : "var(--amber, var(--warn))" }}>
-                    {onchain?.ok && onchain.nativeBalanceEth != null
-                      ? `${onchain.nativeBalanceEth} ETH`
-                      : "—"}
-                    {onchain?.ok && !onchain.hasGas ? " · needed" : ""}
-                  </b>
-                </div>
-              </div>
-
-              {backing && (
-                <div className={`onchain-health ${backing.checked && !backing.ok ? "warn" : ""}`}>
-                  <Icon name={backing.checked && backing.ok ? "check" : "alert"} size={15} />
-                  <div>
-                    <b>
-                      {!backing.checked
-                        ? "Balance not verified"
-                        : backing.ok
-                          ? "Vault and records match"
-                          : `Balance difference: ${backing.driftUsdc} USDC`}
-                    </b>
-                    {!backing.checked && backing.error ? (
-                      <span>Unable to verify the chain balance right now.</span>
-                    ) : null}
-                  </div>
-                </div>
-              )}
-
-              {(onchain?.transfers?.length ?? 0) > 0 && (
-                <details className="onchain-details">
-                  <summary>Recent deposits ({onchain!.transfers!.length})</summary>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
-                    {onchain!.transfers!.slice(0, 6).map((t) => (
-                      <div key={`${t.txHash}-${t.logIndex}`} className="wallet-tx-row">
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: 13 }}>
-                            +{t.amountUsdc} USDC{" "}
-                            <span className={`pill ${t.status === "credited" ? "ok" : "warn"}`}>
-                              <i /> {t.status}
-                            </span>
-                          </div>
-                          <div className="faint" style={{ fontSize: 11.5, marginTop: 3 }}>
-                            from {t.from.slice(0, 8)}…{t.from.slice(-4)} · block {t.blockNumber}
-                          </div>
-                        </div>
-                        <a href={t.explorerUrl} target="_blank" rel="noreferrer">
-                          Tx
-                        </a>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              )}
-
-              <details className="onchain-details">
-                <summary>Technical details</summary>
-                <div className="onchain-technical-grid">
-                  <span>Network</span>
-                  <b>
-                    {onchain?.networkName ?? "—"}
-                    {onchain?.chainId ? ` · ${onchain.chainId}` : ""}
-                  </b>
-                  <span>USDC contract</span>
-                  <code>{onchain?.usdcContract ?? "—"}</code>
-                  <span>Records expect</span>
-                  <b>{backing?.expectedUsdc ?? "—"} USDC</b>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={onchainBusy || locked}
-                  onClick={() =>
-                    void act("Re-scan deposits", async () => {
-                      setOnchainBusy(true);
-                      try {
-                        const res = await gFetch("/v1/guardian/treasury/onchain/sync", {
-                          method: "POST",
-                        });
-                        const j = await res.json();
-                        if (!res.ok) throw new Error(j.error?.message ?? "Sync failed");
-                        setOnchain(j.onchain ?? null);
-                        await refresh();
-                        await refreshOnchain();
-                        return j.note ?? `Credited ${j.creditedCount ?? 0} deposit(s).`;
-                      } finally {
-                        setOnchainBusy(false);
-                      }
-                    })
+            <VaultStatusStrip
+              status={vaultStatus}
+              chips={vaultChips}
+              checking={onchainBusy}
+              disabled={locked}
+              onRefresh={() => void refreshOnchain()}
+              usdc={(activeHolding?.id ?? assetId) === "asset_usdc"}
+              onchain={onchain}
+              ledgerLabel={ledgerMode === "sandbox" ? "Sandbox book balance" : "Ledger available"}
+              ledgerBalance={fmt(wallets?.org?.availableUsdc)}
+              expectedUsdc={backing?.expectedUsdc}
+              onRescan={() =>
+                void act("Re-scan deposits", async () => {
+                  setOnchainBusy(true);
+                  try {
+                    const res = await gFetch("/v1/guardian/treasury/onchain/sync", {
+                      method: "POST",
+                    });
+                    const j = await res.json();
+                    if (!res.ok) throw new Error(j.error?.message ?? "Sync failed");
+                    setOnchain(j.onchain ?? null);
+                    await refresh();
+                    await refreshOnchain();
+                    return j.note ?? `Credited ${j.creditedCount ?? 0} deposit(s).`;
+                  } finally {
+                    setOnchainBusy(false);
                   }
-                >
-                  Re-scan deposits
-                </Button>
-              </details>
-            </div>
-          )}
+                })
+              }
+            />
+          </div>
 
           <div className="card">
             <div className="card-head">

@@ -29,4 +29,14 @@ describe("Console layout CSS", () => {
     assert.match(css, /\.scenario-grid\s*\{/);
     assert.match(css, /\.lab-workspace\s*\{/);
   });
+
+  it("keeps the compact Money tab status strip under Vault assets", () => {
+    assert.match(css, /\.vault-overview > \.vault-status-strip\s*\{/);
+    assert.match(css, /\.vault-status-strip\s*\{/);
+    assert.match(css, /\.vault-status-strip\.is-processing/);
+    assert.match(css, /\.vault-status-chip\.warn/);
+    // The old large network/gas card is gone.
+    assert.doesNotMatch(css, /\.onchain-status-card\s*\{/);
+    assert.doesNotMatch(css, /\.wallet-onchain-stats\s*\{/);
+  });
 });

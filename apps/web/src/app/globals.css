@@ -8888,88 +8888,6 @@ button.user-chip {
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-.wallet-onchain-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 4px;
-}
-
-.wallet-onchain-stats > div {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: var(--color-surface-2, rgba(0, 0, 0, 0.03));
-  border: 1px solid var(--color-border, var(--border));
-}
-
-.wallet-onchain-stats b {
-  min-width: 0;
-  overflow: hidden;
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.onchain-status-card {
-  display: flex;
-  gap: 14px;
-  flex-direction: column;
-}
-
-.onchain-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.onchain-actions a {
-  color: var(--color-fg-muted);
-  font-size: 11px;
-}
-
-.onchain-health {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--color-success) 28%, var(--color-border));
-  border-radius: 9px;
-  background: var(--color-success-soft);
-  color: var(--color-success);
-}
-
-.onchain-health.warn {
-  border-color: color-mix(in srgb, var(--color-warning) 35%, var(--color-border));
-  background: var(--color-warning-soft);
-  color: var(--color-warning);
-}
-
-.onchain-health > div {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-}
-
-.onchain-health b {
-  font-size: 12px;
-}
-
-.onchain-health span {
-  margin-top: 2px;
-  color: var(--color-fg-muted);
-  font-size: 10.5px;
-}
-
-.onchain-details {
-  padding-top: 10px;
-  border-top: 1px solid var(--color-border-soft);
-}
-
 .onchain-technical-grid {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -8988,6 +8906,183 @@ button.user-chip {
   font-family: var(--mono);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---------- Vault status strip (idle / processing / last processed) ---------- */
+
+/* Balance on the left spans both rows; Vault assets and the strip stack on the right. */
+.vault-overview:has(> .vault-status-strip) {
+  grid-template-rows: auto 1fr;
+}
+
+.vault-overview > .vault-balance-panel {
+  grid-row: span 2;
+}
+
+.vault-overview > .vault-assets-panel,
+.vault-overview > .vault-status-strip {
+  grid-column: 2;
+}
+
+.vault-overview > .vault-status-strip {
+  align-self: start;
+}
+
+.vault-status-strip {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-surface-2) 88%, transparent);
+  box-shadow: var(--glass-top);
+}
+
+.vault-status-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.vault-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-fg-faint, var(--color-fg-muted));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-fg-muted) 14%, transparent);
+}
+
+.vault-status-strip.is-processing .vault-status-dot {
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+  animation: vault-status-pulse 1.4s ease-in-out infinite;
+}
+
+.vault-status-strip.is-processed .vault-status-dot {
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px var(--color-success-soft);
+}
+
+@keyframes vault-status-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vault-status-strip.is-processing .vault-status-dot {
+    animation: none;
+  }
+}
+
+.vault-status-copy {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+.vault-status-title {
+  color: var(--color-fg);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.vault-status-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-fg-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-status-time {
+  color: var(--color-fg-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vault-status-time a,
+.vault-status-link {
+  color: var(--color-fg-muted);
+  font-size: 11px;
+}
+
+.vault-status-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.vault-status-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  padding: 3px 8px;
+  overflow: hidden;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-surface-3) 78%, transparent);
+  color: var(--color-fg-secondary);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-status-chip.ok {
+  border-color: color-mix(in srgb, var(--color-success) 28%, var(--color-border));
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.vault-status-chip.warn {
+  border-color: color-mix(in srgb, var(--color-warning) 35%, var(--color-border));
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+.vault-status-details {
+  margin-left: auto;
+}
+
+.vault-status-details[open] {
+  flex-basis: 100%;
+  margin-left: 0;
+}
+
+.vault-status-details > summary {
+  color: var(--color-fg-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.vault-status-deposits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 720px) {
+  .vault-status-main {
+    align-items: start;
+  }
+
+  .vault-status-detail {
+    white-space: normal;
+  }
 }
 
 .agent-roster-table {
@@ -9034,6 +9129,19 @@ button.user-chip {
     grid-template-columns: 1fr;
   }
 
+  .vault-overview:has(> .vault-status-strip) {
+    grid-template-rows: none;
+  }
+
+  .vault-overview > .vault-balance-panel {
+    grid-row: auto;
+  }
+
+  .vault-overview > .vault-assets-panel,
+  .vault-overview > .vault-status-strip {
+    grid-column: auto;
+  }
+
   .vault-balance-panel {
     min-height: 0;
     padding: 18px;
@@ -9049,10 +9157,6 @@ button.user-chip {
 }
 
 @media (max-width: 720px) {
-  .wallet-onchain-stats {
-    grid-template-columns: 1fr;
-  }
-
   .agents-page,
   .agents-page > .grid,
   .agents-page .card {
