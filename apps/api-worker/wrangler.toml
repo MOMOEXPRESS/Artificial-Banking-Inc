@@ -21,12 +21,11 @@ enabled = true
 CHAIN = "base-sepolia"
 ABI_CONSOLE_URL = "https://artificial-banking-inc-web.vercel.app"
 ABI_CORS_ORIGINS = "https://artificial-banking-inc-web.vercel.app"
-ABI_NOTIFY_EMAIL_FROM = "ABI <noreply@example.com>"
+ABI_NOTIFY_EMAIL_FROM = "ABI <onboarding@resend.dev>"
 ABI_RUNTIME = "cloudflare-workers"
 ABI_NO_LISTEN = "1"
 ABI_RUN_JOBS = "0"
 POLICYVAULT_ALLOW_BOOTSTRAP = "1"
-ABI_ALLOW_UNVERIFIED_SIGNUP = "1"
 
 # Secrets (set via `npx wrangler secret put <NAME>` after Maurice's login/approval):
 #   BREVO_API_KEY          — primary email (free HTTP API; preferred)
