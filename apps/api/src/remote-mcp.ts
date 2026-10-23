@@ -59,20 +59,51 @@ function describeDecision(data: JsonRecord, fallback: string): string {
   return fallback;
 }
 
+/**
+ * Optional in-process/bridge fetch for environments without 127.0.0.1 loopback
+ * (Cloudflare Workers). The Worker sets this to `handleAsNodeRequest` against
+ * the same Express server that serves public traffic.
+ */
+let mcpInternalFetch: ((request: Request) => Promise<Response>) | null = null;
+
+export function setMcpInternalFetch(
+  fetcher: ((request: Request) => Promise<Response>) | null,
+): void {
+  mcpInternalFetch = fetcher;
+}
+
 async function agentRequest(
   baseUrl: string,
   token: string,
   path: string,
   init?: RequestInit,
 ): Promise<JsonRecord> {
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: {
-      authorization: `Bearer ${token}`,
-      ...(init?.body ? { "content-type": "application/json" } : {}),
-      ...init?.headers,
-    },
-  });
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${token}`,
+    ...(init?.body ? { "content-type": "application/json" } : {}),
+  };
+  if (init?.headers) {
+    const h = new Headers(init.headers);
+    h.forEach((value, key) => {
+      headers[key] = value;
+    });
+  }
+
+  let response: Response;
+  if (mcpInternalFetch) {
+    response = await mcpInternalFetch(
+      new Request(`http://abi-internal${path}`, {
+        method: init?.method ?? "GET",
+        headers,
+        body: init?.body,
+      }),
+    );
+  } else {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers,
+    });
+  }
   const body = record(await response.json().catch(() => ({})));
   // A policy deny or a rail failure is a valid financial result, not an MCP
   // transport error. Return it so the model can explain what ABI decided.
@@ -316,11 +347,12 @@ export function registerRemoteMcp(app: express.Express) {
       });
     }
 
-    // Loop back to the same listener so MCP uses the exact public agent routes,
-    // auth checks, policy engine, idempotency, rail, ledger, and audit trail.
-    // Deriving the port from the socket avoids trusting the caller's Host header.
+    // Prefer in-process/bridge fetch (Workers). On Node/Render, loop back to the
+    // same listener so MCP uses the exact public agent routes, auth checks,
+    // policy engine, idempotency, rail, ledger, and audit trail. Deriving the
+    // port from the socket avoids trusting the caller's Host header.
     const localPort = req.socket.localPort;
-    if (!localPort) {
+    if (!mcpInternalFetch && !localPort) {
       return res.status(503).json({
         jsonrpc: "2.0",
         error: { code: -32603, message: "ABI could not resolve its internal API listener." },
@@ -330,7 +362,7 @@ export function registerRemoteMcp(app: express.Express) {
 
     const server = createServer({
       token,
-      baseUrl: `http://127.0.0.1:${localPort}`,
+      baseUrl: localPort ? `http://127.0.0.1:${localPort}` : "http://abi-internal",
       agentId: session.agent.id,
       agentName: session.agent.name,
       orgId: session.agent.orgId,

@@ -19,6 +19,7 @@ import { sweepApprovalExpiry, sweepEscrowTimeouts } from "../engine.js";
 import { runAutoFundSweep } from "../auto-fund.js";
 import { runOnchainDepositSweep } from "../chain/sync-deposits.js";
 import { recordObs } from "../platform/observability.js";
+import { unrefTimer } from "../platform/timers.js";
 import { store } from "../store.js";
 import { runOnchainBackingSweep } from "../treasury-backing.js";
 import { checkVaultGas } from "./gas-monitor.js";
@@ -180,7 +181,7 @@ export function startScheduler(jobs: JobDefinition[] = JOBS): SchedulerHandle {
       void runJobOnce(job);
     };
     const timer = setInterval(tick, job.intervalMs);
-    timer.unref();
+    unrefTimer(timer);
     return timer;
   });
   console.log(

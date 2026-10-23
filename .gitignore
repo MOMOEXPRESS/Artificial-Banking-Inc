@@ -1,6 +1,10 @@
 node_modules/
 dist/
 .next/
+.wrangler/
+apps/api-worker/.wrangler/
+apps/api-worker/.dev.vars
+apps/api-worker/.wrangler/dry/
 .turbo/
 coverage/
 .env

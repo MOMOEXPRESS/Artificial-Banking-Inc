@@ -1,21 +1,40 @@
+import { timingSafeEqual } from "node:crypto";
+import type express from "express";
 import { resolveApproval } from "./engine.js";
 import { registerNotifier } from "./platform/notifier.js";
+import { unrefTimer } from "./platform/timers.js";
 import { scopedStore, store, type ApprovalRow } from "./store.js";
 
-const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
-const CHAT_ID = process.env.TELEGRAM_CHAT_ID ?? "";
-const ALLOWED_USERS = new Set(
-  (process.env.TELEGRAM_ALLOWED_USER_IDS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean),
-);
-const API = `https://api.telegram.org/bot${TOKEN}`;
+function botToken(): string {
+  return process.env.TELEGRAM_BOT_TOKEN ?? "";
+}
+function chatId(): string {
+  return process.env.TELEGRAM_CHAT_ID ?? "";
+}
+function webhookSecret(): string {
+  return process.env.TELEGRAM_WEBHOOK_SECRET?.trim() ?? "";
+}
 
-export const telegramEnabled = Boolean(TOKEN && CHAT_ID);
+function allowedUsersGlobal(): Set<string> {
+  return new Set(
+    (process.env.TELEGRAM_ALLOWED_USER_IDS ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+}
+
+function apiBase(): string {
+  return `https://api.telegram.org/bot${botToken()}`;
+}
+
+/** True when Telegram outbound notifications can be sent. */
+export function telegramEnabled(): boolean {
+  return Boolean(botToken() && chatId());
+}
 
 async function tg(method: string, payload: Record<string, unknown>): Promise<unknown> {
-  const res = await fetch(`${API}/${method}`, {
+  const res = await fetch(`${apiBase()}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -26,8 +45,19 @@ async function tg(method: string, payload: Record<string, unknown>): Promise<unk
   return body.result;
 }
 
+/**
+ * Per-org chat override seam (PR #61 adds store-backed chat ids).
+ * On main: fall back to the process-wide TELEGRAM_CHAT_ID.
+ */
+export function telegramChatForOrg(_orgId: string): string | null {
+  const chat = chatId();
+  return chat || null;
+}
+
 export function notifyApprovalPending(approval: ApprovalRow): void {
-  if (!telegramEnabled) return;
+  if (!telegramEnabled()) return;
+  const dest = telegramChatForOrg(approval.orgId);
+  if (!dest) return;
   const agent = scopedStore(approval.orgId).getAgent(approval.agentId);
   const text = [
     `🔐 *Approval needed*`,
@@ -41,15 +71,22 @@ export function notifyApprovalPending(approval: ApprovalRow): void {
   ]
     .filter(Boolean)
     .join("\n");
+  // Org-scoped callback (PR #61 format) so webhook handlers are tenant-safe.
   tg("sendMessage", {
-    chat_id: CHAT_ID,
+    chat_id: dest,
     text,
     parse_mode: "Markdown",
     reply_markup: {
       inline_keyboard: [
         [
-          { text: "✅ Approve", callback_data: `apr:${approval.id}:approve` },
-          { text: "🛑 Deny", callback_data: `apr:${approval.id}:deny` },
+          {
+            text: "✅ Approve",
+            callback_data: `apr:${approval.orgId}:${approval.id}:approve`,
+          },
+          {
+            text: "🛑 Deny",
+            callback_data: `apr:${approval.orgId}:${approval.id}:deny`,
+          },
         ],
       ],
     },
@@ -58,7 +95,7 @@ export function notifyApprovalPending(approval: ApprovalRow): void {
 
 /** Register Telegram as one channel on the shared notifier bus. */
 export function registerTelegramNotifier(): void {
-  if (!telegramEnabled) return;
+  if (!telegramEnabled()) return;
   registerNotifier("telegram", (payload) => {
     if (payload.kind === "approval.pending") {
       notifyApprovalPending(payload.approval);
@@ -66,7 +103,7 @@ export function registerTelegramNotifier(): void {
   });
 }
 
-interface TgUpdate {
+export interface TgUpdate {
   update_id: number;
   callback_query?: {
     id: string;
@@ -76,10 +113,134 @@ interface TgUpdate {
   };
 }
 
+/**
+ * Resolve a Telegram user to a guardian seat in the approval's org.
+ *
+ * Signature matches PR #61. On main (no telegramUserId column yet) we use the
+ * allowlist and map allowlisted voters to guardianId `owner`. When #61 merges,
+ * its `store.findGuardianByTelegramUserId` path is preferred via the optional
+ * call below.
+ */
+export function resolveTelegramVoter(
+  orgId: string,
+  telegramUserId: string,
+): { ok: true; guardianId: string; label: string } | { ok: false; message: string } {
+  if (!telegramUserId) {
+    return { ok: false, message: "Telegram user id missing" };
+  }
+  const storeAny = store as unknown as {
+    findGuardianByTelegramUserId?: (
+      org: string,
+      tgUser: string,
+    ) => { id: string; name: string } | undefined;
+  };
+  const linked = storeAny.findGuardianByTelegramUserId?.(orgId, telegramUserId);
+  if (linked) {
+    return { ok: true, guardianId: linked.id, label: linked.name };
+  }
+
+  const allowed = allowedUsersGlobal();
+  if (allowed.size === 0) {
+    return {
+      ok: false,
+      message:
+        "No Telegram allowlist and no guardian linked to this user. " +
+        "Set TELEGRAM_ALLOWED_USER_IDS or link a guardian seat (PR #61).",
+    };
+  }
+  if (!allowed.has(telegramUserId)) {
+    return { ok: false, message: "Not an authorised guardian" };
+  }
+  return { ok: true, guardianId: "owner", label: `telegram:${telegramUserId}` };
+}
+
+/** Process one Telegram update (polling or webhook). */
+export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
+  const cq = update.callback_query;
+  if (!cq?.data?.startsWith("apr:")) return;
+
+  const parts = cq.data.split(":");
+  let orgId: string | undefined;
+  let approvalId: string | undefined;
+  let action: string | undefined;
+  if (parts.length === 4) {
+    [, orgId, approvalId, action] = parts;
+  } else if (parts.length === 3) {
+    // Legacy Render format — accepted until #61's org-scoped buttons are universal.
+    [, approvalId, action] = parts;
+    orgId = store.getApprovalAnyOrg(approvalId!)?.orgId;
+  } else {
+    await tg("answerCallbackQuery", {
+      callback_query_id: cq.id,
+      text: "Malformed approval callback",
+    }).catch(() => {});
+    return;
+  }
+
+  if (!orgId || !approvalId || (action !== "approve" && action !== "deny")) {
+    await tg("answerCallbackQuery", {
+      callback_query_id: cq.id,
+      text: "Malformed approval callback",
+    }).catch(() => {});
+    return;
+  }
+
+  const expectedChat = telegramChatForOrg(orgId);
+  if (!expectedChat || !cq.message || String(cq.message.chat.id) !== String(expectedChat)) {
+    await tg("answerCallbackQuery", {
+      callback_query_id: cq.id,
+      text: "Wrong chat — ignored",
+    }).catch(() => {});
+    return;
+  }
+
+  const fromId = cq.from?.id != null ? String(cq.from.id) : "";
+  const voter = resolveTelegramVoter(orgId, fromId);
+  if (!voter.ok) {
+    await tg("answerCallbackQuery", {
+      callback_query_id: cq.id,
+      text: voter.message.slice(0, 180),
+    }).catch(() => {});
+    return;
+  }
+
+  const approval = store.getApprovalAnyOrg(approvalId);
+  let answer: string;
+  if (!approval || approval.orgId !== orgId) {
+    answer = "Approval not found";
+  } else {
+    const resolvedBy = `telegram:${cq.from?.username ?? fromId}`;
+    const outcome = await resolveApproval(
+      approval.orgId,
+      approvalId,
+      action === "approve",
+      resolvedBy,
+      voter.guardianId,
+    );
+    answer =
+      outcome.kind === "resolved"
+        ? `${action === "approve" ? "Approved" : "Denied"} ✔`
+        : outcome.kind === "pending_quorum"
+          ? `Vote recorded — ${outcome.have} of ${outcome.need}`
+          : outcome.kind === "forbidden"
+            ? outcome.message
+            : `No action: ${outcome.kind}`;
+    if (cq.message) {
+      tg("editMessageText", {
+        chat_id: cq.message.chat.id,
+        message_id: cq.message.message_id,
+        text: `Approval ${approvalId}: ${answer} (by ${resolvedBy})`,
+      }).catch(() => {});
+    }
+  }
+  await tg("answerCallbackQuery", { callback_query_id: cq.id, text: answer }).catch(() => {});
+}
+
 let offset = 0;
 let polling = false;
 
 async function pollOnce(): Promise<void> {
+  if (!botToken()) return;
   const updates = (await tg("getUpdates", {
     offset,
     timeout: 0,
@@ -87,68 +248,61 @@ async function pollOnce(): Promise<void> {
   })) as TgUpdate[];
   for (const update of updates) {
     offset = Math.max(offset, update.update_id + 1);
-    const cq = update.callback_query;
-    if (!cq?.data?.startsWith("apr:")) continue;
-    // Only accept button presses from the configured ops chat.
-    if (cq.message && String(cq.message.chat.id) !== String(CHAT_ID)) {
-      await tg("answerCallbackQuery", {
-        callback_query_id: cq.id,
-        text: "Wrong chat — ignored",
-      }).catch(() => {});
-      continue;
-    }
-    const fromId = cq.from?.id != null ? String(cq.from.id) : "";
-    if (ALLOWED_USERS.size > 0 && (!fromId || !ALLOWED_USERS.has(fromId))) {
-      await tg("answerCallbackQuery", {
-        callback_query_id: cq.id,
-        text: "Not an authorised guardian",
-      }).catch(() => {});
-      continue;
-    }
-    const [, approvalId, action] = cq.data.split(":");
-    const approval = store.getApprovalAnyOrg(approvalId);
-    let answer: string;
-    if (!approval) {
-      answer = "Approval not found";
-    } else {
-      const resolvedBy = `telegram:${cq.from?.username ?? (fromId || "guardian")}`;
-      const guardianId = fromId ? `tg:${fromId}` : "telegram";
-      const outcome = await resolveApproval(
-        approval.orgId,
-        approvalId,
-        action === "approve",
-        resolvedBy,
-        guardianId,
-      );
-      answer =
-        outcome.kind === "resolved"
-          ? `${action === "approve" ? "Approved" : "Denied"} ✔`
-          : outcome.kind === "pending_quorum"
-            ? `Vote recorded — ${outcome.have} of ${outcome.need}`
-            : outcome.kind === "forbidden"
-              ? outcome.message
-              : `No action: ${outcome.kind}`;
-      if (cq.message) {
-        tg("editMessageText", {
-          chat_id: cq.message.chat.id,
-          message_id: cq.message.message_id,
-          text: `Approval ${approvalId}: ${answer} (by ${resolvedBy})`,
-        }).catch(() => {});
-      }
-    }
-    await tg("answerCallbackQuery", { callback_query_id: cq.id, text: answer }).catch(() => {});
+    await handleTelegramUpdate(update);
   }
 }
 
+/**
+ * Long-poll getUpdates — Node/Render only. Workers use the webhook route.
+ */
 export function startTelegramPolling(): void {
-  if (!telegramEnabled) {
+  if (process.env.ABI_RUNTIME === "cloudflare-workers") {
+    console.log("Telegram approvals: Workers runtime — use webhook route, not getUpdates polling.");
+    return;
+  }
+  if (!telegramEnabled()) {
     console.log("Telegram approvals disabled (set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID).");
     return;
   }
   if (polling) return;
   polling = true;
   console.log("Telegram approvals enabled — polling for guardian button presses.");
-  setInterval(() => {
+  const timer = setInterval(() => {
     pollOnce().catch((e) => console.error("telegram poll failed:", e));
-  }, 4_000).unref();
+  }, 4_000);
+  unrefTimer(timer);
+}
+
+/**
+ * POST /v1/telegram/webhook — verifies X-Telegram-Bot-Api-Secret-Token.
+ */
+export function registerTelegramWebhookRoute(app: express.Express): void {
+  app.post("/v1/telegram/webhook", async (req, res) => {
+    const expected = webhookSecret();
+    if (!expected) {
+      return res.status(503).json({
+        error: {
+          code: "TELEGRAM_WEBHOOK_UNCONFIGURED",
+          message: "TELEGRAM_WEBHOOK_SECRET is not set.",
+        },
+      });
+    }
+    const presented = req.header("x-telegram-bot-api-secret-token") ?? "";
+    const a = Buffer.from(presented);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      return res
+        .status(401)
+        .json({ error: { code: "UNAUTHORIZED", message: "Bad webhook secret" } });
+    }
+    try {
+      await handleTelegramUpdate(req.body as TgUpdate);
+      return res.status(200).json({ ok: true });
+    } catch (error) {
+      console.error("telegram webhook failed:", error);
+      return res
+        .status(500)
+        .json({ error: { code: "TELEGRAM_WEBHOOK_FAILED", message: "handler error" } });
+    }
+  });
 }

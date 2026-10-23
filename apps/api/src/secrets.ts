@@ -21,11 +21,14 @@ const DEV_PEPPER = "abi-dev-pepper-change-me";
  */
 export function demoDerivedSecret(purpose: "key-pepper" | "key-encryption"): string | undefined {
   if (process.env.POLICYVAULT_ALLOW_BOOTSTRAP !== "1") return undefined;
+  // Cloudflare Workers: no durable local disk for abi-demo-secrets.json (PR #61)
+  // and no silent derive-from-signup-token. Require ABI_KEY_PEPPER / ABI_KEK secrets.
+  if (process.env.ABI_RUNTIME === "cloudflare-workers") {
+    return undefined;
+  }
   const signupToken = process.env.ABI_SIGNUP_TOKEN?.trim();
   if (!signupToken) return undefined;
-  return createHmac("sha256", signupToken)
-    .update(`abi-free-demo:${purpose}:v1`)
-    .digest("base64");
+  return createHmac("sha256", signupToken).update(`abi-free-demo:${purpose}:v1`).digest("base64");
 }
 
 /**
@@ -37,7 +40,8 @@ export function demoDerivedSecret(purpose: "key-pepper" | "key-encryption"): str
  * up protecting real credentials.
  */
 export function keyPepper(): string {
-  const configured = process.env.ABI_KEY_PEPPER?.trim() || process.env.POLICYVAULT_KEY_PEPPER?.trim();
+  const configured =
+    process.env.ABI_KEY_PEPPER?.trim() || process.env.POLICYVAULT_KEY_PEPPER?.trim();
   if (configured) return configured;
   const demoFallback = demoDerivedSecret("key-pepper");
   if (demoFallback) return demoFallback;
