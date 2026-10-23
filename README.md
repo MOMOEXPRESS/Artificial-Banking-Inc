@@ -240,8 +240,8 @@ The hosted demo seller is the Cloudflare Worker in `apps/x402-seller-worker`
 the console reads its URL from `NEXT_PUBLIC_SELLER_URL` (ending in `/report`).
 ABI pays it from the API Worker, which is on the same Cloudflare account: a
 same-account `workers.dev` fetch fails with Cloudflare error 1042 unless the
-calling Worker has the `global_fetch_strictly_public` compatibility flag (or a
-service binding), so the API Worker needs one before the console points here.
+calling Worker has the `global_fetch_strictly_public` compatibility flag, which
+`apps/api-worker/wrangler.toml` sets.
 
 The seller uses x402 V2 (`eip155:84532`) and delegates verification and
 settlement to the configured facilitator. ABI books the payment only when the

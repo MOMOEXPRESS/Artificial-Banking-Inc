@@ -9,7 +9,10 @@ name = "abi-api"
 main = "src/worker.ts"
 # Use a date supported by the installed workerd; nodejs_compat is explicit for clarity.
 compatibility_date = "2025-10-11"
-compatibility_flags = ["nodejs_compat"]
+# global_fetch_strictly_public: fetch() always goes out over the public internet, so
+# the API can pay the x402 demo seller Worker (abi-x402-seller.<subdomain>.workers.dev)
+# on this same account — without it a same-account workers.dev fetch fails with 1042.
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 # Free-plan observability (Workers Logs).
 [observability]

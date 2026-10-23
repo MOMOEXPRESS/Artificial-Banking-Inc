@@ -9,9 +9,8 @@
 #   GET /report  — x402 V2 paid route (402 challenge → payment → report)
 # The console reads it from NEXT_PUBLIC_SELLER_URL (…/report) on Vercel.
 #
-# Callers on the SAME Cloudflare account (the abi-api Worker) get error 1042 on a
-# plain fetch to this workers.dev URL; the caller needs the
-# `global_fetch_strictly_public` compatibility flag or a service binding.
+# Callers on the SAME Cloudflare account get error 1042 on a plain fetch to this
+# workers.dev URL unless they set `global_fetch_strictly_public` (abi-api does).
 
 name = "abi-x402-seller"
 main = "src/worker.ts"
