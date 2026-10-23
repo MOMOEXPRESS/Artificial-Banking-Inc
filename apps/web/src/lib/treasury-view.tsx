@@ -19,6 +19,7 @@ import { SegTabs } from "@/components/ui/seg-tabs";
 import { okJson } from "./api-response";
 import { deriveVaultStatus, stripChips } from "./vault-status";
 import { VaultStatusStrip } from "./vault-status-strip";
+import { holdingNetwork, networkLabel } from "./network-names";
 
 type Scope = "org" | "department" | "agent" | "shared";
 
@@ -483,7 +484,7 @@ export function TreasuryView({
               <h2 style={{ margin: 0 }}>Treasury</h2>
               <div className="sub">
                 Fund · allocate · send · {wallets?.asset.symbol ?? "USDC"} on{" "}
-                {wallets?.asset.chain ?? "base-sepolia"}
+                {networkLabel(wallets?.asset.chain, "Base Sepolia")}
               </div>
             </div>
           </div>
@@ -600,7 +601,7 @@ export function TreasuryView({
                     {activeHolding?.symbol ?? "USDC"}
                   </b>
                 </span>
-                <span className="vault-selected-chain">{activeHolding?.chain ?? "—"}</span>
+                <span className="vault-selected-chain">{holdingNetwork(activeHolding)}</span>
               </div>
 
               <div className="vault-address-block">
@@ -766,7 +767,7 @@ export function TreasuryView({
                         <div className="faint" style={{ fontSize: 11.5, marginTop: 3 }}>
                           {new Date(t.at).toLocaleString()}
                           {t.from ? ` · from ${t.from.slice(0, 8)}…` : ""}
-                          {t.network ? ` · ${t.network}` : ""}
+                          {t.network ? ` · ${networkLabel(t.network)}` : ""}
                         </div>
                       </div>
                       {t.explorerUrl ? (
@@ -1501,20 +1502,6 @@ export function TreasuryView({
       )}
     </div>
   );
-}
-
-/** Network label for an asset — never a raw chain id like "base-sepolia". */
-function holdingNetwork(h?: { chain: string; networkName?: string }): string {
-  if (!h) return "—";
-  if (h.networkName) return h.networkName;
-  const known: Record<string, string> = {
-    "base-sepolia": "Base Sepolia",
-    base: "Base",
-    ethereum: "Ethereum",
-    bitcoin: "Bitcoin",
-    solana: "Solana",
-  };
-  return known[h.chain] ?? h.chain;
 }
 
 /** Chain-backed assets show what the chain says; others show the recorded figure. */
