@@ -31,6 +31,19 @@ import { readVaultOnchain } from "../chain/deposits.js";
 import { reconcileOrgOnchain } from "../treasury-backing.js";
 import { assetBacking, readAssetsOnchain } from "../chain/asset-adapters.js";
 import { transferUsdcFromVault, VaultTransferError } from "../chain/transfer.js";
+import { guardTreasuryWithdraw, type TreasuryGuardDenial } from "../treasury-guard.js";
+
+/** HTTP body for a refused guardian withdrawal — same shape as an agent policy deny. */
+function withdrawDenialBody(d: TreasuryGuardDenial) {
+  return {
+    intentId: d.intentId,
+    outcome: "deny" as const,
+    ruleIds: d.ruleIds,
+    reasons: d.reasons,
+    ...(d.limits && { limits: d.limits }),
+    error: { code: d.code, message: d.reasons[0] },
+  };
+}
 
 type GuardianRoute = (
   handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
@@ -758,6 +771,11 @@ export function registerTreasuryRoutes(
    * Live orgs broadcast a real USDC transfer from the vault and only book the
    * outflow once the transfer succeeds — the ledger never claims money left
    * unless it did. Sandbox orgs book a simulated outflow and say so.
+   *
+   * Every withdrawal passes the guardian treasury guard first (org freeze,
+   * blocklist, optional destination allowlist, per-withdrawal and rolling 24h
+   * caps) and is recorded as a decision — no human path moves money out of the
+   * org without a policy check. See treasury-guard.ts.
    */
   app.post(
     "/v1/guardian/treasury/withdraw",
@@ -793,17 +811,33 @@ export function registerTreasuryRoutes(
           }
 
           const live = store.getOrgLedgerMode(org.id) === "live";
+          const destination = body.destination?.trim();
+          if (live && (!destination || !/^0x[a-fA-F0-9]{40}$/.test(destination))) {
+            return res.status(400).json({
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "A 0x destination address is required to withdraw real USDC.",
+              },
+            });
+          }
+          const guard = guardTreasuryWithdraw({
+            org,
+            actor: guardianIdentity(req),
+            assetId,
+            amountMicro: amount,
+            amountDisplay: formatMicroToUsdc(amount),
+            destination,
+          });
+          if (!guard.ok) {
+            recordObs({
+              name: "treasury.withdraw.denied",
+              orgId: org.id,
+              attrs: { ruleIds: guard.ruleIds, amountUsdc: body.amountUsdc },
+            });
+            return res.status(guard.status).json(withdrawDenialBody(guard));
+          }
           let transfer: Awaited<ReturnType<typeof transferUsdcFromVault>> | undefined;
-          if (live) {
-            const destination = body.destination?.trim();
-            if (!destination || !/^0x[a-fA-F0-9]{40}$/.test(destination)) {
-              return res.status(400).json({
-                error: {
-                  code: "VALIDATION_ERROR",
-                  message: "A 0x destination address is required to withdraw real USDC.",
-                },
-              });
-            }
+          if (live && destination) {
             try {
               // Broadcast first. Booking the outflow before the chain accepts it
               // is how a ledger ends up claiming a payment that never happened.
@@ -814,6 +848,7 @@ export function registerTreasuryRoutes(
               });
             } catch (e) {
               const code = e instanceof VaultTransferError ? e.code : "TRANSFER_FAILED";
+              guard.fail(e instanceof Error ? e.message : String(e), code);
               recordObs({
                 name: "treasury.withdraw.failed",
                 orgId: org.id,
@@ -825,20 +860,30 @@ export function registerTreasuryRoutes(
             }
           }
 
-          store.applyEntries(org.id, [
-            {
-              id: id("j"),
-              orgId: org.id,
-              memo:
-                body.memo ??
-                `${live ? "treasury_withdraw" : "sandbox_withdraw"}:${body.destination ?? "external"}`,
-              createdAt: new Date().toISOString(),
-              lines: [
-                { accountId: orgAvail, deltaMicro: -amount },
-                { accountId: `org:${org.id}:external`, deltaMicro: amount },
-              ],
-            },
-          ]);
+          try {
+            store.applyEntries(org.id, [
+              {
+                id: id("j"),
+                orgId: org.id,
+                memo:
+                  body.memo ??
+                  `${live ? "treasury_withdraw" : "sandbox_withdraw"}:${body.destination ?? "external"}`,
+                createdAt: new Date().toISOString(),
+                lines: [
+                  { accountId: orgAvail, deltaMicro: -amount },
+                  { accountId: `org:${org.id}:external`, deltaMicro: amount },
+                ],
+              },
+            ]);
+          } catch (e) {
+            // Live: the transfer already went out, so count it against the cap
+            // even though the books could not record it — a human must
+            // reconcile. Sandbox: nothing moved.
+            if (live && transfer) guard.commit();
+            else guard.fail(e instanceof Error ? e.message : String(e), "LEDGER_WRITE_FAILED");
+            throw e;
+          }
+          guard.commit();
           // A simulated outflow reduces the unbacked total: the books shed money
           // the vault never held.
           if (!live) store.addUnbackedMicro(org.id, -amount);
@@ -849,6 +894,7 @@ export function registerTreasuryRoutes(
           });
           return res.json({
             ok: true,
+            intentId: guard.intentId,
             simulated: !live,
             amountUsdc: body.amountUsdc,
             assetId,
@@ -875,7 +921,19 @@ export function registerTreasuryRoutes(
             },
           });
         }
+        // Recorded holdings, not a chain broadcast — but still money the org
+        // says it sent, so freeze / blocklist / allowlist apply. USDC caps do not.
+        const guard = guardTreasuryWithdraw({
+          org,
+          actor: guardianIdentity(req),
+          assetId,
+          amountMicro: amount,
+          amountDisplay: `${formatAssetAmount(amount, asset.decimals)} ${asset.symbol}`,
+          destination: body.destination,
+        });
+        if (!guard.ok) return res.status(guard.status).json(withdrawDenialBody(guard));
         const bal = store.creditOrgAsset(org.id, assetId, -amount);
+        guard.commit();
         store.addVaultAssetEvent({
           orgId: org.id,
           assetId,
@@ -886,6 +944,7 @@ export function registerTreasuryRoutes(
         });
         res.json({
           ok: true,
+          intentId: guard.intentId,
           amountUsdc: body.amountUsdc,
           assetId,
           symbol: asset.symbol,

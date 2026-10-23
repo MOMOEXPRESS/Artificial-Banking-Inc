@@ -3877,6 +3877,25 @@ export const store = {
     }));
   },
 
+  /** Decisions for one tool since an ISO timestamp, oldest first. */
+  listDecisionsByTool(orgId: string, tool: string, sinceIso: string): DecisionRow[] {
+    const rows = db
+      .prepare("SELECT * FROM decisions WHERE org_id = ? AND tool = ? AND at >= ? ORDER BY id ASC")
+      .all(orgId, tool, sinceIso) as Row[];
+    return rows.map((r) => ({
+      intentId: r.intent_id,
+      orgId: r.org_id,
+      agentId: r.agent_id,
+      outcome: r.outcome,
+      ruleIds: JSON.parse(r.rule_ids_json),
+      reasons: JSON.parse(r.reasons_json),
+      tool: r.tool,
+      amountUsdc: r.amount_usdc,
+      destination: r.destination,
+      at: r.at,
+    }));
+  },
+
   getDecision(orgId: string, intentId: string): DecisionRow | undefined {
     const r = db
       .prepare(
