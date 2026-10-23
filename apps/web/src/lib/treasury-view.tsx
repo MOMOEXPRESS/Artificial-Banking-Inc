@@ -184,10 +184,17 @@ export function TreasuryView({
       symbol: string;
       decimals: number;
       chain: string;
+      /** Display name of the network ("Base Sepolia"); falls back to `chain`. */
+      networkName?: string;
       balance: string;
       spendRail?: boolean;
       onchainSync?: boolean;
-      backing?: { kind: "chain" | "chain-unconfigured" | "manual"; reason?: string };
+      backing?: {
+        kind: "chain" | "chain-unconfigured" | "manual";
+        reason?: string;
+        note?: string;
+        native?: boolean;
+      };
       onchainBalance?: string | null;
       onchainError?: string;
       drift?: string | null;
@@ -443,7 +450,7 @@ export function TreasuryView({
   const activeBalance =
     activeHolding?.id === "asset_usdc"
       ? (wallets?.org?.availableUsdc ?? activeHolding.balance)
-      : (activeHolding?.balance ?? "0");
+      : holdingBalance(activeHolding);
   const activeBalanceNumber = Number(activeBalance);
   const vaultStatus = deriveVaultStatus({
     assetId: activeHolding?.id ?? assetId,
@@ -632,7 +639,7 @@ export function TreasuryView({
                   </span>
                   <span className="vault-picker-copy">
                     <b>{activeHolding?.symbol ?? "USDC"}</b>
-                    <small>{activeHolding?.chain ?? "—"}</small>
+                    <small>{holdingNetwork(activeHolding)}</small>
                   </span>
                   <span className="vault-picker-balance mono">
                     {Number.isNaN(activeBalanceNumber)
@@ -647,7 +654,7 @@ export function TreasuryView({
                     const n = Number(
                       h.id === "asset_usdc"
                         ? (wallets?.org?.availableUsdc ?? h.balance)
-                        : h.balance,
+                        : holdingBalance(h),
                     );
                     return (
                       <button
@@ -664,7 +671,7 @@ export function TreasuryView({
                         </span>
                         <span className="vault-picker-copy">
                           <b>{h.symbol}</b>
-                          <small>{h.chain}</small>
+                          <small>{holdingNetwork(h)}</small>
                         </span>
                         <span className="vault-picker-balance mono">
                           {Number.isNaN(n)
@@ -778,7 +785,9 @@ export function TreasuryView({
             <div className="card-head">
               <div>
                 <h2 style={{ margin: 0 }}>
-                  {usdcLive ? "Send USDC from the vault" : "Manual ledger receive / send"}
+                  {usdcLive
+                    ? `Send ${selectedAsset?.symbol ?? "USDC"} from the vault`
+                    : "Manual ledger receive / send"}
                 </h2>
                 <div className="sub">
                   {assetId === "asset_usdc"
@@ -786,6 +795,7 @@ export function TreasuryView({
                       ? "This organization holds real money. Send broadcasts a USDC transfer from the vault on-chain — the ledger only records it once the transfer succeeds. To add funds, send USDC to the vault address above."
                       : "Simulated money — books only, nothing moves on-chain. This organization is in sandbox mode, so these balances are not backed by vault funds."
                     : (selectedAsset?.backing?.reason ??
+                      selectedAsset?.backing?.note ??
                       `Record ${selectedAsset?.symbol ?? "asset"} into vault holdings.`)}
                 </div>
               </div>
@@ -801,9 +811,10 @@ export function TreasuryView({
               {usdcLive ? (
                 <div className="faint" style={{ fontSize: 12.5, lineHeight: 1.6 }}>
                   <b style={{ display: "block", marginBottom: 4 }}>Adding funds</b>
-                  Send USDC on {wallets?.asset.chain ?? "base-sepolia"} to the vault address. The
-                  deposit sweep credits it automatically once the transfer confirms — there is no
-                  way to add balance that did not arrive.
+                  Send {selectedAsset?.symbol ?? "USDC"} on{" "}
+                  {selectedAsset ? holdingNetwork(selectedAsset) : "Base Sepolia"} to the vault
+                  address. The deposit sweep credits it automatically once the transfer confirms —
+                  there is no way to add balance that did not arrive.
                 </div>
               ) : (
                 <Form {...depositForm}>
@@ -1490,4 +1501,29 @@ export function TreasuryView({
       )}
     </div>
   );
+}
+
+/** Network label for an asset — never a raw chain id like "base-sepolia". */
+function holdingNetwork(h?: { chain: string; networkName?: string }): string {
+  if (!h) return "—";
+  if (h.networkName) return h.networkName;
+  const known: Record<string, string> = {
+    "base-sepolia": "Base Sepolia",
+    base: "Base",
+    ethereum: "Ethereum",
+    bitcoin: "Bitcoin",
+    solana: "Solana",
+  };
+  return known[h.chain] ?? h.chain;
+}
+
+/** Chain-backed assets show what the chain says; others show the recorded figure. */
+function holdingBalance(h?: {
+  balance: string;
+  backing?: { kind: string };
+  onchainBalance?: string | null;
+}): string {
+  if (!h) return "0";
+  if (h.backing?.kind === "chain" && h.onchainBalance != null) return h.onchainBalance;
+  return h.balance ?? "0";
 }

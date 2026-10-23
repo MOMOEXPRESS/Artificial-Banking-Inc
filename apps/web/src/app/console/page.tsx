@@ -1399,6 +1399,7 @@ export default function Console() {
                     sellerUrl={SELLER}
                     actorRole={org?.actor?.role ?? "owner"}
                     onGoto={(v) => setView(v as View)}
+                    onSignedOut={() => saveSession(null)}
                   />
                 )}
               </div>

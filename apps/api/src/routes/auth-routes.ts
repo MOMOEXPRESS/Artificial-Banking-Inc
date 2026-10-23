@@ -328,6 +328,15 @@ export function registerAuthRoutes(app: express.Express) {
     res.json({ ok: true });
   });
 
+  /** Sign out on every device: revoke all of this user's sessions, this one included. */
+  app.post("/v1/auth/logout-all", (req, res) => {
+    const me = currentUser(req);
+    if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+    const revoked = store.revokeAllUserSessions(me.user.id);
+    clearSessionCookies(res);
+    res.json({ ok: true, revoked });
+  });
+
   app.get("/v1/auth/me", (req, res) => {
     const me = currentUser(req);
     if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
@@ -373,7 +382,14 @@ export function registerAuthRoutes(app: express.Express) {
       const me = currentUser(req);
       if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
       const body = z
-        .object({ currentPassword: z.string(), newPassword: z.string() })
+        .object({
+          currentPassword: z.string().max(1024),
+          newPassword: z.string().max(1024),
+          /** Optional server-side check of the console's confirmation field. */
+          confirmPassword: z.string().max(1024).optional(),
+          /** Sign this session out too (default keeps it; every other session is revoked). */
+          signOutEverywhere: z.boolean().optional(),
+        })
         .parse(req.body);
 
       const found = store.findUserCredentialsByEmail(me.user.email);
@@ -382,16 +398,39 @@ export function registerAuthRoutes(app: express.Express) {
           error: { code: "UNAUTHORIZED", message: "Current password is incorrect." },
         });
       }
+      if (body.confirmPassword !== undefined && body.confirmPassword !== body.newPassword) {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: "New password and confirmation differ." },
+        });
+      }
+      if (body.newPassword === body.currentPassword) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Choose a new password different from the current one.",
+          },
+        });
+      }
       const problem = passwordProblem(body.newPassword);
       if (problem) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: problem } });
       }
 
-      // Revokes every session, including this one — changing a password must not
-      // leave a stolen session alive.
-      store.setUserPassword(me.user.id, await hashPassword(body.newPassword));
-      clearSessionCookies(res);
-      res.json({ ok: true, note: "Password changed. All sessions signed out — sign in again." });
+      // Every other session is revoked — changing a password must not leave a
+      // stolen session alive. The session that proved the current password
+      // stays signed in unless the caller asks to sign out everywhere.
+      const keep = body.signOutEverywhere ? undefined : me.sessionId;
+      store.setUserPassword(me.user.id, await hashPassword(body.newPassword), {
+        keepSessionId: keep,
+      });
+      if (!keep) clearSessionCookies(res);
+      res.json({
+        ok: true,
+        signedOut: !keep,
+        note: keep
+          ? "Password changed. Every other session was signed out."
+          : "Password changed. All sessions signed out — sign in again.",
+      });
     }),
   );
 
