@@ -19,6 +19,7 @@ import { SegTabs } from "@/components/ui/seg-tabs";
 import { okJson } from "./api-response";
 import { deriveVaultStatus, stripChips } from "./vault-status";
 import { VaultStatusStrip } from "./vault-status-strip";
+import { VaultBankCard } from "./vault-bank-card";
 
 type Scope = "org" | "department" | "agent" | "shared";
 
@@ -582,6 +583,15 @@ export function TreasuryView({
               <div className="vault-total-value">{fmt(wallets?.org?.availableUsdc)}</div>
               <p className="vault-total-note">USDC available to allocate across group budgets.</p>
 
+              <VaultBankCard
+                address={vault}
+                orgName={wallets?.org?.name}
+                networkLabel={holdingNetwork({ chain: wallets?.asset.chain ?? "base-sepolia" })}
+                modeLabel={ledgerMode === "live" ? "Live" : "Sandbox"}
+                copied={copied}
+                onCopy={() => void copyVault()}
+              />
+
               <div className="vault-selected-asset">
                 <span
                   className={`wallet-asset-icon ${activeHolding?.symbol.toLowerCase()}`}
@@ -601,24 +611,6 @@ export function TreasuryView({
                   </b>
                 </span>
                 <span className="vault-selected-chain">{activeHolding?.chain ?? "—"}</span>
-              </div>
-
-              <div className="vault-address-block">
-                <span>
-                  <small>Vault address</small>
-                  <code className="mono">
-                    {vault ? `${vault.slice(0, 12)}…${vault.slice(-8)}` : "Not configured"}
-                  </code>
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={!vault}
-                  onClick={() => void copyVault()}
-                  aria-label="Copy vault address"
-                >
-                  <Icon name="copy" size={14} /> {copied ? "Copied" : "Copy"}
-                </Button>
               </div>
             </section>
 
