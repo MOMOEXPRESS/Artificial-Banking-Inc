@@ -137,6 +137,33 @@ export interface DecisionRow {
   amountUsdc: string;
   destination: string;
   at: string;
+  /** Cap numbers on a denial (wire form). */
+  limits?: Record<string, unknown>;
+  /** Intent id of an earlier refused intent this one re-proposes. */
+  supersedes?: string;
+  policyVersion?: string;
+  /** Signed decision receipt (see decision-receipts.ts). */
+  receipt?: Record<string, unknown>;
+}
+
+function decisionFromRow(r: Record<string, unknown>): DecisionRow {
+  const parse = (v: unknown) => (typeof v === "string" && v ? JSON.parse(v) : undefined);
+  return {
+    intentId: r.intent_id as string,
+    orgId: r.org_id as string,
+    agentId: r.agent_id as string,
+    outcome: r.outcome as string,
+    ruleIds: JSON.parse(r.rule_ids_json as string),
+    reasons: JSON.parse(r.reasons_json as string),
+    tool: r.tool as string,
+    amountUsdc: r.amount_usdc as string,
+    destination: r.destination as string,
+    at: r.at as string,
+    ...(r.limits_json ? { limits: parse(r.limits_json) } : {}),
+    ...(r.supersedes ? { supersedes: r.supersedes as string } : {}),
+    ...(r.policy_version ? { policyVersion: r.policy_version as string } : {}),
+    ...(r.receipt_json ? { receipt: parse(r.receipt_json) } : {}),
+  };
 }
 
 export interface EscrowRow {
@@ -850,6 +877,11 @@ for (const migration of [
   "ALTER TABLE pay_events ADD COLUMN ref TEXT",
   "ALTER TABLE subscriptions ADD COLUMN schedule_kind TEXT NOT NULL DEFAULT 'recurring'",
   "ALTER TABLE approvals ADD COLUMN subscription_id TEXT",
+  // Decision receipts: denial numbers, re-proposal link, policy pin, signature.
+  "ALTER TABLE decisions ADD COLUMN limits_json TEXT",
+  "ALTER TABLE decisions ADD COLUMN supersedes TEXT",
+  "ALTER TABLE decisions ADD COLUMN policy_version TEXT",
+  "ALTER TABLE decisions ADD COLUMN receipt_json TEXT",
   // Durable webhook retries — survives process restarts (replaces in-memory setTimeout).
   "ALTER TABLE webhook_deliveries ADD COLUMN next_attempt_at TEXT",
 ]) {
@@ -3843,8 +3875,8 @@ export const store = {
   // ------------------------------------------------------------- decisions
   addDecision(d: DecisionRow): void {
     db.prepare(
-      `INSERT INTO decisions (intent_id, org_id, agent_id, outcome, rule_ids_json, reasons_json, tool, amount_usdc, destination, at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO decisions (intent_id, org_id, agent_id, outcome, rule_ids_json, reasons_json, tool, amount_usdc, destination, at, limits_json, supersedes, policy_version, receipt_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       d.intentId,
       d.orgId,
@@ -3856,6 +3888,10 @@ export const store = {
       d.amountUsdc,
       d.destination,
       d.at,
+      d.limits ? JSON.stringify(d.limits) : null,
+      d.supersedes ?? null,
+      d.policyVersion ?? null,
+      d.receipt ? JSON.stringify(d.receipt) : null,
     );
   },
 
@@ -3863,18 +3899,7 @@ export const store = {
     const rows = db
       .prepare("SELECT * FROM decisions WHERE org_id = ? ORDER BY id DESC LIMIT ?")
       .all(orgId, limit) as Row[];
-    return rows.map((r) => ({
-      intentId: r.intent_id,
-      orgId: r.org_id,
-      agentId: r.agent_id,
-      outcome: r.outcome,
-      ruleIds: JSON.parse(r.rule_ids_json),
-      reasons: JSON.parse(r.reasons_json),
-      tool: r.tool,
-      amountUsdc: r.amount_usdc,
-      destination: r.destination,
-      at: r.at,
-    }));
+    return rows.map(decisionFromRow);
   },
 
   /** Decisions for one tool since an ISO timestamp, oldest first. */
@@ -3884,18 +3909,7 @@ export const store = {
         "SELECT * FROM decisions WHERE org_id = ? AND tool = ? AND at >= ? ORDER BY id ASC",
       )
       .all(orgId, tool, sinceIso) as Row[];
-    return rows.map((r) => ({
-      intentId: r.intent_id,
-      orgId: r.org_id,
-      agentId: r.agent_id,
-      outcome: r.outcome,
-      ruleIds: JSON.parse(r.rule_ids_json),
-      reasons: JSON.parse(r.reasons_json),
-      tool: r.tool,
-      amountUsdc: r.amount_usdc,
-      destination: r.destination,
-      at: r.at,
-    }));
+    return rows.map(decisionFromRow);
   },
 
   getDecision(orgId: string, intentId: string): DecisionRow | undefined {
@@ -3905,18 +3919,7 @@ export const store = {
       )
       .get(orgId, intentId) as Row | undefined;
     if (!r) return undefined;
-    return {
-      intentId: r.intent_id,
-      orgId: r.org_id,
-      agentId: r.agent_id,
-      outcome: r.outcome,
-      ruleIds: JSON.parse(r.rule_ids_json),
-      reasons: JSON.parse(r.reasons_json),
-      tool: r.tool,
-      amountUsdc: r.amount_usdc,
-      destination: r.destination,
-      at: r.at,
-    };
+    return decisionFromRow(r);
   },
 
   // --------------------------------------------------------------- escrows
@@ -4153,18 +4156,7 @@ export const store = {
     const rows = db
       .prepare("SELECT * FROM decisions WHERE org_id = ? AND agent_id = ? ORDER BY id DESC LIMIT ?")
       .all(orgId, agentId, limit) as Row[];
-    return rows.map((r) => ({
-      intentId: r.intent_id,
-      orgId: r.org_id,
-      agentId: r.agent_id,
-      outcome: r.outcome,
-      ruleIds: JSON.parse(r.rule_ids_json),
-      reasons: JSON.parse(r.reasons_json),
-      tool: r.tool,
-      amountUsdc: r.amount_usdc,
-      destination: r.destination,
-      at: r.at,
-    }));
+    return rows.map(decisionFromRow);
   },
 
   listRunsForAgent(orgId: string, agentId: string, limit = 50): RunRow[] {

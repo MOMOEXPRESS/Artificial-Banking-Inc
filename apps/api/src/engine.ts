@@ -20,7 +20,22 @@ import {
   releaseHold,
   type JournalEntry,
 } from "@policyvault/ledger";
-import { evaluatePolicy, resolvePolicy, type PolicyRules } from "@policyvault/policy";
+import {
+  evaluatePolicy,
+  resolvePolicy,
+  type DenialLimits,
+  type PolicyRules,
+} from "@policyvault/policy";
+import {
+  canonicalJson,
+  limitsView,
+  newReceiptNonce,
+  sha256Hex,
+  signReceiptBody,
+  RECEIPT_VERSION,
+  type DecisionReceipt,
+  type LimitsView,
+} from "./decision-receipts.js";
 import { X402_GUARD_RULE_IDS, X402Error, X402Rail, type X402Expectation } from "./rails/x402.js";
 import { TransferMockRail } from "./rails/transfer-mock.js";
 import { EvmUsdcTransferRail, isEvmPayDestination } from "./rails/evm-usdc-transfer.js";
@@ -196,6 +211,16 @@ export function x402ExpectationFor(orgId: string, destination: string): X402Expe
   };
 }
 
+export interface RecordedDecision {
+  receipt: DecisionReceipt;
+  limits?: LimitsView;
+}
+
+/**
+ * Record a decision and sign a receipt for it. Every deny carries `limits`
+ * when a cap bound; callers surface `limits` and `receipt` in the API response
+ * and in events so the agent can show its human the numbers.
+ */
 export function recordDecision(args: {
   intentId: string;
   orgId: string;
@@ -206,8 +231,66 @@ export function recordDecision(args: {
   tool: string;
   amountUsdc: string;
   destination: string;
-}) {
-  store.addDecision({ ...args, at: new Date().toISOString() });
+  limits?: DenialLimits | LimitsView;
+  supersedes?: string;
+  policyVersion?: string;
+  /** sha256 of the canonical request, when the caller has one. */
+  requestHash?: string;
+}): RecordedDecision {
+  const at = new Date().toISOString();
+  const limits =
+    args.limits && typeof args.limits.attempted === "bigint"
+      ? limitsView(args.limits as DenialLimits)
+      : (args.limits as LimitsView | undefined);
+  const policyVersion = args.policyVersion ?? store.getPolicyVersion(args.orgId);
+  let policyHash: string | null = null;
+  try {
+    policyHash = sha256Hex(canonicalJson(store.getPolicyTemplate(args.orgId)));
+  } catch {
+    policyHash = null;
+  }
+  const receipt = signReceiptBody({
+    v: RECEIPT_VERSION,
+    decisionId: id("dec"),
+    intentId: args.intentId,
+    orgId: args.orgId,
+    agentId: args.agentId,
+    outcome: args.outcome,
+    tool: args.tool,
+    amountUsdc: args.amountUsdc,
+    destination: args.destination,
+    ruleIds: args.ruleIds,
+    reasons: args.reasons,
+    limits: limits ?? null,
+    supersedes: args.supersedes ?? null,
+    policyVersion,
+    policyHash,
+    requestHash: args.requestHash ?? null,
+    nonce: newReceiptNonce(),
+    at,
+  });
+  store.addDecision({
+    intentId: args.intentId,
+    orgId: args.orgId,
+    agentId: args.agentId,
+    outcome: args.outcome,
+    ruleIds: args.ruleIds,
+    reasons: args.reasons,
+    tool: args.tool,
+    amountUsdc: args.amountUsdc,
+    destination: args.destination,
+    at,
+    ...(limits && { limits: limits as unknown as Record<string, unknown> }),
+    ...(args.supersedes && { supersedes: args.supersedes }),
+    policyVersion,
+    receipt: receipt as unknown as Record<string, unknown>,
+  });
+  return { receipt, ...(limits && { limits }) };
+}
+
+/** A freeze is an effective cap of zero: say what was attempted and that nothing remains. */
+export function frozenLimits(ruleId: string, amountMicro: bigint): DenialLimits {
+  return { ruleId, unit: "usdc", attempted: amountMicro, cap: 0n, remaining: 0n, window: "frozen" };
 }
 
 export interface ExecInput {
@@ -436,7 +519,8 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     })
   ) {
     releaseFullHold();
-    recordDecision({
+    const merchantUsed = store.merchantSpentLast24h(input.orgId, input.destination);
+    const raced = recordDecision({
       intentId: input.intentId,
       orgId: input.orgId,
       agentId: input.agentId,
@@ -446,6 +530,15 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       tool: input.tool,
       amountUsdc: input.amountUsdc,
       destination: input.destination,
+      limits: {
+        ruleId: "merchant_daily_max",
+        unit: "usdc",
+        attempted: input.amountMicro,
+        cap: merchantCap,
+        used: merchantUsed,
+        remaining: merchantCap > merchantUsed ? merchantCap - merchantUsed : 0n,
+        window: "24h",
+      },
     });
     return {
       ok: false,
@@ -454,6 +547,8 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
         intentId: input.intentId,
         outcome: "deny",
         ruleIds: ["merchant_daily_max"],
+        ...(raced.limits && { limits: raced.limits }),
+        receipt: raced.receipt,
         error: {
           code: "POLICY_DENIED",
           message: "Merchant ceiling consumed by another payment in progress",
@@ -617,12 +712,26 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
             ? 400
             : 402;
     const guardRule = e instanceof X402Error ? X402_GUARD_RULE_IDS[e.code] : undefined;
+    const guardDecision = guardRule
+      ? recordDecision({
+          intentId: input.intentId,
+          orgId: input.orgId,
+          agentId: input.agentId,
+          outcome: "deny",
+          ruleIds: [guardRule],
+          reasons: [e instanceof Error ? e.message : String(e)],
+          tool: input.tool,
+          amountUsdc: input.amountUsdc,
+          destination: input.destination,
+        })
+      : undefined;
     return {
       ok: false,
       status: guardRule ? 403 : status,
       payload: {
         intentId: input.intentId,
         ...(guardRule && { outcome: "deny", ruleIds: [guardRule] }),
+        ...(guardDecision && { receipt: guardDecision.receipt }),
         error: { code, message: e instanceof Error ? e.message : String(e) },
       },
     };
@@ -936,7 +1045,7 @@ export async function resolveApproval(
       resolvedBy,
       result,
     });
-    recordDecision({
+    const denied = recordDecision({
       intentId: approval.intentId,
       orgId: approval.orgId,
       agentId: approval.agentId,
@@ -947,12 +1056,21 @@ export async function resolveApproval(
       amountUsdc: approval.amountUsdc,
       destination: approval.destination,
     });
-    store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
+    store.setIdempotent(approval.orgId, idemKey, {
+      ...result,
+      intentId: approval.intentId,
+      ruleIds: ["guardian_denied"],
+      receipt: denied.receipt,
+      httpStatus: 403,
+    });
     finishScheduledApproval(approval, false, "Denied by guardian");
     emitEvent(orgId, "approval.resolved", {
       approvalId: approval.id,
+      intentId: approval.intentId,
       status: "denied",
       resolvedBy,
+      ruleIds: ["guardian_denied"],
+      receipt: denied.receipt,
     });
     return { kind: "resolved", ok: true, approval: store.getApproval(approvalId, orgId)! };
   }
@@ -967,8 +1085,25 @@ export async function resolveApproval(
   // every limit collectively.
   const rules = rulesFor(approval.agentId, approval.orgId, approval.destination);
   if (rules.agentFrozen || rules.orgFrozen) {
+    const frozenRule = rules.orgFrozen ? "org_frozen" : "agent_frozen";
+    const frozenDecision = recordDecision({
+      intentId: approval.intentId,
+      orgId: approval.orgId,
+      agentId: approval.agentId,
+      outcome: "deny",
+      ruleIds: [frozenRule],
+      reasons: ["Frozen before guardian approval resolved"],
+      tool: approval.tool,
+      amountUsdc: approval.amountUsdc,
+      destination: approval.destination,
+      limits: frozenLimits(frozenRule, approval.amountMicro),
+    });
     const result = {
       outcome: "deny",
+      intentId: approval.intentId,
+      ruleIds: [frozenRule],
+      limits: frozenDecision.limits,
+      receipt: frozenDecision.receipt,
       error: { code: "FROZEN", message: "Agent or org frozen since approval was requested" },
     };
     store.resolveApproval(approval.id, {
@@ -977,24 +1112,17 @@ export async function resolveApproval(
       resolvedBy,
       result,
     });
-    recordDecision({
-      intentId: approval.intentId,
-      orgId: approval.orgId,
-      agentId: approval.agentId,
-      outcome: "deny",
-      ruleIds: [rules.orgFrozen ? "org_frozen" : "agent_frozen"],
-      reasons: ["Frozen before guardian approval resolved"],
-      tool: approval.tool,
-      amountUsdc: approval.amountUsdc,
-      destination: approval.destination,
-    });
     store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
     finishScheduledApproval(approval, false, "Agent or organization was frozen");
     emitEvent(orgId, "approval.resolved", {
       approvalId: approval.id,
+      intentId: approval.intentId,
       status: "denied",
       resolvedBy,
       reason: "frozen",
+      ruleIds: [frozenRule],
+      limits: frozenDecision.limits,
+      receipt: frozenDecision.receipt,
     });
     return { kind: "frozen", approval: store.getApproval(approvalId, orgId)! };
   }
@@ -1015,15 +1143,7 @@ export async function resolveApproval(
     { ...rules, hitlAboveMicro: approval.amountMicro, hitlCategories: [], quietHours: undefined },
   );
   if (recheck.outcome === "deny") {
-    const result = {
-      outcome: "deny",
-      error: {
-        code: "POLICY_DENIED",
-        message: `No longer permitted: ${recheck.reasons.join("; ")}`,
-      },
-    };
-    store.resolveApproval(approval.id, { status: "denied", resolvedAt, resolvedBy, result });
-    recordDecision({
+    const recheckDecision = recordDecision({
       intentId: approval.intentId,
       orgId: approval.orgId,
       agentId: approval.agentId,
@@ -1033,14 +1153,32 @@ export async function resolveApproval(
       tool: approval.tool,
       amountUsdc: approval.amountUsdc,
       destination: approval.destination,
+      limits: recheck.limits,
+      policyVersion: recheck.policyVersion === "v0" ? undefined : recheck.policyVersion,
     });
+    const result = {
+      outcome: "deny",
+      intentId: approval.intentId,
+      ruleIds: recheck.ruleIds,
+      ...(recheckDecision.limits && { limits: recheckDecision.limits }),
+      receipt: recheckDecision.receipt,
+      error: {
+        code: "POLICY_DENIED",
+        message: `No longer permitted: ${recheck.reasons.join("; ")}`,
+      },
+    };
+    store.resolveApproval(approval.id, { status: "denied", resolvedAt, resolvedBy, result });
     store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
     finishScheduledApproval(approval, false, recheck.reasons.join("; "));
     emitEvent(orgId, "approval.resolved", {
       approvalId: approval.id,
+      intentId: approval.intentId,
       status: "denied",
       resolvedBy,
       reason: recheck.reasons[0],
+      ruleIds: recheck.ruleIds,
+      ...(recheckDecision.limits && { limits: recheckDecision.limits }),
+      receipt: recheckDecision.receipt,
     });
     return {
       kind: "resolved",
@@ -1072,7 +1210,7 @@ export async function resolveApproval(
     resolvedBy,
     result: result.payload,
   });
-  recordDecision({
+  const finalDecision = recordDecision({
     intentId: approval.intentId,
     orgId: approval.orgId,
     agentId: approval.agentId,
@@ -1096,8 +1234,11 @@ export async function resolveApproval(
   );
   emitEvent(orgId, "approval.resolved", {
     approvalId: approval.id,
+    intentId: approval.intentId,
     status: result.ok ? "approved" : "denied",
     resolvedBy,
+    ruleIds: [result.ok ? "guardian_approved" : "execution_failed"],
+    receipt: finalDecision.receipt,
   });
   return {
     kind: "resolved",

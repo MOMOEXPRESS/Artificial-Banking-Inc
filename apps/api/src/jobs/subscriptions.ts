@@ -43,7 +43,7 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
       rulesFor(sub.agentId, sub.orgId, sub.vendor),
       "subscription",
     );
-    recordDecision({
+    const recorded = recordDecision({
       intentId,
       orgId: sub.orgId,
       agentId: sub.agentId,
@@ -53,6 +53,7 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
       tool: "pay_api",
       amountUsdc: formatMicroToUsdc(sub.amountMicro),
       destination: sub.vendor,
+      limits: decision.limits,
     });
 
     if (decision.outcome === "review") {
@@ -103,6 +104,10 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
         destination: sub.vendor,
         amountUsdc: formatMicroToUsdc(sub.amountMicro),
         reason: error,
+        intentId,
+        ruleIds: decision.ruleIds,
+        ...(recorded.limits && { limits: recorded.limits }),
+        receipt: recorded.receipt,
       });
       void notify({
         kind: "info",
