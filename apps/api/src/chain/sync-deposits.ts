@@ -3,7 +3,8 @@
  * Shared by manual POST sync, GET auto-sync, and background sweeps.
  */
 import { formatMicroToUsdc } from "@policyvault/common";
-import { readVaultOnchain, type OnchainVaultSnapshot } from "./deposits.js";
+import { readVaultOnchain, type OnchainVaultSnapshot, type ReadVaultOptions } from "./deposits.js";
+import { activeChain } from "./network.js";
 import { store } from "../store.js";
 import { recordObs } from "../platform/observability.js";
 import { emitEvent } from "../webhooks.js";
@@ -20,13 +21,40 @@ export type CreditedDeposit = {
 export type SyncDepositsResult = {
   ok: boolean;
   error?: string;
+  /** Balance read fine, but the Transfer-log scan failed (cursor not advanced). */
+  logsError?: string;
   snap: OnchainVaultSnapshot;
   newly: CreditedDeposit[];
   ledgerAvailableUsdc: string;
 };
 
-export async function syncOrgOnchainDeposits(orgId: string): Promise<SyncDepositsResult> {
-  const snap = await readVaultOnchain(store.getVaultAddress(orgId));
+export type SyncDepositsOptions = {
+  /** eth_getLogs calls this sync may spend (Workers subrequest budget). */
+  maxLogCalls?: number;
+  /** Test hook: forwarded to readVaultOnchain. */
+  client?: ReadVaultOptions["client"];
+};
+
+/**
+ * Read the vault, scan Transfer-ins since this vault's cursor, credit any new
+ * deposits, then advance the cursor to the last block fully scanned.
+ *
+ * `ok` reflects the balance read. A failed log scan leaves the cursor where it
+ * was (nothing is skipped) and is reported as `logsError`, not as a chain
+ * outage.
+ */
+export async function syncOrgOnchainDeposits(
+  orgId: string,
+  opts: SyncDepositsOptions = {},
+): Promise<SyncDepositsResult> {
+  const vault = store.getVaultAddress(orgId);
+  const chain = activeChain().id;
+  const cursor = vault ? store.getOnchainScanCursor(orgId, chain, vault) : undefined;
+  const snap = await readVaultOnchain(vault, {
+    afterBlock: cursor,
+    maxLogCalls: opts.maxLogCalls,
+    client: opts.client,
+  });
   if (!snap.ok) {
     return {
       ok: false,
@@ -74,8 +102,14 @@ export async function syncOrgOnchainDeposits(orgId: string): Promise<SyncDeposit
     }
   }
 
+  // Only after crediting: a crash between the two re-scans, never skips.
+  if (vault && snap.scannedThrough !== null) {
+    store.setOnchainScanCursor(orgId, snap.network, vault, BigInt(snap.scannedThrough));
+  }
+
   return {
     ok: true,
+    ...(snap.logsError ? { logsError: snap.logsError } : {}),
     snap,
     newly,
     ledgerAvailableUsdc: formatMicroToUsdc(
@@ -87,43 +121,107 @@ export async function syncOrgOnchainDeposits(orgId: string): Promise<SyncDeposit
 export function decorateOnchainTransfers(snap: OnchainVaultSnapshot, orgId: string) {
   const credited = store.listOnchainDeposits(orgId);
   const creditedKeys = new Set(credited.map((d) => `${d.txHash}:${d.logIndex}`));
+  const scanned = snap.transfers.map((t) => ({
+    ...t,
+    status: creditedKeys.has(`${t.txHash.toLowerCase()}:${t.logIndex}`)
+      ? ("credited" as const)
+      : ("detected" as const),
+  }));
+  // A cursor scan only returns blocks since the last sweep, so fold in deposits
+  // credited earlier — "Recent deposits" must not empty out once scanned.
+  const seen = new Set(scanned.map((t) => `${t.txHash.toLowerCase()}:${t.logIndex}`));
+  const cfg = activeChain();
+  const history = credited
+    .filter((d) => !seen.has(`${d.txHash}:${d.logIndex}`))
+    .map((d) => ({
+      txHash: d.txHash as `0x${string}`,
+      logIndex: d.logIndex,
+      blockNumber: d.blockNumber,
+      from: d.from as `0x${string}`,
+      to: d.to as `0x${string}`,
+      amountMicro: d.amountMicro,
+      amountUsdc: formatMicroToUsdc(BigInt(d.amountMicro)),
+      explorerUrl: cfg.explorerTx(d.txHash),
+      status: "credited" as const,
+    }));
   return {
     credited,
-    transfers: snap.transfers.map((t) => ({
-      ...t,
-      status: creditedKeys.has(`${t.txHash.toLowerCase()}:${t.logIndex}`)
-        ? ("credited" as const)
-        : ("detected" as const),
-    })),
+    transfers: [...scanned, ...history].sort(
+      (a, b) => Number(b.blockNumber) - Number(a.blockNumber),
+    ),
   };
 }
 
-/** Coalesce so Vercel/request paths don't hammer RPC on every hit. */
+/** Coalesce so request paths don't hammer RPC on every hit. */
 let lastDepositSweepAt = 0;
 const DEPOSIT_SWEEP_MIN_GAP_MS = 20_000;
+/**
+ * RPC calls one sweep may spend in total. Cloudflare Workers caps subrequests
+ * per invocation (50 on the free plan) and the alarm shares that budget with
+ * every other job, so stay well under it. Each org costs 3 balance reads plus
+ * its log calls; orgs that do not fit this tick go first next tick.
+ */
+const SWEEP_SUBREQUEST_BUDGET = Number(process.env.ABI_DEPOSIT_SWEEP_BUDGET ?? 30);
+const BALANCE_CALLS_PER_ORG = 3;
+const MIN_LOG_CALLS_PER_ORG = 1;
+const MAX_LOG_CALLS_PER_ORG = 4;
+let sweepOffset = 0;
 
 /**
- * Scan every org vault for new USDC Transfer-ins and credit the ledger.
- * Safe to call from setInterval or opportunistically on guardian/agent traffic.
+ * Scan org vaults for new USDC Transfer-ins and credit the ledger, round-robin
+ * within a fixed subrequest budget. Safe to call from the alarm or
+ * opportunistically on console traffic.
  */
 export async function runOnchainDepositSweep(opts?: {
   force?: boolean;
-}): Promise<{ orgs: number; credited: number }> {
+  /** Restrict to these orgs (request path syncs only the caller's org). */
+  orgIds?: string[];
+  budget?: number;
+  client?: ReadVaultOptions["client"];
+}): Promise<{ orgs: number; credited: number; skipped: number; logErrors: number }> {
   const now = Date.now();
   if (!opts?.force && now - lastDepositSweepAt < DEPOSIT_SWEEP_MIN_GAP_MS) {
-    return { orgs: 0, credited: 0 };
+    return { orgs: 0, credited: 0, skipped: 0, logErrors: 0 };
   }
   lastDepositSweepAt = now;
 
+  const all = (opts?.orgIds ?? store.listOrgIds()).filter((id) => store.getVaultAddress(id));
+  if (all.length === 0) return { orgs: 0, credited: 0, skipped: 0, logErrors: 0 };
+  const start = opts?.orgIds ? 0 : sweepOffset % all.length;
+  const ordered = [...all.slice(start), ...all.slice(0, start)];
+
+  let budget = opts?.budget ?? SWEEP_SUBREQUEST_BUDGET;
   let credited = 0;
-  const orgIds = store.listOrgIds();
-  for (const orgId of orgIds) {
+  let done = 0;
+  let logErrors = 0;
+  for (const orgId of ordered) {
+    const logCalls = Math.min(MAX_LOG_CALLS_PER_ORG, budget - BALANCE_CALLS_PER_ORG);
+    if (logCalls < MIN_LOG_CALLS_PER_ORG) break;
     try {
-      const result = await syncOrgOnchainDeposits(orgId);
+      const result = await syncOrgOnchainDeposits(orgId, {
+        maxLogCalls: logCalls,
+        client: opts?.client,
+      });
       credited += result.newly.length;
+      if (result.logsError) logErrors += 1;
+      if (!result.ok || result.logsError) {
+        console.error(
+          `onchain deposit sweep org=${orgId}: ${result.error ?? result.logsError ?? "unknown"}`,
+        );
+      }
     } catch (e) {
       console.error(`onchain deposit sweep failed org=${orgId}:`, e);
     }
+    // Charge the worst case: scan calls are not reported back per org.
+    budget -= BALANCE_CALLS_PER_ORG + logCalls;
+    done += 1;
   }
-  return { orgs: orgIds.length, credited };
+  if (!opts?.orgIds) sweepOffset = (start + done) % all.length;
+  return { orgs: done, credited, skipped: all.length - done, logErrors };
+}
+
+/** Test hook. */
+export function resetDepositSweepState(): void {
+  lastDepositSweepAt = 0;
+  sweepOffset = 0;
 }

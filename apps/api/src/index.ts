@@ -392,6 +392,8 @@ const AUTH_LIMITS: Record<string, { ipLimit: number; accountLimit: number; windo
   "/v1/auth/login": { ipLimit: 30, accountLimit: 20, windowMs: 15 * 60_000 },
   "/v1/auth/email/resend": { ipLimit: 10, accountLimit: 5, windowMs: 60 * 60_000 },
   "/v1/auth/password-reset/request": { ipLimit: 10, accountLimit: 5, windowMs: 60 * 60_000 },
+  // Guessing the current password from a hijacked session: bucket per session.
+  "/v1/auth/change-password": { ipLimit: 20, accountLimit: 5, windowMs: 15 * 60_000 },
 };
 
 app.use((req, res, next) => {
@@ -401,7 +403,12 @@ app.use((req, res, next) => {
   if (authLimit) {
     const ip = req.ip ?? "anon";
     const rawEmail = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
-    const identity = rawEmail ? hashSecret(rawEmail) : "invalid";
+    const sessionToken = parseCookies(req)[SESSION_COOKIE];
+    const identity = rawEmail
+      ? hashSecret(rawEmail)
+      : sessionToken
+        ? `s:${hashSecret(sessionToken)}`
+        : "invalid";
     if (
       overLimit(`auth-ip:${req.path}:${ip}`, authLimit.ipLimit, authLimit.windowMs) ||
       overLimit(`auth-account:${req.path}:${identity}`, authLimit.accountLimit, authLimit.windowMs)

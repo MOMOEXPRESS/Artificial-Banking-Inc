@@ -371,6 +371,17 @@ model OnchainDeposits {
   @@map("onchain_deposits")
 }
 
+model OnchainScanCursors {
+  orgId String @map("org_id")
+  chain String
+  vaultAddress String @map("vault_address")
+  lastBlock String @map("last_block")
+  updatedAt String @map("updated_at")
+  @@id([orgId, chain, vaultAddress])
+  @@unique([orgId, chain, vaultAddress])
+  @@map("onchain_scan_cursors")
+}
+
 model OrgAssetBalances {
   orgId String @map("org_id")
   assetId String @map("asset_id")
