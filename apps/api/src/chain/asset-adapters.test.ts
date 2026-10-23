@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import type { AssetRecord } from "@policyvault/common";
 import { beforeEach, describe, it } from "node:test";
-import { assetBacking } from "./asset-adapters.js";
+import { assetBacking, networkName } from "./asset-adapters.js";
 
 const asset = (over: Partial<AssetRecord>): AssetRecord => ({
   id: "asset_test",
@@ -31,10 +31,28 @@ describe("assetBacking", () => {
     assert.equal(info.reason, undefined);
   });
 
-  it("treats a native coin as manual, because only ERC-20 reads exist", () => {
+  it("reads native gas ETH on the active chain from the chain", () => {
+    const info = assetBacking(asset({ symbol: "ETH", chain: "base-sepolia", contract: null }));
+    assert.equal(info.kind, "chain");
+    assert.equal(info.native, true);
+    assert.equal(info.networkName, "Base Sepolia");
+    assert.equal(info.chainId, 84532);
+    assert.match(info.note ?? "", /gas/i);
+  });
+
+  it("a native coin on a chain with no RPC is unconfigured, not silently empty", () => {
     const info = assetBacking(asset({ symbol: "ETH", chain: "ethereum", contract: null }));
-    assert.equal(info.kind, "manual");
-    assert.match(info.reason ?? "", /native coin/i);
+    assert.equal(info.kind, "chain-unconfigured");
+    assert.equal(info.networkName, "Ethereum");
+  });
+
+  it("names networks for display instead of raw chain ids", () => {
+    assert.equal(networkName("base-sepolia"), "Base Sepolia");
+    assert.equal(networkName("base"), "Base");
+    assert.equal(networkName("ethereum"), "Ethereum");
+    assert.equal(networkName("bitcoin"), "Bitcoin");
+    assert.equal(networkName("solana"), "Solana");
+    assert.equal(networkName("some-new-chain"), "Some New Chain");
   });
 
   it("treats a non-EVM chain as manual and names the chain", () => {

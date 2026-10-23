@@ -64,8 +64,38 @@ export type AssetBackingInfo = {
   kind: AssetBackingKind;
   /** Why this asset is not chain-backed. Present when kind !== "chain". */
   reason?: string;
+  /** Human network name for display ("Base Sepolia"), never a raw chain id. */
+  networkName: string;
+  /** EVM chain id, when the asset lives on an EVM chain. */
+  chainId?: number;
+  /** Native coin read with eth_getBalance (e.g. Base Sepolia ETH used for gas). */
+  native?: boolean;
+  /** Extra context for the console (shown when there is no `reason`). */
+  note?: string;
   explorerAddress?: string;
 };
+
+const NON_EVM_NAMES: Record<string, string> = {
+  bitcoin: "Bitcoin",
+  solana: "Solana",
+};
+
+/** Display name for an asset's chain id ("base-sepolia" → "Base Sepolia"). */
+export function networkName(chain: string): string {
+  const evm = EVM_CHAINS[chain as EvmChainId];
+  if (evm) return evm.name;
+  if (NON_EVM_NAMES[chain]) return NON_EVM_NAMES[chain];
+  return chain
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((w) => w[0]!.toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+/** True for chains that are test networks (assets pinned to mainnets are hidden there). */
+export function isTestnetChain(chain: string): boolean {
+  return /sepolia|goerli|holesky|testnet/i.test(chain);
+}
 
 function evmChainFor(chain: string): (typeof EVM_CHAINS)[EvmChainId] | undefined {
   return EVM_CHAINS[chain as EvmChainId];
@@ -91,18 +121,14 @@ export function assetBacking(asset: AssetRecord): AssetBackingInfo {
     chain: asset.chain,
     contract: asset.contract ?? null,
     kind: "manual",
+    networkName: networkName(asset.chain),
   };
   const evm = evmChainFor(asset.chain);
+  if (evm) base_.chainId = evm.chain.id;
   if (!evm) {
     return {
       ...base_,
       reason: `No chain adapter for ${asset.chain}. Balances here are recorded by hand.`,
-    };
-  }
-  if (!asset.contract) {
-    return {
-      ...base_,
-      reason: `${asset.symbol} is a native coin on ${evm.name}; only ERC-20 balances are read on-chain today.`,
     };
   }
   if (!rpcFor(asset.chain)) {
@@ -110,6 +136,14 @@ export function assetBacking(asset: AssetRecord): AssetBackingInfo {
       ...base_,
       kind: "chain-unconfigured",
       reason: `No RPC configured for ${evm.name}. Set ${evm.rpcEnv[0]} to read this balance on-chain.`,
+    };
+  }
+  if (!asset.contract) {
+    return {
+      ...base_,
+      kind: "chain",
+      native: true,
+      note: `Native ${evm.name} ${asset.symbol}, read from the chain. It pays gas for on-chain USDC sends — send it to the vault address to top up.`,
     };
   }
   return { ...base_, kind: "chain" };
@@ -166,12 +200,14 @@ export async function readAssetOnchain(
   if (!client) return { ...out, error: "No RPC client for this chain" };
 
   try {
-    const balance = await client.readContract({
-      address: asset.contract as Address,
-      abi: erc20Abi,
-      functionName: "balanceOf",
-      args: [holder as Address],
-    });
+    const balance = backing.native
+      ? await client.getBalance({ address: holder as Address })
+      : await client.readContract({
+          address: asset.contract as Address,
+          abi: erc20Abi,
+          functionName: "balanceOf",
+          args: [holder as Address],
+        });
     return {
       ...out,
       onchainMicro: balance.toString(),

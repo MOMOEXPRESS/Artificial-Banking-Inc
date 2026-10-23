@@ -12,6 +12,9 @@ import {
   resolveAndPinOutboundUrl,
 } from "../outbound-url.js";
 import { tokenDomain } from "../chain/token-domain.js";
+import { activeChain, rpcUrl } from "../chain/network.js";
+import { createPublicClient, http } from "viem";
+import { base, baseSepolia } from "viem/chains";
 import type { PaymentRail, PaymentRailContext, PaymentRailResult } from "./types.js";
 
 const ALL_NETWORKS = {
@@ -331,6 +334,16 @@ export async function payViaX402(args: {
     marker: string,
     details: { nonce?: string; validBefore?: string },
   ) => void;
+  /**
+   * Read the payer's on-chain balance of `asset` before anything is signed.
+   * Return null when it cannot be read (the facilitator still verifies).
+   * An empty vault then fails cleanly — no signed authorization, no stuck hold.
+   */
+  readBalance?: (input: {
+    owner: `0x${string}`;
+    asset: `0x${string}`;
+    network: X402Network;
+  }) => Promise<bigint | null>;
 }): Promise<{ receipt: X402Receipt; resource: unknown; contentType: string | null }> {
   const problem = outboundUrlProblem(args.url, "Payment destination");
   if (problem) throw new X402Error("INVALID_DESTINATION", problem);
@@ -384,6 +397,19 @@ export async function payViaX402(args: {
     args.blocklist ?? [],
     args.expect,
   );
+  if (args.readBalance) {
+    const have = await args.readBalance({
+      owner: wallet.address,
+      asset: selected.requirement.asset as `0x${string}`,
+      network: selected.network,
+    });
+    if (have !== null && have < selected.priceMicro) {
+      throw new X402Error(
+        "INSUFFICIENT_ONCHAIN_USDC",
+        `Vault on-chain USDC ${have.toString()} < required ${selected.priceMicro.toString()} — fund ${wallet.address} on ${selected.network}. Nothing was signed.`,
+      );
+    }
+  }
   const signer: ClientEvmSigner = {
     address: wallet.address,
     signTypedData: (typedData) => custody.signTypedData({ orgId: args.orgId, typedData }),
@@ -483,6 +509,56 @@ export async function payViaX402(args: {
   };
 }
 
+const balanceOfAbi = [
+  {
+    type: "function",
+    name: "balanceOf",
+    stateMutability: "view",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ type: "uint256" }],
+  },
+] as const;
+
+/**
+ * The pre-sign check reads a public RPC. Test runs (node --test sets
+ * NODE_TEST_CONTEXT) use local seller fixtures with unfunded random vaults, so
+ * they opt in explicitly with ABI_X402_PRESIGN_CHECK=1. ABI_X402_PRESIGN_CHECK=0
+ * disables it in any environment.
+ */
+function presignCheckEnabled(): boolean {
+  const flag = process.env.ABI_X402_PRESIGN_CHECK;
+  if (flag === "0") return false;
+  if (flag === "1") return true;
+  return !process.env.NODE_TEST_CONTEXT && process.env.NODE_ENV !== "test";
+}
+
+/** Pre-sign balance read for the X402Rail. Null on any RPC failure. */
+async function readUsdcBalance(input: {
+  owner: `0x${string}`;
+  asset: `0x${string}`;
+  network: X402Network;
+}): Promise<bigint | null> {
+  try {
+    const isBase = input.network === "eip155:8453";
+    const cfg = activeChain();
+    // Only read on the chain this deployment is configured for; any other
+    // network was already refused by selectRequirement.
+    if ((cfg.id === "base") !== isBase) return null;
+    const client = createPublicClient({
+      chain: isBase ? base : baseSepolia,
+      transport: http(rpcUrl(cfg), { timeout: 10_000 }),
+    });
+    return await client.readContract({
+      address: input.asset,
+      abi: balanceOfAbi,
+      functionName: "balanceOf",
+      args: [input.owner],
+    });
+  } catch {
+    return null;
+  }
+}
+
 export class X402Rail implements PaymentRail {
   readonly name = "x402-v2";
 
@@ -496,6 +572,7 @@ export class X402Rail implements PaymentRail {
       orgId: ctx.orgId,
       blocklist: ctx.blocklist,
       expect: ctx.x402Expect,
+      readBalance: presignCheckEnabled() ? readUsdcBalance : undefined,
       onAuthorizationSigned: (marker) => {
         // Persist before the seller sees the signature — this is the
         // signed-but-unrecorded-spend guard.

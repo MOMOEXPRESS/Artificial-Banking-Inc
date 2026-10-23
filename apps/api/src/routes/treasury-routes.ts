@@ -160,7 +160,11 @@ export function registerTreasuryRoutes(
     "/v1/guardian/wallets",
     guardianRoute((org, _req, res) => {
       // Vercel embed has no setInterval — opportunistic deposit credit on console traffic.
-      void runOnchainDepositSweep().catch((e) => console.error("onchain deposit sweep failed:", e));
+      // Only the caller's org: a request's subrequest budget must not pay for
+      // every tenant's chain scan (the alarm sweeps everyone round-robin).
+      void runOnchainDepositSweep({ orgIds: [org.id] }).catch((e) =>
+        console.error("onchain deposit sweep failed:", e),
+      );
       const accounts = store.getAccountMap(org.id);
       const bal = (scope: WalletScope, ownerId: string) => {
         const a = accounts.get(accountId(scope, ownerId))?.balanceMicro ?? 0n;
@@ -256,13 +260,16 @@ export function registerTreasuryRoutes(
             onchainMicro != null && recordedMicro != null
               ? BigInt(onchainMicro) - recordedMicro
               : null;
+          const backing = read?.backing ?? assetBacking(asset);
           return {
             ...asset,
+            networkName: backing.networkName,
+            chainId: backing.chainId ?? null,
             balance: formatAssetAmount(balanceMicro, asset.decimals),
             balanceMicro: balanceMicro.toString(),
             spendRail: asset.id === USDC_ASSET_ID,
             onchainSync: read?.backing.kind === "chain",
-            backing: read?.backing ?? assetBacking(asset),
+            backing,
             onchainMicro,
             onchainBalance:
               onchainMicro != null ? formatAssetAmount(BigInt(onchainMicro), asset.decimals) : null,
@@ -1082,10 +1089,13 @@ export function registerTreasuryRoutes(
         credited,
         ledgerAvailableUsdc: result.ledgerAvailableUsdc,
         autoSynced: true,
+        ...(result.logsError ? { logsError: result.logsError } : {}),
         note:
           result.newly.length > 0
             ? `Auto-credited ${result.newly.length} on-chain deposit(s) into the org vault ledger.`
-            : undefined,
+            : result.logsError
+              ? "Vault balance is current. The deposit scan will retry on the next sweep."
+              : undefined,
       });
     }),
   );
@@ -1277,7 +1287,21 @@ export function registerTreasuryRoutes(
         // single click could strand every USDC and ETH at the old address. Refuse
         // while the vault holds anything, unless the caller explicitly accepts
         // that they must sweep it themselves from the archived key.
-        const snap = await readVaultOnchain(store.getVaultAddress(org.id));
+        const snap = await readVaultOnchain(store.getVaultAddress(org.id), {
+          balancesOnly: true,
+        });
+        // An unreadable vault is not an empty vault. Rotating blind could strand
+        // whatever it holds, so refuse outright until the balance can be read.
+        if (!snap.ok && store.getVaultAddress(org.id)) {
+          return res.status(503).json({
+            error: {
+              code: "CHAIN_UNAVAILABLE",
+              message:
+                "Could not read the vault balance on-chain, so rotation is refused — it might " +
+                "still hold funds. Retry when the chain is reachable.",
+            },
+          });
+        }
         if (snap.ok) {
           const usdc = BigInt(snap.onchainBalanceMicro);
           const native = BigInt(snap.nativeBalanceWei);

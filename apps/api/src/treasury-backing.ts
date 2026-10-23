@@ -69,7 +69,7 @@ export async function reconcileOrgOnchain(
   const expected = store.expectedOnchainMicro(orgId);
   const unbacked = store.getUnbackedMicro(orgId);
   const vaultAddress = store.getVaultAddress(orgId);
-  const snap = snapshot ?? (await readVaultOnchain(vaultAddress));
+  const snap = snapshot ?? (await readVaultOnchain(vaultAddress, { balancesOnly: true }));
 
   if (!snap.ok) {
     // An unreadable vault is not a clean reconciliation. Say "unknown" rather

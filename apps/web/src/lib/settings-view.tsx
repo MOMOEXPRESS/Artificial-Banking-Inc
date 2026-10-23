@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Icon } from "./ui";
 import { AiEgressPanel } from "./ai-egress-panel";
 import { MfaPanel } from "./mfa-panel";
+import { AccountAccessPanel } from "./account-access-panel";
 import { Button } from "@/components/ui/button";
 import { okJson } from "./api-response";
 
@@ -167,6 +168,7 @@ export function SettingsView({
   sellerUrl,
   actorRole = "owner",
   onGoto,
+  onSignedOut,
 }: {
   setup: Setup | null;
   recon: Recon | null;
@@ -187,6 +189,8 @@ export function SettingsView({
   sellerUrl: string;
   actorRole?: "owner" | "approver" | "viewer";
   onGoto?: (view: string) => void;
+  /** Clear the client session after the server revoked it (Account access). */
+  onSignedOut?: () => void;
 }) {
   const readOnly = actorRole === "viewer";
   const [section, setSection] = useState<Section>("profile");
@@ -1710,6 +1714,13 @@ export function SettingsView({
                 )}
               </div>
             )}
+            <AccountAccessPanel
+              gFetch={gFetch}
+              act={act}
+              locked={busy}
+              isSessionUser={session.mode === "session"}
+              onSignedOut={onSignedOut}
+            />
             <MfaPanel
               gFetch={gFetch}
               act={act}

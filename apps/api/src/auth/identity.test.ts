@@ -485,3 +485,177 @@ describe("invitations and membership", () => {
     assert.equal(res.status, 403, "a non-member must not read another org's roster");
   });
 });
+
+describe("account settings: sign out and password", () => {
+  it("logout-all revokes every session for the user, including this one", async () => {
+    const jar = new Jar();
+    const { email } = await signup(jar, uniqueEmail(), "Everywhere Co");
+    const other = new Jar();
+    await call("/v1/auth/login", {
+      method: "POST",
+      jar: other,
+      body: { email, password: PASSWORD },
+    });
+    assert.equal((await call("/v1/guardian/org", { jar: other })).status, 200);
+
+    const out = await call("/v1/auth/logout-all", { method: "POST", jar });
+    assert.equal(out.status, 200);
+    assert.ok(((await out.json()) as { revoked: number }).revoked >= 2);
+    assert.equal((await call("/v1/guardian/org", { jar })).status, 401);
+    assert.equal((await call("/v1/guardian/org", { jar: other })).status, 401);
+  });
+
+  it("logout-all needs a signed-in user", async () => {
+    assert.equal((await call("/v1/auth/logout-all", { method: "POST" })).status, 401);
+  });
+
+  it("logout-all does not touch another user's sessions", async () => {
+    const a = new Jar();
+    await signup(a, uniqueEmail(), "A Co");
+    const b = new Jar();
+    await signup(b, uniqueEmail(), "B Co");
+    assert.equal((await call("/v1/auth/logout-all", { method: "POST", jar: a })).status, 200);
+    assert.equal((await call("/v1/guardian/org", { jar: b })).status, 200);
+  });
+
+  it("change-password keeps this session and revokes the others", async () => {
+    const jar = new Jar();
+    const { email } = await signup(jar, uniqueEmail(), "Keep Co");
+    const other = new Jar();
+    await call("/v1/auth/login", {
+      method: "POST",
+      jar: other,
+      body: { email, password: PASSWORD },
+    });
+
+    const NEW = "a-fresh-settings-password-7";
+    const changed = await call("/v1/auth/change-password", {
+      method: "POST",
+      jar,
+      body: { currentPassword: PASSWORD, newPassword: NEW, confirmPassword: NEW },
+    });
+    assert.equal(changed.status, 200);
+    const body = (await changed.json()) as Record<string, unknown>;
+    assert.equal(body.signedOut, false);
+    // Never echo a password back.
+    assert.ok(!JSON.stringify(body).includes(NEW));
+    assert.equal((await call("/v1/guardian/org", { jar })).status, 200);
+    assert.equal((await call("/v1/guardian/org", { jar: other })).status, 401);
+    // Old password dead, new one works.
+    assert.equal(
+      (await call("/v1/auth/login", { method: "POST", body: { email, password: PASSWORD } }))
+        .status,
+      401,
+    );
+    assert.equal(
+      (await call("/v1/auth/login", { method: "POST", body: { email, password: NEW } })).status,
+      200,
+    );
+  });
+
+  it("change-password can sign out everywhere", async () => {
+    const jar = new Jar();
+    await signup(jar, uniqueEmail(), "All Out Co");
+    const res = await call("/v1/auth/change-password", {
+      method: "POST",
+      jar,
+      body: {
+        currentPassword: PASSWORD,
+        newPassword: "yet-another-good-password",
+        signOutEverywhere: true,
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.equal((await call("/v1/guardian/org", { jar })).status, 401);
+  });
+
+  it("change-password refuses a wrong current password and leaves the password unchanged", async () => {
+    const jar = new Jar();
+    const { email } = await signup(jar, uniqueEmail(), "Wrong Co");
+    const res = await call("/v1/auth/change-password", {
+      method: "POST",
+      jar,
+      body: { currentPassword: "not-the-password", newPassword: "some-new-password-99" },
+    });
+    assert.equal(res.status, 403);
+    assert.equal(
+      (await call("/v1/auth/login", { method: "POST", body: { email, password: PASSWORD } }))
+        .status,
+      200,
+    );
+  });
+
+  it("change-password rejects a mismatched confirmation and weak passwords", async () => {
+    const jar = new Jar();
+    await signup(jar, uniqueEmail(), "Confirm Co");
+    const mismatch = await call("/v1/auth/change-password", {
+      method: "POST",
+      jar,
+      body: {
+        currentPassword: PASSWORD,
+        newPassword: "first-new-password-1",
+        confirmPassword: "second-new-password-2",
+      },
+    });
+    assert.equal(mismatch.status, 400);
+    const weak = await call("/v1/auth/change-password", {
+      method: "POST",
+      jar,
+      body: { currentPassword: PASSWORD, newPassword: "short" },
+    });
+    assert.equal(weak.status, 400);
+    const same = await call("/v1/auth/change-password", {
+      method: "POST",
+      jar,
+      body: { currentPassword: PASSWORD, newPassword: PASSWORD },
+    });
+    assert.equal(same.status, 400);
+  });
+
+  it("change-password needs a signed-in user", async () => {
+    const res = await call("/v1/auth/change-password", {
+      method: "POST",
+      body: { currentPassword: PASSWORD, newPassword: "whatever-password-1" },
+    });
+    assert.equal(res.status, 401);
+  });
+
+  it("a newer reset link burns the older one, and each token works once", async () => {
+    const jar = new Jar();
+    const { email } = await signup(jar, uniqueEmail(), "Reset Co");
+    const first = (await (
+      await call("/v1/auth/password-reset/request", { method: "POST", body: { email } })
+    ).json()) as { devResetToken?: string };
+    const second = (await (
+      await call("/v1/auth/password-reset/request", { method: "POST", body: { email } })
+    ).json()) as { devResetToken?: string };
+    assert.ok(first.devResetToken && second.devResetToken);
+    assert.equal(
+      (
+        await call("/v1/auth/password-reset/confirm", {
+          method: "POST",
+          body: { token: first.devResetToken, newPassword: "reset-password-one-1" },
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await call("/v1/auth/password-reset/confirm", {
+          method: "POST",
+          body: { token: second.devResetToken, newPassword: "reset-password-two-2" },
+        })
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await call("/v1/auth/password-reset/confirm", {
+          method: "POST",
+          body: { token: second.devResetToken, newPassword: "reset-password-three-3" },
+        })
+      ).status,
+      400,
+    );
+  });
+});

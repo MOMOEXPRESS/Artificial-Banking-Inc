@@ -1105,6 +1105,14 @@ migrateSecretsAtRest();
   }
 }
 
+/** Circle EURC on Base Sepolia (verified on-chain: name/symbol "EURC"). */
+const BASE_SEPOLIA_EURC = "0x808456652fdb597867f38412077A9182bf77359F";
+/** The mistyped address seeded before — no contract exists there on any chain. */
+const BAD_EURC_SEED = "0x808456652fdb597867f384939655eD02696bA000";
+const ACTIVE_CHAIN_ID = process.env.CHAIN === "base" ? "base" : "base-sepolia";
+/** EVM mainnets that a testnet deployment cannot read or settle on. */
+const MAINNET_EVM_CHAINS = new Set(["ethereum", "base"]);
+
 // Seed platform settlement assets once (majors + USDC spend rail).
 {
   const seed = db.prepare(
@@ -1128,19 +1136,28 @@ migrateSecretsAtRest();
     "0xdAC17F958D2ee523a2206206994597C13D831ec7",
     stamp,
   );
-  seed.run(
-    "asset_eurc",
-    "EURC",
-    6,
-    "base-sepolia",
-    "0x808456652fdb597867f384939655eD02696bA000",
-    stamp,
-  );
-  seed.run("asset_eth", "ETH", 18, "ethereum", null, stamp);
+  seed.run("asset_eurc", "EURC", 6, "base-sepolia", BASE_SEPOLIA_EURC, stamp);
+  // Native gas on the chain this deployment runs on — the vault's real ETH,
+  // read with eth_getBalance (it used to be labelled Ethereum mainnet and
+  // recorded by hand, so it always looked empty).
+  seed.run("asset_eth", "ETH", 18, ACTIVE_CHAIN_ID, null, stamp);
   seed.run("asset_btc", "BTC", 8, "bitcoin", null, stamp);
   seed.run("asset_sol", "SOL", 9, "solana", null, stamp);
   seed.run("asset_dai", "DAI", 18, "ethereum", "0x6B175474E89094C44Da98b954EedeAC495271d0F", stamp);
 }
+
+// Non-destructive asset fixes for databases seeded before them (rows are
+// updated in place, never deleted, and recorded balances are untouched).
+// Idempotent: a no-op once applied, so it is safe on every Durable Object start.
+function runAssetMigrations(): void {
+  db.prepare(
+    "UPDATE assets SET contract = ? WHERE id = 'asset_eurc' AND lower(contract) = lower(?)",
+  ).run(BASE_SEPOLIA_EURC, BAD_EURC_SEED);
+  db.prepare(
+    "UPDATE assets SET chain = ? WHERE id = 'asset_eth' AND org_id IS NULL AND chain = 'ethereum' AND contract IS NULL",
+  ).run(ACTIVE_CHAIN_ID);
+}
+runAssetMigrations();
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS org_asset_balances (
@@ -1165,6 +1182,19 @@ CREATE TABLE IF NOT EXISTS onchain_deposits (
   UNIQUE (org_id, tx_hash, log_index)
 );
 CREATE INDEX IF NOT EXISTS idx_onchain_deposits_org ON onchain_deposits(org_id, credited_at);
+
+-- Per-vault Transfer-log scan cursor: the highest block already scanned for
+-- deposits, so each sweep only reads new blocks (RPC log-range and Workers
+-- subrequest limits make re-scanning history every tick impossible). Keyed by
+-- address too, so a rotated vault starts its own scan.
+CREATE TABLE IF NOT EXISTS onchain_scan_cursors (
+  org_id TEXT NOT NULL,
+  chain TEXT NOT NULL,
+  vault_address TEXT NOT NULL,
+  last_block TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, chain, vault_address)
+);
 
 CREATE TABLE IF NOT EXISTS vault_asset_events (
   id TEXT PRIMARY KEY,
@@ -2200,9 +2230,31 @@ export const store = {
       asset_sol: 5,
       asset_dai: 6,
     };
+    // On a testnet deployment, platform assets pinned to a mainnet (USDT and
+    // DAI on Ethereum) cannot be read or moved; hide them unless the org has
+    // already recorded a balance, so no user data disappears.
+    const onTestnet = ACTIVE_CHAIN_ID === "base-sepolia";
+    const recorded = new Set(
+      (
+        db
+          .prepare(
+            "SELECT asset_id FROM org_asset_balances WHERE org_id = ? AND balance_micro != '0'",
+          )
+          .all(orgId) as Row[]
+      ).map((r) => String(r.asset_id)),
+    );
     return (
       db.prepare("SELECT * FROM assets WHERE org_id IS NULL OR org_id = ?").all(orgId) as Row[]
     )
+      .filter(
+        (r) =>
+          !(
+            onTestnet &&
+            r.org_id == null &&
+            MAINNET_EVM_CHAINS.has(String(r.chain)) &&
+            !recorded.has(String(r.id))
+          ),
+      )
       .map((r) => ({
         id: r.id as string,
         symbol: r.symbol as string,
@@ -2628,6 +2680,34 @@ export const store = {
    * Idempotently credit a detected on-chain USDC Transfer into org_available.
    * Returns null if already credited.
    */
+  /** Re-apply the idempotent asset fixes (startup runs them; tests call this). */
+  runAssetMigrations(): void {
+    runAssetMigrations();
+  },
+
+  /** Highest block already scanned for USDC Transfer-ins to this vault, if any. */
+  getOnchainScanCursor(orgId: string, chain: string, vaultAddress: string): bigint | undefined {
+    const r = db
+      .prepare(
+        "SELECT last_block FROM onchain_scan_cursors WHERE org_id = ? AND chain = ? AND vault_address = ?",
+      )
+      .get(orgId, chain, vaultAddress.toLowerCase()) as Row | undefined;
+    if (!r) return undefined;
+    const v = String(r.last_block);
+    return /^\d+$/.test(v) ? BigInt(v) : undefined;
+  },
+
+  /** Advance (never rewind) the scan cursor. */
+  setOnchainScanCursor(orgId: string, chain: string, vaultAddress: string, block: bigint): void {
+    const prev = this.getOnchainScanCursor(orgId, chain, vaultAddress);
+    if (prev !== undefined && prev >= block) return;
+    db.prepare(
+      `INSERT INTO onchain_scan_cursors (org_id, chain, vault_address, last_block, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(org_id, chain, vault_address) DO UPDATE SET last_block = excluded.last_block, updated_at = excluded.updated_at`,
+    ).run(orgId, chain, vaultAddress.toLowerCase(), block.toString(), nowIso());
+  },
+
   creditOnchainUsdcDeposit(input: {
     orgId: string;
     chain: string;
@@ -2918,14 +2998,30 @@ export const store = {
     };
   },
 
-  setUserPassword(userId: string, passwordHash: string): void {
+  setUserPassword(userId: string, passwordHash: string, opts?: { keepSessionId?: string }): void {
     db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(passwordHash, userId);
-    // Changing a password invalidates every existing session — otherwise a
-    // stolen session survives the very action taken to contain it.
-    db.prepare(
-      "UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
-    ).run(nowIso(), userId);
+    // Changing a password invalidates every other session — otherwise a
+    // stolen session survives the very action taken to contain it. Only the
+    // session that proved the current password may be kept.
+    if (opts?.keepSessionId) {
+      db.prepare(
+        "UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL AND id != ?",
+      ).run(nowIso(), userId, opts.keepSessionId);
+    } else {
+      db.prepare(
+        "UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+      ).run(nowIso(), userId);
+    }
     bumpRevision();
+  },
+
+  /** Sign this user out everywhere. Returns how many live sessions were revoked. */
+  revokeAllUserSessions(userId: string): number {
+    const info = db
+      .prepare("UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
+      .run(nowIso(), userId);
+    bumpRevision();
+    return info.changes;
   },
 
   markUserLogin(userId: string): void {

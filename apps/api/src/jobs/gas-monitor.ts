@@ -47,7 +47,7 @@ export async function checkVaultGas(): Promise<{ checked: number; low: number }>
 
     let snap;
     try {
-      snap = await readVaultOnchain(address);
+      snap = await readVaultOnchain(address, { balancesOnly: true });
     } catch {
       // An RPC failure is not evidence of a low balance; skip rather than
       // alarm on it. RPC health is a separate concern.
