@@ -21,7 +21,7 @@ import {
   type JournalEntry,
 } from "@policyvault/ledger";
 import { evaluatePolicy, resolvePolicy, type PolicyRules } from "@policyvault/policy";
-import { X402Error, X402Rail } from "./rails/x402.js";
+import { X402_GUARD_RULE_IDS, X402Error, X402Rail, type X402Expectation } from "./rails/x402.js";
 import { TransferMockRail } from "./rails/transfer-mock.js";
 import { EvmUsdcTransferRail, isEvmPayDestination } from "./rails/evm-usdc-transfer.js";
 import type { PaymentRail } from "./rails/types.js";
@@ -167,6 +167,32 @@ export function rulesFor(agentId: string, orgId: string, destination?: string): 
     walletBalanceMicro: funding
       ? (store.getAccountMap(orgId).get(funding.availableId)?.balanceMicro ?? 0n)
       : 0n,
+  };
+}
+
+/**
+ * Payee pinning for x402: if the destination is a merchant gateway this org
+ * onboarded, the seller must ask to be paid at the declared payout address, on
+ * the declared network, at no more than the declared price.
+ */
+export function x402ExpectationFor(orgId: string, destination: string): X402Expectation | undefined {
+  const key = destination.trim().toLowerCase();
+  const merchant = store.listMerchants(orgId).find((m) => m.key === key);
+  const gateway = merchant?.meta?.gateway as
+    | { payoutAddress?: unknown; network?: unknown; amountMicro?: unknown }
+    | undefined;
+  if (!gateway || typeof gateway.payoutAddress !== "string") return undefined;
+  let maxAmountMicro: bigint | undefined;
+  try {
+    maxAmountMicro =
+      typeof gateway.amountMicro === "string" ? BigInt(gateway.amountMicro) : undefined;
+  } catch {
+    maxAmountMicro = undefined;
+  }
+  return {
+    payTo: gateway.payoutAddress,
+    network: typeof gateway.network === "string" ? gateway.network : undefined,
+    maxAmountMicro,
   };
 }
 
@@ -524,6 +550,8 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       destination: input.destination,
       authorizedMicro: input.amountMicro,
       blocklist: store.getPolicyTemplate(input.orgId).blocklist,
+      x402Expect:
+        selectedRail === x402Rail ? x402ExpectationFor(input.orgId, input.destination) : undefined,
       // Called the instant a hash exists, before waiting for confirmation.
       onBroadcast: (rail, txHash) => store.markSettlementBroadcast(input.intentId, rail, txHash),
     });
@@ -588,11 +616,13 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
           : code === "INVALID_DESTINATION"
             ? 400
             : 402;
+    const guardRule = e instanceof X402Error ? X402_GUARD_RULE_IDS[e.code] : undefined;
     return {
       ok: false,
-      status,
+      status: guardRule ? 403 : status,
       payload: {
         intentId: input.intentId,
+        ...(guardRule && { outcome: "deny", ruleIds: [guardRule] }),
         error: { code, message: e instanceof Error ? e.message : String(e) },
       },
     };
