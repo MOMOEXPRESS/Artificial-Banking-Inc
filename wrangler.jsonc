@@ -1,0 +1,15 @@
+// Root config used only by the Cloudflare Workers Builds project "artificialbanking"
+// (build: `npm run build`, deploy: `npx wrangler deploy` from the repo root).
+// It deploys a tiny redirect Worker (infra/artificialbanking-worker) — NOT the API.
+// The API Worker has its own config in apps/api-worker/wrangler.toml (name "abi-api").
+//
+// workers_dev / preview_urls are off so a deploy keeps the current exposure (no public
+// URL). Flip them to true if you want artificialbanking.<subdomain>.workers.dev to
+// redirect to the Vercel site.
+{
+  "name": "artificialbanking",
+  "main": "infra/artificialbanking-worker/worker.js",
+  "compatibility_date": "2025-10-01",
+  "workers_dev": false,
+  "preview_urls": false,
+}

@@ -47,8 +47,6 @@
   },
   "packageManager": "npm@10",
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.9.14",
-    "@cloudflare/workers-types": "^4.20251011.0",
     "@eslint/js": "^9.39.5",
     "@next/eslint-plugin-next": "^15.5.22",
     "eslint": "^9.39.5",
@@ -57,7 +55,6 @@
     "globals": "^15.15.0",
     "prettier": "^3.9.6",
     "typescript-eslint": "^8.65.0",
-    "vitest": "^3.2.4",
-    "wrangler": "^4.44.0"
+    "wrangler": "^4.152.0"
   }
 }
