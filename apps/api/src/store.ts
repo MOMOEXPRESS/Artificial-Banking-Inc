@@ -3872,6 +3872,13 @@ export const store = {
     return r.n as number;
   },
 
+  paysSince(agentId: string, sinceMs: number): number {
+    const r = db
+      .prepare("SELECT COUNT(*) AS n FROM pay_events WHERE agent_id = ? AND at_ms >= ?")
+      .get(agentId, sinceMs) as Row;
+    return r.n as number;
+  },
+
   // ------------------------------------------------------------- decisions
   addDecision(d: DecisionRow): void {
     db.prepare(
@@ -3905,9 +3912,7 @@ export const store = {
   /** Decisions for one tool since an ISO timestamp, oldest first. */
   listDecisionsByTool(orgId: string, tool: string, sinceIso: string): DecisionRow[] {
     const rows = db
-      .prepare(
-        "SELECT * FROM decisions WHERE org_id = ? AND tool = ? AND at >= ? ORDER BY id ASC",
-      )
+      .prepare("SELECT * FROM decisions WHERE org_id = ? AND tool = ? AND at >= ? ORDER BY id ASC")
       .all(orgId, tool, sinceIso) as Row[];
     return rows.map(decisionFromRow);
   },
