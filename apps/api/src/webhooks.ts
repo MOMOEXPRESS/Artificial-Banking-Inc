@@ -16,7 +16,7 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { store } from "./store.js";
-import { webhookUrlProblem } from "./outbound-url.js";
+import { fetchNoRedirect, webhookUrlProblem } from "./outbound-url.js";
 
 export type WebhookEvent =
   | "payment.succeeded"
@@ -118,20 +118,23 @@ export async function attemptDelivery(args: {
       return;
     }
     const timestamped = signPayloadV1(args.secret, args.body);
-    const res = await fetch(args.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-policyvault-event": args.event,
-        "x-policyvault-delivery": String(args.deliveryId),
-        "x-abi-signature": timestamped,
-        // Legacy header for receivers that have not migrated yet.
-        "x-policyvault-signature": signPayload(args.secret, args.body),
+    const res = await fetchNoRedirect(
+      args.url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-policyvault-event": args.event,
+          "x-policyvault-delivery": String(args.deliveryId),
+          "x-abi-signature": timestamped,
+          // Legacy header for receivers that have not migrated yet.
+          "x-policyvault-signature": signPayload(args.secret, args.body),
+        },
+        body: args.body,
+        signal: AbortSignal.timeout(5_000),
       },
-      body: args.body,
-      redirect: "error",
-      signal: AbortSignal.timeout(5_000),
-    });
+      "Webhook endpoint",
+    );
     if (res.ok) {
       store.updateDelivery(args.deliveryId, {
         status: "delivered",

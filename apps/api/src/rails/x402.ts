@@ -5,7 +5,12 @@ import { x402Client, x402HTTPClient } from "@x402/core/client";
 import type { PaymentRequired, PaymentRequirements } from "@x402/core/types";
 import { ExactEvmScheme, type ClientEvmSigner } from "@x402/evm";
 import { createHash, randomBytes } from "node:crypto";
-import { outboundUrlProblem, resolveAndPinOutboundUrl } from "../outbound-url.js";
+import {
+  RedirectRefusedError,
+  fetchNoRedirect,
+  outboundUrlProblem,
+  resolveAndPinOutboundUrl,
+} from "../outbound-url.js";
 import { tokenDomain } from "../chain/token-domain.js";
 import type { PaymentRail, PaymentRailContext, PaymentRailResult } from "./types.js";
 
@@ -128,6 +133,16 @@ export class X402Error extends Error {
   ) {
     super(message);
     this.name = "X402Error";
+  }
+}
+
+/** Map a refused seller redirect to an X402Error; other errors pass through. */
+async function noRedirect(run: () => Promise<Response>, code: RailErrorCode): Promise<Response> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof RedirectRefusedError) throw new X402Error(code, error.message);
+    throw error;
   }
 }
 
@@ -332,7 +347,10 @@ export async function payViaX402(args: {
   const wallet = await custody.getAddress(args.orgId);
   if (!wallet) throw new X402Error("CUSTODY_UNAVAILABLE", "Organization has no custody address.");
   const doFetch = args.fetchImpl ?? fetch;
-  const first = await doFetch(args.url, { signal: AbortSignal.timeout(10_000), redirect: "error" });
+  const first = await noRedirect(
+    () => fetchNoRedirect(args.url, { signal: AbortSignal.timeout(10_000) }, "Seller", doFetch),
+    "RAIL_FAILED",
+  );
   if (first.status !== 402) {
     if (first.ok)
       throw new X402Error("NO_PAYMENT_REQUIRED", "Resource did not request payment (HTTP 200)");
@@ -409,11 +427,16 @@ export async function payViaX402(args: {
   // Irreversible: the seller can settle this signed authorization on-chain even
   // if the HTTP response is non-2xx or the PAYMENT-RESPONSE is malformed.
   args.onAuthorizationSigned?.(`x402-auth:${nonce}`, { nonce });
-  const paid = await doFetch(args.url, {
-    headers: signatureHeaders,
-    signal: AbortSignal.timeout(30_000),
-    redirect: "error",
-  });
+  const paid = await noRedirect(
+    () =>
+      fetchNoRedirect(
+        args.url,
+        { headers: signatureHeaders, signal: AbortSignal.timeout(30_000) },
+        "Seller",
+        doFetch,
+      ),
+    "SELLER_REJECTED",
+  );
   if (!paid.ok) {
     const body = await paid.text().catch(() => "");
     throw new X402Error("SELLER_REJECTED", `Seller rejected payment: HTTP ${paid.status} ${body}`);

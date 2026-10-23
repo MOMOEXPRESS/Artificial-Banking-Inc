@@ -36,8 +36,24 @@ let sellerPaidRequests = 0;
 let buyerBase = "";
 let sellerBase = "";
 
+let redirectTargetHits = 0;
 const seller = createServer((req, res) => {
-  if (req.url !== "/report" && req.url !== "/wrong-token") {
+  // Redirect fixtures: the Location must never be requested.
+  if (req.url === "/redirect-target") {
+    redirectTargetHits++;
+    res.writeHead(200, { "content-type": "application/json" }).end("{}");
+    return;
+  }
+  if (req.url === "/redirect-challenge") {
+    res.writeHead(302, { location: `${sellerBase}/redirect-target` }).end();
+    return;
+  }
+  const paidRedirect = req.url === "/redirect-paid";
+  if (paidRedirect && req.headers["payment-signature"]) {
+    res.writeHead(307, { location: `${sellerBase}/redirect-target` }).end();
+    return;
+  }
+  if (req.url !== "/report" && req.url !== "/wrong-token" && !paidRedirect) {
     res.writeHead(404).end();
     return;
   }
@@ -252,4 +268,94 @@ it("verifies the seller challenge and scopes merchant activity to its organizati
     { method: "POST", headers },
   );
   assert.equal(rejected.status, 422, "matching price and wallet must not verify a non-USDC asset");
+});
+
+function fundedOrgFor(destinations: string[], name: string) {
+  const org = store.createOrg(name, 1_000_000n);
+  const agent = store.createAgent(org.id, "Redirect buyer");
+  const policy = store.getPolicyTemplate(org.id);
+  store.setPolicyTemplate(org.id, {
+    ...policy,
+    vendorAllowlist: destinations,
+    perTxMaxMicro: 100_000n,
+    dailyMaxMicro: 1_000_000n,
+    hitlAboveMicro: 100_000n,
+    newCounterpartyCooldownHours: 0,
+  });
+  for (const d of destinations) store.addKnownCounterparty(org.id, d);
+  store.applyEntries(org.id, [
+    {
+      id: `fund_${org.id}`,
+      orgId: org.id,
+      memo: "agent stipend",
+      createdAt: new Date().toISOString(),
+      lines: [
+        { accountId: `org:${org.id}:available`, deltaMicro: -100_000n },
+        { accountId: `agent:${agent.agentId}:available`, deltaMicro: 100_000n },
+      ],
+    },
+  ]);
+  return { org, agent };
+}
+
+it("refuses a seller that answers the challenge request with a 3xx (never follows it)", async () => {
+  const destination = `${sellerBase}/redirect-challenge`;
+  const { agent } = fundedOrgFor([destination], "Redirect Challenge Co");
+  redirectTargetHits = 0;
+  const res = await fetch(`${buyerBase}/v1/agent/pay_api`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${agent.apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ amountUsdc: "0.01", destination, idempotencyKey: "redirect-challenge" }),
+  });
+  assert.notEqual(res.status, 200);
+  const text = await res.text();
+  assert.match(text, /redirect/i);
+  assert.equal(redirectTargetHits, 0, "the Location must never be requested");
+});
+
+it("refuses a 3xx on the paid request: never followed, not settled, held for review", async () => {
+  const destination = `${sellerBase}/redirect-paid`;
+  const { org, agent } = fundedOrgFor([destination], "Redirect Paid Co");
+  redirectTargetHits = 0;
+  const res = await fetch(`${buyerBase}/v1/agent/pay_api`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${agent.apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ amountUsdc: "0.01", destination, idempotencyKey: "redirect-paid" }),
+  });
+  assert.notEqual(res.status, 200);
+  assert.match(await res.text(), /redirect/i);
+  assert.equal(redirectTargetHits, 0, "the Location must never be requested");
+  // The authorization was already signed, so (as for any post-signature seller
+  // failure) the amount stays on hold for review instead of being released.
+  const budgetId = store.getAgentAnyOrg(agent.agentId)?.budgetId;
+  const balances = store.getAccountMap(org.id);
+  assert.equal(balances.get(`dept:${budgetId}:held`)?.balanceMicro, 10_000n);
+  assert.equal(store.reconcileOrgUncached(org.id).ok, true);
+});
+
+it("merchant verification refuses a redirecting endpoint", async () => {
+  const org = store.createOrg("Redirect Merchant Co", 0n);
+  const headers = {
+    authorization: `Bearer ${org.guardianKey}`,
+    "content-type": "application/json",
+  };
+  const onboard = await fetch(`${buyerBase}/v1/guardian/merchant-gateway/onboard`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      label: "Redirecting seller",
+      endpoint: `${sellerBase}/redirect-challenge`,
+      payoutAddress: PAY_TO,
+      priceUsdc: "0.01",
+    }),
+  });
+  assert.equal(onboard.status, 201);
+  const { merchant } = (await onboard.json()) as { merchant: { id: string } };
+  redirectTargetHits = 0;
+  const verify = await fetch(`${buyerBase}/v1/guardian/merchant-gateway/${merchant.id}/verify`, {
+    method: "POST",
+    headers,
+  });
+  assert.notEqual(verify.status, 200);
+  assert.equal(redirectTargetHits, 0);
 });

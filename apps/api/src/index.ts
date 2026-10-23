@@ -75,7 +75,7 @@ import {
 } from "./platform/observability.js";
 import { emitEvent } from "./webhooks.js";
 import { openApiDocument } from "./platform/openapi.js";
-import { outboundUrlProblem, webhookUrlProblem } from "./outbound-url.js";
+import { fetchNoRedirect, outboundUrlProblem, webhookUrlProblem } from "./outbound-url.js";
 import { hashSecret } from "./secrets.js";
 import { csrfProblem, parseCookies, SESSION_COOKIE } from "./auth/session.js";
 import { signupTokenProblem } from "./auth/signup-token.js";
@@ -1459,11 +1459,11 @@ app.post(
           .json({ error: { code: "INVALID_DESTINATION", message: urlProblem } });
       }
       try {
-        const response = await fetch(endpoint, {
-          redirect: "error",
-          signal: AbortSignal.timeout(10_000),
-          headers: { accept: "application/json" },
-        });
+        const response = await fetchNoRedirect(
+          endpoint,
+          { signal: AbortSignal.timeout(10_000), headers: { accept: "application/json" } },
+          "Merchant endpoint",
+        );
         if (response.status !== 402)
           throw new Error(`Expected HTTP 402; received ${response.status}.`);
         const contentType = response.headers.get("content-type") ?? "";

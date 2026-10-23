@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { after, describe, it } from "node:test";
 
 const dir = mkdtempSync(join(tmpdir(), "pv-wh-"));
@@ -12,8 +14,13 @@ process.env.ABI_NO_LISTEN = "1";
 process.env.ABI_ALLOW_LOCAL_TARGETS = "1";
 
 const { store } = await import("./store.js");
-const { signPayloadV1, verifyPayloadV1, retryPendingWebhookDeliveries, emitEvent } =
-  await import("./webhooks.js");
+const {
+  signPayloadV1,
+  verifyPayloadV1,
+  retryPendingWebhookDeliveries,
+  emitEvent,
+  attemptDelivery,
+} = await import("./webhooks.js");
 
 after(() => {
   try {
@@ -74,5 +81,46 @@ describe("durable webhook retries", () => {
     await new Promise((r) => setTimeout(r, 30));
     const row = store.listDeliveries(org.id)[0]!;
     assert.equal(row.status, "delivered");
+  });
+});
+
+describe("webhook redirects", () => {
+  it("a 3xx from the receiver is not delivered and the Location is never requested", async () => {
+    let targetHits = 0;
+    const srv = createServer((req, res) => {
+      if (req.url === "/target") {
+        targetHits++;
+        res.writeHead(200).end("ok");
+        return;
+      }
+      res.writeHead(307, { location: "/target" }).end();
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+    const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}/hook`;
+    try {
+      const org = store.createOrg("Redirect Hook Co", 0n);
+      const hook = store.createWebhook(org.id, url);
+      const deliveryId = store.createDelivery({
+        orgId: org.id,
+        webhookId: hook.id,
+        event: "agent.frozen",
+        payload: {},
+        url,
+      });
+      await attemptDelivery({
+        deliveryId,
+        url,
+        secret: hook.secret,
+        event: "agent.frozen",
+        body: "{}",
+        attempt: 1,
+      });
+      const row = store.listDeliveries(org.id).find((d) => d.id === deliveryId)!;
+      assert.notEqual(row.status, "delivered");
+      assert.match(String(row.lastError), /redirect/i);
+      assert.equal(targetHits, 0);
+    } finally {
+      await new Promise<void>((r) => srv.close(() => r()));
+    }
   });
 });
