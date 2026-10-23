@@ -309,6 +309,13 @@ model JobLocks {
   @@map("job_locks")
 }
 
+model JobState {
+  name String @id
+  value String
+  updatedAt String @map("updated_at")
+  @@map("job_state")
+}
+
 model Journals {
   id String @id
   orgId String @map("org_id")

@@ -1231,6 +1231,15 @@ CREATE TABLE IF NOT EXISTS job_locks (
   expires_at TEXT NOT NULL
 );
 
+-- Small persisted job state (last run times, round-robin positions). A Durable
+-- Object is evicted between alarm ticks, so module-level variables reset and
+-- hourly jobs re-ran every minute while rotations always restarted at org 0.
+CREATE TABLE IF NOT EXISTS job_state (
+  name TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 -- ---------------------------------------------------------------------------
 -- Identity (Phase 3).
 --
@@ -3690,6 +3699,18 @@ export const store = {
       return true;
     });
     return tx() as boolean;
+  },
+
+  getJobState(name: string): string | undefined {
+    const r = db.prepare("SELECT value FROM job_state WHERE name = ?").get(name) as Row | undefined;
+    return r ? String(r.value) : undefined;
+  },
+
+  setJobState(name: string, value: string): void {
+    db.prepare(
+      `INSERT INTO job_state (name, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    ).run(name, value, nowIso());
   },
 
   /** Release a lease early so a peer can pick the job up without waiting it out. */
