@@ -19,6 +19,8 @@ import { SegTabs } from "@/components/ui/seg-tabs";
 import { okJson } from "./api-response";
 import { deriveVaultStatus, stripChips } from "./vault-status";
 import { VaultStatusStrip } from "./vault-status-strip";
+import { VaultBankCard } from "./vault-bank-card";
+import { assetDepositAddress } from "./vault-card-format";
 import { holdingNetwork, networkLabel } from "./network-names";
 
 type Scope = "org" | "department" | "agent" | "shared";
@@ -428,9 +430,9 @@ export function TreasuryView({
     setMoveIntent("custom");
   };
 
-  const copyVault = async () => {
-    if (!vault) return;
-    await navigator.clipboard.writeText(vault);
+  const copyAddress = async (address: string | null) => {
+    if (!address) return;
+    await navigator.clipboard.writeText(address);
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   };
@@ -453,6 +455,9 @@ export function TreasuryView({
       ? (wallets?.org?.availableUsdc ?? activeHolding.balance)
       : holdingBalance(activeHolding);
   const activeBalanceNumber = Number(activeBalance);
+  /** Card number: the selected asset's deposit address (null → "No address for this asset"). */
+  const cardAddress = assetDepositAddress(activeHolding, vault);
+  useEffect(() => setCopied(false), [assetId]);
   const vaultStatus = deriveVaultStatus({
     assetId: activeHolding?.id ?? assetId,
     symbol: activeHolding?.symbol ?? "USDC",
@@ -583,6 +588,16 @@ export function TreasuryView({
               <div className="vault-total-value">{fmt(wallets?.org?.availableUsdc)}</div>
               <p className="vault-total-note">USDC available to allocate across group budgets.</p>
 
+              <VaultBankCard
+                key={activeHolding?.id ?? "asset_usdc"}
+                address={cardAddress}
+                assetSymbol={activeHolding?.symbol ?? "USDC"}
+                networkLabel={holdingNetwork(activeHolding)}
+                orgName={wallets?.org?.name}
+                copied={copied}
+                onCopy={() => void copyAddress(cardAddress)}
+              />
+
               <div className="vault-selected-asset">
                 <span
                   className={`wallet-asset-icon ${activeHolding?.symbol.toLowerCase()}`}
@@ -602,24 +617,6 @@ export function TreasuryView({
                   </b>
                 </span>
                 <span className="vault-selected-chain">{holdingNetwork(activeHolding)}</span>
-              </div>
-
-              <div className="vault-address-block">
-                <span>
-                  <small>Vault address</small>
-                  <code className="mono">
-                    {vault ? `${vault.slice(0, 12)}…${vault.slice(-8)}` : "Not configured"}
-                  </code>
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={!vault}
-                  onClick={() => void copyVault()}
-                  aria-label="Copy vault address"
-                >
-                  <Icon name="copy" size={14} /> {copied ? "Copied" : "Copy"}
-                </Button>
               </div>
             </section>
 
