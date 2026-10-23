@@ -69,7 +69,7 @@ const SECTIONS = [
     label: "Organization profile",
     icon: "shield",
     group: "Workspace",
-    description: "Identity, location, and how this workspace uses ABI.",
+    description: "Identity, location, how this workspace uses ABI, and signing in or out.",
   },
   {
     key: "golive",
@@ -169,7 +169,7 @@ export function SettingsView({
   sellerUrl,
   actorRole = "owner",
   onGoto,
-  onSignedOut,
+  onSignOut,
 }: {
   setup: Setup | null;
   recon: Recon | null;
@@ -190,8 +190,8 @@ export function SettingsView({
   sellerUrl: string;
   actorRole?: "owner" | "approver" | "viewer";
   onGoto?: (view: string) => void;
-  /** Clear the client session after the server revoked it (Account access). */
-  onSignedOut?: () => void;
+  /** Shared sign-out (lib/sign-out.ts), used by Account access in Organization profile. */
+  onSignOut: (everywhere: boolean) => void;
 }) {
   const readOnly = actorRole === "viewer";
   const [section, setSection] = useState<Section>("profile");
@@ -797,6 +797,15 @@ export function SettingsView({
               Save changes
             </Button>
           </div>
+        )}
+        {section === "profile" && (
+          <AccountAccessPanel
+            gFetch={gFetch}
+            act={act}
+            locked={busy}
+            isSessionUser={session.mode === "session"}
+            onSignOut={onSignOut}
+          />
         )}
         {section === "golive" && (
           <>
@@ -1710,13 +1719,6 @@ export function SettingsView({
                 )}
               </div>
             )}
-            <AccountAccessPanel
-              gFetch={gFetch}
-              act={act}
-              locked={busy}
-              isSessionUser={session.mode === "session"}
-              onSignedOut={onSignedOut}
-            />
             <MfaPanel
               gFetch={gFetch}
               act={act}

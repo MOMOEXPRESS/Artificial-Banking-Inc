@@ -1,6 +1,13 @@
 "use client";
 
 import { okJson, sessionRejected } from "../../lib/api-response";
+import {
+  SIGNED_OUT_PARAM,
+  performSignOut,
+  readCsrfCookie,
+  signedOutNotice,
+  signedOutUrl,
+} from "../../lib/sign-out";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ABAppIcon } from "../../lib/brand";
@@ -425,6 +432,20 @@ export default function Console() {
         /* ignore */
       }
       if (cancelled) return;
+      // A deliberate logout lands here with ?signed_out=…: say so plainly
+      // (never the "key rejected" error), then drop the flag from the URL.
+      try {
+        const url = new URL(window.location.href);
+        const notice = signedOutNotice(url.searchParams.get(SIGNED_OUT_PARAM));
+        if (url.searchParams.has(SIGNED_OUT_PARAM)) {
+          url.searchParams.delete(SIGNED_OUT_PARAM);
+          window.history.replaceState(null, "", url.toString());
+        }
+        // Deferred a tick so the toaster (mounted by the layout) is listening.
+        if (notice) window.setTimeout(() => toast(notice.msg, notice.kind), 50);
+      } catch {
+        /* ignore */
+      }
       const q = readConsoleQuery();
       if (q.view) setViewState(q.view);
       if (q.tab) setTabHint(q.tab);
@@ -521,9 +542,34 @@ export default function Console() {
   /** Read the CSRF cookie the API set alongside the session cookie. */
   const readCsrf = useCallback(() => {
     if (typeof document === "undefined") return "";
-    const hit = document.cookie.split(";").find((c) => c.trim().startsWith("abi_csrf="));
-    return hit ? decodeURIComponent(hit.trim().slice("abi_csrf=".length)) : "";
+    return readCsrfCookie(document.cookie);
   }, []);
+
+  /**
+   * The one logout path (lib/sign-out.ts): revoke the server session, clear
+   * stored session state (including a guardian key), then hard-navigate to
+   * sign-in so nothing from this session stays in memory.
+   */
+  const signingOut = useRef(false);
+  const signOut = useCallback(
+    async (everywhere = false) => {
+      if (signingOut.current) return;
+      signingOut.current = true;
+      const s = sessionRef.current;
+      const outcome = await performSignOut({
+        apiBase: API,
+        mode: s?.mode ?? (s?.guardianKey ? "key" : undefined),
+        everywhere,
+        csrf: readCsrf(),
+        orgId: s?.orgId,
+        local: typeof localStorage === "undefined" ? null : localStorage,
+        tab: typeof sessionStorage === "undefined" ? null : sessionStorage,
+      });
+      setSession(null);
+      window.location.replace(signedOutUrl(outcome));
+    },
+    [readCsrf],
+  );
 
   /** Authenticated fetch, before the step-up interceptor wraps it. */
   const rawFetch = useCallback(
@@ -612,8 +658,16 @@ export default function Console() {
         ].map((p) => gFetch(p)),
       );
       if (res[0].status === 401) {
+        // A deliberate logout races the pollers: their 401 is expected then,
+        // not a rejected credential, so stay quiet and let signOut finish.
+        if (signingOut.current) return;
         saveSession(null);
-        setToast("Guardian key rejected — signed out.", "err");
+        setToast(
+          sessionRef.current?.mode === "session"
+            ? "Your session ended. Sign in again."
+            : "Guardian key rejected — signed out.",
+          "err",
+        );
         return;
       }
       // Non-2xx bodies (429 rate limit, 5xx, proxy errors) become null and are
@@ -1061,22 +1115,7 @@ export default function Console() {
                   Theme: {theme.resolved === "dark" ? "Dark" : "Light"} (toggle)
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={() => {
-                    // Clearing local state is not signing out: the server session
-                    // would stay valid until it expired. Revoke it first.
-                    if (sessionRef.current?.mode === "session") {
-                      void fetch(`${API}/v1/auth/logout`, {
-                        method: "POST",
-                        credentials: "include",
-                        headers: { "x-abi-csrf": readCsrf() },
-                      }).catch(() => {});
-                    }
-                    saveSession(null);
-                  }}
-                >
-                  Sign out
-                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void signOut(false)}>Log out</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             <Popover open={notifOpen} onOpenChange={setNotifOpen}>
@@ -1164,6 +1203,17 @@ export default function Console() {
                 </ScrollArea>
               </PopoverContent>
             </Popover>
+            <button
+              type="button"
+              className="icon-btn topbar-logout"
+              aria-label="Log out"
+              title="Log out"
+              data-testid="topbar-logout"
+              onClick={() => void signOut(false)}
+            >
+              <Icon name="logout" />
+              <span className="topbar-logout-label">Log out</span>
+            </button>
           </header>
 
           <div className="scroll">
@@ -1399,7 +1449,7 @@ export default function Console() {
                     sellerUrl={SELLER}
                     actorRole={org?.actor?.role ?? "owner"}
                     onGoto={(v) => setView(v as View)}
-                    onSignedOut={() => saveSession(null)}
+                    onSignOut={(everywhere) => void signOut(everywhere)}
                   />
                 )}
               </div>

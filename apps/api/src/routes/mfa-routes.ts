@@ -231,7 +231,21 @@ export function registerMfaRoutes(app: express.Express) {
   app.post(
     "/v1/auth/password-reset/confirm",
     asyncRoute(async (req, res) => {
-      const body = z.object({ token: z.string(), newPassword: z.string() }).parse(req.body);
+      const body = z
+        .object({
+          token: z.string().max(512),
+          newPassword: z.string().max(1024),
+          /** Optional server-side check of the reset page's confirmation field. */
+          confirmPassword: z.string().max(1024).optional(),
+        })
+        .parse(req.body);
+      // Validate everything before consuming the token, so a typo does not
+      // burn the single-use link.
+      if (body.confirmPassword !== undefined && body.confirmPassword !== body.newPassword) {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: "New password and confirmation differ." },
+        });
+      }
       const problem = passwordProblem(body.newPassword);
       if (problem) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: problem } });

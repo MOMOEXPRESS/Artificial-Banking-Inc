@@ -659,3 +659,82 @@ describe("account settings: sign out and password", () => {
     );
   });
 });
+
+describe("password recovery end to end", () => {
+  it("reset link: generic answer, hashed single-use token, sessions revoked, old password dead", async () => {
+    const jar = new Jar();
+    const { email } = await signup(jar, uniqueEmail(), "Recovery Co");
+    assert.equal((await call("/v1/auth/me", { jar })).status, 200);
+
+    // Unknown and known addresses get the same production answer shape.
+    const unknown = await call("/v1/auth/password-reset/request", {
+      method: "POST",
+      body: { email: `nobody-${Date.now()}@example.com` },
+    });
+    assert.equal(unknown.status, 200);
+    const unknownBody = (await unknown.json()) as { ok: boolean; devResetToken?: string };
+    assert.equal(unknownBody.ok, true);
+    assert.equal(unknownBody.devResetToken, undefined);
+
+    const req = await call("/v1/auth/password-reset/request", { method: "POST", body: { email } });
+    assert.equal(req.status, 200);
+    const { devResetToken: token } = (await req.json()) as { devResetToken?: string };
+    assert.ok(token);
+
+    // Only a hash of the token is stored.
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(process.env.POLICYVAULT_DB!, { readonly: true });
+    const rows = db.prepare("SELECT token_hash FROM password_resets").all() as {
+      token_hash: string;
+    }[];
+    db.close();
+    assert.ok(rows.length > 0);
+    assert.ok(rows.every((r) => r.token_hash !== token && !r.token_hash.includes(token!)));
+
+    // A mismatched confirmation is refused and does not burn the link.
+    const mismatch = await call("/v1/auth/password-reset/confirm", {
+      method: "POST",
+      body: { token, newPassword: "brand-new-password-9", confirmPassword: "brand-new-password-8" },
+    });
+    assert.equal(mismatch.status, 400);
+    // Weak passwords are refused without burning it either.
+    const weak = await call("/v1/auth/password-reset/confirm", {
+      method: "POST",
+      body: { token, newPassword: "short", confirmPassword: "short" },
+    });
+    assert.equal(weak.status, 400);
+
+    const ok = await call("/v1/auth/password-reset/confirm", {
+      method: "POST",
+      body: { token, newPassword: "brand-new-password-9", confirmPassword: "brand-new-password-9" },
+    });
+    assert.equal(ok.status, 200);
+
+    // The session that existed before the reset is gone.
+    assert.equal((await call("/v1/auth/me", { jar })).status, 401);
+    // The link worked once.
+    const again = await call("/v1/auth/password-reset/confirm", {
+      method: "POST",
+      body: { token, newPassword: "another-new-password-7" },
+    });
+    assert.equal(again.status, 400);
+
+    const oldPw = await call("/v1/auth/login", {
+      method: "POST",
+      body: { email, password: PASSWORD },
+    });
+    assert.equal(oldPw.status, 401);
+    const fresh = new Jar();
+    const newPw = await call("/v1/auth/login", {
+      method: "POST",
+      jar: fresh,
+      body: { email, password: "brand-new-password-9" },
+    });
+    assert.equal(newPw.status, 200);
+    assert.equal((await call("/v1/auth/me", { jar: fresh })).status, 200);
+
+    // Log out ends that session too.
+    assert.equal((await call("/v1/auth/logout", { method: "POST", jar: fresh })).status, 200);
+    assert.equal((await call("/v1/auth/me", { jar: fresh })).status, 401);
+  });
+});
