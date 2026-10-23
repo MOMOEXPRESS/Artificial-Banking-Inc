@@ -237,6 +237,47 @@ export async function resolveAndPinOutboundUrl(
 }
 
 /**
+ * Never-follow-redirects rule for every outbound fetch.
+ *
+ * `redirect: "error"` is what we want, but Cloudflare Workers rejects it with a
+ * TypeError ("won't be implemented … use manual"). So we always fetch with
+ * `redirect: "manual"` and refuse any 3xx (or an opaque redirect, status 0)
+ * ourselves. Same rule on Node and Workers; the Location is never requested.
+ */
+export class RedirectRefusedError extends Error {
+  readonly status: number;
+  constructor(label: string, status: number) {
+    super(`${label} answered with a redirect (HTTP ${status}); redirects are never followed.`);
+    this.name = "RedirectRefusedError";
+    this.status = status;
+  }
+}
+
+/** Minimal response shape (Node and Workers typings disagree on `type`). */
+type StatusLike = { status: number; type?: string };
+
+export function isRedirectResponse(res: StatusLike): boolean {
+  return String(res.type) === "opaqueredirect" || (res.status >= 300 && res.status < 400);
+}
+
+/** Throw {@link RedirectRefusedError} when `res` is a redirect; otherwise return it. */
+export function refuseRedirect<T extends StatusLike>(res: T, label = "Outbound URL"): T {
+  if (isRedirectResponse(res)) throw new RedirectRefusedError(label, res.status);
+  return res;
+}
+
+/** `fetch` that never follows a redirect (works on Node and Cloudflare Workers). */
+export async function fetchNoRedirect(
+  input: string | URL,
+  init: RequestInit = {},
+  label = "Outbound URL",
+  fetchImpl: typeof fetch = fetch,
+): Promise<Response> {
+  const res = await fetchImpl(input, { ...init, redirect: "manual" });
+  return refuseRedirect(res, label);
+}
+
+/**
  * Fetch an outbound URL after resolve-and-pin.
  *
  * - Always refuses blocked literals / DoH answers (SSRF).
@@ -256,7 +297,7 @@ export async function fetchPinnedOutbound(
   }
 
   if (!pinned.pinnedIp || process.env.ABI_RUNTIME === "cloudflare-workers") {
-    return fetch(pinned.url, { ...init, redirect: "error" });
+    return fetchNoRedirect(pinned.url, init);
   }
 
   // Node: connect to the pinned IP, preserve Host + TLS SNI for the hostname.
