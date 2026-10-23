@@ -11,6 +11,7 @@
 import { createHmac } from "node:crypto";
 import { store } from "./store.js";
 import { webhookUrlProblem } from "./outbound-url.js";
+import { unrefTimer } from "./platform/timers.js";
 
 export type WebhookEvent =
   | "payment.succeeded"
@@ -97,9 +98,10 @@ async function attemptDelivery(args: {
         return;
       }
       const delay = RETRY_DELAYS_MS[args.attempt - 1] ?? 10_000;
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         void attemptDelivery({ ...args, attempt: args.attempt + 1 });
-      }, delay).unref();
+      }, delay);
+      unrefTimer(timer);
     }
   }
 }

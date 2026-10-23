@@ -9,5 +9,11 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },
-  "include": ["src/**/*", "test/**/*", "vitest.config.ts", "worker-configuration.d.ts"]
+  "include": [
+    "src/**/*",
+    "test/**/*.node.test.ts",
+    "vitest.config.ts",
+    "worker-configuration.d.ts"
+  ],
+  "exclude": ["test/spike.test.ts", "test/api.integration.test.ts", "node_modules", ".wrangler"]
 }

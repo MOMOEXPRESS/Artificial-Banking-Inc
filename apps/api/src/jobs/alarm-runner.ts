@@ -23,9 +23,7 @@ const WEBHOOK_RETRY_JOB: JobDefinition = {
   },
 };
 
-export async function runAlarmJobs(
-  jobs: JobDefinition[] = [...JOBS, WEBHOOK_RETRY_JOB],
-): Promise<{
+export async function runAlarmJobs(jobs: JobDefinition[] = [...JOBS, WEBHOOK_RETRY_JOB]): Promise<{
   ran: string[];
   skipped: string[];
 }> {

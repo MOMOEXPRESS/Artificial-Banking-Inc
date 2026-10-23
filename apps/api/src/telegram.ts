@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import type express from "express";
 import { resolveApproval } from "./engine.js";
 import { registerNotifier } from "./platform/notifier.js";
+import { unrefTimer } from "./platform/timers.js";
 import { scopedStore, store, type ApprovalRow } from "./store.js";
 
 function botToken(): string {
@@ -266,9 +267,10 @@ export function startTelegramPolling(): void {
   if (polling) return;
   polling = true;
   console.log("Telegram approvals enabled — polling for guardian button presses.");
-  setInterval(() => {
+  const timer = setInterval(() => {
     pollOnce().catch((e) => console.error("telegram poll failed:", e));
-  }, 4_000).unref();
+  }, 4_000);
+  unrefTimer(timer);
 }
 
 /**
@@ -289,7 +291,9 @@ export function registerTelegramWebhookRoute(app: express.Express): void {
     const a = Buffer.from(presented);
     const b = Buffer.from(expected);
     if (a.length !== b.length || !timingSafeEqual(a, b)) {
-      return res.status(401).json({ error: { code: "UNAUTHORIZED", message: "Bad webhook secret" } });
+      return res
+        .status(401)
+        .json({ error: { code: "UNAUTHORIZED", message: "Bad webhook secret" } });
     }
     try {
       await handleTelegramUpdate(req.body as TgUpdate);

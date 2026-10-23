@@ -19,4 +19,15 @@ interface Env {
   TELEGRAM_WEBHOOK_SECRET?: string;
   CHAIN_RPC_URL?: string;
   ABI_ALLOW_UNVERIFIED_SIGNUP?: string;
+  ABI_SPIKE_ROUTES?: string;
+}
+
+declare module "cloudflare:node" {
+  export function handleAsNodeRequest(
+    port: number | { port: number },
+    request: Request,
+  ): Promise<Response>;
+  export function httpServerHandler(server: unknown): {
+    fetch(request: Request, env?: unknown, ctx?: unknown): Promise<Response>;
+  };
 }

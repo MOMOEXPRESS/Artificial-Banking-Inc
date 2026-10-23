@@ -411,8 +411,24 @@ function openStoreDatabase(): Database.Database {
 
 let dbInstance: Database.Database | null = null;
 let prepareHookInstalled = false;
+/** Last injected handle — Workers rebind per DO invocation via globalThis. */
+let lastInjected: Database.Database | null = null;
 
 function ensureDb(): Database.Database {
+  // Prefer live Durable Object injection on every access so alarms/fetch always
+  // use the current actor's SqlStorage (cross-DO I/O is forbidden).
+  const injected = (globalThis as { __ABI_STORE_DB__?: Database.Database }).__ABI_STORE_DB__;
+  if (injected) {
+    if (injected !== lastInjected) {
+      lastInjected = injected;
+      dbInstance = injected;
+      if (!prepareHookInstalled) {
+        installPrepareRevisionHook(injected);
+        prepareHookInstalled = true;
+      }
+    }
+    return injected;
+  }
   if (!dbInstance) {
     dbInstance = openStoreDatabase();
   }

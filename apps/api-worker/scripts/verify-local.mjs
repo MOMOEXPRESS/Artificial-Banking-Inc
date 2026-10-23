@@ -141,7 +141,11 @@ async function main() {
 
     // Assertions
     if (health.status !== 200 || healthBody.ok !== true) results.ok = false;
-    if (scrypt.status !== 200 || !scryptBody.exceedsPlainWorkerLimit || !scryptBody.fitsDurableObjectLimit) {
+    if (
+      scrypt.status !== 200 ||
+      !scryptBody.exceedsPlainWorkerLimit ||
+      !scryptBody.fitsDurableObjectLimit
+    ) {
       results.ok = false;
     }
     if (tgBad.status !== 401 || tgGood.status !== 200) results.ok = false;
@@ -149,7 +153,9 @@ async function main() {
 
     writeFileSync(join(artifactDir, "workers-verify.json"), JSON.stringify(results, null, 2));
     writeFileSync(join(artifactDir, "spike-results.json"), JSON.stringify(scryptBody, null, 2));
-    console.log(JSON.stringify({ type: "abi.verify.summary", ok: results.ok, scrypt: scryptBody }, null, 2));
+    console.log(
+      JSON.stringify({ type: "abi.verify.summary", ok: results.ok, scrypt: scryptBody }, null, 2),
+    );
     if (!results.ok) process.exitCode = 1;
   } catch (error) {
     results.ok = false;
@@ -158,9 +164,21 @@ async function main() {
     console.error(results.error);
     process.exitCode = 1;
   } finally {
-    child.kill("SIGTERM");
-    await sleep(500);
-    if (child.exitCode == null) child.kill("SIGKILL");
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      /* ignore */
+    }
+    await sleep(300);
+    if (child.exitCode == null) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* ignore */
+      }
+    }
+    // workerd children can outlive wrangler briefly in local mode
+    await sleep(200);
   }
 }
 

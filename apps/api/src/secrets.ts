@@ -28,9 +28,7 @@ export function demoDerivedSecret(purpose: "key-pepper" | "key-encryption"): str
   }
   const signupToken = process.env.ABI_SIGNUP_TOKEN?.trim();
   if (!signupToken) return undefined;
-  return createHmac("sha256", signupToken)
-    .update(`abi-free-demo:${purpose}:v1`)
-    .digest("base64");
+  return createHmac("sha256", signupToken).update(`abi-free-demo:${purpose}:v1`).digest("base64");
 }
 
 /**
@@ -42,7 +40,8 @@ export function demoDerivedSecret(purpose: "key-pepper" | "key-encryption"): str
  * up protecting real credentials.
  */
 export function keyPepper(): string {
-  const configured = process.env.ABI_KEY_PEPPER?.trim() || process.env.POLICYVAULT_KEY_PEPPER?.trim();
+  const configured =
+    process.env.ABI_KEY_PEPPER?.trim() || process.env.POLICYVAULT_KEY_PEPPER?.trim();
   if (configured) return configured;
   const demoFallback = demoDerivedSecret("key-pepper");
   if (demoFallback) return demoFallback;

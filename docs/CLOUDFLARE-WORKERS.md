@@ -20,27 +20,31 @@ Render (`apps/api` + `render.yaml`) stays unchanged for production until cutover
 
 ## Package layout
 
-| Path | Role |
-| --- | --- |
-| `apps/api-worker/` | Wrangler project, DO class, SQL shim, vitest pool tests |
-| `apps/api/src/worker-app.ts` | Express export + alarm runner entry |
-| `apps/api/src/storage` seams | Lazy/`injectStoreDatabase` in `store.ts` |
-| `apps/api/src/dns-resolve.ts` | DoH resolver (Workers-safe) |
-| `docs/CLOUDFLARE-WORKERS.md` | This file |
+| Path                          | Role                                                    |
+| ----------------------------- | ------------------------------------------------------- |
+| `apps/api-worker/`            | Wrangler project, DO class, SQL shim, vitest pool tests |
+| `apps/api/src/worker-app.ts`  | Express export + alarm runner entry                     |
+| `apps/api/src/storage` seams  | Lazy/`injectStoreDatabase` in `store.ts`                |
+| `apps/api/src/dns-resolve.ts` | DoH resolver (Workers-safe)                             |
+| `docs/CLOUDFLARE-WORKERS.md`  | This file                                               |
 
 ## Free-plan notes
 
-| Quota | Limit | ABI note |
-| --- | --- | --- |
-| Worker / DO requests | 100k/day | Console polling ~48 req/min ≈ 69k/day per open tab |
-| DO CPU / request | **30 s** (documented) | scrypt ~40–50 ms — must run **inside the DO**, not a plain Worker (10 ms) |
-| DO duration | 13k GB-s/day | Prefer alarms + hibernation; avoid 10s timers |
-| DO rows written | 100k/day | Alarm path drops job-lease writes |
-| Subrequests | 50/request | Watch x402 receipt polling + multi-org sweeps |
-| DO storage | 5 GB / account (Free) | Ample for early usage |
+| Quota                | Limit                 | ABI note                                                                  |
+| -------------------- | --------------------- | ------------------------------------------------------------------------- |
+| Worker / DO requests | 100k/day              | Console polling ~48 req/min ≈ 69k/day per open tab                        |
+| DO CPU / request     | **30 s** (documented) | scrypt ~40–50 ms — must run **inside the DO**, not a plain Worker (10 ms) |
+| DO duration          | 13k GB-s/day          | Prefer alarms + hibernation; avoid 10s timers                             |
+| DO rows written      | 100k/day              | Alarm path drops job-lease writes                                         |
+| Subrequests          | 50/request            | Watch x402 receipt polling + multi-org sweeps                             |
+| DO storage           | 5 GB / account (Free) | Ample for early usage                                                     |
 
-**Spike truth:** local `wrangler dev` / vitest-pool **does not enforce** free-plan CPU.
-Confirm scrypt-inside-DO on a real free-account deploy before cutover.
+**Spike (local workerd, 2026-10-23):** scrypt hash+verify avg **52.3 ms** (samples 56 / 50 / 51).
+Exceeds plain Worker Free **10 ms**; fits DO **30 s**. Local workerd **does not enforce**
+free-plan CPU — confirm on a real free-account deploy before cutover.
+
+Workers Vitest pool deferred: monorepo `zod@3` override breaks `@cloudflare/vitest-plugin`
+(zod@4). Use `npm run verify:local` / `npm run spike` in `apps/api-worker` instead.
 
 ## Secrets and vars
 
@@ -56,18 +60,18 @@ Confirm scrypt-inside-DO on a real free-account deploy before cutover.
 
 ### Secrets (`wrangler secret put`)
 
-| Secret | Required | Notes |
-| --- | --- | --- |
-| `BREVO_API_KEY` | Yes for real signup email | Primary; fetch HTTP API (#63). Free plan: one verified sender |
-| `RESEND_API_KEY` | Optional | Fallback fetch API |
-| `ABI_KEK` | **Yes on Workers** | No disk `abi-demo-secrets.json` |
-| `ABI_KEY_PEPPER` | **Yes on Workers** | Same |
-| `ABI_SIGNUP_TOKEN` | Yes | Must match Vercel |
-| `TELEGRAM_BOT_TOKEN` | Optional | Approvals |
-| `TELEGRAM_CHAT_ID` | Optional | |
-| `TELEGRAM_ALLOWED_USER_IDS` | Optional | |
-| `TELEGRAM_WEBHOOK_SECRET` | Yes if Telegram on | `setWebhook` secret_token |
-| `CHAIN_RPC_URL` | If keyed | |
+| Secret                      | Required                  | Notes                                                         |
+| --------------------------- | ------------------------- | ------------------------------------------------------------- |
+| `BREVO_API_KEY`             | Yes for real signup email | Primary; fetch HTTP API (#63). Free plan: one verified sender |
+| `RESEND_API_KEY`            | Optional                  | Fallback fetch API                                            |
+| `ABI_KEK`                   | **Yes on Workers**        | No disk `abi-demo-secrets.json`                               |
+| `ABI_KEY_PEPPER`            | **Yes on Workers**        | Same                                                          |
+| `ABI_SIGNUP_TOKEN`          | Yes                       | Must match Vercel                                             |
+| `TELEGRAM_BOT_TOKEN`        | Optional                  | Approvals                                                     |
+| `TELEGRAM_CHAT_ID`          | Optional                  |                                                               |
+| `TELEGRAM_ALLOWED_USER_IDS` | Optional                  |                                                               |
+| `TELEGRAM_WEBHOOK_SECRET`   | Yes if Telegram on        | `setWebhook` secret_token                                     |
+| `CHAIN_RPC_URL`             | If keyed                  |                                                               |
 
 **Do not** rely on `SMTP_*` / nodemailer in the Worker. #63 keeps SMTP as a Node-only fallback; the Worker clears SMTP env vars.
 
@@ -111,10 +115,10 @@ Prefer **Brevo free HTTP** (`BREVO_API_KEY`) with one verified sender address (n
 
 ## Expected overlaps with open PRs
 
-| PR | Overlap |
-| --- | --- |
+| PR      | Overlap                                                                                                                                                                                                                                                                                                                                |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **#61** | `outbound-url.ts` (replace `dns.lookup` with DoH seam — already here); `telegram.ts` (`resolveTelegramVoter` + polling rewrite — reuse webhook handler); `store.ts` migrations/methods vs lazy Proxy adapter; `secrets.ts` disk `abi-demo-secrets.json` (Workers require explicit secrets); `webhooks.ts` durable retry job → DO alarm |
-| **#63** | `platform/email.ts` Brevo HTTP primary; `BREVO_API_KEY`, `ABI_ALLOW_UNVERIFIED_SIGNUP`; auth-routes signup guard; docs/`render.yaml` |
-| **#62** | `config.ts` env loader; `index.ts` entry; logger/`process.exit`; may touch boot path the Worker imports |
+| **#63** | `platform/email.ts` Brevo HTTP primary; `BREVO_API_KEY`, `ABI_ALLOW_UNVERIFIED_SIGNUP`; auth-routes signup guard; docs/`render.yaml`                                                                                                                                                                                                   |
+| **#62** | `config.ts` env loader; `index.ts` entry; logger/`process.exit`; may touch boot path the Worker imports                                                                                                                                                                                                                                |
 
 Design goal: additive `apps/api-worker` + small seams so rebase onto #61 is mechanical.

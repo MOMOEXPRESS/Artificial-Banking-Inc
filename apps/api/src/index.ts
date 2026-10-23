@@ -79,6 +79,7 @@ import { registerPlatformRoutes } from "./routes/platform-routes.js";
 import { registerPolicyRoutes } from "./routes/policy-routes.js";
 import { registerTreasuryRoutes } from "./routes/treasury-routes.js";
 import { registerRemoteMcp } from "./remote-mcp.js";
+import { unrefTimer } from "./platform/timers.js";
 
 const app = express();
 /**
@@ -400,14 +401,18 @@ app.use((req, res, next) => {
   }
   next();
 });
-setInterval(() => {
-  const cutoff = Date.now() - 60_000;
-  for (const [key, hits] of rateWindows) {
-    const alive = hits.filter((t) => t > cutoff);
-    if (alive.length === 0) rateWindows.delete(key);
-    else rateWindows.set(key, alive);
-  }
-}, 30_000).unref();
+// Rate-limit map cleanup. Skipped on Workers — DO lifetime is request/alarm scoped.
+if (process.env.ABI_RUNTIME !== "cloudflare-workers") {
+  const rateCleanup = setInterval(() => {
+    const cutoff = Date.now() - 60_000;
+    for (const [key, hits] of rateWindows) {
+      const alive = hits.filter((t) => t > cutoff);
+      if (alive.length === 0) rateWindows.delete(key);
+      else rateWindows.set(key, alive);
+    }
+  }, 30_000);
+  unrefTimer(rateCleanup);
+}
 
 function bearer(req: express.Request): string | null {
   const header = req.header("authorization");

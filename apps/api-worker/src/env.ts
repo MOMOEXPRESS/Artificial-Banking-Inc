@@ -36,8 +36,9 @@ const STRING_KEYS = [
 ] as const;
 
 export function applyWorkerEnv(env: Env): void {
+  const bag = env as unknown as Record<string, unknown>;
   for (const key of STRING_KEYS) {
-    const value = (env as Record<string, unknown>)[key];
+    const value = bag[key];
     if (typeof value === "string" && value.length > 0) {
       process.env[key] = value;
     }

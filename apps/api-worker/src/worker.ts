@@ -11,77 +11,87 @@ import { applyWorkerEnv } from "./env.js";
 import { withClientIpHeaders } from "./client-ip.js";
 import { createDoDatabase } from "./storage/do-sql.js";
 
-const INTERNAL_PORT = 8787;
 const ALARM_MS = 60_000;
 const SINGLETON_NAME = "abi-api";
+
+let sharedServer: Server | null = null;
+let sharedPort: number | null = null;
 
 type ExpressApp = {
   handle: (req: unknown, res: unknown) => void;
   use: (...args: unknown[]) => unknown;
 };
 
-export class AbiApi extends DurableObject<Env> {
-  #ready: Promise<void> | null = null;
-  #server: Server | null = null;
+function bindStore(ctx: DurableObjectState): void {
+  const database = createDoDatabase(ctx.storage.sql, (fn) => {
+    ctx.storage.transactionSync(fn);
+  });
+  globalThis.__ABI_STORE_DB__ = database;
+}
 
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-    this.#ready = ctx.blockConcurrencyWhile(() => this.#boot());
-  }
+async function ensureExpressServer(app: ExpressApp): Promise<number> {
+  if (sharedPort != null && sharedServer) return sharedPort;
 
-  async #boot(): Promise<void> {
-    applyWorkerEnv(this.env);
-
-    const database = createDoDatabase(this.ctx.storage.sql, (fn) => {
-      this.ctx.storage.transactionSync(fn);
-    });
-    globalThis.__ABI_STORE_DB__ = database;
-
-    // Dynamic import after DB injection so store.ts migrations use DO SQL.
-    const api = await import("@policyvault/api/worker-app");
-    const app = api.app as unknown as ExpressApp;
-
-    // Prefer CF-Connecting-IP / x-forwarded-for for rate limits (req.ip).
-    app.use((req: { headers: Record<string, string | string[] | undefined>; ip?: string }, _res, next) => {
+  app.use(
+    (
+      req: { headers: Record<string, string | string[] | undefined>; ip?: string },
+      _res: unknown,
+      next: () => void,
+    ) => {
       const cf = header(req.headers, "cf-connecting-ip");
       const xff = header(req.headers, "x-forwarded-for")?.split(",")[0]?.trim();
       const ip = cf || xff;
       if (ip) req.ip = ip;
       next();
+    },
+  );
+
+  sharedServer = createServer(app as unknown as Parameters<typeof createServer>[0]);
+  sharedPort = await new Promise<number>((resolve, reject) => {
+    sharedServer!.once("error", reject);
+    sharedServer!.listen(0, () => {
+      const addr = sharedServer!.address();
+      if (addr && typeof addr === "object") resolve(addr.port);
+      else reject(new Error("Express server failed to bind a port"));
     });
+  });
 
-    if (!this.#server) {
-      this.#server = createServer(app as unknown as Parameters<typeof createServer>[0]);
-      await new Promise<void>((resolve) => {
-        this.#server!.listen(INTERNAL_PORT, () => resolve());
-      });
-    }
+  const { setMcpInternalFetch } = await import("@policyvault/api/mcp-internal");
+  const port = sharedPort;
+  setMcpInternalFetch((request) => handleAsNodeRequest(port, request));
+  return port;
+}
 
-    // MCP tools must not HTTP-loopback to 127.0.0.1 on Workers — bridge instead.
-    const { setMcpInternalFetch } = await import("@policyvault/api/mcp-internal");
-    setMcpInternalFetch((request) => handleAsNodeRequest(INTERNAL_PORT, request));
+export class AbiApi extends DurableObject<Env> {
+  #port: Promise<number>;
 
-    if (process.env.ABI_SPIKE_ROUTES === "1") {
-      const { registerSpikeRoutes } = await import("./spike-routes.js");
-      registerSpikeRoutes(app as unknown as import("express").Express);
-    }
-
-    // Keep a light alarm so jobs run without setInterval.
-    const existing = await this.ctx.storage.getAlarm();
-    if (existing === null) {
-      await this.ctx.storage.setAlarm(Date.now() + ALARM_MS);
-    }
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.#port = ctx.blockConcurrencyWhile(async () => {
+      applyWorkerEnv(env);
+      bindStore(ctx);
+      // Import after DB bind so schema migrations use DO SQL.
+      const api = await import("@policyvault/api/worker-app");
+      const port = await ensureExpressServer(api.app as unknown as ExpressApp);
+      const existing = await ctx.storage.getAlarm();
+      if (existing === null) {
+        await ctx.storage.setAlarm(Date.now() + ALARM_MS);
+      }
+      return port;
+    });
   }
 
   async fetch(request: Request): Promise<Response> {
-    await this.#ready;
-    const forwarded = withClientIpHeaders(request);
-    return handleAsNodeRequest(INTERNAL_PORT, forwarded);
+    applyWorkerEnv(this.env);
+    bindStore(this.ctx);
+    const port = await this.#port;
+    return handleAsNodeRequest(port, withClientIpHeaders(request));
   }
 
   async alarm(): Promise<void> {
-    await this.#ready;
     applyWorkerEnv(this.env);
+    bindStore(this.ctx);
+    await this.#port;
     try {
       const { runAlarmJobs } = await import("@policyvault/api/worker-app");
       await runAlarmJobs();

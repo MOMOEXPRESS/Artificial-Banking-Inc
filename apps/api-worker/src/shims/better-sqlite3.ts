@@ -8,9 +8,7 @@
 import type { DatabaseLike } from "../storage/do-sql.js";
 
 declare global {
-  // eslint-disable-next-line no-var
   var __ABI_STORE_DB__: DatabaseLike | undefined;
-  // eslint-disable-next-line no-var
   var __ABI_STORE_DB_FACTORY__: (() => DatabaseLike) | undefined;
 }
 

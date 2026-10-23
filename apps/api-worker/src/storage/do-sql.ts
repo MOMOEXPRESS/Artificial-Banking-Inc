@@ -12,7 +12,7 @@ export type SqlStorageLike = {
 export type SqlCursorLike = {
   toArray(): Record<string, unknown>[];
   one(): Record<string, unknown>;
-  raw(): { toArray(): unknown[][] };
+  raw(): IterableIterator<unknown[]> | { toArray(): unknown[][] };
   rowsRead: number;
   rowsWritten: number;
   [Symbol.iterator](): Iterator<Record<string, unknown>>;
@@ -75,8 +75,7 @@ export function createDoDatabase(
         let lastInsertRowid: number | bigint = 0;
         try {
           const idRow = sql.exec("SELECT last_insert_rowid() AS id").toArray()[0] as
-            | { id?: number | bigint }
-            | undefined;
+            { id?: number | bigint } | undefined;
           if (idRow?.id != null) lastInsertRowid = idRow.id;
         } catch {
           /* ignore */
