@@ -21,7 +21,8 @@
  * auditable by intent id, exactly like an agent decision.
  */
 import { formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/common";
-import { id, recordDecision } from "./engine.js";
+import type { LimitsView } from "./decision-receipts.js";
+import { frozenLimits, id, recordDecision } from "./engine.js";
 import { store, type OrgRow } from "./store.js";
 
 /** Defaults when an org has not configured its own treasury withdrawal caps. */
@@ -88,13 +89,9 @@ export type TreasuryGuardDenial = {
   code: "FROZEN" | "POLICY_DENIED";
   ruleIds: string[];
   reasons: string[];
-  /** Structured numbers for cap denials (micro-USDC as decimal USDC strings). */
-  limits?: {
-    amountUsdc: string;
-    capUsdc: string;
-    usedUsdc?: string;
-    remainingUsdc: string;
-  };
+  /** Structured numbers for cap and freeze denials (decimal USDC strings). */
+  limits?: LimitsView;
+  receipt: unknown;
 };
 
 export type TreasuryGuardAllow = {
@@ -139,9 +136,15 @@ export function guardTreasuryWithdraw(input: {
     ruleId: string,
     reason: string,
     code: TreasuryGuardDenial["code"] = "POLICY_DENIED",
-    numbers?: TreasuryGuardDenial["limits"],
+    numbers?: Parameters<typeof recordDecision>[0]["limits"],
   ): TreasuryGuardDenial => {
-    recordDecision({ ...base, outcome: "deny", ruleIds: [ruleId], reasons: [reason] });
+    const recorded = recordDecision({
+      ...base,
+      outcome: "deny",
+      ruleIds: [ruleId],
+      reasons: [reason],
+      limits: numbers,
+    });
     return {
       ok: false,
       intentId,
@@ -149,12 +152,18 @@ export function guardTreasuryWithdraw(input: {
       code,
       ruleIds: [ruleId],
       reasons: [reason],
-      ...(numbers && { limits: numbers }),
+      ...(recorded.limits && { limits: recorded.limits }),
+      receipt: recorded.receipt,
     };
   };
 
   if (org.status === "frozen") {
-    return deny("org_frozen", "Organization is frozen — unfreeze it before withdrawing", "FROZEN");
+    return deny(
+      "org_frozen",
+      "Organization is frozen — unfreeze it before withdrawing",
+      "FROZEN",
+      isUsdc ? frozenLimits("org_frozen", input.amountMicro) : undefined,
+    );
   }
 
   if (destination) {
@@ -181,9 +190,12 @@ export function guardTreasuryWithdraw(input: {
         `Exceeds the per-withdrawal cap of ${formatMicroToUsdc(limits.maxMicro)} USDC`,
         "POLICY_DENIED",
         {
-          amountUsdc: formatMicroToUsdc(input.amountMicro),
-          capUsdc: formatMicroToUsdc(limits.maxMicro),
-          remainingUsdc: formatMicroToUsdc(limits.maxMicro),
+          ruleId: "treasury_withdraw_max",
+          unit: "usdc",
+          attempted: input.amountMicro,
+          cap: limits.maxMicro,
+          remaining: limits.maxMicro,
+          window: "per_withdrawal",
         },
       );
     }
@@ -195,10 +207,13 @@ export function guardTreasuryWithdraw(input: {
         `Exceeds the 24h treasury withdrawal cap of ${formatMicroToUsdc(limits.dailyMaxMicro)} USDC`,
         "POLICY_DENIED",
         {
-          amountUsdc: formatMicroToUsdc(input.amountMicro),
-          capUsdc: formatMicroToUsdc(limits.dailyMaxMicro),
-          usedUsdc: formatMicroToUsdc(used),
-          remainingUsdc: formatMicroToUsdc(remaining),
+          ruleId: "treasury_withdraw_daily_max",
+          unit: "usdc",
+          attempted: input.amountMicro,
+          cap: limits.dailyMaxMicro,
+          used,
+          remaining,
+          window: "24h",
         },
       );
     }

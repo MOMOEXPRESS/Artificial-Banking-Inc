@@ -41,6 +41,7 @@ function withdrawDenialBody(d: TreasuryGuardDenial) {
     ruleIds: d.ruleIds,
     reasons: d.reasons,
     ...(d.limits && { limits: d.limits }),
+    receipt: d.receipt,
     error: { code: d.code, message: d.reasons[0] },
   };
 }

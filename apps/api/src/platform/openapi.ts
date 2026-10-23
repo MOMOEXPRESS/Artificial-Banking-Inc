@@ -49,11 +49,21 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
       },
       "/v1/agent/simulate": { post: stub(["agent"], "Dry-run policy evaluation", "agentBearer") },
       "/v1/agent/pay": {
-        post: stub(["agent"], "Pay an address / vendor under policy", "agentBearer", {
-          "200": { description: "Settled" },
-          "202": { description: "Needs approval" },
-          "403": { description: "Denied" },
-        }),
+        post: stub(
+          ["agent"],
+          "Pay an address / vendor under policy. Optional `supersedes` = intentId of an earlier " +
+            "denied intent by the same agent (400 otherwise).",
+          "agentBearer",
+          {
+            "200": { description: "Settled — body.receipt is the signed decision receipt" },
+            "202": { description: "Needs approval — body.receipt signs the review decision" },
+            "400": { description: "Validation error (incl. invalid supersedes)" },
+            "403": {
+              description:
+                "Denied — ruleIds, reasons, limits {ruleId, unit, attempted, cap, used?, remaining, window?}, receipt",
+            },
+          },
+        ),
       },
       "/v1/agent/pay_api": {
         post: stub(["agent"], "Pay an HTTP / x402 resource under policy", "agentBearer", {
@@ -69,7 +79,31 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
       "/v1/agent/escrow/{id}/refund": {
         post: stub(["agent"], "Refund escrow to payer", "agentBearer"),
       },
-      "/v1/agent/approvals/{id}": { get: stub(["agent"], "Poll parked approval", "agentBearer") },
+      "/v1/agent/approvals/{id}": {
+        get: stub(
+          ["agent"],
+          "Poll parked approval (result carries ruleIds, limits and receipt on refusal)",
+          "agentBearer",
+        ),
+      },
+      "/v1/agent/decision-receipts/verify": {
+        post: stub(
+          ["agent"],
+          "Verify a signed decision receipt {receipt} → {valid, reason?}",
+          "agentBearer",
+        ),
+      },
+      "/v1/guardian/decision-receipts/verify": {
+        post: stub(
+          ["guardian"],
+          "Verify a signed decision receipt for this org {receipt} → {valid, reason?}",
+          "guardianBearer",
+          {
+            "200": { description: "Verification result" },
+            "404": { description: "Receipt belongs to another org" },
+          },
+        ),
+      },
 
       "/v1/guardian/org": {
         get: stub(["guardian"], "Org, agents, balances, settings", "guardianBearer"),
@@ -353,7 +387,7 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
             "400": { description: "Validation error or insufficient balance" },
             "403": {
               description:
-                "Refused by guardian treasury policy — ruleIds, reasons, limits {amountUsdc, capUsdc, usedUsdc, remainingUsdc}",
+                "Refused by guardian treasury policy — ruleIds, reasons, limits {ruleId, unit, attempted, cap, used?, remaining, window?}, receipt",
             },
           },
         ),

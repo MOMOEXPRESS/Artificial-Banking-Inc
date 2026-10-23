@@ -219,11 +219,43 @@ export type AutomationAction =
   | { kind: "deny" }
   | { kind: "freeze_agent" };
 
+/**
+ * The numbers behind a cap denial, so an agent can show its human *why*:
+ * what it tried, the ceiling that bound, what was already used and what is
+ * left. `unit` is "usdc" (micro-USDC) for amount caps and "count" for
+ * velocity caps (payments in the window).
+ */
+export interface DenialLimits {
+  ruleId: string;
+  unit: "usdc" | "count";
+  attempted: bigint;
+  cap: bigint;
+  used?: bigint;
+  remaining: bigint;
+  /** Window the cap applies to, e.g. "per_payment", "24h", "60s". */
+  window?: string;
+}
+
 export interface PolicyDecision {
   outcome: DecisionOutcome;
   ruleIds: string[];
   reasons: string[];
   policyVersion?: string;
+  /** Present on cap denials. */
+  limits?: DenialLimits;
+}
+
+function capLimits(
+  ruleId: string,
+  attempted: bigint,
+  cap: bigint,
+  used: bigint | undefined,
+  window: string,
+  unit: "usdc" | "count" = "usdc",
+): DenialLimits {
+  const consumed = used ?? 0n;
+  const remaining = cap > consumed ? cap - consumed : 0n;
+  return { ruleId, unit, attempted, cap, ...(used !== undefined && { used }), remaining, window };
 }
 
 function norm(s: string): string {
@@ -346,6 +378,13 @@ export function evaluatePolicy(
       ruleIds: ["per_tx_max"],
       reasons: [`Exceeds per-tx max`],
       policyVersion,
+      limits: capLimits(
+        "per_tx_max",
+        intent.amountMicro,
+        rules.perTxMaxMicro,
+        undefined,
+        "per_payment",
+      ),
     };
   }
 
@@ -355,6 +394,13 @@ export function evaluatePolicy(
       ruleIds: ["daily_max"],
       reasons: [`Exceeds daily max`],
       policyVersion,
+      limits: capLimits(
+        "daily_max",
+        intent.amountMicro,
+        rules.dailyMaxMicro,
+        rules.spentLast24hMicro,
+        "24h",
+      ),
     };
   }
 
@@ -370,6 +416,13 @@ export function evaluatePolicy(
       ruleIds: ["org_daily_max"],
       reasons: ["Exceeds the organization's daily spending cap"],
       policyVersion,
+      limits: capLimits(
+        "org_daily_max",
+        intent.amountMicro,
+        rules.orgDailyMaxMicro,
+        rules.orgSpentLast24hMicro ?? 0n,
+        "24h",
+      ),
     };
   }
 
@@ -381,6 +434,13 @@ export function evaluatePolicy(
         ruleIds: ["merchant_daily_max"],
         reasons: [`Exceeds the organization's rolling 24h cap for ${intent.destination}`],
         policyVersion,
+        limits: capLimits(
+          "merchant_daily_max",
+          intent.amountMicro,
+          cap,
+          rules.merchantSpentLast24hMicro ?? 0n,
+          "24h",
+        ),
       };
     }
   }
@@ -416,6 +476,13 @@ export function evaluatePolicy(
         ruleIds: ["budget_window_exhausted"],
         reasons: [`${name} has no remaining balance for this payment`],
         policyVersion,
+        limits: capLimits(
+          "budget_window_exhausted",
+          intent.amountMicro,
+          totalMaxMicro,
+          rules.windowSpentMicro ?? 0n,
+          "budget_window",
+        ),
       };
     }
   }
@@ -439,6 +506,13 @@ export function evaluatePolicy(
         ruleIds: ["category_per_tx_max"],
         reasons: [`Exceeds the per-payment max for ${category}`],
         policyVersion,
+        limits: capLimits(
+          "category_per_tx_max",
+          intent.amountMicro,
+          categoryCap.perTxMaxMicro,
+          undefined,
+          "per_payment",
+        ),
       };
     }
     if (
@@ -450,6 +524,13 @@ export function evaluatePolicy(
         ruleIds: ["category_daily_max"],
         reasons: [`Exceeds the daily cap for ${category}`],
         policyVersion,
+        limits: capLimits(
+          "category_daily_max",
+          intent.amountMicro,
+          categoryCap.dailyMaxMicro,
+          rules.categorySpentLast24hMicro ?? 0n,
+          "24h",
+        ),
       };
     }
   }
@@ -460,6 +541,14 @@ export function evaluatePolicy(
       ruleIds: ["velocity"],
       reasons: [`Too many payments per minute`],
       policyVersion,
+      limits: capLimits(
+        "velocity",
+        1n,
+        BigInt(rules.maxPaysPerMinute),
+        BigInt(rules.paysLastMinute),
+        "60s",
+        "count",
+      ),
     };
   }
 

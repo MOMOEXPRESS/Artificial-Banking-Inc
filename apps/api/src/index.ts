@@ -8,6 +8,12 @@ import {
 } from "@policyvault/custody";
 import { recogniseRevenue } from "@policyvault/ledger";
 import { evaluatePolicy, matchedAutomationRules } from "@policyvault/policy";
+import {
+  canonicalJson,
+  limitsView,
+  sha256Hex,
+  verifyDecisionReceipt,
+} from "./decision-receipts.js";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
@@ -712,10 +718,31 @@ function escrowView(e: EscrowRow) {
 }
 
 /** Policy-gated agent intent entrypoint. */
+/**
+ * Validate a re-proposal's `supersedes` link: the referenced intent must
+ * belong to the same org and agent, and its latest decision must be a deny.
+ * Lets an auditor tell a fair retry from an attempt to dodge a cap.
+ */
+function supersedesProblem(orgId: string, agentId: string, supersedes: string): string | null {
+  const prior = store.getDecision(orgId, supersedes);
+  if (!prior || prior.agentId !== agentId)
+    return "supersedes must reference one of your own intents";
+  if (prior.outcome !== "deny") return "supersedes must reference an intent that was refused";
+  return null;
+}
+
 async function handleIntent(
   res: express.Response,
-  input: Omit<ExecInput, "intentId"> & { idempotencyKey: string },
+  input: Omit<ExecInput, "intentId"> & { idempotencyKey: string; supersedes?: string },
 ) {
+  if (input.supersedes) {
+    const problem = supersedesProblem(input.orgId, input.agentId, input.supersedes);
+    if (problem) {
+      return res.status(400).json({
+        error: { code: "VALIDATION_ERROR", message: problem, field: "supersedes" },
+      });
+    }
+  }
   const idemKey = scopedIdempotencyKey(input.agentId, input.idempotencyKey);
   // Claim the key first. Anything already recorded — settled, denied, parked
   // or in flight — replays instead of executing a second time.
@@ -755,7 +782,7 @@ async function handleIntent(
     store.getPolicyVersion(input.orgId),
   );
   const intentId = id("int");
-  recordDecision({
+  const recorded = recordDecision({
     intentId,
     orgId: input.orgId,
     agentId: input.agentId,
@@ -765,6 +792,21 @@ async function handleIntent(
     tool: input.tool,
     amountUsdc: input.amountUsdc,
     destination: input.destination,
+    limits: decision.limits,
+    supersedes: input.supersedes,
+    policyVersion: decision.policyVersion,
+    requestHash: sha256Hex(
+      canonicalJson({
+        agentId: input.agentId,
+        tool: input.tool,
+        amountUsdc: input.amountUsdc,
+        destination: input.destination,
+        idempotencyKey: input.idempotencyKey,
+        jobId: input.jobId ?? null,
+        memo: input.memo ?? null,
+        payeeAgentId: input.payeeAgentId ?? null,
+      }),
+    ),
   });
 
   // Automation side-effects (notify / freeze) — money outcome already decided.
@@ -788,6 +830,9 @@ async function handleIntent(
       outcome: "deny" as const,
       error: { code: "POLICY_DENIED" as const, message: decision.reasons.join("; ") },
       ruleIds: decision.ruleIds,
+      ...(recorded.limits && { limits: recorded.limits }),
+      ...(input.supersedes && { supersedes: input.supersedes }),
+      receipt: recorded.receipt,
     };
     store.setIdempotent(input.orgId, idemKey, { ...payload, httpStatus: 403 });
     emitEvent(input.orgId, "policy.denied", {
@@ -798,6 +843,7 @@ async function handleIntent(
       destination: input.destination,
       ruleIds: decision.ruleIds,
       reasons: decision.reasons,
+      ...(recorded.limits && { limits: recorded.limits }),
     });
     void notify({
       kind: "policy.denied",
@@ -847,6 +893,7 @@ async function handleIntent(
       error: { code: "NEEDS_APPROVAL" as const, message: decision.reasons.join("; ") },
       ruleIds: decision.ruleIds,
       hint: "Poll GET /v1/agent/approvals/:id until approved/denied/expired.",
+      receipt: recorded.receipt,
       httpStatus: 202,
     };
     store.setIdempotent(input.orgId, idemKey, reviewPayload);
@@ -862,13 +909,16 @@ async function handleIntent(
       error: { code: "NEEDS_APPROVAL" as const, message: decision.reasons.join("; ") },
       ruleIds: decision.ruleIds,
       hint: "Poll GET /v1/agent/approvals/:id until approved/denied/expired.",
+      receipt: recorded.receipt,
     });
   }
 
-  const result = await executeIntent({ ...input, intentId });
+  const { supersedes: _supersedes, ...execInput } = input;
+  const result = await executeIntent({ ...execInput, intentId });
   if (result.ok) {
-    store.setIdempotent(input.orgId, idemKey, { ...result.payload, httpStatus: 200 });
-    return res.json(result.payload);
+    const payload = { ...result.payload, receipt: recorded.receipt };
+    store.setIdempotent(input.orgId, idemKey, { ...payload, httpStatus: 200 });
+    return res.json(payload);
   }
   // A rail failure is transient — free the key so the caller may genuinely retry.
   store.releaseIdempotent(input.orgId, idemKey);
@@ -2380,12 +2430,41 @@ app.get("/v1/agent/decisions/:intentId", (req, res) => {
   res.json({ decision });
 });
 
+/** Check a decision receipt's signature (agent side). */
+app.post("/v1/agent/decision-receipts/verify", (req, res) => {
+  const auth = authAgent(req);
+  if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  const receipt = (req.body as { receipt?: unknown } | undefined)?.receipt;
+  const result = verifyDecisionReceipt(receipt);
+  const body = (receipt as { body?: { orgId?: string } } | undefined)?.body;
+  if (result.valid && body?.orgId !== auth.orgId) {
+    return res.status(404).json({ error: { code: "NOT_FOUND" } });
+  }
+  res.json(result);
+});
+
+/** Check a decision receipt's signature (guardian side). */
+app.post(
+  "/v1/guardian/decision-receipts/verify",
+  guardianRoute((org, req, res) => {
+    const receipt = (req.body as { receipt?: unknown } | undefined)?.receipt;
+    const result = verifyDecisionReceipt(receipt);
+    const body = (receipt as { body?: { orgId?: string } } | undefined)?.body;
+    if (result.valid && body?.orgId !== org.id) {
+      return res.status(404).json({ error: { code: "NOT_FOUND" } });
+    }
+    res.json(result);
+  }),
+);
+
 const payBody = z.object({
   amountUsdc: z.string(),
   destination: z.string(),
   idempotencyKey: z.string().min(8),
   jobId: z.string().optional(),
   memo: z.string().optional(),
+  /** Intent id of an earlier refused intent this payment re-proposes. */
+  supersedes: z.string().min(1).max(64).optional(),
 });
 
 async function handlePay(req: express.Request, res: express.Response, tool: "pay" | "pay_api") {
@@ -2406,6 +2485,7 @@ async function handlePay(req: express.Request, res: express.Response, tool: "pay
     jobId: parsed.jobId,
     memo: parsed.memo,
     idempotencyKey: parsed.idempotencyKey,
+    supersedes: parsed.supersedes,
   });
 }
 
@@ -2443,7 +2523,7 @@ app.post("/v1/agent/simulate", (req, res) => {
     },
     rulesFor(auth.agentId, auth.orgId, body.destination),
   );
-  res.json(decision);
+  res.json({ ...decision, limits: limitsView(decision.limits) });
 });
 
 app.get("/v1/agent/approvals/:id", (req, res) => {
@@ -2480,6 +2560,7 @@ app.post(
           .positive()
           .max(7 * 24 * 60)
           .optional(),
+        supersedes: z.string().min(1).max(64).optional(),
       })
       .parse(req.body);
     const payee = scopedStore(auth.orgId).getAgent(body.payeeAgentId);
@@ -2505,6 +2586,7 @@ app.post(
       idempotencyKey: body.idempotencyKey,
       payeeAgentId: body.payeeAgentId,
       timeoutMinutes: body.timeoutMinutes,
+      supersedes: body.supersedes,
     });
   }),
 );

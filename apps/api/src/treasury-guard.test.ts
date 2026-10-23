@@ -81,7 +81,8 @@ type WithdrawBody = {
   intentId?: string;
   outcome?: string;
   ruleIds?: string[];
-  limits?: { amountUsdc: string; capUsdc: string; usedUsdc?: string; remainingUsdc: string };
+  limits?: { ruleId: string; attempted: string; cap: string; used?: string; remaining: string };
+  receipt?: { alg?: string; signature?: string };
   error?: { code?: string; message?: string };
 };
 
@@ -112,6 +113,8 @@ describe("guardian treasury withdraw guard", () => {
     assert.equal(r.status, 403);
     assert.equal(r.body.error?.code, "FROZEN");
     assert.deepEqual(r.body.ruleIds, ["org_frozen"]);
+    assert.equal(r.body.limits?.remaining, "0");
+    assert.equal(r.body.receipt?.alg, "HMAC-SHA256");
     assert.equal(orgAvailable(org.id), before, "frozen withdrawal must not touch the books");
     const decision = store.getDecision(org.id, r.body.intentId!);
     assert.equal(decision?.outcome, "deny");
@@ -158,8 +161,8 @@ describe("guardian treasury withdraw guard", () => {
     const over = await withdraw(org.guardianKey, { amountUsdc: "10.01", destination: DEST });
     assert.equal(over.status, 403);
     assert.deepEqual(over.body.ruleIds, ["treasury_withdraw_max"]);
-    assert.equal(over.body.limits?.capUsdc, "10");
-    assert.equal(over.body.limits?.amountUsdc, "10.01");
+    assert.equal(over.body.limits?.cap, "10");
+    assert.equal(over.body.limits?.attempted, "10.01");
     const ok = await withdraw(org.guardianKey, { amountUsdc: "10", destination: DEST });
     assert.equal(ok.status, 200);
     assert.equal(orgAvailable(org.id), 90_000_000n);
@@ -177,8 +180,8 @@ describe("guardian treasury withdraw guard", () => {
     const over = await withdraw(org.guardianKey, { amountUsdc: "6" });
     assert.equal(over.status, 403);
     assert.deepEqual(over.body.ruleIds, ["treasury_withdraw_daily_max"]);
-    assert.equal(over.body.limits?.usedUsdc, "10");
-    assert.equal(over.body.limits?.remainingUsdc, "5");
+    assert.equal(over.body.limits?.used, "10");
+    assert.equal(over.body.limits?.remaining, "5");
     assert.equal((await withdraw(org.guardianKey, { amountUsdc: "5" })).status, 200);
     assert.equal(orgAvailable(org.id), 85_000_000n);
   });
@@ -188,7 +191,7 @@ describe("guardian treasury withdraw guard", () => {
     const r = await withdraw(org.guardianKey, { amountUsdc: "1000.01" });
     assert.equal(r.status, 403);
     assert.deepEqual(r.body.ruleIds, ["treasury_withdraw_max"]);
-    assert.equal(r.body.limits?.capUsdc, "1000");
+    assert.equal(r.body.limits?.cap, "1000");
   });
 
   it("rejects non-positive or inverted cap configuration", async () => {
