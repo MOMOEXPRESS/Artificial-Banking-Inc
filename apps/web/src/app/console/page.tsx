@@ -16,7 +16,7 @@ import { InsightsView } from "../../lib/analytics";
 import { ChatView } from "../../lib/chat-view";
 import { PolicyView, type Policy } from "../../lib/policy-view";
 import { SettingsView } from "../../lib/settings-view";
-import { MISSIONS } from "../../lib/mission";
+import { loadTabAgentKeys, mergeAgentKeys, saveTabAgentKeys } from "../../lib/agent-keys-tab";
 import { PageTour } from "../../lib/page-tour";
 import { hasBudgetOpsSetup } from "../../lib/overview-setup";
 import { WorkView, type Invoice, type InvoiceStats, type Run, type Summary } from "../../lib/views";
@@ -74,7 +74,7 @@ import {
   type Webhook,
   type Alert as ConsoleAlert,
 } from "../../lib/console-types";
-import type { MissionState } from "../../lib/playground-view";
+import { emptyMissionState, type MissionState } from "../../lib/playground-view";
 import { Login } from "../../lib/login-view";
 import { Overview } from "../../lib/overview-view";
 import { Playground } from "../../lib/playground-view";
@@ -313,6 +313,14 @@ function viewLabelOf(view: View): string {
 
 /* ===================================================================== page */
 
+function tabStorage(): Storage | null {
+  try {
+    return typeof sessionStorage === "undefined" ? null : sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
 export default function Console() {
   const [session, setSession] = useState<Session | null>(null);
   const [prefs, setPrefs] = useState<Prefs>({ autoJump: true });
@@ -372,13 +380,7 @@ export default function Console() {
 
   // Mission state lives in the shell so a run survives navigating between
   // views — the agent keeps working while you go approve something.
-  const [mission, setMission] = useState<MissionState>({
-    missionId: MISSIONS[0].id,
-    steps: [],
-    log: [],
-    running: false,
-    actorId: "",
-  });
+  const [mission, setMission] = useState<MissionState>(emptyMissionState);
 
   const sessionRef = useRef<Session | null>(null);
   sessionRef.current = session;
@@ -420,10 +422,13 @@ export default function Console() {
                 user: { id: string; email: string; name: string };
                 orgs: { id: string }[];
               };
+              const orgId = safe.orgId ?? body.orgs[0]?.id;
               setSession({
                 ...safe,
                 user: body.user,
-                orgId: safe.orgId ?? body.orgs[0]?.id,
+                orgId,
+                // Agent keys never touch localStorage; this tab may still hold them.
+                agentKeys: loadTabAgentKeys(tabStorage(), orgId),
               });
             } else if (me && sessionRejected(me.status)) {
               // Only an explicit 401 means the cookie session is gone.
@@ -431,7 +436,7 @@ export default function Console() {
             } else {
               // 429 / 5xx / offline: keep the stored session. The fast poller
               // signs out on a real 401 once the API answers again.
-              setSession(safe);
+              setSession({ ...safe, agentKeys: loadTabAgentKeys(tabStorage(), safe.orgId) });
             }
           } else if (parsed.mode === "key" && parsed.guardianKey) {
             setSession(parsed);
@@ -521,6 +526,9 @@ export default function Console() {
 
   /** Sign in / sign out. Resets view state — use updateSession for edits. */
   const saveSession = useCallback((s: Session | null) => {
+    if (s) {
+      s = { ...s, agentKeys: mergeAgentKeys(s.agentKeys, loadTabAgentKeys(tabStorage(), s.orgId)) };
+    }
     setSession(s);
     setLoading(true);
     // Only forget seen approvals when the identity actually changes — otherwise
@@ -544,6 +552,7 @@ export default function Console() {
     setSession((prev) => {
       if (!prev) return prev;
       const next = { ...prev, ...patch };
+      if (patch.agentKeys) saveTabAgentKeys(tabStorage(), next.orgId, next.agentKeys);
       const persistent = sessionForPersistentStorage(next);
       if (persistent) localStorage.setItem("pv_session", JSON.stringify(persistent));
       else localStorage.removeItem("pv_session");
@@ -1443,6 +1452,7 @@ export default function Console() {
                     mission={mission}
                     setMission={setMission}
                     cancelRef={missionCancel}
+                    runs={runs}
                   />
                 )}
                 {view === "chat" && (

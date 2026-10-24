@@ -545,12 +545,20 @@ export type Run = {
   id: string;
   missionId: string;
   title: string;
+  agentId?: string;
   agentName?: string;
   status: string;
   startedAt: string;
   finishedAt?: string;
   costUsdc: string;
-  steps: { id: string; title: string; status: string; summary?: string; output?: string }[];
+  steps: {
+    id: string;
+    title: string;
+    detail?: string;
+    status: string;
+    summary?: string;
+    output?: string;
+  }[];
   deliverableMd?: string;
   invoice?: {
     id: string;

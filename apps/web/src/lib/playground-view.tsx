@@ -1,81 +1,115 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import { Empty, Icon, fmtUsd } from "./ui";
-import {
-  MISSIONS,
-  runMission,
-  missionsForMode,
-  RUN_MODES,
-  compileCustomMission,
-  CUSTOM_STEP_CATALOG,
-  newCustomStep,
-  type Mission,
-  type RunMode,
-  type RunStep,
-  type CustomStepDraft,
-  type CustomStepKind,
-} from "./mission";
 import type { Approval, Session, Shared } from "./console-types";
 import type { Policy } from "./policy-view";
+import type { Run } from "./views";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { explainApiResponse, relatedConsoleViews } from "./scenario-result";
-
 import { browserApiBase, sellerUrl } from "./browser-api";
+import { agentClient, guardianClient } from "./flows/client";
+import * as A from "./flows/agent";
+import * as G from "./flows/guardian";
+import {
+  CUSTOM_STEP_CATALOG,
+  compileCustomMission,
+  defaultRunSheet,
+  maxSpend,
+  newCustomStep,
+  type CustomStepDraft,
+  type CustomStepKind,
+} from "./workflow/builder";
+import {
+  RUN_REPEATS,
+  approvalIdOf,
+  cancelPersistedRun,
+  newRunId,
+  planRun,
+  runMission,
+  type ResumePoint,
+  type RunRepeat,
+} from "./workflow/engine";
+import type { Mission, RunStep, WorkflowCtx } from "./workflow/types";
+// The playground is the one place allowed to use the training layer.
+import {
+  MISSIONS,
+  OUTCOME_LABEL,
+  SCENARIO_GROUPS,
+  TRAINING_STEP_KINDS,
+  estimatedMaxUsd,
+  findMission,
+  isTrainingEnabled,
+} from "./playground/training";
 
 const API = browserApiBase();
 const SELLER = sellerUrl();
+const RUN_MISSIONS_KEY = "abi_run_missions";
 
-const SCENARIO_GROUPS: {
-  id: Mission["category"];
-  label: string;
-  description: string;
-  icon: string;
-}[] = [
-  {
-    id: "commerce",
-    label: "Buy & transact",
-    description: "x402 purchases, USDC settlement, escrow, and vendor payments.",
-    icon: "wallet",
-  },
-  {
-    id: "governance",
-    label: "Approvals & controls",
-    description: "Budgets, human review, policy simulation, and reconciliation.",
-    icon: "shield",
-  },
-  {
-    id: "security",
-    label: "Security drills",
-    description: "Adversarial requests and limits that must fail safely.",
-    icon: "alert",
-  },
-  {
-    id: "ops",
-    label: "Connected workflows",
-    description: "Webhooks, service connections, and coordinated agent work.",
-    icon: "sliders",
-  },
-];
-
-const OUTCOME_LABEL: Record<Mission["expectedOutcome"], string> = {
-  allow: "Expected: allow",
-  review: "Expected: human review",
-  deny: "Expected: deny",
-  mixed: "Expected: mixed",
-  observe: "Observe only",
-};
+export type PlaygroundSource = "scenarios" | "custom";
+export type SourceRun = { steps: RunStep[]; log: string[]; title?: string; runId?: string };
 
 export type MissionState = {
+  /** Selected guided scenario. */
   missionId: string;
-  steps: RunStep[];
-  log: string[];
-  running: boolean;
   actorId: string;
+  running: boolean;
+  /** Which tab owns the active (or last) run. */
+  runningSource: PlaygroundSource | null;
+  /** Guided and custom keep separate timelines so switching never mixes them. */
+  runs: Record<PlaygroundSource, SourceRun>;
 };
+
+export const emptyMissionState: MissionState = {
+  missionId: "brief",
+  actorId: "",
+  running: false,
+  runningSource: null,
+  runs: { scenarios: { steps: [], log: [] }, custom: { steps: [], log: [] } },
+};
+
+type Budget = { available: number; dailyRemaining: number; frozen: boolean };
+
+type CustomDraft = { title: string; brief: string; steps: CustomStepDraft[]; realSpend: boolean };
+
+/** Remember how to rebuild a run's plan so it can resume after a reload. */
+function rememberRunMission(runId: string, entry: { missionId: string; custom?: CustomDraft }) {
+  try {
+    const all = JSON.parse(sessionStorage.getItem(RUN_MISSIONS_KEY) ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    all[runId] = entry;
+    const ids = Object.keys(all);
+    for (const id of ids.slice(0, Math.max(0, ids.length - 20))) delete all[id];
+    sessionStorage.setItem(RUN_MISSIONS_KEY, JSON.stringify(all));
+  } catch {
+    /* resume is best-effort */
+  }
+}
+function recallRunMission(runId: string): { missionId: string; custom?: CustomDraft } | null {
+  try {
+    const all = JSON.parse(sessionStorage.getItem(RUN_MISSIONS_KEY) ?? "{}") as Record<
+      string,
+      { missionId: string; custom?: CustomDraft }
+    >;
+    return all[runId] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+const stamp = () => new Date().toLocaleTimeString([], { hour12: false });
 
 export function Playground({
   session,
@@ -84,6 +118,7 @@ export function Playground({
   busy,
   act,
   gFetch,
+  org,
   setView,
   setToast,
   pending,
@@ -91,6 +126,7 @@ export function Playground({
   setMission,
   cancelRef,
   readOnly,
+  runs: savedRuns = [],
 }: Shared & {
   session: Session;
   updateSession: (patch: Partial<Session>) => void;
@@ -100,10 +136,13 @@ export function Playground({
   setMission: Dispatch<SetStateAction<MissionState>>;
   /** Owned by the shell so Stop still works after navigating away and back. */
   cancelRef: MutableRefObject<boolean>;
+  runs?: Run[];
 }) {
+  const training = isTrainingEnabled(org);
+  const live = org?.ledgerMode === "live";
   const [pasteKey, setPasteKey] = useState("");
   const [shownRaw, setShownRaw] = useState<Record<string, boolean>>({});
-  const [runMode, setRunMode] = useState<RunMode>("once");
+  const [repeat, setRepeat] = useState<RunRepeat>("once");
   const [e2eWallet, setE2eWallet] = useState(() => {
     try {
       return typeof window !== "undefined" ? (sessionStorage.getItem("abi_e2e_wallet") ?? "") : "";
@@ -114,19 +153,26 @@ export function Playground({
   const [e2eAmount, setE2eAmount] = useState("0.10");
   const [catFilter, setCatFilter] = useState<"all" | Mission["category"]>("all");
   const [scenarioQuery, setScenarioQuery] = useState("");
-  const [source, setSource] = useState<"scenarios" | "custom">("scenarios");
+  const [sourcePick, setSource] = useState<PlaygroundSource>("scenarios");
+  const source: PlaygroundSource = training ? sourcePick : "custom";
   const [customTitle, setCustomTitle] = useState("Would we survive?");
   const [customBrief, setCustomBrief] = useState("");
-  const [customSteps, setCustomSteps] = useState<CustomStepDraft[]>(() => [
-    newCustomStep("budget"),
-    newCustomStep("simulate"),
-    newCustomStep("pay_api"),
-    newCustomStep("summarize"),
-  ]);
+  const [customSteps, setCustomSteps] = useState<CustomStepDraft[]>(defaultRunSheet);
+  const [realSpend, setRealSpend] = useState(false);
+  const [budget, setBudget] = useState<Budget | null>(null);
+  const [dismissedResume, setDismissedResume] = useState<string | null>(null);
   const stepsRef = useRef<HTMLDivElement | null>(null);
 
-  const { missionId, steps, log, running, actorId } = ms;
+  const { missionId, running, actorId, runningSource } = ms;
+  const view = ms.runs[source];
+  const steps = view.steps;
+  const log = view.log;
   const patch = (p: Partial<MissionState>) => setMission((m) => ({ ...m, ...p }));
+  const patchRun = useCallback(
+    (src: PlaygroundSource, fn: (r: SourceRun) => SourceRun) =>
+      setMission((m) => ({ ...m, runs: { ...m.runs, [src]: fn(m.runs[src]) } })),
+    [setMission],
+  );
 
   useEffect(() => {
     if (!stepsRef.current || steps.length === 0) return;
@@ -141,19 +187,22 @@ export function Playground({
     }
   }, [steps]);
 
-  const mission = MISSIONS.find((m) => m.id === missionId) ?? MISSIONS[0];
+  const extraKinds = training ? TRAINING_STEP_KINDS : [];
+  const stepCatalog = [...CUSTOM_STEP_CATALOG, ...extraKinds];
+  const guided = findMission(missionId) ?? MISSIONS[0];
   const customMission = useMemo(
     () =>
-      compileCustomMission({
-        title: customTitle,
-        brief: customBrief,
-        steps: customSteps,
-      }),
-    [customTitle, customBrief, customSteps],
+      compileCustomMission(
+        { title: customTitle, brief: customBrief, steps: customSteps },
+        { realSpend, extraKinds: training ? TRAINING_STEP_KINDS : [], sellerUrl: SELLER },
+      ),
+    [customTitle, customBrief, customSteps, realSpend, training],
   );
-  const activeMission = source === "custom" ? customMission : mission;
+  const activeMission = source === "custom" ? customMission : guided;
   const actor = session.agentKeys.find((k) => k.agentId === actorId) ?? session.agentKeys[0];
   const peer = session.agentKeys.find((k) => k.agentId !== actor?.agentId);
+  const guardian = useMemo(() => guardianClient(gFetch), [gFetch]);
+
   const visibleMissions = MISSIONS.filter((m) => {
     const inCategory = catFilter === "all" || m.category === catFilter;
     const query = scenarioQuery.trim().toLowerCase();
@@ -171,162 +220,446 @@ export function Playground({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.agentKeys, actorId]);
 
-  const blockedStep = steps.find((s) => s.status === "blocked");
+  /* ---- budget headroom for the acting agent ---- */
+  const refreshBudget = useCallback(async () => {
+    if (!actor) return setBudget(null);
+    try {
+      const { status, data } = await A.getBudget(agentClient(API, actor.key));
+      if (status >= 400) return;
+      setBudget({
+        available: Number(data.availableUsdc ?? 0),
+        dailyRemaining: Number(data.dailyRemainingUsdc ?? data.availableUsdc ?? 0),
+        frozen: !!data.frozen,
+      });
+    } catch {
+      /* headroom is advisory */
+    }
+  }, [actor]);
+  useEffect(() => {
+    void refreshBudget();
+  }, [refreshBudget, running]);
+
+  const estimate =
+    source === "custom" ? (realSpend ? maxSpend(customSteps) : 0) : estimatedMaxUsd(activeMission);
+  const overBudget = !!budget && estimate > 0 && estimate > budget.dailyRemaining;
+
+  /* ---- run ---- */
+  const makeCtx = (
+    src: PlaygroundSource,
+    runId: string,
+    agent: { agentId: string; name: string; key: string },
+  ): WorkflowCtx => ({
+    agent: agentClient(API, agent.key),
+    guardian,
+    agentId: agent.agentId,
+    agentName: agent.name,
+    runId,
+    payeeAgentId: session.agentKeys.find((k) => k.agentId !== agent.agentId)?.agentId,
+    sellerUrl: SELLER,
+    e2eWallet: e2eWallet.trim() || undefined,
+    e2eAmountUsdc: e2eAmount.trim() || "0.10",
+    emit: (nextSteps) => patchRun(src, (r) => ({ ...r, steps: nextSteps })),
+    log: (line) => patchRun(src, (r) => ({ ...r, log: [...r.log, `${stamp()}  ${line}`] })),
+    onBlocked: () => {
+      /* the parked-run banner + the shell's approval watcher handle this */
+    },
+    onUnblocked: (_s, outcome) =>
+      setToast(
+        outcome === "approved"
+          ? "Approved — the agent picked straight back up."
+          : `Agent was told: ${outcome}. It is replanning without that spend.`,
+        outcome === "approved" ? "ok" : "info",
+      ),
+    cancelled: () => cancelRef.current,
+  });
+
+  const disabledReason = !actor
+    ? "Add an agent key below to run."
+    : readOnly
+      ? "Viewer role is read-only."
+      : running && runningSource !== source
+        ? `Finish or stop the ${runningSource === "custom" ? (training ? "custom" : "workflow") : "guided"} run first — one run at a time.`
+        : running
+          ? null
+          : budget?.frozen
+          ? "This agent is frozen — unfreeze it under Agents."
+          : null;
 
   async function start() {
-    if (!actor) return;
+    if (!actor || running) return;
+    const src = source;
+    const queue = planRun(activeMission, repeat, findMission);
+    if (!training && queue.some((m) => m.destructive || m.editsPolicy)) {
+      setToast("Drills and policy-editing scenarios only run on sandbox orgs.", "err");
+      return;
+    }
+    if (src === "custom" && realSpend && live) {
+      const ok = window.confirm(
+        `This run moves real money from ${actor.name}'s budget (up to ${fmtUsd(String(maxSpend(customSteps)))}). Continue?`,
+      );
+      if (!ok) return;
+    }
     cancelRef.current = false;
     setShownRaw({});
-    patch({ running: true, steps: [], log: [] });
-    const queue =
-      source === "custom"
-        ? runMode === "stress"
-          ? [activeMission, activeMission, activeMission]
-          : [activeMission]
-        : missionsForMode(runMode, missionId);
+    setMission((m) => ({
+      ...m,
+      running: true,
+      runningSource: src,
+      runs: { ...m.runs, [src]: { steps: [], log: [], title: activeMission.title } },
+    }));
     try {
       for (let qi = 0; qi < queue.length; qi++) {
         if (cancelRef.current) break;
         const m = queue[qi];
-        const runId = `run_${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
-        setMission((prev) => ({
-          ...prev,
-          missionId: m.id.startsWith("custom_") ? prev.missionId : m.id,
-          log: [
-            ...prev.log,
-            `${new Date().toLocaleTimeString([], { hour12: false })}  ▶ ${m.title} (${qi + 1}/${queue.length})`,
-          ],
-        }));
-        await runMission(m, {
-          api: API,
-          agentKey: actor.key,
-          guardianKey: session.guardianKey,
-          agentId: actor.agentId,
-          agentName: actor.name,
+        const runId = newRunId();
+        rememberRunMission(
           runId,
-          payeeAgentId: peer?.agentId,
-          sellerUrl: SELLER,
-          e2eWallet: e2eWallet.trim() || undefined,
-          e2eAmountUsdc: e2eAmount.trim() || "0.10",
-          emit: (nextSteps) => setMission((prev) => ({ ...prev, steps: nextSteps })),
-          log: (line) =>
-            setMission((prev) => ({
-              ...prev,
-              log: [
-                ...prev.log,
-                `${new Date().toLocaleTimeString([], { hour12: false })}  ${line}`,
-              ],
-            })),
-          onBlocked: () => {
-            /* the shell's approval watcher raises the alert + banner */
-          },
-          onUnblocked: (_s, outcome) =>
-            setToast(
-              outcome === "approved"
-                ? "Approved — the agent picked straight back up."
-                : `Agent was told: ${outcome}. It is replanning without that spend.`,
-              outcome === "approved" ? "ok" : "info",
-            ),
-          cancelled: () => cancelRef.current,
-        });
+          src === "custom"
+            ? {
+                missionId: m.id,
+                custom: { title: customTitle, brief: customBrief, steps: customSteps, realSpend },
+              }
+            : { missionId: m.id },
+        );
+        patchRun(src, (r) => ({
+          ...r,
+          runId,
+          log: [...r.log, `${stamp()}  ▶ ${m.title} (${qi + 1}/${queue.length})`],
+        }));
+        await runMission(m, makeCtx(src, runId, actor));
       }
     } finally {
       setMission((m) => ({ ...m, running: false }));
+      void refreshBudget();
     }
   }
+
+  const stop = () => {
+    cancelRef.current = true;
+    setToast("Stopping the run…", "info");
+  };
+
+  const resolve = (approvalId: string, approve: boolean) =>
+    act("Approval", async () => {
+      const { status, data } = await G.resolveApproval(guardian, approvalId, approve, "playground");
+      if (status >= 400)
+        throw new Error(JSON.stringify((data as { error?: unknown }).error ?? data));
+      if (data.pendingQuorum) {
+        return (
+          (data.message as string | undefined) ??
+          `Vote recorded — ${data.have} of ${data.need} guardians.`
+        );
+      }
+      return approve ? "Approved — watch the agent continue." : "Denied — the agent will replan.";
+    });
 
   const addKey = () =>
     act("Add key", async () => {
       const key = pasteKey.trim();
-      const res = await fetch(`${API}/v1/agent/budget`, {
-        headers: { Authorization: `Bearer ${key}` },
-      });
-      if (!res.ok) throw new Error("That agent key was rejected by the API");
-      const d = (await res.json()) as { agentId?: string; agentName?: string };
+      const { status, data: d } = await A.getBudget(agentClient(API, key));
+      if (status >= 400) throw new Error("That agent key was rejected by the API");
       if (!d.agentId) throw new Error("API did not return agentId — redeploy API and retry");
       updateSession({
         agentKeys: [
           ...session.agentKeys.filter((k) => k.agentId !== d.agentId && k.key !== key),
           {
-            agentId: d.agentId,
-            name: d.agentName ?? "Pasted agent",
+            agentId: String(d.agentId),
+            name: String(d.agentName ?? "Pasted agent"),
             key,
           },
         ],
       });
-      patch({ actorId: d.agentId });
+      patch({ actorId: String(d.agentId) });
       setPasteKey("");
-      return `Added ${d.agentName ?? d.agentId} to the Playground.`;
+      return `Added ${d.agentName ?? d.agentId} for this tab.`;
     });
 
-  const resolveInline = (approvalId: string, approve: boolean) =>
-    act("Approval", async () => {
-      const res = await gFetch(`/v1/guardian/approvals/${approvalId}/resolve`, {
-        method: "POST",
-        body: JSON.stringify({ approve, resolvedBy: "playground" }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(d.error ?? d));
-      if (d.pendingQuorum) {
-        return d.message ?? `Vote recorded — ${d.have} of ${d.need} guardians.`;
-      }
-      return approve ? "Approved — watch the agent continue." : "Denied — the agent will replan.";
-    });
+  /* ---- parked run (live) and interrupted run (after reload) ---- */
+  const activeRun = runningSource ? ms.runs[runningSource] : null;
+  const parkedStep = running ? activeRun?.steps.find((s) => s.status === "blocked") : undefined;
+  const otherRunning = running && runningSource !== source;
 
+  const interrupted = useMemo(() => {
+    if (running) return null;
+    const cutoff = Date.now() - 24 * 3600_000;
+    for (const r of savedRuns) {
+      if (r.status !== "running" || r.id === dismissedResume) continue;
+      if (new Date(r.startedAt).getTime() < cutoff) continue;
+      const parked = r.steps.find((s) => s.status === "blocked" && approvalIdOf(s));
+      if (parked) return { run: r, step: parked, approvalId: approvalIdOf(parked)! };
+    }
+    return null;
+  }, [savedRuns, running, dismissedResume]);
+
+  async function resumeInterrupted() {
+    if (!interrupted || running) return;
+    const { run } = interrupted;
+    const agent = session.agentKeys.find((k) => k.agentId === run.agentId);
+    if (!agent) {
+      setToast(
+        "Add this run's agent key in Run controls to resume it, or approve/deny it here.",
+        "err",
+      );
+      return;
+    }
+    const remembered = recallRunMission(run.id);
+    const mission: Mission | undefined = remembered?.custom
+      ? compileCustomMission(
+          {
+            title: remembered.custom.title,
+            brief: remembered.custom.brief,
+            steps: remembered.custom.steps,
+          },
+          {
+            id: run.missionId,
+            realSpend: remembered.custom.realSpend,
+            extraKinds: training ? TRAINING_STEP_KINDS : [],
+            sellerUrl: SELLER,
+          },
+        )
+      : findMission(run.missionId);
+    if (!mission) {
+      setToast(
+        "This run's plan is not available in this tab. Approve or deny it, or cancel the run.",
+        "err",
+      );
+      return;
+    }
+    const src: PlaygroundSource = run.missionId.startsWith("custom_") ? "custom" : "scenarios";
+    const resume: ResumePoint = {
+      steps: run.steps.map((s) => ({
+        id: s.id,
+        title: s.title,
+        detail: s.detail ?? "",
+        status: s.status as RunStep["status"],
+        summary: s.summary,
+        output: s.output,
+      })),
+      startedAt: run.startedAt,
+      costUsdc: run.costUsdc,
+    };
+    setDismissedResume(run.id);
+    if (training) setSource(src);
+    cancelRef.current = false;
+    setMission((m) => ({
+      ...m,
+      running: true,
+      runningSource: src,
+      actorId: agent.agentId,
+      runs: {
+        ...m.runs,
+        [src]: {
+          steps: [],
+          log: [`${stamp()}  ↻ resumed ${run.title}`],
+          title: run.title,
+          runId: run.id,
+        },
+      },
+    }));
+    try {
+      await runMission(mission, makeCtx(src, run.id, agent), resume);
+    } finally {
+      setMission((m) => ({ ...m, running: false }));
+      void refreshBudget();
+    }
+  }
+
+  async function cancelInterrupted() {
+    if (!interrupted) return;
+    const { run } = interrupted;
+    setDismissedResume(run.id);
+    await cancelPersistedRun(
+      { guardian, runId: run.id, agentId: run.agentId, agentName: run.agentName },
+      {
+        missionId: run.missionId,
+        title: run.title,
+        startedAt: run.startedAt,
+        costUsdc: run.costUsdc,
+        steps: run.steps.map((s) => ({
+          id: s.id,
+          title: s.title,
+          detail: s.detail ?? "",
+          status: s.status as RunStep["status"],
+          summary: s.summary,
+          output: s.output,
+        })),
+      },
+    );
+    setToast("Run cancelled. Its approval stays in Approvals until someone decides.", "info");
+  }
+
+  const blockedStep = steps.find((s) => s.status === "blocked");
   const done = steps.filter((s) => s.status === "done").length;
+  const sourceLabel = (s: PlaygroundSource) =>
+    s === "custom" ? (training ? "custom" : "workflow") : "guided";
 
   return (
     <div className="console-page playground-page">
       <header className="playground-hero">
         <div>
-          <div className="playground-eyebrow">
-            <span className="playground-live-dot" /> Agent Lab · real policy engine
+          <div className="playground-eyebrow" data-testid="playground-mode">
+            <span className={`playground-live-dot ${live ? "live" : ""}`} />{" "}
+            {training
+              ? "Practice · sandbox org · real policy engine"
+              : live
+                ? "Live workflow · real money · real policy engine"
+                : "Workflow · real policy engine"}
           </div>
-          <h1>Test how an agent behaves before money is at risk.</h1>
+          <h1>
+            {training
+              ? "Test how an agent behaves before money is at risk."
+              : "Run your agents' real work, under live policy."}
+          </h1>
           <p>
-            Run guided payment, approval, and security exercises against the same APIs your agents
-            use in production. Every decision stays inspectable.
+            {training
+              ? "Guided exercises and your own run sheets call the same APIs your agents use in production. Practice tools only appear while this org is in sandbox mode."
+              : "Compose the steps an agent should take — budget, pay, x402, escrow — and run them through the production APIs. Live runs never change your policy."}
           </p>
         </div>
         <div className="playground-hero-stats" aria-label="Playground summary">
           <div>
-            <b>{MISSIONS.length}</b>
-            <span>guided scenarios</span>
+            <b>{training ? MISSIONS.length : stepCatalog.length}</b>
+            <span>{training ? "guided scenarios" : "workflow actions"}</span>
           </div>
           <div>
-            <b>4</b>
-            <span>test families</span>
+            <b>{budget ? fmtUsd(String(budget.dailyRemaining)) : "—"}</b>
+            <span>{actor ? `${actor.name} can spend today` : "no acting agent"}</span>
           </div>
           <div>
-            <b>Live</b>
-            <span>policy decisions</span>
+            <b>{live ? "Live" : "Sandbox"}</b>
+            <span>ledger mode</span>
           </div>
         </div>
       </header>
 
+      {parkedStep?.approvalId && (
+        <div className="banner warn lab-run-banner" role="status" data-testid="parked-banner">
+          <span className="ico">
+            <Icon name="clock" size={16} />
+          </span>
+          <span className="txt">
+            <b>
+              {runningSource === source ? "This" : `Your ${sourceLabel(runningSource!)}`} run is
+              waiting for your approval
+            </b>
+            <span>
+              {parkedStep.title}. The agent cannot spend until you decide — or stop the run and the
+              approval stays in Approvals.
+            </span>
+          </span>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={busy || readOnly}
+            onClick={() => void resolve(parkedStep.approvalId!, true)}
+          >
+            Approve
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={busy || readOnly}
+            onClick={() => void resolve(parkedStep.approvalId!, false)}
+          >
+            Deny
+          </Button>
+          <Button size="sm" variant="ghost" onClick={stop}>
+            Stop run
+          </Button>
+        </div>
+      )}
+
+      {otherRunning && !parkedStep && (
+        <div className="banner info lab-run-banner" role="status" data-testid="other-run-banner">
+          <span className="ico">
+            <Icon name="play" size={16} />
+          </span>
+          <span className="txt">
+            <b>A {sourceLabel(runningSource!)} run is in progress</b>
+            <span>You can pick what to run next; Run unlocks when it finishes.</span>
+          </span>
+          {training && (
+            <Button size="sm" variant="secondary" onClick={() => setSource(runningSource!)}>
+              View it
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={stop}>
+            Stop run
+          </Button>
+        </div>
+      )}
+
+      {interrupted && (
+        <div className="banner warn lab-run-banner" role="status" data-testid="resume-banner">
+          <span className="ico">
+            <Icon name="clock" size={16} />
+          </span>
+          <span className="txt">
+            <b>A run stopped when the page reloaded: {interrupted.run.title}</b>
+            <span>
+              It is still waiting for approval on “{interrupted.step.title}”. Resume to keep
+              watching it, decide now, or cancel the run.
+            </span>
+          </span>
+          <Button size="sm" disabled={readOnly} onClick={() => void resumeInterrupted()}>
+            Resume
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={busy || readOnly}
+            onClick={() => void resolve(interrupted.approvalId, true)}
+          >
+            Approve
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={busy || readOnly}
+            onClick={() => void resolve(interrupted.approvalId, false)}
+          >
+            Deny
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={readOnly}
+            onClick={() => void cancelInterrupted()}
+          >
+            Cancel run
+          </Button>
+        </div>
+      )}
+
       <section className="lab-panel lab-library">
         <div className="lab-section-head">
           <div>
-            <span className="lab-kicker">01 · Choose the exercise</span>
-            <h2>{source === "custom" ? "Build a custom mission" : "Scenario library"}</h2>
+            <span className="lab-kicker">01 · Choose the work</span>
+            <h2>
+              {source === "custom"
+                ? training
+                  ? "Build a custom mission"
+                  : "Build the workflow"
+                : "Scenario library"}
+            </h2>
             <p>
               {source === "custom"
-                ? "Compose real API actions in the exact order you want ABI to test them."
+                ? "List the real API actions in the order the agent should take them."
                 : "Start with a safe preflight, prove a payment path, or pressure-test a control."}
             </p>
           </div>
-          <SegTabs
-            value={source}
-            onValueChange={(v) => {
-              if (!running) setSource(v as typeof source);
-            }}
-            items={
-              [
-                { value: "scenarios", label: "Guided scenarios" },
-                { value: "custom", label: "Custom mission" },
-              ] as const
-            }
-          />
+          {training && (
+            <SegTabs
+              value={source}
+              onValueChange={(v) => setSource(v as PlaygroundSource)}
+              items={
+                [
+                  { value: "scenarios", label: "Guided scenarios" },
+                  { value: "custom", label: "Custom mission" },
+                ] as const
+              }
+            />
+          )}
         </div>
 
         {source === "scenarios" ? (
@@ -334,9 +667,7 @@ export function Playground({
             <div className="lab-library-tools">
               <SegTabs
                 value={catFilter}
-                onValueChange={(v) => {
-                  if (!running) setCatFilter(v as typeof catFilter);
-                }}
+                onValueChange={(v) => setCatFilter(v as typeof catFilter)}
                 items={
                   [
                     { value: "all", label: "All" },
@@ -379,13 +710,15 @@ export function Playground({
                           key={m.id}
                           className={`scenario-card ${m.id === missionId ? "selected" : ""}`}
                           onClick={() => patch({ missionId: m.id })}
-                          disabled={running}
+                          data-mission={m.id}
                         >
                           <span className="scenario-card-top">
                             <span className={`outcome-pill ${m.expectedOutcome}`}>
                               {OUTCOME_LABEL[m.expectedOutcome]}
                             </span>
-                            <span className="scenario-difficulty">{m.difficulty}</span>
+                            <span className="scenario-difficulty">
+                              {m.chain ? "chain" : m.difficulty}
+                            </span>
                           </span>
                           <strong>{m.title}</strong>
                           <span className="scenario-brief">{m.brief}</span>
@@ -411,23 +744,48 @@ export function Playground({
           <div className="custom-mission-builder">
             <div className="custom-mission-copy">
               <label className="field">
-                <span>Mission title</span>
+                <span>{training ? "Mission title" : "Workflow name"}</span>
                 <input
                   value={customTitle}
-                  disabled={running}
+                  disabled={running && runningSource === "custom"}
                   onChange={(e) => setCustomTitle(e.target.value)}
                 />
               </label>
               <label className="field">
-                <span>What should this mission prove?</span>
+                <span>What should this run prove or do?</span>
                 <textarea
                   value={customBrief}
-                  disabled={running}
+                  disabled={running && runningSource === "custom"}
                   onChange={(e) => setCustomBrief(e.target.value)}
-                  placeholder="Describe the policy behavior or payment path you want to test."
+                  placeholder="Describe the payment path or policy behaviour."
                   rows={4}
                 />
               </label>
+              <label className="lab-real-spend" data-testid="real-spend-toggle">
+                <input
+                  type="checkbox"
+                  checked={realSpend}
+                  disabled={running || readOnly}
+                  onChange={(e) => setRealSpend(e.target.checked)}
+                />
+                <span>
+                  <b>Allow real spend</b>
+                  <small>
+                    {realSpend
+                      ? `Spend steps move money from the agent's budget (up to ${fmtUsd(String(maxSpend(customSteps)))}).`
+                      : "Off: every spend step is a dry run — the policy engine answers, no money moves."}
+                  </small>
+                </span>
+              </label>
+              {!training && (
+                <p className="lab-help">
+                  Live runs never change your policy. Destinations must already be allowed —{" "}
+                  <button type="button" className="link-btn" onClick={() => setView("policy")}>
+                    manage them in Policies
+                  </button>
+                  .
+                </p>
+              )}
             </div>
             <div className="custom-step-list">
               <div className="between">
@@ -438,32 +796,35 @@ export function Playground({
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={running}
-                  onClick={() => setCustomSteps((rows) => [...rows, newCustomStep("pay_api")])}
+                  disabled={running && runningSource === "custom"}
+                  onClick={() => setCustomSteps((rows) => [...rows, newCustomStep("simulate")])}
                 >
                   <Icon name="plus" size={12} /> Add step
                 </Button>
               </div>
               {customSteps.map((step, idx) => {
-                const meta = CUSTOM_STEP_CATALOG.find((c) => c.kind === step.kind);
+                const meta = stepCatalog.find((c) => c.kind === step.kind);
+                const locked = running && runningSource === "custom";
                 return (
                   <div className="custom-step" key={step.id}>
                     <span className="custom-step-number">{String(idx + 1).padStart(2, "0")}</span>
                     <div className="custom-step-body">
                       <select
                         value={step.kind}
-                        disabled={running}
+                        disabled={locked}
+                        aria-label={`Step ${idx + 1} action`}
                         onChange={(e) => {
                           const kind = e.target.value as CustomStepKind;
-                          const next = newCustomStep(kind);
+                          const next = newCustomStep(kind, extraKinds);
                           setCustomSteps((rows) =>
                             rows.map((r, i) => (i === idx ? { ...next, id: r.id } : r)),
                           );
                         }}
                       >
-                        {CUSTOM_STEP_CATALOG.map((c) => (
+                        {stepCatalog.map((c) => (
                           <option key={c.kind} value={c.kind}>
                             {c.label}
+                            {c.spends && !realSpend ? " (dry run)" : ""}
                           </option>
                         ))}
                       </select>
@@ -473,9 +834,10 @@ export function Playground({
                           {meta.needsAmount && (
                             <input
                               value={step.amount ?? ""}
-                              disabled={running}
+                              disabled={locked}
                               placeholder="Amount"
                               aria-label="Amount"
+                              inputMode="decimal"
                               onChange={(e) =>
                                 setCustomSteps((rows) =>
                                   rows.map((r, i) =>
@@ -488,7 +850,7 @@ export function Playground({
                           {meta.needsDestination && (
                             <input
                               value={step.destination ?? ""}
-                              disabled={running}
+                              disabled={locked}
                               placeholder="Destination"
                               aria-label="Destination"
                               onChange={(e) =>
@@ -506,7 +868,7 @@ export function Playground({
                     <Button
                       variant="ghost"
                       size="sm"
-                      disabled={running || customSteps.length <= 1}
+                      disabled={locked || customSteps.length <= 1}
                       onClick={() => setCustomSteps((rows) => rows.filter((_, i) => i !== idx))}
                     >
                       Remove
@@ -521,7 +883,7 @@ export function Playground({
 
       <section className="lab-briefing">
         <div className="lab-briefing-main">
-          <span className="lab-kicker">02 · Review the test</span>
+          <span className="lab-kicker">02 · Review and run</span>
           <div className="lab-briefing-title">
             <div>
               <span className={`outcome-pill ${activeMission.expectedOutcome}`}>
@@ -530,21 +892,60 @@ export function Playground({
               <h2>{activeMission.title}</h2>
               <p>{activeMission.brief}</p>
             </div>
-            {running ? (
-              <Button
-                variant="destructive"
-                onClick={() => {
-                  cancelRef.current = true;
-                  setToast("Mission cancelled.", "info");
-                }}
-              >
-                Stop run
-              </Button>
-            ) : (
-              <Button disabled={!actor || busy || readOnly} onClick={() => void start()}>
-                <Icon name="play" size={14} /> Run scenario
-              </Button>
-            )}
+            <div className="lab-run-control" data-testid="run-control">
+              {running && runningSource === source ? (
+                <Button variant="destructive" onClick={stop} data-testid="stop-run">
+                  Stop run
+                </Button>
+              ) : (
+                <div className="split-button">
+                  <Button
+                    disabled={!!disabledReason || busy}
+                    onClick={() => void start()}
+                    data-testid="run-button"
+                  >
+                    <Icon name="play" size={14} /> {repeat === "repeat3" ? "Run ×3" : "Run"}
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="secondary"
+                        aria-label="Run options"
+                        disabled={!!disabledReason || busy}
+                        data-testid="run-options"
+                      >
+                        ▾
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel>How many times</DropdownMenuLabel>
+                      {RUN_REPEATS.map((r) => (
+                        <DropdownMenuItem key={r.id} onSelect={() => setRepeat(r.id)}>
+                          <span className="run-opt">
+                            <b>
+                              {repeat === r.id ? "● " : "○ "}
+                              {r.label}
+                            </b>
+                            <small>{r.detail}</small>
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )}
+              {disabledReason && (!running || runningSource !== source) && (
+                <small className="run-disabled-reason" data-testid="run-disabled-reason">
+                  {disabledReason}
+                </small>
+              )}
+              {!disabledReason && !running && overBudget && (
+                <small className="run-disabled-reason warn" data-testid="over-budget">
+                  May exceed today&apos;s headroom ({fmtUsd(String(budget!.dailyRemaining))}) —
+                  later steps can be refused.
+                </small>
+              )}
+            </div>
           </div>
           <div className="lab-briefing-meta">
             <span>
@@ -559,13 +960,13 @@ export function Playground({
             </span>
             <span>
               <Icon name="wallet" size={14} />
-              <i>Estimated cost</i>
+              <i>Can spend</i>
               <b>{activeMission.estimatedCost}</b>
             </span>
             <span>
               <Icon name="layers" size={14} />
-              <i>Level</i>
-              <b>{activeMission.difficulty}</b>
+              <i>Agent headroom today</i>
+              <b data-testid="headroom">{budget ? fmtUsd(String(budget.dailyRemaining)) : "—"}</b>
             </span>
           </div>
           <div className="lab-tags">
@@ -620,10 +1021,10 @@ export function Playground({
             <div>
               <span className="lab-kicker">03 · Observe and inspect</span>
               <h2>
-                {running
+                {running && runningSource === source
                   ? "Agent is executing"
                   : steps.length
-                    ? "Latest run"
+                    ? `Latest ${sourceLabel(source)} run${view.title ? `: ${view.title}` : ""}`
                     : "Execution timeline"}
               </h2>
               <p>
@@ -632,40 +1033,12 @@ export function Playground({
                   : "Every API call, policy decision, and settlement result will appear here."}
               </p>
             </div>
-            {steps.length > 0 && !running && (
+            {steps.length > 0 && !(running && runningSource === source) && (
               <Button variant="ghost" size="sm" onClick={() => setView("work")}>
                 Open deliverable <Icon name="arrowRight" size={12} />
               </Button>
             )}
           </div>
-
-          {blockedStep?.approvalId && (
-            <div className="lab-decision-callout">
-              <span>
-                <Icon name="clock" size={17} />
-              </span>
-              <div>
-                <b>Human decision required</b>
-                <p>The agent is parked and cannot spend until you decide.</p>
-              </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={busy || readOnly}
-                onClick={() => void resolveInline(blockedStep.approvalId!, true)}
-              >
-                Approve
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={busy || readOnly}
-                onClick={() => void resolveInline(blockedStep.approvalId!, false)}
-              >
-                Deny
-              </Button>
-            </div>
-          )}
 
           <div className="lab-timeline-body">
             {steps.length === 0 ? (
@@ -675,12 +1048,11 @@ export function Playground({
                 </span>
                 <h3>Ready for a controlled run</h3>
                 <p>
-                  Select a scenario, review its expected outcome, then run it with{" "}
-                  {actor?.name ?? "an agent"}.
+                  {training
+                    ? "Pick a scenario or build a run sheet, check the expected outcome, then press Run above."
+                    : "Build the run sheet, then press Run above."}{" "}
+                  Acting agent: {actor?.name ?? "none yet"}.
                 </p>
-                <Button disabled={!actor || busy || readOnly} onClick={() => void start()}>
-                  <Icon name="play" size={13} /> Start {activeMission.title}
-                </Button>
               </div>
             ) : (
               <div className="steps" ref={stepsRef}>
@@ -774,7 +1146,7 @@ export function Playground({
               </span>
               <div>
                 <b>Run controls</b>
-                <p>Choose intensity and acting agent.</p>
+                <p>Acting agent and its limits.</p>
               </div>
             </div>
             {!SELLER && (
@@ -783,39 +1155,23 @@ export function Playground({
                   <b>x402 seller not configured</b>
                   <span>
                     Set <span className="mono">NEXT_PUBLIC_SELLER_URL</span> on the console host to
-                    a public seller endpoint. The bundled seller at localhost:9402 is only reachable
-                    during local development; x402 missions will report a clear soft-fail until
-                    then.
+                    a public seller endpoint. x402 steps report a clear soft-fail until then.
                   </span>
                 </span>
               </div>
             )}
-            <div className="run-mode-grid">
-              {RUN_MODES.filter((mode) => !(source === "custom" && mode.id === "smoke_chain")).map(
-                (mode) => (
-                  <button
-                    key={mode.id}
-                    className={runMode === mode.id ? "selected" : ""}
-                    disabled={running}
-                    onClick={() => setRunMode(mode.id)}
-                  >
-                    <span>{mode.label}</span>
-                    <small>{mode.detail}</small>
-                  </button>
-                ),
-              )}
-            </div>
-            <div className="lab-control-divider" />
             {session.agentKeys.length === 0 ? (
               <>
                 <p className="lab-help">
-                  Create an agent under API, or add an agent key for this browser session.
+                  Create an agent under API, or paste an agent key. Keys are kept for this browser
+                  tab only and cleared on sign-out.
                 </p>
                 <div className="lab-add-key">
                   <input
                     type="password"
                     placeholder="pv_agent_…"
                     value={pasteKey}
+                    aria-label="Agent key"
                     onChange={(e) => setPasteKey(e.target.value)}
                   />
                   <Button
@@ -833,7 +1189,7 @@ export function Playground({
                 <label className="field">
                   <span>Acting agent</span>
                   <select
-                    value={actorId}
+                    value={actor?.agentId ?? ""}
                     onChange={(e) => patch({ actorId: e.target.value })}
                     disabled={running}
                   >
@@ -845,6 +1201,10 @@ export function Playground({
                   </select>
                 </label>
                 <div className="policy-snapshot">
+                  <span>
+                    <i>Headroom today</i>
+                    <b>{budget ? fmtUsd(String(budget.dailyRemaining)) : "—"}</b>
+                  </span>
                   <span>
                     <i>Approval above</i>
                     <b>{fmtUsd(policy?.hitlAboveUsdc)}</b>
