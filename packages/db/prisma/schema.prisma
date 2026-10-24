@@ -582,6 +582,8 @@ model TreasuryMoves {
   createdAt String @map("created_at")
   resolvedAt String? @map("resolved_at")
   resolvedBy String? @map("resolved_by")
+  kind String?
+  destination String?
   @@index([orgId])
   @@map("treasury_moves")
 }

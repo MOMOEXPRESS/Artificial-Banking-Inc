@@ -22,6 +22,7 @@ import { VaultStatusStrip } from "./vault-status-strip";
 import { VaultBankCard } from "./vault-bank-card";
 import { assetDepositAddress } from "./vault-card-format";
 import { holdingNetwork, networkLabel } from "./network-names";
+import { AmountStepper } from "@/components/ui/amount-stepper";
 
 type Scope = "org" | "department" | "agent" | "shared";
 
@@ -52,7 +53,20 @@ type MoveRow = {
   status: string;
   votes: string[];
   createdAt: string;
+  /** "withdraw" = a guardian withdrawal parked above the approval threshold. */
+  kind?: "move" | "withdraw";
+  destination?: string;
 };
+
+/** "Org vault → Ops" for moves; "Org vault → 0x1234…abcd" for parked withdrawals. */
+function moveRoute(m: MoveRow, wallets: Parameters<typeof moveEndpointLabel>[1]): string {
+  if (m.kind === "withdraw") {
+    const d = m.destination ?? "external";
+    const short = /^0x[a-fA-F0-9]{40}$/.test(d) ? `${d.slice(0, 6)}…${d.slice(-4)}` : d;
+    return `${moveEndpointLabel(m.from, wallets)} → ${short} (withdrawal)`;
+  }
+  return `${moveEndpointLabel(m.from, wallets)} → ${moveEndpointLabel(m.to, wallets)}`;
+}
 
 type Cashflow = {
   days: number;
@@ -464,7 +478,7 @@ export function TreasuryView({
     actionInFlight: busy,
     moves: moves.map((m) => ({
       ...m,
-      route: `${moveEndpointLabel(m.from, wallets)} → ${moveEndpointLabel(m.to, wallets)}`,
+      route: moveRoute(m, wallets),
     })),
     deposits: onchain?.transfers ?? [],
     activity: vaultActivity,
@@ -848,11 +862,19 @@ export function TreasuryView({
                             Receive ({holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
                           </FormLabel>
                           <FormControl>
-                            <Input
-                              {...field}
+                            <AmountStepper
+                              value={field.value ?? ""}
+                              onChange={field.onChange}
+                              inputProps={{
+                                name: field.name,
+                                onBlur: field.onBlur,
+                                "data-shortcut-ignore": true,
+                              }}
                               disabled={readOnly}
                               placeholder="100"
-                              data-shortcut-ignore
+                              unit={holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"}
+                              dollar={false}
+                              decimals={6}
                             />
                           </FormControl>
                           <FormMessage />
@@ -884,6 +906,10 @@ export function TreasuryView({
                         if (!res.ok) throw new Error(j.error?.message ?? "Withdraw failed");
                         withdrawForm.reset({ amountUsdc: "", destination: "" });
                         await refresh();
+                        if (j.outcome === "review") {
+                          // Above the treasury approval threshold: parked, not refused.
+                          return `Waiting for guardian review — ${j.move?.amountUsdc ?? values.amountUsdc} USDC is above the ${j.thresholdUsdc ?? ""} USDC approval threshold. Approve it under Move → Activity.`;
+                        }
                         await refreshOnchain();
                         return j.simulated
                           ? `Recorded a simulated ${j.amountUsdc} ${j.symbol ?? "USDC"} outflow — nothing moved on-chain.`
@@ -900,11 +926,19 @@ export function TreasuryView({
                           Send ({holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
                         </FormLabel>
                         <FormControl>
-                          <Input
-                            {...field}
+                          <AmountStepper
+                            value={field.value ?? ""}
+                            onChange={field.onChange}
+                            inputProps={{
+                              name: field.name,
+                              onBlur: field.onBlur,
+                              "data-shortcut-ignore": true,
+                            }}
                             disabled={readOnly}
                             placeholder="10"
-                            data-shortcut-ignore
+                            unit={holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"}
+                            dollar={false}
+                            decimals={6}
                           />
                         </FormControl>
                         <FormMessage />
@@ -1171,16 +1205,17 @@ export function TreasuryView({
             </div>
 
             <div className="move-amount-block">
-              <label className="field" style={{ margin: 0 }}>
-                <span>Amount (USDC)</span>
-                <input
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="move-amount">Amount (USDC)</label>
+                <AmountStepper
+                  id="move-amount"
                   value={amount}
                   disabled={readOnly}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={setAmount}
                   placeholder="25"
-                  inputMode="decimal"
+                  step={5}
                 />
-              </label>
+              </div>
               <div className="move-amount-chips">
                 {["10", "25", "50", "100"].map((chip) => (
                   <button
@@ -1226,7 +1261,7 @@ export function TreasuryView({
                     setAmount("");
                     await refresh();
                     return j.outcome === "review"
-                      ? "Parked for multi-guardian approval"
+                      ? `Waiting for guardian review — above the ${j.thresholdUsdc ?? ""} USDC approval threshold. Approve it under Activity.`
                       : `Moved ${moved} USDC · ${f.short} → ${t.short}`;
                   })
                 }
@@ -1263,7 +1298,7 @@ export function TreasuryView({
                     <div style={{ minWidth: 0 }}>
                       <b className="mono">{fmt(m.amountUsdc)}</b>
                       <div className="faint" style={{ fontSize: 11.5 }}>
-                        {moveEndpointLabel(m.from, wallets)} → {moveEndpointLabel(m.to, wallets)}
+                        {moveRoute(m, wallets)}
                       </div>
                     </div>
                     <div className="row" style={{ gap: 8, flexShrink: 0 }}>
@@ -1274,31 +1309,36 @@ export function TreasuryView({
                       >
                         <i /> {m.status}
                       </span>
-                      {m.status === "pending" && (
-                        <Button
-                          size="sm"
-                          disabled={locked}
-                          onClick={() =>
-                            void act("Approve move", async () => {
-                              const res = await gFetch(
-                                `/v1/guardian/treasury/moves/${m.id}/resolve`,
-                                {
-                                  method: "POST",
-                                  body: JSON.stringify({ approve: true }),
-                                },
-                              );
-                              const j = await res.json();
-                              if (!res.ok) throw new Error(j.error?.message ?? "Resolve failed");
-                              await refresh();
-                              return j.awaitingVotes
-                                ? `Need ${j.awaitingVotes} more vote(s)`
-                                : "Move executed";
-                            })
-                          }
-                        >
-                          Approve
-                        </Button>
-                      )}
+                      {m.status === "pending" &&
+                        ([true, false] as const).map((approve) => (
+                          <Button
+                            key={approve ? "approve" : "deny"}
+                            size="sm"
+                            variant={approve ? undefined : "ghost"}
+                            disabled={locked}
+                            onClick={() =>
+                              void act(approve ? "Approve" : "Deny", async () => {
+                                const res = await gFetch(
+                                  `/v1/guardian/treasury/moves/${m.id}/resolve`,
+                                  {
+                                    method: "POST",
+                                    body: JSON.stringify({ approve }),
+                                  },
+                                );
+                                const j = await res.json();
+                                await refresh();
+                                if (!res.ok) throw new Error(j.error?.message ?? "Resolve failed");
+                                if (!approve) return "Denied — nothing moved.";
+                                if (j.awaitingVotes) return `Need ${j.awaitingVotes} more vote(s)`;
+                                return m.kind === "withdraw"
+                                  ? "Approved — withdrawal sent"
+                                  : "Move executed";
+                              })
+                            }
+                          >
+                            {approve ? "Approve" : "Deny"}
+                          </Button>
+                        ))}
                     </div>
                   </div>
                 ))}

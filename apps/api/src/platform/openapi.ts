@@ -384,6 +384,10 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
           "guardianBearer",
           {
             "200": { description: "Withdrawn — body carries intentId of the allow decision" },
+            "202": {
+              description:
+                "Above the treasury approval threshold (settings.treasuryHitlUsdc): parked for guardian review — outcome 'review', move {kind:'withdraw'}, awaitingVotes. Resolve via POST /v1/guardian/treasury/moves/{id}/resolve",
+            },
             "400": { description: "Validation error or insufficient balance" },
             "403": {
               description:

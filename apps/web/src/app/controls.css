@@ -1,0 +1,553 @@
+/*
+ * Policies page, amount stepper and treasury approval threshold.
+ *
+ * Kept in its own file (imported after globals.css) so the Settings-wide
+ * restyle can evolve globals.css without both edits fighting over the same
+ * lines. Everything here is scoped: .amount-stepper*, .policy-page …,
+ * .treasury-threshold-card.
+ */
+
+/* ------------------------------------------------------------ amount stepper */
+
+.amount-stepper {
+  display: inline-flex;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-solid, var(--color-surface-3));
+  transition:
+    border-color 0.13s ease,
+    box-shadow 0.13s ease;
+}
+
+.amount-stepper:hover:not(.is-disabled) {
+  border-color: var(--color-border-strong);
+}
+
+.amount-stepper:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
+.amount-stepper.is-disabled {
+  opacity: 0.6;
+}
+
+.amount-stepper.is-sm {
+  height: 32px;
+}
+
+.amount-stepper.w-compact {
+  width: 156px;
+}
+
+.amount-stepper-btn {
+  all: unset;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px;
+  color: var(--color-fg-muted);
+  background: var(--color-surface-2);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.amount-stepper.is-sm .amount-stepper-btn {
+  width: 30px;
+}
+
+.amount-stepper-btn:first-child {
+  border-right: 1px solid var(--color-border);
+  border-radius: calc(var(--radius-sm) - 1px) 0 0 calc(var(--radius-sm) - 1px);
+}
+
+.amount-stepper-btn:last-child {
+  border-left: 1px solid var(--color-border);
+  border-radius: 0 calc(var(--radius-sm) - 1px) calc(var(--radius-sm) - 1px) 0;
+}
+
+.amount-stepper-btn:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  color: var(--color-fg);
+}
+
+.amount-stepper-btn:active:not(:disabled) {
+  background: var(--color-surface-3);
+}
+
+.amount-stepper-btn:disabled {
+  cursor: default;
+  color: var(--color-fg-faint);
+  opacity: 0.55;
+}
+
+.amount-stepper-field {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 4px;
+  padding: 0 10px;
+}
+
+.amount-stepper-field input,
+.amount-stepper-field input:focus {
+  all: unset;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  font-family: var(--font-mono-stack);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg);
+  text-align: right;
+  caret-color: auto;
+}
+
+.amount-stepper.is-sm .amount-stepper-field input {
+  font-size: 12px;
+}
+
+.amount-stepper-field input::placeholder {
+  color: var(--color-fg-faint);
+  font-family: var(--font-mono-stack);
+}
+
+.amount-stepper-affix,
+.amount-stepper-unit {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-fg-faint);
+}
+
+.amount-stepper-affix {
+  font-family: var(--font-mono-stack);
+  font-size: 12.5px;
+}
+
+.amount-stepper-unit {
+  padding-left: 2px;
+}
+
+.amount-stepper-wrap {
+  display: inline-flex;
+}
+
+/* ----------------------------------------------------------- policies page */
+
+.policy-page .card {
+  padding: 22px 24px;
+}
+
+.policy-page .card-head {
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.policy-page > .policy-hero > .card-head {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.policy-page .card-head h2 {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.policy-page .card-head .sub {
+  margin-top: 4px;
+  max-width: 62ch;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--color-fg-muted);
+}
+
+.policy-page .field > label,
+.policy-page .limit-control-head > label,
+.policy-page .band-control > label,
+.policy-page .band-probe > label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-fg-secondary);
+}
+
+.policy-page .hint {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--color-fg-muted);
+}
+
+/* Limit (slider + typed value) */
+.policy-page .limit-control {
+  padding: 2px 0 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.policy-page .limit-control-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.policy-page .limit-control-head > label {
+  margin: 0;
+}
+
+.policy-page .limit-control-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.policy-page .limit-control-value input {
+  width: 76px;
+  padding: 6px 9px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  background: var(--color-surface-solid, var(--color-surface-3));
+}
+
+.policy-page .limit-control.is-invalid .hint {
+  color: var(--color-danger);
+}
+
+.policy-page .tool-chips-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-fg-secondary);
+  margin-bottom: 9px;
+}
+
+.policy-page .tool-chips .pill {
+  cursor: pointer;
+  font-family: var(--font-mono-stack);
+  font-size: 11.5px;
+}
+
+/* Judgment bands: exact values */
+.policy-page .band-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.policy-page .band-control {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-solid, var(--color-surface-2));
+}
+
+.policy-page .band-control::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--color-fg-faint);
+}
+
+.policy-page .band-control.tone-warn::before {
+  background: var(--color-caution);
+}
+
+.policy-page .band-control.tone-bad::before {
+  background: var(--color-danger);
+}
+
+.policy-page .band-control.tone-ok::before {
+  background: var(--color-accent);
+}
+
+.policy-page .band-control > label {
+  margin: 0;
+}
+
+.policy-page .band-control > p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--color-fg-muted);
+}
+
+.policy-page .band-control.is-invalid {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+}
+
+.policy-page .band-control.is-invalid .amount-stepper {
+  border-color: var(--color-danger);
+}
+
+/* Judgment bands: live preview */
+.policy-page .band-preview {
+  margin-top: 16px;
+  padding: 14px 16px 16px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border-soft);
+}
+
+.policy-page .band-preview-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 10px;
+  font-size: 11.5px;
+}
+
+.policy-page .band-preview-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+.policy-page .band-preview-bar {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-surface-hover);
+}
+
+.policy-page .band-preview-bar .seg {
+  height: 100%;
+  min-width: 0;
+  transition: width 0.18s ease;
+}
+
+.policy-page .band-preview-bar .seg + .seg {
+  border-left: 2px solid var(--color-surface-3);
+}
+
+.policy-page .band-preview-bar .seg.ok {
+  background: var(--color-accent);
+}
+
+.policy-page .band-preview-bar .seg.warn {
+  background: var(--color-caution);
+}
+
+.policy-page .band-preview-bar .seg.bad {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--color-danger),
+    var(--color-danger) 5px,
+    color-mix(in srgb, var(--color-danger) 70%, transparent) 5px,
+    color-mix(in srgb, var(--color-danger) 70%, transparent) 10px
+  );
+}
+
+.policy-page .band-preview-scale {
+  position: relative;
+  height: 18px;
+  margin-top: 5px;
+  font-family: var(--font-mono-stack);
+  font-size: 10.5px;
+  color: var(--color-fg-muted);
+}
+
+.policy-page .band-preview-scale > span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.policy-page .band-preview-scale > span:first-child {
+  left: 0;
+  transform: none;
+}
+
+.policy-page .band-preview-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+}
+
+.policy-page .band-preview-list li {
+  display: grid;
+  grid-template-columns: 8px auto 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.policy-page .band-preview-list li b {
+  font-weight: 600;
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+}
+
+.policy-page .band-preview-list li .mono {
+  justify-self: end;
+  font-size: 11.5px;
+  color: var(--color-fg);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.policy-page .band-preview-list i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-fg-faint);
+}
+
+.policy-page .band-preview-list i.ok {
+  background: var(--color-accent);
+}
+
+.policy-page .band-preview-list i.warn {
+  background: var(--color-caution);
+}
+
+.policy-page .band-preview-list i.bad {
+  background: var(--color-danger);
+}
+
+.policy-page .band-probe {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--color-border);
+  font-size: 12px;
+}
+
+.policy-page .band-probe > label {
+  margin: 0;
+}
+
+.policy-page .band-probe .amount-stepper {
+  width: 168px;
+}
+
+/* Smooth bars sit in a quiet well so the card reads as one instrument. */
+.policy-page .judgment-card .smooth-bars {
+  padding: 12px 14px 6px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-3);
+  border: 1px solid var(--color-border-soft);
+}
+
+/* The caption pill sat on top of the amount when a bar was short. */
+.policy-page .judgment-card .smooth-bars .bar-tag {
+  top: auto;
+  bottom: 30px;
+}
+
+/* Lists (allowlists / blocklist) */
+.policy-page .field .pill {
+  font-family: var(--font-mono-stack);
+  font-size: 11.5px;
+}
+
+/* --------------------------------------------- treasury approval threshold */
+
+.treasury-threshold-card .field .amount-stepper {
+  max-width: 280px;
+}
+
+.treasury-threshold-card .hint {
+  max-width: 64ch;
+  margin-top: 8px;
+}
+
+/* --------------------------------------------------------------- mobile */
+
+@media (max-width: 760px) {
+  .policy-page .card {
+    padding: 18px 16px;
+  }
+
+  .policy-page .band-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .policy-page .band-preview-list {
+    grid-template-columns: 1fr;
+  }
+
+  .policy-page .band-probe .amount-stepper {
+    width: 100%;
+  }
+
+  .amount-stepper.w-compact {
+    width: 100%;
+  }
+
+  .treasury-threshold-card .field .amount-stepper {
+    max-width: none;
+  }
+}
+
+/* ------------------------------------------- inside the restyled Settings */
+
+/*
+ * Settings (#87) styles every input in .settings-content with a border,
+ * background and min-height. The stepper's inner input is part of a
+ * composite control, so it opts out; the frame takes the Settings look.
+ */
+.settings-page .settings-content .amount-stepper {
+  height: 38px;
+  border-radius: 8px;
+  background: var(--color-surface-2);
+}
+
+.settings-page
+  .settings-content
+  .amount-stepper
+  .amount-stepper-field
+  input:not([type="checkbox"]):not([type="radio"]) {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  font-family: var(--font-mono-stack);
+  font-size: 13px;
+}
+
+.settings-page .settings-content .amount-stepper-btn:first-child {
+  border-radius: 7px 0 0 7px;
+}
+
+.settings-page .settings-content .amount-stepper-btn:last-child {
+  border-radius: 0 7px 7px 0;
+}
