@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { applyJudgmentBandDrag, judgmentScaleMax, MAX_BAND } from "./judgment-bands.js";
+import {
+  bandOutcomeFor,
+  bandPreviewSegments,
+  applyJudgmentBandDrag,
+  judgmentScaleMax,
+  MAX_BAND,
+} from "./judgment-bands.js";
 
 describe("applyJudgmentBandDrag", () => {
   it("raises per-payment when ask-me-above crosses the ceiling, without exploding daily", () => {
@@ -72,5 +78,30 @@ describe("applyJudgmentBandDrag", () => {
     assert.ok(s < 500);
     const huge = judgmentScaleMax({ hitl: 50_000, cap: 80_000, daily: 100_000 });
     assert.ok(huge <= 25_000);
+  });
+});
+
+describe("band preview", () => {
+  const bands = { hitl: 10, cap: 25, daily: 100 };
+
+  it("classifies an amount the way the engine does (strictly above each line)", () => {
+    assert.equal(bandOutcomeFor(0, bands), "instant");
+    assert.equal(bandOutcomeFor(10, bands), "instant", "at 'ask me above' still settles");
+    assert.equal(bandOutcomeFor(10.01, bands), "review");
+    assert.equal(
+      bandOutcomeFor(25, bands),
+      "review",
+      "at the ceiling still allowed, with approval",
+    );
+    assert.equal(bandOutcomeFor(25.01, bands), "refused");
+  });
+
+  it("sizes the preview bar in proportion, with a visible refused tail", () => {
+    const s = bandPreviewSegments(bands);
+    assert.ok(Math.abs(s.instant + s.review + s.refused - 100) < 0.2);
+    assert.ok(s.instant > 0 && s.review > s.instant && s.refused > 0);
+    const zero = bandPreviewSegments({ hitl: 0, cap: 0.5, daily: 1 });
+    assert.equal(zero.instant, 0);
+    assert.ok(zero.review > 0);
   });
 });

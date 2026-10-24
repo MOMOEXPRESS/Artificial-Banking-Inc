@@ -16,7 +16,7 @@ import { InsightsView } from "../../lib/analytics";
 import { ChatView } from "../../lib/chat-view";
 import { PolicyView, type Policy } from "../../lib/policy-view";
 import { SettingsView } from "../../lib/settings-view";
-import { MISSIONS } from "../../lib/mission";
+import { loadTabAgentKeys, mergeAgentKeys, saveTabAgentKeys } from "../../lib/agent-keys-tab";
 import { PageTour } from "../../lib/page-tour";
 import { hasBudgetOpsSetup } from "../../lib/overview-setup";
 import { WorkView, type Invoice, type InvoiceStats, type Run, type Summary } from "../../lib/views";
@@ -47,6 +47,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ConsoleSkeleton } from "@/components/ui/skeleton";
+import { LoadError } from "../../lib/load-error";
+import { PolicyLoader } from "../../lib/policy-loader";
+import {
+  describeFailure,
+  describeThrown,
+  fetchWithTimeout,
+  logLoadFailure,
+  shouldShowLoadError,
+  type LoadFailure,
+} from "../../lib/load-state";
 import {
   sessionForPersistentStorage,
   type Approval,
@@ -64,7 +74,7 @@ import {
   type Webhook,
   type Alert as ConsoleAlert,
 } from "../../lib/console-types";
-import type { MissionState } from "../../lib/playground-view";
+import { emptyMissionState, type MissionState } from "../../lib/playground-view";
 import { Login } from "../../lib/login-view";
 import { Overview } from "../../lib/overview-view";
 import { Playground } from "../../lib/playground-view";
@@ -303,6 +313,14 @@ function viewLabelOf(view: View): string {
 
 /* ===================================================================== page */
 
+function tabStorage(): Storage | null {
+  try {
+    return typeof sessionStorage === "undefined" ? null : sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
 export default function Console() {
   const [session, setSession] = useState<Session | null>(null);
   const [prefs, setPrefs] = useState<Prefs>({ autoJump: true });
@@ -328,6 +346,13 @@ export default function Console() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invStats, setInvStats] = useState<InvoiceStats | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
+  /** Why the shell is still on its skeleton, if `/org` keeps failing. */
+  const [orgLoad, setOrgLoad] = useState<{
+    failures: number;
+    startedAt: number;
+    last: LoadFailure[];
+  }>(() => ({ failures: 0, startedAt: Date.now(), last: [] }));
+  const [orgRetrying, setOrgRetrying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(true);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -355,13 +380,7 @@ export default function Console() {
 
   // Mission state lives in the shell so a run survives navigating between
   // views — the agent keeps working while you go approve something.
-  const [mission, setMission] = useState<MissionState>({
-    missionId: MISSIONS[0].id,
-    steps: [],
-    log: [],
-    running: false,
-    actorId: "",
-  });
+  const [mission, setMission] = useState<MissionState>(emptyMissionState);
 
   const sessionRef = useRef<Session | null>(null);
   sessionRef.current = session;
@@ -403,10 +422,13 @@ export default function Console() {
                 user: { id: string; email: string; name: string };
                 orgs: { id: string }[];
               };
+              const orgId = safe.orgId ?? body.orgs[0]?.id;
               setSession({
                 ...safe,
                 user: body.user,
-                orgId: safe.orgId ?? body.orgs[0]?.id,
+                orgId,
+                // Agent keys never touch localStorage; this tab may still hold them.
+                agentKeys: loadTabAgentKeys(tabStorage(), orgId),
               });
             } else if (me && sessionRejected(me.status)) {
               // Only an explicit 401 means the cookie session is gone.
@@ -414,7 +436,7 @@ export default function Console() {
             } else {
               // 429 / 5xx / offline: keep the stored session. The fast poller
               // signs out on a real 401 once the API answers again.
-              setSession(safe);
+              setSession({ ...safe, agentKeys: loadTabAgentKeys(tabStorage(), safe.orgId) });
             }
           } else if (parsed.mode === "key" && parsed.guardianKey) {
             setSession(parsed);
@@ -504,6 +526,9 @@ export default function Console() {
 
   /** Sign in / sign out. Resets view state — use updateSession for edits. */
   const saveSession = useCallback((s: Session | null) => {
+    if (s) {
+      s = { ...s, agentKeys: mergeAgentKeys(s.agentKeys, loadTabAgentKeys(tabStorage(), s.orgId)) };
+    }
     setSession(s);
     setLoading(true);
     // Only forget seen approvals when the identity actually changes — otherwise
@@ -527,6 +552,7 @@ export default function Console() {
     setSession((prev) => {
       if (!prev) return prev;
       const next = { ...prev, ...patch };
+      if (patch.agentKeys) saveTabAgentKeys(tabStorage(), next.orgId, next.agentKeys);
       const persistent = sessionForPersistentStorage(next);
       if (persistent) localStorage.setItem("pv_session", JSON.stringify(persistent));
       else localStorage.removeItem("pv_session");
@@ -589,7 +615,9 @@ export default function Console() {
       } else if (s?.guardianKey) {
         headers.Authorization = `Bearer ${s.guardianKey}`;
       }
-      return fetch(`${API}${path}`, {
+      // A hung request used to stall a whole Promise.all polling tier, which
+      // left views on their skeleton forever. Abort after 15 s instead.
+      return fetchWithTimeout(`${API}${path}`, {
         ...init,
         credentials: "include",
         headers,
@@ -674,6 +702,13 @@ export default function Console() {
       // never stored: an `{ error }` body saved as `org` crashed the header
       // (`org.org.name`) and took the whole console into the error boundary.
       const [o, ap, a, es, bu, gr] = await Promise.all(res.map((r) => okJson(r)));
+      if (!o?.org?.id) {
+        const failure = await describeFailure("/v1/guardian/org", res[0]);
+        logLoadFailure("shell", failure);
+        setOrgLoad((s) => ({ ...s, failures: s.failures + 1, last: [failure] }));
+      } else {
+        setOrgLoad((s) => (s.failures ? { failures: 0, startedAt: Date.now(), last: [] } : s));
+      }
       if (o?.org?.id) {
         setBudgetOpsSetup(
           Array.isArray(bu?.budgets) && Array.isArray(gr?.groups)
@@ -687,8 +722,11 @@ export default function Console() {
       if (ap) setIfChanged("approvals", ap.approvals ?? [], setApprovals);
       if (a) setIfChanged("decisions", a.decisions ?? [], setDecisions);
       if (es) setIfChanged("escrows", es.escrows ?? [], setEscrows);
-    } catch {
+    } catch (e) {
       setConnected(false);
+      const failure = describeThrown("/v1/guardian/org", e);
+      logLoadFailure("shell", failure);
+      setOrgLoad((s) => ({ ...s, failures: s.failures + 1, last: [failure] }));
     }
   }, [gFetch, saveSession, setToast, setIfChanged]);
 
@@ -1242,7 +1280,23 @@ export default function Console() {
             )}
 
             {loading ? (
-              <ConsoleSkeleton />
+              <>
+                {shouldShowLoadError({ ...orgLoad, loaded: false }, Date.now(), {
+                  minFailures: 2,
+                }) && (
+                  <LoadError
+                    title="Can't load your organization yet"
+                    failures={orgLoad.last}
+                    retrying={orgRetrying}
+                    testId="shell-load-error"
+                    onRetry={() => {
+                      setOrgRetrying(true);
+                      void refreshAll().finally(() => setOrgRetrying(false));
+                    }}
+                  />
+                )}
+                <ConsoleSkeleton />
+              </>
             ) : (
               <div className="view">
                 {view !== "overview" && viewMeta && (
@@ -1398,6 +1452,7 @@ export default function Console() {
                     mission={mission}
                     setMission={setMission}
                     cancelRef={missionCancel}
+                    runs={runs}
                   />
                 )}
                 {view === "chat" && (
@@ -1428,7 +1483,11 @@ export default function Console() {
                   <Ledger journals={journals} metrics={metrics} recon={recon} />
                 )}
                 {view === "policy" &&
-                  (policy ? <PolicyView {...shared} policy={policy} /> : <ConsoleSkeleton />)}
+                  (policy ? (
+                    <PolicyView {...shared} policy={policy} />
+                  ) : (
+                    <PolicyLoader gFetch={gFetch} onLoaded={setPolicy} />
+                  ))}
                 {view === "webhooks" && (
                   <Webhooks {...shared} webhooks={webhooks} deliveries={deliveries} />
                 )}

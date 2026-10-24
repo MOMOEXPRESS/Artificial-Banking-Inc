@@ -40,7 +40,8 @@ import {
 } from "./engine.js";
 import { anomalies, burnForecast, jobEconomics, vendorLedger } from "./analytics.js";
 import { answerQuestion, buildSummary } from "./insights.js";
-import { runAbiAgent } from "./abi-agent/index.js";
+import { runAbiAgent, runMemoryCommand } from "./abi-agent/index.js";
+import { parseMemoryCommand } from "./abi-agent/memory-commands.js";
 import {
   scopedStore,
   store,
@@ -1603,6 +1604,20 @@ app.post(
   "/v1/guardian/ask",
   guardianRoute(async (org, req, res) => {
     const body = z.object({ question: z.string().max(400) }).parse(req.body);
+    // "Remember / forget / what do you remember" typed into the Overview panel
+    // goes to the same durable org memory as the ABI chat, instead of the
+    // stateless Q&A (which silently dropped it).
+    const memoryCmd = parseMemoryCommand(body.question);
+    if (memoryCmd) {
+      const prior = store.listChatMessages(org.id, 24).map((m) => ({
+        role: m.role,
+        body: m.body,
+        meta: m.meta,
+      }));
+      const mem = runMemoryCommand(org.id, memoryCmd, prior);
+      res.json({ answer: mem.answer, goto: mem.goto });
+      return;
+    }
     const raw = answerQuestion(org.id, body.question);
     const answer = await presentAnswer(org.id, body.question, raw.answer);
     res.json({ answer, goto: raw.goto });

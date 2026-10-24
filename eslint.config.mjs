@@ -86,6 +86,28 @@ export default tseslint.config(
     },
   },
 
+  // The playground's training layer (guided scenarios, hints, sandbox setup,
+  // drills) must stay removable: only the playground view may import it.
+  // Production flows and the workflow runner never depend on it.
+  {
+    files: ["apps/web/src/**/*.{ts,tsx}"],
+    ignores: ["apps/web/src/lib/playground/training/**", "apps/web/src/lib/playground-view.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/playground/training", "**/playground/training/*"],
+              message:
+                "Training is isolated behind lib/playground/training and its flag; only the playground view may import it.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // React Native / Expo surface, kept out of the workspace build.
   {
     files: ["archive/**/*.{ts,tsx}"],

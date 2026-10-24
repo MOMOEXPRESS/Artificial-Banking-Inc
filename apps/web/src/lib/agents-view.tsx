@@ -264,60 +264,65 @@ export function AgentsView({
 
       {tab === "roster" && (
         <div className="grid g-main fill">
-          <div className="card">
-            <div className="card-head">
-              <div>
-                <h2>API keys</h2>
-                <div className="sub">{agents.length} connections</div>
-              </div>
-              <div className="agent-create-controls">
-                <input
-                  placeholder="Connection name (e.g. research service)"
-                  aria-label="Connection name"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                />
-                <select
-                  value={newBudgetId}
-                  disabled={locked || budgets.filter((b) => b.status !== "archived").length === 0}
-                  onChange={(e) => setNewBudgetId(e.target.value)}
-                  aria-label="Agent spending budget"
-                >
-                  <option value="">Choose budget…</option>
-                  {budgets
-                    .filter((b) => b.status !== "archived")
-                    .map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
-                </select>
-                <select
-                  value={newGroupId}
-                  disabled={locked || groups.filter((g) => g.status === "active").length === 0}
-                  onChange={(e) => setNewGroupId(e.target.value)}
-                  aria-label="Optional agent group label"
-                >
-                  <option value="">No group label</option>
-                  {groups
-                    .filter((g) => g.status === "active")
-                    .map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name}
-                      </option>
-                    ))}
-                </select>
-                <Button
-                  size="sm"
-                  disabled={locked || !newName.trim() || !newBudgetId}
-                  onClick={() => void createAgent()}
-                >
-                  Create API key
-                </Button>
+          <div className="card api-keys-card">
+            <div className="card-head api-keys-head">
+              <div className="api-keys-title">
+                <span className="api-keys-icon" aria-hidden>
+                  <Icon name="key" size={16} />
+                </span>
+                <div>
+                  <h2>API keys</h2>
+                  <div className="sub">{agents.length} connections</div>
+                </div>
               </div>
             </div>
+            <div className="agent-create-controls api-keys-create">
+              <input
+                placeholder="Connection name (e.g. research service)"
+                aria-label="Connection name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+              />
+              <select
+                value={newBudgetId}
+                disabled={locked || budgets.filter((b) => b.status !== "archived").length === 0}
+                onChange={(e) => setNewBudgetId(e.target.value)}
+                aria-label="Agent spending budget"
+              >
+                <option value="">Choose budget…</option>
+                {budgets
+                  .filter((b) => b.status !== "archived")
+                  .map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+              </select>
+              <select
+                value={newGroupId}
+                disabled={locked || groups.filter((g) => g.status === "active").length === 0}
+                onChange={(e) => setNewGroupId(e.target.value)}
+                aria-label="Optional agent group label"
+              >
+                <option value="">No group label</option>
+                {groups
+                  .filter((g) => g.status === "active")
+                  .map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+              </select>
+              <Button
+                size="sm"
+                disabled={locked || !newName.trim() || !newBudgetId}
+                onClick={() => void createAgent()}
+              >
+                Create API key
+              </Button>
+            </div>
             {budgets.filter((b) => b.status !== "archived").length === 0 ? (
-              <div className="agent-create-group">
+              <div className="agent-create-group api-keys-notice">
                 <span>
                   No active budgets yet. Create a budget in Treasury before creating an API
                   connection.
@@ -328,7 +333,7 @@ export function AgentsView({
               <Empty icon="key">No API yet. Choose a name and budget to create an API key.</Empty>
             ) : (
               <div
-                className="agent-roster-table"
+                className="agent-roster-table api-keys-table"
                 role="region"
                 aria-label="Agent roster"
                 tabIndex={0}
@@ -340,39 +345,50 @@ export function AgentsView({
                       <th>Status</th>
                       <th>Group</th>
                       <th>Assigned budget</th>
-                      <th>24h</th>
+                      <th className="num">24h</th>
                       <th>API key</th>
-                      <th />
+                      <th className="akc-actions-head" />
                     </tr>
                   </thead>
                   <tbody>
                     {agents.map((a) => (
                       <tr key={a.id} className={selected === a.id ? "on" : undefined}>
-                        <td>
+                        <td className="akc-name-cell" data-label="Name">
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="akc-name"
                             style={{ padding: 0, fontWeight: 600 }}
                             onClick={() => void loadDetail(a.id)}
                           >
                             {a.name}
                           </Button>
                         </td>
-                        <td>
+                        <td className="akc-status-cell" data-label="Status">
                           <span className={`pill ${statusTone(a.status)}`}>
                             <i /> {a.status}
                           </span>
                         </td>
-                        <td className="faint">
+                        <td className="faint akc-group-cell" data-label="Group">
                           {a.groupNames?.length ? a.groupNames.join(", ") : "—"}
                         </td>
-                        <td className="mono">
+                        <td className="mono akc-budget-cell" data-label="Assigned budget">
                           {a.budget?.name ?? "Unassigned"} · {fmt(a.availableUsdc)}
                         </td>
-                        <td className="mono faint">{fmt(a.spent24hUsdc)}</td>
-                        <td className="faint">{a.apiKeyLive ? "live" : "revoked"}</td>
-                        <td>
-                          <div className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
+                        <td className="mono faint num akc-spend-cell" data-label="24h">
+                          {fmt(a.spent24hUsdc)}
+                        </td>
+                        <td className="akc-key-cell" data-label="API key">
+                          <span className={`akc-key ${a.apiKeyLive ? "is-live" : "is-revoked"}`}>
+                            <Icon name="key" size={12} />
+                            {a.apiKeyLive ? "live" : "revoked"}
+                          </span>
+                        </td>
+                        <td className="akc-actions-cell">
+                          <div
+                            className="row akc-actions"
+                            style={{ gap: 6, justifyContent: "flex-end" }}
+                          >
                             {a.status === "active" && (
                               <Button
                                 variant="ghost"
@@ -447,506 +463,509 @@ export function AgentsView({
             )}
           </div>
 
-          <div className="card">
+          <div className="card agent-profile">
             {!selected || !detail ? (
               <Empty icon="key">Select an agent for profile, ownership, and analytics.</Empty>
             ) : (
-              <>
-                <div className="card-head">
-                  <div>
-                    <h2>{(detail.identity as AgentRow)?.name}</h2>
-                    <div className="sub mono faint">{selected}</div>
-                  </div>
-                  <span
-                    className={`pill ${statusTone((detail.identity as AgentRow)?.status ?? "")}`}
-                  >
-                    <i /> {(detail.identity as AgentRow)?.status}
-                  </span>
-                </div>
+              (() => {
+                const ident = detail.identity as AgentRow | undefined;
+                const status = ident?.status ?? "";
+                const decisions =
+                  (detail.recentDecisions as {
+                    outcome: string;
+                    tool: string;
+                    amountUsdc: string;
+                    at: string;
+                  }[]) ?? [];
+                const runs =
+                  (detail.recentRuns as {
+                    id: string;
+                    status: string;
+                    startedAt: string;
+                    title?: string;
+                  }[]) ?? [];
+                const tally = analytics?.decisions as
+                  { allow?: number; deny?: number; review?: number } | undefined;
+                const budgetName =
+                  (detail.budget as { name?: string } | null)?.name ??
+                  selectedAgent?.budget?.name ??
+                  null;
+                const memberGroups = groups.filter((g) => editGroupIds.includes(g.id));
+                const identitySummary =
+                  [
+                    runtime.trim() || null,
+                    tags.trim() ? `${tags.split(",").filter((t) => t.trim()).length} tags` : null,
+                    memberGroups.length
+                      ? `${memberGroups.length} group${memberGroups.length === 1 ? "" : "s"}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "Name, runtime, tags, owner";
+                const decisionRow = (
+                  d: { outcome: string; tool: string; amountUsdc: string },
+                  i: number,
+                ) => (
+                  <li key={i} className="agent-profile-row">
+                    <span className="agent-profile-row-main">
+                      <span
+                        className={`pill ${d.outcome === "allow" ? "ok" : d.outcome === "deny" ? "bad" : "warn"}`}
+                      >
+                        <i /> {d.outcome}
+                      </span>
+                      <span className="agent-profile-ellipsis">{d.tool}</span>
+                    </span>
+                    <span className="mono faint">{fmt(d.amountUsdc)}</span>
+                  </li>
+                );
+                return (
+                  <>
+                    <div className="agent-profile-head">
+                      <div className="agent-profile-title">
+                        <h2>{ident?.name}</h2>
+                        <div className="sub mono faint">{selected}</div>
+                      </div>
+                      <span className={`pill ${statusTone(status)}`}>
+                        <i /> {status}
+                      </span>
+                    </div>
 
-                <div className="grid g-2" style={{ marginBottom: 18, gap: 14 }}>
-                  <div
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: 10,
-                      background: "var(--surface-3)",
-                    }}
-                  >
-                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
-                      Available
+                    <div className="agent-profile-stats" aria-label="Spending capacity">
+                      <div className="agent-profile-stat">
+                        <span>Available</span>
+                        <b className="mono">{fmt(detail.availableUsdc as string)}</b>
+                      </div>
+                      <div className="agent-profile-stat">
+                        <span>Held</span>
+                        <b className="mono">{fmt(detail.heldUsdc as string)}</b>
+                      </div>
+                      <div className="agent-profile-stat">
+                        <span>24h spend</span>
+                        <b className="mono">{fmt(detail.spent24hUsdc as string)}</b>
+                      </div>
+                      <div className="agent-profile-stat">
+                        <span>Lifetime settled</span>
+                        <b className="mono">
+                          {fmt((analytics?.lifetimeSettledUsdc as string) ?? "0")}
+                        </b>
+                      </div>
                     </div>
-                    <div className="mono" style={{ fontSize: 20, fontWeight: 600 }}>
-                      {fmt(detail.availableUsdc as string)}
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: 10,
-                      background: "var(--surface-3)",
-                    }}
-                  >
-                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
-                      Held
-                    </div>
-                    <div className="mono" style={{ fontSize: 20, fontWeight: 600 }}>
-                      {fmt(detail.heldUsdc as string)}
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: 10,
-                      background: "var(--surface-3)",
-                    }}
-                  >
-                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
-                      24h spend
-                    </div>
-                    <div className="mono" style={{ fontSize: 16 }}>
-                      {fmt(detail.spent24hUsdc as string)}
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      padding: "12px 14px",
-                      borderRadius: 10,
-                      background: "var(--surface-3)",
-                    }}
-                  >
-                    <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>
-                      Lifetime settled
-                    </div>
-                    <div className="mono" style={{ fontSize: 16 }}>
-                      {fmt((analytics?.lifetimeSettledUsdc as string) ?? "0")}
-                    </div>
-                  </div>
-                </div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 12,
-                    marginBottom: 18,
-                    padding: "4px 0 8px",
-                  }}
-                >
-                  <label
-                    className="muted"
-                    style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
-                  >
-                    Display name
-                    <input
-                      value={rename}
-                      disabled={readOnly}
-                      onChange={(e) => setRename(e.target.value)}
-                    />
-                  </label>
-                  <label
-                    className="muted"
-                    style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
-                  >
-                    Runtime
-                    <input
-                      placeholder="langgraph / eliza / custom"
-                      value={runtime}
-                      disabled={readOnly}
-                      onChange={(e) => setRuntime(e.target.value)}
-                    />
-                  </label>
-                  <label
-                    className="muted"
-                    style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
-                  >
-                    Tags (comma-separated)
-                    <input
-                      value={tags}
-                      disabled={readOnly}
-                      onChange={(e) => setTags(e.target.value)}
-                    />
-                  </label>
-                  <label
-                    className="muted"
-                    style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
-                  >
-                    Owner guardian id
-                    <input
-                      value={ownerId}
-                      disabled={readOnly}
-                      onChange={(e) => setOwnerId(e.target.value)}
-                    />
-                  </label>
-                  <label
-                    className="muted"
-                    style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
-                  >
-                    Spending budget
-                    <select
-                      value={editBudgetId}
-                      disabled={readOnly}
-                      onChange={(e) => setEditBudgetId(e.target.value)}
-                    >
-                      <option value="">Choose budget…</option>
-                      {budgets
-                        .filter((b) => b.status !== "archived")
-                        .map((b) => (
-                          <option key={b.id} value={b.id}>
-                            {b.name}
-                          </option>
-                        ))}
-                    </select>
-                  </label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={
-                      locked ||
-                      !editBudgetId ||
-                      editBudgetId === (detail?.budget as { id?: string } | null)?.id
-                    }
-                    onClick={() =>
-                      void act("Assign spending budget", async () => {
-                        const res = await gFetch(`/v1/guardian/agents/${selected}/budget`, {
-                          method: "POST",
-                          body: JSON.stringify({ budgetId: editBudgetId }),
-                        });
-                        const d = await res.json();
-                        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-                        await refresh();
-                        await loadDetail(selected!);
-                        return "Spending budget assigned. Agent group labels were left unchanged.";
-                      })
-                    }
-                  >
-                    Assign budget
-                  </Button>
-                  <label
-                    className="muted"
-                    style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 6 }}
-                  >
-                    Agent groups
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
-                      {groups
-                        .filter((g) => g.status === "active")
-                        .map((g) => (
-                          <label key={g.id} className="row" style={{ gap: 6, fontSize: 12.5 }}>
-                            <input
-                              type="checkbox"
-                              disabled={readOnly}
-                              checked={editGroupIds.includes(g.id)}
-                              onChange={(e) =>
-                                setEditGroupIds((prev) =>
-                                  e.target.checked
-                                    ? [...prev, g.id]
-                                    : prev.filter((x) => x !== g.id),
-                                )
-                              }
-                            />
-                            {g.name}
-                          </label>
-                        ))}
-                      {!groups.some((g) => g.status === "active") && (
-                        <span className="faint">
-                          No group labels yet — create one if you want to organize this agent.
+                    <div className="agent-profile-policy">
+                      <span className="muted">
+                        Spends from <b>{budgetName ?? "no budget"}</b>
+                      </span>
+                      {analytics && (
+                        <span className="agent-profile-tally" aria-label="Policy decisions">
+                          <span className="pill ok">
+                            <i /> allow {tally?.allow ?? 0}
+                          </span>
+                          <span className="pill bad">
+                            <i /> deny {tally?.deny ?? 0}
+                          </span>
+                          <span className="pill warn">
+                            <i /> review {tally?.review ?? 0}
+                          </span>
                         </span>
                       )}
                     </div>
-                  </label>
-                  <button
-                    disabled={locked}
-                    onClick={() =>
-                      void act("Save profile", async () => {
-                        const profile: Record<string, unknown> = {
-                          runtime: runtime.trim() || undefined,
-                          tags: tags
-                            .split(",")
-                            .map((t) => t.trim())
-                            .filter(Boolean),
-                          ownerGuardianId: ownerId.trim() || "owner",
-                        };
-                        // Membership is not a profile field — it is synced
-                        // through assign/unassign below, which already handled
-                        // the multi-label case this line only shadowed.
-                        const res = await gFetch(`/v1/guardian/agents/${selected}`, {
-                          method: "PATCH",
-                          body: JSON.stringify({
-                            name: rename.trim() || undefined,
-                            profile,
-                          }),
-                        });
-                        const d = await res.json();
-                        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-                        const desired = new Set(editGroupIds);
-                        const current = new Set(
-                          groups
-                            .filter((g) => g.members.some((m) => m.id === selected))
-                            .map((g) => g.id),
-                        );
-                        for (const gid of desired) {
-                          if (!current.has(gid)) {
-                            await gFetch(`/v1/guardian/agent-groups/${gid}/assign`, {
-                              method: "POST",
-                              body: JSON.stringify({ agentIds: [selected] }),
-                            });
+
+                    <div className="agent-profile-budget">
+                      <label htmlFor="agent-profile-budget-select">Spending budget</label>
+                      <div className="agent-profile-inline">
+                        <select
+                          id="agent-profile-budget-select"
+                          value={editBudgetId}
+                          disabled={readOnly}
+                          onChange={(e) => setEditBudgetId(e.target.value)}
+                        >
+                          <option value="">Choose budget…</option>
+                          {budgets
+                            .filter((b) => b.status !== "archived")
+                            .map((b) => (
+                              <option key={b.id} value={b.id}>
+                                {b.name}
+                              </option>
+                            ))}
+                        </select>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={
+                            locked ||
+                            !editBudgetId ||
+                            editBudgetId === (detail?.budget as { id?: string } | null)?.id
                           }
-                        }
-                        for (const gid of current) {
-                          if (!desired.has(gid)) {
-                            await gFetch(`/v1/guardian/agent-groups/${gid}/unassign`, {
-                              method: "POST",
-                              body: JSON.stringify({ agentIds: [selected] }),
-                            });
+                          onClick={() =>
+                            void act("Assign spending budget", async () => {
+                              const res = await gFetch(`/v1/guardian/agents/${selected}/budget`, {
+                                method: "POST",
+                                body: JSON.stringify({ budgetId: editBudgetId }),
+                              });
+                              const d = await res.json();
+                              if (!res.ok)
+                                throw new Error(d.error?.message ?? JSON.stringify(d.error));
+                              await refresh();
+                              await loadDetail(selected!);
+                              return "Spending budget assigned. Agent group labels were left unchanged.";
+                            })
                           }
-                        }
-                        await refresh();
-                        await loadDetail(selected!);
-                        return "Profile and agent groups saved.";
-                      })
-                    }
-                  >
-                    Save identity
-                  </button>
-                </div>
-
-                <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={locked || selectedAgent?.status === "archived"}
-                    onClick={() =>
-                      void act("Revoke keys", async () => {
-                        const res = await gFetch(`/v1/guardian/agents/${selected}/revoke-key`, {
-                          method: "POST",
-                        });
-                        const d = await res.json();
-                        if (!res.ok) throw new Error(JSON.stringify(d.error));
-                        await refresh();
-                        await loadDetail(selected!);
-                        return `Revoked API key + ${d.sessionsRevoked} session(s).`;
-                      })
-                    }
-                  >
-                    Revoke API keys
-                  </Button>
-                  {selectedAgent?.status !== "archived" ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={locked}
-                      onClick={() =>
-                        void act("Archive", async () => {
-                          await gFetch(`/v1/guardian/agents/${selected}/archive`, {
-                            method: "POST",
-                          });
-                          await refresh();
-                          await loadDetail(selected!);
-                          return "Agent archived — non-spendable, keys dead.";
-                        })
-                      }
-                    >
-                      Archive
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      disabled={locked}
-                      onClick={() =>
-                        void act("Unarchive", async () => {
-                          const res = await gFetch(`/v1/guardian/agents/${selected}/unarchive`, {
-                            method: "POST",
-                          });
-                          const d = await res.json();
-                          if (!res.ok) throw new Error(JSON.stringify(d.error));
-                          onKeyRevealed?.({
-                            agentId: selected!,
-                            name: `${rename} (restored)`,
-                            key: d.apiKey,
-                          });
-                          await refresh();
-                          await loadDetail(selected!);
-                          return "Agent restored with a fresh API key.";
-                        })
-                      }
-                    >
-                      Unarchive
-                    </Button>
-                  )}
-                  <div className="field" style={{ margin: "0 0 10px", flex: "1 1 160px" }}>
-                    <label>Session label</label>
-                    <input
-                      value={sessionLabel}
-                      disabled={locked || selectedAgent?.status !== "active"}
-                      onChange={(e) => setSessionLabel(e.target.value)}
-                      placeholder="console"
-                    />
-                  </div>
-                  <div
-                    className="row"
-                    style={{ gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}
-                  >
-                    {(["read", "pay", "escrow"] as const).map((scope) => (
-                      <label key={scope} className="row" style={{ gap: 6, fontSize: 12.5 }}>
-                        <input
-                          type="checkbox"
-                          disabled={locked || selectedAgent?.status !== "active"}
-                          checked={sessionScopes.includes(scope)}
-                          onChange={(e) =>
-                            setSessionScopes((prev) =>
-                              e.target.checked ? [...prev, scope] : prev.filter((s) => s !== scope),
-                            )
-                          }
-                        />
-                        {scope}
-                      </label>
-                    ))}
-                  </div>
-                  <Button
-                    size="sm"
-                    disabled={
-                      locked || selectedAgent?.status !== "active" || sessionScopes.length === 0
-                    }
-                    onClick={() =>
-                      void act("Mint session", async () => {
-                        const res = await gFetch(`/v1/guardian/agents/${selected}/session-keys`, {
-                          method: "POST",
-                          body: JSON.stringify({
-                            label: sessionLabel.trim() || "console",
-                            ttlHours: 24,
-                            scopes: sessionScopes,
-                          }),
-                        });
-                        const d = await res.json();
-                        if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-                        setRevealedSession(d.sessionKey.token);
-                        setRevealedMcpUrl(typeof d.mcpUrl === "string" ? d.mcpUrl : null);
-                        setSessionLabel("");
-                        await refresh();
-                        return `Session minted with scopes: ${sessionScopes.join(", ")}.`;
-                      })
-                    }
-                  >
-                    Mint 24h session
-                  </Button>
-                </div>
-
-                {revealedSession && (
-                  <div
-                    className="card"
-                    style={{ marginBottom: 12, background: "var(--surface-2, #f6f4ef)" }}
-                  >
-                    <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
-                      Session token (once)
-                    </div>
-                    <code className="mono" style={{ wordBreak: "break-all", fontSize: 12 }}>
-                      {revealedSession}
-                    </code>
-                    {revealedMcpUrl && (
-                      <>
-                        <div className="muted" style={{ fontSize: 12, margin: "12px 0 6px" }}>
-                          Remote MCP URL (sandbox only)
-                        </div>
-                        <code className="mono" style={{ wordBreak: "break-all", fontSize: 12 }}>
-                          {revealedMcpUrl}
-                        </code>
-                        <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => void navigator.clipboard.writeText(revealedMcpUrl)}
-                          >
-                            Copy MCP URL
-                          </Button>
-                          <span className="muted" style={{ fontSize: 11.5 }}>
-                            Connect a compatible remote MCP client, including ChatGPT developer
-                            mode. This link expires with the session; revoke it after the test.
-                          </span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {analytics && (
-                  <div className="sub" style={{ marginBottom: 8 }}>
-                    Decisions allow {(analytics.decisions as { allow: number })?.allow ?? 0} · deny{" "}
-                    {(analytics.decisions as { deny: number })?.deny ?? 0} · review{" "}
-                    {(analytics.decisions as { review: number })?.review ?? 0}
-                  </div>
-                )}
-
-                <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
-                  Recent decisions
-                </div>
-                <div style={{ maxHeight: 180, overflow: "auto" }}>
-                  {(
-                    (detail.recentDecisions as {
-                      outcome: string;
-                      tool: string;
-                      amountUsdc: string;
-                      at: string;
-                    }[]) ?? []
-                  )
-                    .slice(0, 8)
-                    .map((d, i) => (
-                      <div key={i} className="between" style={{ fontSize: 12, padding: "4px 0" }}>
-                        <span>
-                          <span
-                            className={`pill ${d.outcome === "allow" ? "ok" : d.outcome === "deny" ? "bad" : "warn"}`}
-                          >
-                            <i /> {d.outcome}
-                          </span>{" "}
-                          {d.tool}
-                        </span>
-                        <span className="mono faint">{fmt(d.amountUsdc)}</span>
+                        >
+                          Assign budget
+                        </Button>
                       </div>
-                    ))}
-                  {!((detail.recentDecisions as unknown[]) ?? []).length && (
-                    <div className="faint" style={{ fontSize: 12 }}>
-                      No decisions yet.
                     </div>
-                  )}
-                </div>
 
-                <div className="muted" style={{ fontSize: 12, margin: "14px 0 6px" }}>
-                  Recent runs
-                </div>
-                <div style={{ maxHeight: 140, overflow: "auto" }}>
-                  {(
-                    (detail.recentRuns as {
-                      id: string;
-                      status: string;
-                      startedAt: string;
-                      title?: string;
-                    }[]) ?? []
-                  )
-                    .slice(0, 8)
-                    .map((r) => (
-                      <div
-                        key={r.id}
-                        className="between"
-                        style={{ fontSize: 12, padding: "4px 0" }}
+                    <div className="agent-profile-actions">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={locked || selectedAgent?.status === "archived"}
+                        onClick={() =>
+                          void act("Revoke keys", async () => {
+                            const res = await gFetch(`/v1/guardian/agents/${selected}/revoke-key`, {
+                              method: "POST",
+                            });
+                            const d = await res.json();
+                            if (!res.ok) throw new Error(JSON.stringify(d.error));
+                            await refresh();
+                            await loadDetail(selected!);
+                            return `Revoked API key + ${d.sessionsRevoked} session(s).`;
+                          })
+                        }
                       >
-                        <span>
-                          <span
-                            className={`pill ${r.status === "completed" ? "ok" : r.status === "failed" ? "bad" : "warn"}`}
-                          >
-                            <i /> {r.status}
-                          </span>{" "}
-                          {r.title ?? r.id.slice(0, 12)}
-                        </span>
-                        <span className="faint mono">
-                          {r.startedAt ? new Date(r.startedAt).toLocaleString() : ""}
-                        </span>
-                      </div>
-                    ))}
-                  {!((detail.recentRuns as unknown[]) ?? []).length && (
-                    <div className="faint" style={{ fontSize: 12 }}>
-                      No runs yet — try Playground missions.
+                        Revoke API keys
+                      </Button>
+                      {selectedAgent?.status !== "archived" ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={locked}
+                          onClick={() =>
+                            void act("Archive", async () => {
+                              await gFetch(`/v1/guardian/agents/${selected}/archive`, {
+                                method: "POST",
+                              });
+                              await refresh();
+                              await loadDetail(selected!);
+                              return "Agent archived — non-spendable, keys dead.";
+                            })
+                          }
+                        >
+                          Archive
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          disabled={locked}
+                          onClick={() =>
+                            void act("Unarchive", async () => {
+                              const res = await gFetch(
+                                `/v1/guardian/agents/${selected}/unarchive`,
+                                { method: "POST" },
+                              );
+                              const d = await res.json();
+                              if (!res.ok) throw new Error(JSON.stringify(d.error));
+                              onKeyRevealed?.({
+                                agentId: selected!,
+                                name: `${rename} (restored)`,
+                                key: d.apiKey,
+                              });
+                              await refresh();
+                              await loadDetail(selected!);
+                              return "Agent restored with a fresh API key.";
+                            })
+                          }
+                        >
+                          Unarchive
+                        </Button>
+                      )}
                     </div>
-                  )}
-                </div>
-              </>
+
+                    <section className="agent-profile-activity" aria-label="Recent decisions">
+                      <h3>Recent decisions</h3>
+                      {decisions.length ? (
+                        <ul className="agent-profile-list">
+                          {decisions.slice(0, 4).map(decisionRow)}
+                        </ul>
+                      ) : (
+                        <div className="faint agent-profile-empty">No decisions yet.</div>
+                      )}
+                      {decisions.length > 4 && (
+                        <details className="agent-profile-more">
+                          <summary>Show {Math.min(decisions.length, 8) - 4} more</summary>
+                          <ul className="agent-profile-list">
+                            {decisions.slice(4, 8).map((d, i) => decisionRow(d, i + 4))}
+                          </ul>
+                        </details>
+                      )}
+                    </section>
+
+                    <details className="agent-profile-section">
+                      <summary>
+                        <span>Recent runs</span>
+                        <span className="faint">
+                          {runs.length ? `${Math.min(runs.length, 8)}` : "none yet"}
+                        </span>
+                      </summary>
+                      <div className="agent-profile-section-body">
+                        {runs.length ? (
+                          <ul className="agent-profile-list">
+                            {runs.slice(0, 8).map((r) => (
+                              <li key={r.id} className="agent-profile-row">
+                                <span className="agent-profile-row-main">
+                                  <span
+                                    className={`pill ${r.status === "completed" ? "ok" : r.status === "failed" ? "bad" : "warn"}`}
+                                  >
+                                    <i /> {r.status}
+                                  </span>
+                                  <span className="agent-profile-ellipsis">
+                                    {r.title ?? r.id.slice(0, 12)}
+                                  </span>
+                                </span>
+                                <span className="faint mono">
+                                  {r.startedAt ? new Date(r.startedAt).toLocaleString() : ""}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className="faint agent-profile-empty">
+                            No runs yet — try Playground missions.
+                          </div>
+                        )}
+                      </div>
+                    </details>
+
+                    <details className="agent-profile-section">
+                      <summary>
+                        <span>Session keys</span>
+                        <span className="faint">24h · scoped</span>
+                      </summary>
+                      <div className="agent-profile-section-body">
+                        <div className="field agent-profile-field">
+                          <label htmlFor="agent-profile-session-label">Session label</label>
+                          <input
+                            id="agent-profile-session-label"
+                            value={sessionLabel}
+                            disabled={locked || selectedAgent?.status !== "active"}
+                            onChange={(e) => setSessionLabel(e.target.value)}
+                            placeholder="console"
+                          />
+                        </div>
+                        <div className="agent-profile-checks" role="group" aria-label="Scopes">
+                          {(["read", "pay", "escrow"] as const).map((scope) => (
+                            <label key={scope}>
+                              <input
+                                type="checkbox"
+                                disabled={locked || selectedAgent?.status !== "active"}
+                                checked={sessionScopes.includes(scope)}
+                                onChange={(e) =>
+                                  setSessionScopes((prev) =>
+                                    e.target.checked
+                                      ? [...prev, scope]
+                                      : prev.filter((s) => s !== scope),
+                                  )
+                                }
+                              />
+                              {scope}
+                            </label>
+                          ))}
+                        </div>
+                        <Button
+                          size="sm"
+                          disabled={
+                            locked ||
+                            selectedAgent?.status !== "active" ||
+                            sessionScopes.length === 0
+                          }
+                          onClick={() =>
+                            void act("Mint session", async () => {
+                              const res = await gFetch(
+                                `/v1/guardian/agents/${selected}/session-keys`,
+                                {
+                                  method: "POST",
+                                  body: JSON.stringify({
+                                    label: sessionLabel.trim() || "console",
+                                    ttlHours: 24,
+                                    scopes: sessionScopes,
+                                  }),
+                                },
+                              );
+                              const d = await res.json();
+                              if (!res.ok)
+                                throw new Error(d.error?.message ?? JSON.stringify(d.error));
+                              setRevealedSession(d.sessionKey.token);
+                              setRevealedMcpUrl(typeof d.mcpUrl === "string" ? d.mcpUrl : null);
+                              setSessionLabel("");
+                              await refresh();
+                              return `Session minted with scopes: ${sessionScopes.join(", ")}.`;
+                            })
+                          }
+                        >
+                          Mint 24h session
+                        </Button>
+                      </div>
+                    </details>
+
+                    {revealedSession && (
+                      <div className="agent-profile-secret">
+                        <div className="muted">Session token (once)</div>
+                        <code className="mono">{revealedSession}</code>
+                        {revealedMcpUrl && (
+                          <>
+                            <div className="muted" style={{ marginTop: 10 }}>
+                              Remote MCP URL (sandbox only)
+                            </div>
+                            <code className="mono">{revealedMcpUrl}</code>
+                            <div className="agent-profile-inline" style={{ marginTop: 8 }}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => void navigator.clipboard.writeText(revealedMcpUrl)}
+                              >
+                                Copy MCP URL
+                              </Button>
+                              <span className="muted" style={{ fontSize: 11.5 }}>
+                                Connect a compatible remote MCP client, including ChatGPT developer
+                                mode. This link expires with the session; revoke it after the test.
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    <details className="agent-profile-section">
+                      <summary>
+                        <span>Identity &amp; groups</span>
+                        <span className="faint agent-profile-ellipsis">{identitySummary}</span>
+                      </summary>
+                      <div className="agent-profile-section-body agent-profile-form">
+                        <div className="agent-profile-form-grid">
+                          <label>
+                            Display name
+                            <input
+                              value={rename}
+                              disabled={readOnly}
+                              onChange={(e) => setRename(e.target.value)}
+                            />
+                          </label>
+                          <label>
+                            Runtime
+                            <input
+                              placeholder="langgraph / eliza / custom"
+                              value={runtime}
+                              disabled={readOnly}
+                              onChange={(e) => setRuntime(e.target.value)}
+                            />
+                          </label>
+                          <label>
+                            Tags (comma-separated)
+                            <input
+                              value={tags}
+                              disabled={readOnly}
+                              onChange={(e) => setTags(e.target.value)}
+                            />
+                          </label>
+                          <label>
+                            Owner guardian id
+                            <input
+                              value={ownerId}
+                              disabled={readOnly}
+                              onChange={(e) => setOwnerId(e.target.value)}
+                            />
+                          </label>
+                        </div>
+                        <div className="agent-profile-groups">
+                          <span>Agent groups</span>
+                          <div className="agent-profile-checks">
+                            {groups
+                              .filter((g) => g.status === "active")
+                              .map((g) => (
+                                <label key={g.id}>
+                                  <input
+                                    type="checkbox"
+                                    disabled={readOnly}
+                                    checked={editGroupIds.includes(g.id)}
+                                    onChange={(e) =>
+                                      setEditGroupIds((prev) =>
+                                        e.target.checked
+                                          ? [...prev, g.id]
+                                          : prev.filter((x) => x !== g.id),
+                                      )
+                                    }
+                                  />
+                                  {g.name}
+                                </label>
+                              ))}
+                            {!groups.some((g) => g.status === "active") && (
+                              <span className="faint">
+                                No group labels yet — create one if you want to organize this agent.
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          disabled={locked}
+                          onClick={() =>
+                            void act("Save profile", async () => {
+                              const profile: Record<string, unknown> = {
+                                runtime: runtime.trim() || undefined,
+                                tags: tags
+                                  .split(",")
+                                  .map((t) => t.trim())
+                                  .filter(Boolean),
+                                ownerGuardianId: ownerId.trim() || "owner",
+                              };
+                              // Membership is not a profile field — it is synced
+                              // through assign/unassign below, which already handled
+                              // the multi-label case this line only shadowed.
+                              const res = await gFetch(`/v1/guardian/agents/${selected}`, {
+                                method: "PATCH",
+                                body: JSON.stringify({
+                                  name: rename.trim() || undefined,
+                                  profile,
+                                }),
+                              });
+                              const d = await res.json();
+                              if (!res.ok)
+                                throw new Error(d.error?.message ?? JSON.stringify(d.error));
+                              const desired = new Set(editGroupIds);
+                              const current = new Set(
+                                groups
+                                  .filter((g) => g.members.some((m) => m.id === selected))
+                                  .map((g) => g.id),
+                              );
+                              for (const gid of desired) {
+                                if (!current.has(gid)) {
+                                  await gFetch(`/v1/guardian/agent-groups/${gid}/assign`, {
+                                    method: "POST",
+                                    body: JSON.stringify({ agentIds: [selected] }),
+                                  });
+                                }
+                              }
+                              for (const gid of current) {
+                                if (!desired.has(gid)) {
+                                  await gFetch(`/v1/guardian/agent-groups/${gid}/unassign`, {
+                                    method: "POST",
+                                    body: JSON.stringify({ agentIds: [selected] }),
+                                  });
+                                }
+                              }
+                              await refresh();
+                              await loadDetail(selected!);
+                              return "Profile and agent groups saved.";
+                            })
+                          }
+                        >
+                          Save identity
+                        </Button>
+                      </div>
+                    </details>
+                  </>
+                );
+              })()
             )}
           </div>
         </div>

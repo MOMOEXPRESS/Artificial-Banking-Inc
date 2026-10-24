@@ -42,6 +42,8 @@ export function planTools(intent: AbiIntent, message: string): ToolName[] {
       return ["remember_fact"];
     case "recall":
       return ["recall_facts"];
+    case "forget":
+      return ["forget_fact"];
     case "compare":
       return ["list_agents", "compare_agents"];
     case "help":

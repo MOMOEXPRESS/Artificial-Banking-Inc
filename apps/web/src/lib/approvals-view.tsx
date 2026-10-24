@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { guardianClient } from "./flows/client";
+import { resolveApproval } from "./flows/guardian";
 import gsap from "gsap";
 import { Flip } from "gsap/Flip";
 import { Empty, Stat, fmtUsd, relTime } from "./ui";
@@ -58,12 +60,21 @@ export function Approvals({
       });
     }
     return act("Approval", async () => {
-      const res = await gFetch(`/v1/guardian/approvals/${id}/resolve`, {
-        method: "POST",
-        body: JSON.stringify({ approve, resolvedBy: "guardian-web" }),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(d.error ?? d));
+      // Same shared action the playground and workflow runner use.
+      const { status, data } = await resolveApproval(
+        guardianClient(gFetch),
+        id,
+        approve,
+        "guardian-web",
+      );
+      const d = (data ?? {}) as {
+        error?: unknown;
+        pendingQuorum?: boolean;
+        message?: string;
+        have?: number;
+        need?: number;
+      };
+      if (status >= 400) throw new Error(JSON.stringify(d.error ?? d));
       if (d.pendingQuorum) {
         return d.message ?? `Vote recorded — ${d.have} of ${d.need} guardians.`;
       }

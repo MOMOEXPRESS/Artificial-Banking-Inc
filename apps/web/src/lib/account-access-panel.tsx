@@ -178,6 +178,7 @@ export function AccountAccessPanel({
       {isSessionUser ? (
         <form
           aria-label="Change password"
+          className="settings-password-form"
           style={{
             display: "flex",
             flexDirection: "column",

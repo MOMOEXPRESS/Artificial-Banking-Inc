@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { explainApiResponse, relatedConsoleViews } from "./scenario-result";
-import type { RunStep } from "./mission";
+import type { RunStep } from "./workflow/types";
 
 describe("human-readable scenario results", () => {
   it("explains a policy decision without requiring JSON knowledge", () => {

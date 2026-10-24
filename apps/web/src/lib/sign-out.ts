@@ -18,7 +18,12 @@
 /** localStorage keys that identify or authenticate the signed-in user. */
 export const SESSION_LOCAL_KEYS = ["pv_session"] as const;
 /** sessionStorage keys that belong to the signed-in session. */
-export const SESSION_TAB_KEYS = ["abi_e2e_wallet", "abi_treasury_tab"] as const;
+export const SESSION_TAB_KEYS = [
+  "abi_e2e_wallet",
+  "abi_treasury_tab",
+  "abi_agent_keys",
+  "abi_run_missions",
+] as const;
 
 /** Query flag the sign-in screen reads to show a normal "Signed out" notice. */
 export const SIGNED_OUT_PARAM = "signed_out";

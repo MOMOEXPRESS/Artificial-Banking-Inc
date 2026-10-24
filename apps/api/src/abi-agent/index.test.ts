@@ -95,6 +95,74 @@ describe("runAbiAgent", () => {
     assert.match(recalled.answer, /pricing APIs/i);
   });
 
+  it("saves natural phrasings, recalls across turns, and keeps orgs apart", async () => {
+    const a = store.seedDemoOrg();
+    const b = store.seedDemoOrg();
+    const saved = await runAbiAgent(a.orgId, "Please remember our fiscal year starts in April");
+    assert.deepEqual(saved.toolsUsed, ["remember_fact"]);
+    assert.match(saved.answer, /Saved: “our fiscal year starts in April”/);
+    // Same fact again: no duplicate row.
+    const again = await runAbiAgent(a.orgId, "remember that our fiscal year starts in April.");
+    assert.match(again.answer, /already had that/i);
+    assert.equal(store.countAbiMemories(a.orgId), 1);
+
+    // A fresh session: no in-memory history passed at all.
+    const recalled = await runAbiAgent(a.orgId, "What do you remember?", []);
+    assert.deepEqual(recalled.toolsUsed, ["recall_facts"]);
+    assert.match(recalled.answer, /1\. our fiscal year starts in April/);
+    assert.match(recalled.answer, /Where things stand now/);
+
+    const other = await runAbiAgent(b.orgId, "What do you remember?", []);
+    assert.match(other.answer, /No saved notes yet/);
+    assert.doesNotMatch(other.answer, /fiscal/);
+    // Org B cannot forget org A's note.
+    await runAbiAgent(b.orgId, "forget everything");
+    assert.equal(store.countAbiMemories(a.orgId), 1);
+  });
+
+  it("uses relevant notes in ordinary answers and supports forget", async () => {
+    const demo = store.seedDemoOrg();
+    await runAbiAgent(demo.orgId, "Keep in mind that Researcher is only for pricing APIs");
+    const res = await runAbiAgent(demo.orgId, "How is Researcher doing?");
+    assert.match(res.answer, /From your saved notes[\s\S]*pricing APIs/);
+
+    await runAbiAgent(demo.orgId, "Note: our auditor is KPMG");
+    assert.equal(store.countAbiMemories(demo.orgId), 2);
+    const gone = await runAbiAgent(demo.orgId, "forget about KPMG");
+    assert.deepEqual(gone.toolsUsed, ["forget_fact"]);
+    assert.match(gone.answer, /Removed: “our auditor is KPMG”/);
+    const list = await runAbiAgent(demo.orgId, "what do you remember?");
+    assert.doesNotMatch(list.answer, /KPMG/);
+    assert.match(list.answer, /pricing APIs/);
+    const cleared = await runAbiAgent(demo.orgId, "clear your memory");
+    assert.match(cleared.answer, /Cleared all 1 saved note/);
+    assert.equal(store.countAbiMemories(demo.orgId), 0);
+  });
+
+  it("memory commands work even when an LLM is configured (no model call)", async () => {
+    const demo = store.seedDemoOrg();
+    process.env.ABI_CHAT_LLM = "1";
+    process.env.OPENAI_API_KEY = "sk-test-not-used";
+    const realFetch = globalThis.fetch;
+    let called = 0;
+    globalThis.fetch = (async () => {
+      called++;
+      throw new Error("model must not be called for memory commands");
+    }) as typeof fetch;
+    try {
+      const saved = await runAbiAgent(
+        demo.orgId,
+        "I want you to remember our payroll is every Friday",
+      );
+      assert.match(saved.answer, /payroll is every Friday/);
+      const r = await runAbiAgent(demo.orgId, "What do you remember?");
+      assert.match(r.answer, /payroll is every Friday/);
+      assert.equal(called, 0);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it("recommends next actions from live org state", async () => {
     const demo = store.seedDemoOrg();
     const res = await runAbiAgent(demo.orgId, "What should I do next?");
