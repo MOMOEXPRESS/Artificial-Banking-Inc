@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Sora } from "next/font/google";
 import { AppProviders } from "../lib/providers";
 import "./globals.css";
+import "./controls.css";
 
 const sora = Sora({
   subsets: ["latin"],

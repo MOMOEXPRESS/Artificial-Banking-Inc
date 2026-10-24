@@ -2,6 +2,7 @@
  * Cross-cutting platform surfaces for Observability, Security, Enterprise,
  * Ecosystem, Notifications, Compliance — keeps index.ts from growing further.
  */
+import { parseUsdcToMicro } from "@policyvault/common";
 import type express from "express";
 import { z } from "zod";
 import { getComplianceScreener } from "../platform/compliance.js";
@@ -91,6 +92,29 @@ export function registerPlatformRoutes(
     guardianRoute(
       (org, req, res) => {
         const body = z.object({ settings: z.record(z.unknown()) }).parse(req.body);
+        // The treasury approval threshold decides when guardian money waits
+        // for review. A malformed value would silently fall back to the
+        // default, so refuse it here where the operator can see why.
+        if ("treasuryHitlUsdc" in body.settings) {
+          const raw = body.settings.treasuryHitlUsdc;
+          let ok = typeof raw === "string" || typeof raw === "number";
+          if (ok) {
+            try {
+              ok = parseUsdcToMicro(String(raw).trim()) >= 0n;
+            } catch {
+              ok = false;
+            }
+          }
+          if (!ok) {
+            return res.status(400).json({
+              error: {
+                code: "VALIDATION_ERROR",
+                message: "treasuryHitlUsdc must be a non-negative USDC amount",
+              },
+            });
+          }
+          body.settings.treasuryHitlUsdc = String(raw).trim();
+        }
         const next = { ...org.settings, ...body.settings };
         store.setOrgSettings(org.id, next);
         recordObs({ name: "org.settings_updated", orgId: org.id });

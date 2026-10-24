@@ -81,7 +81,7 @@ Product money = **USDC**. Do not put a Solana meme token here.
 
 1. **Playground** → small mission that pays (or Chat that triggers a pay under policy)
 2. Open **Approvals** — pending item appears
-3. **Approve** in console (or Telegram if wired)
+3. **Approve** in the console (Approvals)
 4. Check **Activity** / ledger — journal looks sane
 
 That single approved pay is the week’s definition of “live.”
@@ -136,7 +136,6 @@ No Postgres required. SQLite already holds orgs / agents / policies / ledger. Id
 - [ ] Vault funded with network USDC
 - [ ] Move → stipend funded
 - [ ] Playground pay → Approve once
-- [ ] (Optional) Telegram approve
 - [ ] (Optional) X product thread
 - [ ] (Optional) YC video from steps 4–5
 

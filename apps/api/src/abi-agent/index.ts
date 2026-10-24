@@ -6,6 +6,8 @@
  */
 import { answerQuestion } from "../insights.js";
 import { buildOrgContext, formatOrgContext } from "./context.js";
+import { parseMemoryCommand, type MemoryCommand } from "./memory-commands.js";
+import { store } from "../store.js";
 import { bindEntities, wantsAgentDetail } from "./entities.js";
 import { classifyIntent } from "./intent.js";
 import { runLlmToolLoop } from "./llm-loop.js";
@@ -70,6 +72,87 @@ function composeAnswer(results: ToolResult[], orgId: string): string {
   return blocks.join("\n\n");
 }
 
+/** Notes that share meaningful words with the question (max 3). */
+function relevantNotes(orgId: string, message: string): string[] {
+  try {
+    if (!store.countAbiMemories(orgId)) return [];
+    return store.searchAbiMemories(orgId, message, 3).map((m) => m.fact);
+  } catch {
+    return [];
+  }
+}
+
+function notesBlock(notes: string[]): string | null {
+  return notes.length ? `From your saved notes\n${notes.map((n) => `• ${n}`).join("\n")}` : null;
+}
+
+/** Last few things the guardian asked, from durable chat history. */
+function recentTopics(recent: ChatTurn[], max = 3): string[] {
+  return recent
+    .filter((t) => t.role === "user" && !parseMemoryCommand(t.body))
+    .slice(-max)
+    .map((t) => (t.body.length > 90 ? `${t.body.slice(0, 87)}…` : t.body));
+}
+
+/**
+ * Remember / recall / forget are deterministic — they never depend on a model
+ * deciding to call a tool, and they run the same with or without an LLM key.
+ */
+function runMemoryCommand(orgId: string, cmd: MemoryCommand, recent: ChatTurn[]): AbiAgentResult {
+  const scratch = lastScratchpad(recent);
+  if (cmd.kind === "remember") {
+    const r = runTool(orgId, "remember_fact", { fact: cmd.fact });
+    const blocks = [`${r.title}\n${r.text}`];
+    // Tie the note to live state when it names an agent on the roster.
+    if (cmd.fact) {
+      const lower = cmd.fact.toLowerCase();
+      const ctx = buildOrgContext(orgId);
+      const hit = ctx.agents?.find((a) => lower.includes(a.name.toLowerCase()));
+      if (hit) {
+        blocks.push(
+          `Context\n${hit.name} is ${hit.status} with a $${hit.stipendUsdc} stipend — I'll bring this note up when you ask about ${hit.name}.`,
+        );
+      }
+    }
+    return {
+      answer: blocks.join("\n\n"),
+      goto: "chat",
+      toolsUsed: ["remember_fact"],
+      via: "keywords",
+      scratchpad: buildScratchpad([r], scratch),
+      intent: "remember",
+    };
+  }
+  if (cmd.kind === "forget") {
+    const r = runTool(orgId, "forget_fact", { target: cmd.target, all: cmd.all });
+    return {
+      answer: `${r.title}\n${r.text}`,
+      goto: "chat",
+      toolsUsed: ["forget_fact"],
+      via: "keywords",
+      scratchpad: buildScratchpad([r], scratch),
+      intent: "forget",
+    };
+  }
+  const r = runTool(orgId, "recall_facts", { query: cmd.query });
+  const blocks = [`${r.title}\n${r.text}`];
+  if (!cmd.query) {
+    const topics = recentTopics(recent);
+    if (topics.length) {
+      blocks.push(`Recent conversation\n${topics.map((t) => `• You asked: ${t}`).join("\n")}`);
+    }
+    blocks.push(`Where things stand now\n${formatOrgContext(buildOrgContext(orgId))}`);
+  }
+  return {
+    answer: blocks.join("\n\n"),
+    goto: "chat",
+    toolsUsed: ["recall_facts"],
+    via: "keywords",
+    scratchpad: buildScratchpad([r], scratch),
+    intent: "recall",
+  };
+}
+
 function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): AbiAgentResult {
   const intent = classifyIntent(message);
   const { query, reuseTools, scratch } = resolveFollowUp(message, recent);
@@ -101,7 +184,12 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
     const ctx = buildOrgContext(orgId);
     const advice = synthesizeAdvice([], ctx);
     return {
-      answer: [legacy.answer, advice ? formatAdvice(advice) : null, `(${formatOrgContext(ctx)})`]
+      answer: [
+        legacy.answer,
+        notesBlock(relevantNotes(orgId, message)),
+        advice ? formatAdvice(advice) : null,
+        `(${formatOrgContext(ctx)})`,
+      ]
         .filter(Boolean)
         .join("\n\n"),
       goto: legacy.goto,
@@ -155,11 +243,14 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
       continue;
     }
     if (t === "recall_facts") {
-      const q = message
-        .replace(/^(what do you remember|recall|your notes about)\s*/i, "")
-        .replace(/[?!.]+$/g, "")
-        .trim();
-      results.push(runTool(orgId, t, { query: q }));
+      const cmd = parseMemoryCommand(message);
+      results.push(runTool(orgId, t, { query: cmd?.kind === "recall" ? cmd.query : "" }));
+      continue;
+    }
+    if (t === "forget_fact") {
+      const cmd = parseMemoryCommand(message);
+      if (cmd?.kind !== "forget") continue;
+      results.push(runTool(orgId, t, { target: cmd.target, all: cmd.all }));
       continue;
     }
     results.push(runTool(orgId, t));
@@ -174,6 +265,9 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
     }
   }
 
+  // Bring relevant saved notes into ordinary answers so taught facts are used,
+  // not just listed back on request.
+  const notes = toolsUsed.includes("recall_facts") ? [] : relevantNotes(orgId, query);
   const scratchpad = buildScratchpad(results, {
     ...scratch,
     agentIds: entities.agentIds.length ? entities.agentIds : scratch.agentIds,
@@ -181,7 +275,7 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
     destinations: entities.destinations.length ? entities.destinations : scratch.destinations,
   });
   return {
-    answer: composeAnswer(results, orgId),
+    answer: [composeAnswer(results, orgId), notesBlock(notes)].filter(Boolean).join("\n\n"),
     goto: preferGoto(results),
     toolsUsed,
     via: "keywords",
@@ -198,6 +292,8 @@ export async function runAbiAgent(
   message: string,
   recent: ChatTurn[] = [],
 ): Promise<AbiAgentResult> {
+  const memoryCmd = parseMemoryCommand(message);
+  if (memoryCmd) return runMemoryCommand(orgId, memoryCmd, recent);
   try {
     const llm = await runLlmToolLoop(orgId, message, recent);
     if (llm && (llm.toolsUsed.length || llm.answer)) {
@@ -224,4 +320,5 @@ export async function runAbiAgent(
   return runKeywordPath(orgId, message, recent);
 }
 
+export { runMemoryCommand };
 export type { ChatTurn, ToolName, Scratchpad };

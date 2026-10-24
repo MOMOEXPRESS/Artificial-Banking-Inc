@@ -117,6 +117,12 @@ export function guardTreasuryWithdraw(input: {
   amountDisplay: string;
   destination?: string;
   nowMs?: number;
+  /**
+   * Evaluate only: refusals are still recorded, but an allow reserves no
+   * headroom and records nothing. Used before parking a withdrawal for
+   * guardian review; the real check runs again when it executes.
+   */
+  dryRun?: boolean;
 }): TreasuryGuardAllow | TreasuryGuardDenial {
   const org = store.getOrg(input.org.id) ?? input.org;
   const intentId = id("twd");
@@ -217,6 +223,10 @@ export function guardTreasuryWithdraw(input: {
         },
       );
     }
+  }
+
+  if (input.dryRun) {
+    return { ok: true, intentId, commit: () => {}, fail: () => {} };
   }
 
   // Reserve before the caller awaits anything.
