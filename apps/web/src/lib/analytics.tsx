@@ -1,12 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BarLine, Empty, Icon, Sparkline, Stat, fmtUsd, relTime } from "./ui";
 import { Activity } from "./activity-view";
 import type { Decision } from "./console-types";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
-import { okJson } from "./api-response";
+import { LoadError } from "./load-error";
+import {
+  describeFailure,
+  describeThrown,
+  logLoadFailure,
+  shouldShowLoadError,
+  type LoadFailure,
+} from "./load-state";
 
 /* ==================================================================== types */
 
@@ -146,43 +153,70 @@ export function InsightsView({
     if (activitySeed?.key) setTab("trail");
   }, [activitySeed?.key]);
 
+  const [failures, setFailures] = useState<LoadFailure[]>([]);
+  const [startedAt] = useState(() => Date.now());
+  const [failCount, setFailCount] = useState(0);
+  const [retrying, setRetrying] = useState(false);
+  const loadRef = useRef<() => Promise<void>>(async () => {});
+
   useEffect(() => {
     let alive = true;
-    const sig = { current: "" };
+    const sigs: Record<string, string> = {};
+    /** Adopt one part only when its payload actually changed. */
+    const adopt = (key: string, value: unknown, apply: () => void) => {
+      const sig = JSON.stringify(value);
+      if (sigs[key] === sig) return;
+      sigs[key] = sig;
+      apply();
+    };
+    const PARTS = [
+      "/v1/guardian/vendors",
+      "/v1/guardian/burn",
+      "/v1/guardian/anomalies",
+      "/v1/guardian/economics",
+    ] as const;
     const load = async () => {
       if (typeof document !== "undefined" && document.hidden) return;
-      try {
-        const [v, b, a, e] = await Promise.all([
-          gFetch("/v1/guardian/vendors").then(okJson),
-          gFetch("/v1/guardian/burn").then(okJson),
-          gFetch("/v1/guardian/anomalies").then(okJson),
-          gFetch("/v1/guardian/economics").then(okJson),
-        ]);
-        if (!alive) return;
-        // Keep the last good snapshot when any tier was rate-limited or failed.
-        if (!v || !b || !a || !e) return;
-        const next = {
-          vendors: v.vendors ?? [],
-          concentrationPct: v.concentrationPct ?? 0,
-          burn: b.forecast ?? null,
-          anomalies: a.anomalies ?? [],
-          scanned: a.scanned ?? 0,
-          econ: e.economics ?? null,
-        };
-        const fingerprint = JSON.stringify(next);
-        if (fingerprint === sig.current) return;
-        sig.current = fingerprint;
-        setVendors(next.vendors);
-        setConcentration(next.concentrationPct);
-        setBurn(next.burn);
-        setAnomalies(next.anomalies);
-        setScanned(next.scanned);
-        setEcon(next.econ);
-        setLoaded(true);
-      } catch {
-        /* the shell owns the connection indicator */
+      // Each panel stands alone: one rate-limited or failing endpoint used to
+      // keep the whole page on its skeleton forever (all four had to succeed
+      // in the same tick before anything rendered).
+      const results = await Promise.all(
+        PARTS.map(async (path) => {
+          try {
+            const res = await gFetch(path);
+            if (res.ok) {
+              const body = await res.json().catch(() => null);
+              if (body) return { path, body, failure: null };
+            }
+            return { path, body: null, failure: await describeFailure(path, res) };
+          } catch (e) {
+            return { path, body: null, failure: describeThrown(path, e) };
+          }
+        }),
+      );
+      if (!alive) return;
+      const [v, b, a, e] = results.map((r) => r.body);
+      if (v) {
+        adopt("vendors", v, () => {
+          setVendors(v.vendors ?? []);
+          setConcentration(v.concentrationPct ?? 0);
+        });
       }
+      if (b) adopt("burn", b, () => setBurn(b.forecast ?? null));
+      if (a) {
+        adopt("anomalies", a, () => {
+          setAnomalies(a.anomalies ?? []);
+          setScanned(a.scanned ?? 0);
+        });
+      }
+      if (e) adopt("econ", e, () => setEcon(e.economics ?? null));
+      const failed = results.flatMap((r) => (r.failure ? [r.failure] : []));
+      failed.forEach((f) => logLoadFailure("insights", f));
+      setFailures((prev) => (prev.length === 0 && failed.length === 0 ? prev : failed));
+      if (failed.length) setFailCount((n) => n + 1);
+      if (results.some((r) => r.body)) setLoaded(true);
     };
+    loadRef.current = load;
     void load();
     const t = setInterval(load, 20000);
     const onVis = () => {
@@ -196,9 +230,25 @@ export function InsightsView({
     };
   }, [gFetch]);
 
-  if (!loaded) {
+  const retry = () => {
+    setRetrying(true);
+    void loadRef.current().finally(() => setRetrying(false));
+  };
+
+  // The decision trail (Activity) comes from the shell's own poll; it never
+  // needed the four analytics calls, so it is never gated on them.
+  if (!loaded && tab !== "trail") {
     return (
       <>
+        {shouldShowLoadError({ failures: failCount, startedAt, loaded }) && (
+          <LoadError
+            title="Can't load insights"
+            failures={failures}
+            retrying={retrying}
+            onRetry={retry}
+            testId="insights-load-error"
+          />
+        )}
         <div className="grid g-4">
           {[0, 1, 2, 3].map((i) => (
             <div key={i} className="skeleton" style={{ height: 104 }} />
@@ -213,6 +263,16 @@ export function InsightsView({
 
   return (
     <div className="console-page insights-page">
+      {failures.length > 0 && tab !== "trail" && (
+        <LoadError
+          compact
+          title="Some insights could not refresh"
+          failures={failures}
+          retrying={retrying}
+          onRetry={retry}
+          testId="insights-partial-error"
+        />
+      )}
       <div className="grid g-4">
         <Stat
           label="Net position"

@@ -47,6 +47,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ConsoleSkeleton } from "@/components/ui/skeleton";
+import { LoadError } from "../../lib/load-error";
+import { PolicyLoader } from "../../lib/policy-loader";
+import {
+  describeFailure,
+  describeThrown,
+  fetchWithTimeout,
+  logLoadFailure,
+  shouldShowLoadError,
+  type LoadFailure,
+} from "../../lib/load-state";
 import {
   sessionForPersistentStorage,
   type Approval,
@@ -328,6 +338,13 @@ export default function Console() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invStats, setInvStats] = useState<InvoiceStats | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
+  /** Why the shell is still on its skeleton, if `/org` keeps failing. */
+  const [orgLoad, setOrgLoad] = useState<{
+    failures: number;
+    startedAt: number;
+    last: LoadFailure[];
+  }>(() => ({ failures: 0, startedAt: Date.now(), last: [] }));
+  const [orgRetrying, setOrgRetrying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(true);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -589,7 +606,9 @@ export default function Console() {
       } else if (s?.guardianKey) {
         headers.Authorization = `Bearer ${s.guardianKey}`;
       }
-      return fetch(`${API}${path}`, {
+      // A hung request used to stall a whole Promise.all polling tier, which
+      // left views on their skeleton forever. Abort after 15 s instead.
+      return fetchWithTimeout(`${API}${path}`, {
         ...init,
         credentials: "include",
         headers,
@@ -674,6 +693,13 @@ export default function Console() {
       // never stored: an `{ error }` body saved as `org` crashed the header
       // (`org.org.name`) and took the whole console into the error boundary.
       const [o, ap, a, es, bu, gr] = await Promise.all(res.map((r) => okJson(r)));
+      if (!o?.org?.id) {
+        const failure = await describeFailure("/v1/guardian/org", res[0]);
+        logLoadFailure("shell", failure);
+        setOrgLoad((s) => ({ ...s, failures: s.failures + 1, last: [failure] }));
+      } else {
+        setOrgLoad((s) => (s.failures ? { failures: 0, startedAt: Date.now(), last: [] } : s));
+      }
       if (o?.org?.id) {
         setBudgetOpsSetup(
           Array.isArray(bu?.budgets) && Array.isArray(gr?.groups)
@@ -687,8 +713,11 @@ export default function Console() {
       if (ap) setIfChanged("approvals", ap.approvals ?? [], setApprovals);
       if (a) setIfChanged("decisions", a.decisions ?? [], setDecisions);
       if (es) setIfChanged("escrows", es.escrows ?? [], setEscrows);
-    } catch {
+    } catch (e) {
       setConnected(false);
+      const failure = describeThrown("/v1/guardian/org", e);
+      logLoadFailure("shell", failure);
+      setOrgLoad((s) => ({ ...s, failures: s.failures + 1, last: [failure] }));
     }
   }, [gFetch, saveSession, setToast, setIfChanged]);
 
@@ -1242,7 +1271,23 @@ export default function Console() {
             )}
 
             {loading ? (
-              <ConsoleSkeleton />
+              <>
+                {shouldShowLoadError({ ...orgLoad, loaded: false }, Date.now(), {
+                  minFailures: 2,
+                }) && (
+                  <LoadError
+                    title="Can't load your organization yet"
+                    failures={orgLoad.last}
+                    retrying={orgRetrying}
+                    testId="shell-load-error"
+                    onRetry={() => {
+                      setOrgRetrying(true);
+                      void refreshAll().finally(() => setOrgRetrying(false));
+                    }}
+                  />
+                )}
+                <ConsoleSkeleton />
+              </>
             ) : (
               <div className="view">
                 {view !== "overview" && viewMeta && (
@@ -1428,7 +1473,11 @@ export default function Console() {
                   <Ledger journals={journals} metrics={metrics} recon={recon} />
                 )}
                 {view === "policy" &&
-                  (policy ? <PolicyView {...shared} policy={policy} /> : <ConsoleSkeleton />)}
+                  (policy ? (
+                    <PolicyView {...shared} policy={policy} />
+                  ) : (
+                    <PolicyLoader gFetch={gFetch} onLoaded={setPolicy} />
+                  ))}
                 {view === "webhooks" && (
                   <Webhooks {...shared} webhooks={webhooks} deliveries={deliveries} />
                 )}
