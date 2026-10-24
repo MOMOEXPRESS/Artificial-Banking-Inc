@@ -1766,6 +1766,29 @@ function rowToDelivery(r: Row): WebhookDeliveryRow {
   };
 }
 
+const FACT_STOPWORDS = new Set(
+  "a an the and or but of to in on at for is are was were be been it its this that these those our we us you your my me i do does did what which who how about with from as by have has had any some all not no so if then than there their they them".split(
+    " ",
+  ),
+);
+
+/** Meaningful lower-case words of a fact / query (for relevance matching). */
+export function factWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9$€£.]+/i)
+    .map((w) => w.replace(/^\.+|\.+$/g, ""))
+    .filter((w) => w.length >= 3 && !FACT_STOPWORDS.has(w));
+}
+
+function normalizeFact(fact: string): string {
+  return fact
+    .toLowerCase()
+    .replace(/[\s"“”'‘’]+/g, " ")
+    .replace(/[.!;,\s]+$/g, "")
+    .trim();
+}
+
 export const store = {
   // ------------------------------------------------------------------ orgs
   createOrg(
@@ -3801,10 +3824,20 @@ export const store = {
     return row;
   },
 
+  /**
+   * The most recent `limit` chat messages, returned oldest → newest.
+   *
+   * This used to be `ORDER BY created_at ASC LIMIT ?`, which returned the
+   * *oldest* rows: once an org passed 24 messages the assistant's follow-up
+   * context was frozen on the first conversation, and past 100 the console
+   * stopped showing new replies at all.
+   */
   listChatMessages(orgId: string, limit = 100): ChatMessageRow[] {
     return (
       db
-        .prepare("SELECT * FROM chat_messages WHERE org_id = ? ORDER BY created_at ASC LIMIT ?")
+        .prepare(
+          "SELECT * FROM (SELECT rowid AS _seq, * FROM chat_messages WHERE org_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?) ORDER BY created_at ASC, _seq ASC",
+        )
         .all(orgId, limit) as Row[]
     ).map((r) => ({
       id: r.id as string,
@@ -3851,12 +3884,32 @@ export const store = {
     };
   },
 
+  /**
+   * Save one org fact. Scoped by org_id on every read and write, so one org
+   * can never see or delete another org's notes. Re-teaching the same fact
+   * (case / spacing / trailing punctuation aside) returns the existing row
+   * instead of piling up duplicates.
+   */
   addAbiMemory(
     orgId: string,
     fact: string,
     source = "guardian",
-  ): { id: string; fact: string; createdAt: string } {
-    const clean = fact.trim().slice(0, 500);
+  ): { id: string; fact: string; createdAt: string; duplicate?: boolean } {
+    const clean = fact.trim().replace(/\s+/g, " ").slice(0, 500);
+    const norm = normalizeFact(clean);
+    const existing = (
+      db
+        .prepare("SELECT id, fact, created_at FROM abi_memories WHERE org_id = ?")
+        .all(orgId) as Row[]
+    ).find((r) => normalizeFact(r.fact as string) === norm);
+    if (existing) {
+      return {
+        id: existing.id as string,
+        fact: existing.fact as string,
+        createdAt: existing.created_at as string,
+        duplicate: true,
+      };
+    }
     const row = { id: id("mem"), fact: clean, createdAt: nowIso() };
     db.prepare(
       "INSERT INTO abi_memories (id, org_id, fact, source, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -3864,6 +3917,7 @@ export const store = {
     return row;
   },
 
+  /** Newest first. */
   listAbiMemories(
     orgId: string,
     limit = 20,
@@ -3871,7 +3925,7 @@ export const store = {
     return (
       db
         .prepare(
-          "SELECT id, fact, source, created_at FROM abi_memories WHERE org_id = ? ORDER BY created_at DESC LIMIT ?",
+          "SELECT id, fact, source, created_at FROM abi_memories WHERE org_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
         )
         .all(orgId, limit) as Row[]
     ).map((r) => ({
@@ -3882,6 +3936,16 @@ export const store = {
     }));
   },
 
+  countAbiMemories(orgId: string): number {
+    const r = db.prepare("SELECT COUNT(*) AS n FROM abi_memories WHERE org_id = ?").get(orgId) as
+      Row | undefined;
+    return Number(r?.n ?? 0);
+  },
+
+  /**
+   * Notes relevant to a question: a note matches when it contains the whole
+   * query, or shares at least one meaningful word with it (ranked by overlap).
+   */
   searchAbiMemories(
     orgId: string,
     query: string,
@@ -3892,9 +3956,35 @@ export const store = {
       .toLowerCase()
       .replace(/[?!.]+$/g, "")
       .trim();
-    const all = this.listAbiMemories(orgId, 50);
+    const all = this.listAbiMemories(orgId, 200);
     if (!q || q.length < 2) return all.slice(0, limit);
-    return all.filter((m) => m.fact.toLowerCase().includes(q)).slice(0, limit);
+    const words = factWords(q);
+    return all
+      .map((m) => {
+        const f = m.fact.toLowerCase();
+        const fw = new Set(factWords(f));
+        const overlap = words.filter((w) => fw.has(w)).length;
+        return { m, score: f.includes(q) ? 100 + overlap : overlap };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((x) => x.m);
+  },
+
+  /** Delete one note by id (org-scoped). Returns true when a row was removed. */
+  deleteAbiMemory(orgId: string, memoryId: string): boolean {
+    const r = db
+      .prepare("DELETE FROM abi_memories WHERE id = ? AND org_id = ?")
+      .run(memoryId, orgId) as { changes?: number };
+    return Number(r?.changes ?? 0) > 0;
+  },
+
+  /** Delete every note for one org. Returns how many were removed. */
+  clearAbiMemories(orgId: string): number {
+    const n = this.countAbiMemories(orgId);
+    db.prepare("DELETE FROM abi_memories WHERE org_id = ?").run(orgId);
+    return n;
   },
 
   knownCounterparties(orgId: string): string[] {

@@ -8,6 +8,7 @@ import { anomalies, burnForecast, vendorLedger } from "../analytics.js";
 import { buildSummary } from "../insights.js";
 import { scopedStore, store } from "../store.js";
 import { quietHoursStatus } from "./quiet.js";
+import { parseMemoryCommand } from "./memory-commands.js";
 
 export const TOOL_NAMES = [
   "org_summary",
@@ -32,6 +33,7 @@ export const TOOL_NAMES = [
   "recommend_next",
   "remember_fact",
   "recall_facts",
+  "forget_fact",
   "draft_marketing_blurb",
 ] as const;
 
@@ -647,7 +649,11 @@ export function runTool(
       };
     }
     case "remember_fact": {
-      const fact = String(args.fact ?? args.message ?? "").trim();
+      const given = String(args.fact ?? args.message ?? "").trim();
+      // Accept either a bare fact (LLM tool call) or the guardian's whole
+      // sentence ("Please remember our fiscal year starts in April").
+      const parsed = parseMemoryCommand(given);
+      const fact = parsed?.kind === "remember" ? parsed.fact : given;
       if (!fact || fact.length < 3) {
         return {
           tool: name,
@@ -656,36 +662,111 @@ export function runTool(
           goto: "chat",
         };
       }
-      const cleaned = fact
-        .replace(/^(remember( that)?|note that|save that|don't forget)\s*/i, "")
-        .trim();
-      const row = store.addAbiMemory(orgId, cleaned || fact, "guardian");
+      const row = store.addAbiMemory(orgId, fact, "guardian");
+      const total = store.countAbiMemories(orgId);
       return {
         tool: name,
-        title: "Remembered",
-        text: `Saved: “${row.fact}” — I'll use this on later questions about this org.`,
+        title: row.duplicate ? "Already remembered" : "Remembered",
+        text: row.duplicate
+          ? `I already had that: “${row.fact}”. (${total} saved note${total === 1 ? "" : "s"} for this org.)`
+          : `Saved: “${row.fact}”. I'll keep it for this organization across sessions and use it when it's relevant. (${total} saved note${total === 1 ? "" : "s"}. Say “forget …” to remove one.)`,
         goto: "chat",
-        data: { topic: "memory", fact: row.fact },
+        data: { topic: "memory", fact: row.fact, memoryId: row.id },
       };
     }
     case "recall_facts": {
       const q = String(args.query ?? "").trim();
-      const rows = q ? store.searchAbiMemories(orgId, q, 12) : store.listAbiMemories(orgId, 12);
+      const total = store.countAbiMemories(orgId);
+      const rows = q ? store.searchAbiMemories(orgId, q, 20) : store.listAbiMemories(orgId, 20);
       if (!rows.length) {
         return {
           tool: name,
           title: "Memory",
-          text: "No saved notes yet — say “Remember that …” to teach me an org fact.",
+          text:
+            q && total
+              ? `Nothing in my ${total} saved note${total === 1 ? "" : "s"} mentions “${q}”. Ask “what do you remember?” to see them all.`
+              : "No saved notes yet — say “Remember that …” to teach me an org fact.",
           goto: "chat",
           data: { topic: "memory" },
         };
       }
+      const day = (iso: string) => iso.slice(0, 10);
+      const more = !q && total > rows.length ? `\n…and ${total - rows.length} older note(s).` : "";
       return {
         tool: name,
-        title: "What I remember",
-        text: rows.map((r) => `• ${r.fact}`).join("\n"),
+        title: q
+          ? `What I remember about “${q}”`
+          : `What I remember (${total} note${total === 1 ? "" : "s"})`,
+        text:
+          rows.map((r, i) => `${i + 1}. ${r.fact} (saved ${day(r.createdAt)})`).join("\n") + more,
         goto: "chat",
         data: { topic: "memory", facts: rows.map((r) => r.fact) },
+      };
+    }
+    case "forget_fact": {
+      const all = args.all === true || args.all === "true";
+      const target = String(args.target ?? args.query ?? "").trim();
+      if (all) {
+        const n = store.clearAbiMemories(orgId);
+        return {
+          tool: name,
+          title: "Forgotten",
+          text: n
+            ? `Cleared all ${n} saved note${n === 1 ? "" : "s"} for this organization.`
+            : "There were no saved notes to clear.",
+          goto: "chat",
+          data: { topic: "memory", removed: n },
+        };
+      }
+      const notes = store.listAbiMemories(orgId, 200);
+      if (!notes.length) {
+        return {
+          tool: name,
+          title: "Memory",
+          text: "There are no saved notes to forget.",
+          goto: "chat",
+          data: { topic: "memory" },
+        };
+      }
+      // "forget 2" / "forget #2" uses the numbering from the last recall list.
+      const num = target.match(/^#?(\d{1,3})$/);
+      let hits = num ? notes.slice(Number(num[1]) - 1, Number(num[1])) : [];
+      if (!num) {
+        if (!target) {
+          hits = notes.slice(0, 1); // "forget that" → the most recent note
+        } else {
+          const t = target.toLowerCase();
+          const exact = notes.filter(
+            (n) => n.fact.toLowerCase().includes(t) || t.includes(n.fact.toLowerCase()),
+          );
+          hits = exact.length ? exact : store.searchAbiMemories(orgId, target, 200);
+        }
+      }
+      if (!hits.length) {
+        return {
+          tool: name,
+          title: "Memory",
+          text: `I couldn't find a saved note matching “${target}”. Ask “what do you remember?” to see the list, then say “forget 2” or quote the note.`,
+          goto: "chat",
+          data: { topic: "memory" },
+        };
+      }
+      if (hits.length > 3 && !num) {
+        return {
+          tool: name,
+          title: "Which one?",
+          text: `“${target}” matches ${hits.length} notes — I didn't delete anything. Be more specific, or say “forget 2” using the numbers from “what do you remember?”.`,
+          goto: "chat",
+          data: { topic: "memory" },
+        };
+      }
+      for (const h of hits) store.deleteAbiMemory(orgId, h.id);
+      return {
+        tool: name,
+        title: "Forgotten",
+        text: `Removed: ${hits.map((h) => `“${h.fact}”`).join(", ")}.`,
+        goto: "chat",
+        data: { topic: "memory", removed: hits.length },
       };
     }
     case "draft_marketing_blurb": {
@@ -812,12 +893,10 @@ export function pickTools(qRaw: string): ToolName[] {
   if (has("what should", "recommend", "next step", "priorit", "what now", "attention")) {
     tools.add("recommend_next");
   }
-  if (has("remember that", "note that", "save that", "don't forget") || /^remember\b/.test(q)) {
-    tools.add("remember_fact");
-  }
-  if (has("what do you remember", "recall", "your notes", "what did i tell")) {
-    tools.add("recall_facts");
-  }
+  const memoryCmd = parseMemoryCommand(q);
+  if (memoryCmd?.kind === "remember") tools.add("remember_fact");
+  if (memoryCmd?.kind === "recall") tools.add("recall_facts");
+  if (memoryCmd?.kind === "forget") tools.add("forget_fact");
   if (has("draft", "blurb", "marketing", "tweet", "pitch", "write copy")) {
     tools.add("draft_marketing_blurb");
   }
