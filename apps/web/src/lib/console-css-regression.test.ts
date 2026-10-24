@@ -30,6 +30,17 @@ describe("Console layout CSS", () => {
     assert.match(css, /\.lab-workspace\s*\{/);
   });
 
+  it("keeps the compact agent profile with collapsible sections", () => {
+    assert.match(css, /\.agent-profile\s*\{/);
+    assert.match(css, /\.agent-profile-stats\s*\{/);
+    assert.match(css, /\.agent-profile-section > summary\s*\{/);
+    assert.match(css, /\.agent-profile-section\[open\] > summary/);
+    const view = readFileSync(new URL("./agents-view.tsx", import.meta.url), "utf8");
+    // Runs, session keys and identity editing are collapsed (closed <details>) by default.
+    assert.equal((view.match(/<details className="agent-profile-section">/g) ?? []).length, 3);
+    assert.doesNotMatch(view, /agent-profile-section" open/);
+  });
+
   it("keeps the compact Money tab status strip under Vault assets", () => {
     assert.match(css, /\.vault-overview > \.vault-status-strip\s*\{/);
     assert.match(css, /\.vault-status-strip\s*\{/);
