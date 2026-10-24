@@ -13359,3 +13359,39 @@ button.sm.ghost.on {
   font-size: 12px !important;
   line-height: 1.5;
 }
+
+/* ---------- load errors (a view that cannot load says so, with Retry) ---------- */
+.load-error {
+  border-color: color-mix(in srgb, var(--orange, #d97706) 45%, transparent);
+  margin-bottom: 12px;
+}
+.load-error .load-error-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.load-error .load-error-body > div {
+  flex: 1;
+  min-width: 0;
+}
+.load-error .load-error-icon {
+  color: var(--orange, #d97706);
+  display: inline-flex;
+  margin-top: 2px;
+}
+.load-error b {
+  display: block;
+  font-size: 14px;
+}
+.load-error p {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.load-error .load-error-what {
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.load-error.compact {
+  padding: 10px 14px;
+}
