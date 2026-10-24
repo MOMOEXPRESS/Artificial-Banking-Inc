@@ -515,3 +515,39 @@
     max-width: none;
   }
 }
+
+/* ------------------------------------------- inside the restyled Settings */
+
+/*
+ * Settings (#87) styles every input in .settings-content with a border,
+ * background and min-height. The stepper's inner input is part of a
+ * composite control, so it opts out; the frame takes the Settings look.
+ */
+.settings-page .settings-content .amount-stepper {
+  height: 38px;
+  border-radius: 8px;
+  background: var(--color-surface-2);
+}
+
+.settings-page
+  .settings-content
+  .amount-stepper
+  .amount-stepper-field
+  input:not([type="checkbox"]):not([type="radio"]) {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  font-family: var(--font-mono-stack);
+  font-size: 13px;
+}
+
+.settings-page .settings-content .amount-stepper-btn:first-child {
+  border-radius: 7px 0 0 7px;
+}
+
+.settings-page .settings-content .amount-stepper-btn:last-child {
+  border-radius: 0 7px 7px 0;
+}
