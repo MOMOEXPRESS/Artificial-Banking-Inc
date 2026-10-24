@@ -110,3 +110,41 @@ export function judgmentScaleMax(bands: JudgmentBands): number {
   const soft = Math.max(peak * 1.25, peak + 20, 80);
   return Math.min(soft, MAX_SCALE);
 }
+
+export type BandOutcome = "instant" | "review" | "refused";
+
+/**
+ * What the engine does with one payment of `amount` under these bands —
+ * mirrors packages/policy: above the per-payment ceiling is refused, above
+ * "ask me above" waits for a guardian, everything else settles instantly.
+ * (Allowlists, cool-down and the daily total can still stop it; this is only
+ * the amount band.)
+ */
+export function bandOutcomeFor(amount: number, bands: JudgmentBands): BandOutcome {
+  if (amount > bands.cap) return "refused";
+  if (amount > bands.hitl) return "review";
+  return "instant";
+}
+
+/**
+ * Widths (percent, summing to 100) for the live preview bar: instant, review,
+ * and a refused tail sized to a quarter of the ceiling so it stays visible.
+ */
+export function bandPreviewSegments(bands: JudgmentBands): {
+  instant: number;
+  review: number;
+  refused: number;
+} {
+  const hitl = Math.max(0, bands.hitl);
+  const cap = Math.max(hitl, bands.cap);
+  const tail = Math.max(cap * 0.25, 1);
+  const total = cap + tail;
+  if (!(total > 0)) return { instant: 0, review: 0, refused: 100 };
+  const instant = (hitl / total) * 100;
+  const review = ((cap - hitl) / total) * 100;
+  return {
+    instant: Math.round(instant * 10) / 10,
+    review: Math.round(review * 10) / 10,
+    refused: Math.round((100 - instant - review) * 10) / 10,
+  };
+}

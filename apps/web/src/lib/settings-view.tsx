@@ -6,6 +6,7 @@ import { AiEgressPanel } from "./ai-egress-panel";
 import { MfaPanel } from "./mfa-panel";
 import { AccountAccessPanel } from "./account-access-panel";
 import { Button } from "@/components/ui/button";
+import { AmountStepper } from "@/components/ui/amount-stepper";
 import { okJson } from "./api-response";
 import { networkLabel } from "./network-names";
 
@@ -83,7 +84,7 @@ const SECTIONS = [
     label: "Organization controls",
     icon: "shield",
     group: "Workspace",
-    description: "Treasury approval limits, compliance screening, and system health.",
+    description: "Compliance screening and system health.",
   },
   {
     key: "merchants",
@@ -97,7 +98,7 @@ const SECTIONS = [
     label: "Team & quorum",
     icon: "check",
     group: "People & access",
-    description: "People, roles, signing authority, and approval quorum.",
+    description: "People, roles, approval quorum, and the treasury approval threshold.",
   },
   {
     key: "security",
@@ -105,13 +106,6 @@ const SECTIONS = [
     icon: "shield",
     group: "People & access",
     description: "Authentication, key posture, and incident controls.",
-  },
-  {
-    key: "recurring",
-    label: "Recurring spend",
-    icon: "clock",
-    group: "Finance",
-    description: "Standing financial commitments and scheduled controls.",
   },
   {
     key: "webhooks",
@@ -325,6 +319,20 @@ export function SettingsView({
     if (section === "team") void loadAccountInvitations();
   }, [loadAccountInvitations, section]);
 
+  // The treasury approval threshold lives beside the approval quorum.
+  useEffect(() => {
+    if (section !== "team") return;
+    void gFetch("/v1/guardian/settings")
+      .then(okJson)
+      .then((settings) => {
+        if (settings)
+          setTreasuryHitlDraft(String((settings.settings ?? {}).treasuryHitlUsdc ?? "50"));
+      })
+      .catch(() => {
+        /* keep the last known value; the card still saves */
+      });
+  }, [gFetch, section]);
+
   const loadUserSessions = useCallback(async () => {
     if (session.mode !== "session") return;
     try {
@@ -343,7 +351,7 @@ export function SettingsView({
 
   const go = (s: Section) => {
     setSection(s);
-    if (s === "team" || s === "recurring") void loadTeam();
+    if (s === "team") void loadTeam();
     if (s === "profile") void loadProfile();
     if (s === "org" || s === "merchants" || s === "golive") void loadPlatform();
   };
@@ -472,13 +480,6 @@ export function SettingsView({
       done: false,
       title: "E2E proof: agent USDC → your wallet",
       body: "1) Vault USDC + ETH (Fund auto-credits)  2) Move stipend to agent  3) Playground → Agent pays your wallet — paste Base Sepolia 0x → Run  4) Approve if HITL  5) Basescan Transfer. NOT Treasury Send. Track: docs/E2E-ONCHAIN-AGENT-PAY.md",
-    },
-    {
-      done: !!setup?.telegram,
-      title: "Telegram approvals on your phone",
-      body: setup?.telegram
-        ? "Connected — approvals arrive as Approve/Deny buttons in your chat."
-        : "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID on the API, then restart it. Approvals will DM you with buttons that resolve through the same engine as this console.",
     },
     {
       done: (recon?.journalsReplayed ?? 0) > 0 && !!recon?.ok,
@@ -846,7 +847,6 @@ export function SettingsView({
                 ["Vault keys encrypted at rest", setup?.vaultKeysEncryptedAtRest ? "yes" : "no"],
                 ["On-chain signing", onchainMode ? "enabled" : "disabled"],
                 ["Settlement", setup?.settlement ?? "—"],
-                ["Telegram", setup?.telegram ? "connected" : "not configured"],
                 ["Rate limit", `${setup?.rateLimitPerMin ?? "—"}/min per key`],
                 ["Approval expiry", `${setup?.approvalTtlMinutes ?? "—"} minutes`],
                 ["API", api],
@@ -927,56 +927,6 @@ export function SettingsView({
                 </span>
               </div>
             )}
-            <div className="card">
-              <div className="card-head">
-                <div>
-                  <h2>Treasury approval limit</h2>
-                  <div className="sub">
-                    Choose when a treasury move must wait for a guardian to review it.
-                  </div>
-                </div>
-              </div>
-              <div className="field">
-                <label htmlFor="treasury-hitl">Require approval above (USDC)</label>
-                <input
-                  id="treasury-hitl"
-                  value={treasuryHitlDraft}
-                  disabled={readOnly}
-                  onChange={(e) => setTreasuryHitlDraft(e.target.value)}
-                  placeholder="50"
-                  inputMode="decimal"
-                />
-                <p className="faint" style={{ margin: "6px 0 0", fontSize: 11.5, lineHeight: 1.5 }}>
-                  Moves above this amount wait in Treasury → Move for guardian approval.
-                </p>
-              </div>
-              <Button
-                size="sm"
-                disabled={busy || readOnly}
-                onClick={() =>
-                  void act("Save approval limit", async () => {
-                    const hitl = treasuryHitlDraft.trim();
-                    if (hitl && (Number.isNaN(Number(hitl)) || Number(hitl) < 0)) {
-                      throw new Error("Treasury HITL threshold must be a non-negative USDC amount");
-                    }
-                    const res = await gFetch("/v1/guardian/settings", {
-                      method: "PATCH",
-                      body: JSON.stringify({
-                        settings: {
-                          treasuryHitlUsdc: hitl || "50",
-                        },
-                      }),
-                    });
-                    const d = await res.json();
-                    if (!res.ok) throw new Error(d.error?.message ?? "failed");
-                    setTreasuryHitlDraft(String((d.settings ?? {}).treasuryHitlUsdc ?? "50"));
-                    return "Treasury approval limit saved.";
-                  })
-                }
-              >
-                Save approval limit
-              </Button>
-            </div>
             <div className="card">
               <div className="card-head">
                 <div>
@@ -1528,6 +1478,63 @@ export function SettingsView({
               </div>
             </div>
 
+            <div className="card treasury-threshold-card">
+              <div className="card-head">
+                <div>
+                  <h2>Treasury approval threshold</h2>
+                  <div className="sub">
+                    When a treasury move or withdrawal needs a guardian to look at it first.
+                  </div>
+                </div>
+              </div>
+              <div className="field">
+                <label htmlFor="treasury-hitl">Review treasury money above</label>
+                <AmountStepper
+                  id="treasury-hitl"
+                  value={treasuryHitlDraft}
+                  disabled={readOnly}
+                  onChange={setTreasuryHitlDraft}
+                  placeholder="50"
+                  min={0}
+                  step={10}
+                  inputProps={{ "aria-describedby": "treasury-hitl-help" }}
+                />
+                <p id="treasury-hitl-help" className="hint">
+                  At or below this amount, moves and withdrawals run right away. Above it, nothing
+                  is refused — the request waits under Treasury → Move → Activity until{" "}
+                  {quorum === 1 ? "any one guardian approves" : `${quorum} guardians approve`} (the
+                  approval quorum above), then runs. Withdrawal caps and the blocklist still apply
+                  either way.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                disabled={busy || readOnly}
+                onClick={() =>
+                  void act("Save approval threshold", async () => {
+                    const hitl = treasuryHitlDraft.trim();
+                    if (hitl && (Number.isNaN(Number(hitl)) || Number(hitl) < 0)) {
+                      throw new Error("The approval threshold must be a non-negative USDC amount");
+                    }
+                    const res = await gFetch("/v1/guardian/settings", {
+                      method: "PATCH",
+                      body: JSON.stringify({
+                        settings: {
+                          treasuryHitlUsdc: hitl || "50",
+                        },
+                      }),
+                    });
+                    const d = await res.json();
+                    if (!res.ok) throw new Error(d.error?.message ?? "failed");
+                    setTreasuryHitlDraft(String((d.settings ?? {}).treasuryHitlUsdc ?? "50"));
+                    return "Treasury approval threshold saved.";
+                  })
+                }
+              >
+                Save threshold
+              </Button>
+            </div>
+
             <div className="card">
               <div className="card-head">
                 <div>
@@ -1607,23 +1614,6 @@ export function SettingsView({
               )}
             </div>
           </>
-        )}
-
-        {section === "recurring" && (
-          <div className="card">
-            <div className="card-head">
-              <div>
-                <h2>Recurring spend moved</h2>
-                <div className="sub">
-                  Subscriptions and one-shot schedules live under Transactions → Scheduled so money
-                  surfaces stay together.
-                </div>
-              </div>
-            </div>
-            <Button size="sm" onClick={() => onGoto?.("payments")}>
-              Open Transactions → Scheduled
-            </Button>
-          </div>
         )}
 
         {section === "webhooks" && (

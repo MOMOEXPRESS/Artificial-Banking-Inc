@@ -151,8 +151,10 @@ export function rulesFor(agentId: string, orgId: string, destination?: string): 
         ? store.merchantSpentLast24h(orgId, destination)
         : undefined,
     // Drives the cooldown. Undefined for a destination never seen before.
+    // Looked up under the exact value AND the URL host, the same keys the
+    // policy's known-check matches on (see counterpartyFirstSeenForDestination).
     counterpartyFirstSeenMs: destination
-      ? store.counterpartyFirstSeenMs(orgId, destination)
+      ? store.counterpartyFirstSeenForDestination(orgId, destination)
       : undefined,
     // P6-T3: what the money is FOR. Uncategorised destinations fall through
     // to the agent/org caps, which is the pre-existing behaviour.

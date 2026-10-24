@@ -356,6 +356,14 @@ export interface TreasuryMoveRow {
   createdAt: string;
   resolvedAt?: string;
   resolvedBy?: string;
+  /**
+   * "move" (default) shifts money between internal wallets. "withdraw" is a
+   * guardian withdrawal out of the org treasury that went above the treasury
+   * approval threshold and is waiting for guardian review.
+   */
+  kind?: "move" | "withdraw";
+  /** Withdrawals only: where the money goes once approved. */
+  destination?: string;
 }
 
 export interface RecoveryEventRow {
@@ -1029,6 +1037,10 @@ for (const migration of [
   "ALTER TABLE agent_groups ADD COLUMN budget_id TEXT",
   "ALTER TABLE agent_groups ADD COLUMN auto_fund_json TEXT",
   "ALTER TABLE agents ADD COLUMN budget_id TEXT",
+  // Treasury approval threshold: withdrawals above it park in treasury_moves
+  // for guardian review (kind = 'withdraw', destination = where it goes).
+  "ALTER TABLE treasury_moves ADD COLUMN kind TEXT",
+  "ALTER TABLE treasury_moves ADD COLUMN destination TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -1556,6 +1568,8 @@ function rowToTreasuryMove(r: Row): TreasuryMoveRow {
     createdAt: r.created_at as string,
     resolvedAt: (r.resolved_at as string | null) ?? undefined,
     resolvedBy: (r.resolved_by as string | null) ?? undefined,
+    kind: r.kind === "withdraw" ? "withdraw" : "move",
+    destination: (r.destination as string | null) ?? undefined,
   };
 }
 
@@ -2553,8 +2567,8 @@ export const store = {
     const full: TreasuryMoveRow = { ...row, votes: row.votes ?? [] };
     db.prepare(
       `INSERT INTO treasury_moves
-        (id, org_id, from_scope, from_id, to_scope, to_id, amount_micro, asset_id, memo, status, votes_json, created_at, resolved_at, resolved_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, org_id, from_scope, from_id, to_scope, to_id, amount_micro, asset_id, memo, status, votes_json, created_at, resolved_at, resolved_by, kind, destination)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       full.id,
       full.orgId,
@@ -2570,9 +2584,26 @@ export const store = {
       full.createdAt,
       full.resolvedAt ?? null,
       full.resolvedBy ?? null,
+      full.kind ?? "move",
+      full.destination ?? null,
     );
     bumpRevision();
-    return full;
+    return { ...full, kind: full.kind ?? "move" };
+  },
+
+  /**
+   * Atomically take a pending treasury move for execution. Returns false when
+   * another resolve already took it, so two approvals racing on the same
+   * parked withdrawal can never both send money.
+   */
+  claimPendingTreasuryMove(moveId: string, votes: string[], resolvedBy: string): boolean {
+    const info = db
+      .prepare(
+        "UPDATE treasury_moves SET status = 'executed', votes_json = ?, resolved_at = ?, resolved_by = ? WHERE id = ? AND status = 'pending'",
+      )
+      .run(JSON.stringify(votes), nowIso(), resolvedBy, moveId);
+    if (info.changes > 0) bumpRevision();
+    return info.changes > 0;
   },
 
   getTreasuryMoveAnyOrg(moveId: string): TreasuryMoveRow | undefined {
@@ -3368,6 +3399,48 @@ export const store = {
     return pending.reduce((sum, row) => sum + parseMicroColumn(row.amount_micro), 0n);
   },
 
+  /**
+   * First-seen time for a payment destination, looked up under every key the
+   * policy engine uses to call it "known".
+   *
+   * The engine treats a destination as known when either its exact value or,
+   * for URLs, its hostname is in `known_counterparties`. The cooldown lookup
+   * used to read only the exact value, so a URL whose HOST had just been added
+   * (allowlisted a minute ago) found no row, fell into the "predates the
+   * column" branch, and skipped the cooldown entirely. Reading the same keys
+   * the known-check reads closes that gap.
+   *
+   * - no matching row          -> undefined (the engine already treats it as new)
+   * - any matching legacy row  -> undefined (established before timestamps existed)
+   * - otherwise                -> the EARLIEST first-seen among the matches, so
+   *   a long-known host is not demoted by a brand-new path on it
+   */
+  counterpartyFirstSeenForDestination(orgId: string, destination: string): number | undefined {
+    const raw = destination.trim().toLowerCase();
+    if (!raw) return undefined;
+    const keys = new Set([raw]);
+    if (raw.startsWith("http")) {
+      try {
+        keys.add(new URL(raw).hostname);
+      } catch {
+        /* not a URL - the raw key is all there is */
+      }
+    }
+    let earliest: number | undefined;
+    let matched = false;
+    for (const key of keys) {
+      const r = db
+        .prepare("SELECT first_seen_at FROM known_counterparties WHERE org_id = ? AND value = ?")
+        .get(orgId, key) as Row | undefined;
+      if (!r) continue;
+      matched = true;
+      const ms = r.first_seen_at ? Date.parse(String(r.first_seen_at)) : NaN;
+      if (!Number.isFinite(ms)) return undefined;
+      earliest = earliest === undefined ? ms : Math.min(earliest, ms);
+    }
+    return matched ? earliest : undefined;
+  },
+
   /** Epoch ms this counterparty was first recorded, if known. */
   counterpartyFirstSeenMs(orgId: string, value: string): number | undefined {
     const r = db
@@ -4007,6 +4080,13 @@ export const store = {
     } catch {
       /* merchants table may race on first boot; counterparty write already landed */
     }
+  },
+
+  /** Test hook: backdate a counterparty's first sighting. */
+  __setCounterpartyFirstSeenForTests(orgId: string, value: string, iso: string): void {
+    db.prepare(
+      "UPDATE known_counterparties SET first_seen_at = ? WHERE org_id = ? AND value = ?",
+    ).run(iso, orgId, value.trim().toLowerCase());
   },
 
   removeKnownCounterparty(orgId: string, value: string): void {

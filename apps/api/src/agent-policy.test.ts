@@ -320,3 +320,111 @@ describe("counterparty first-seen", () => {
     assert.equal(store.counterpartyFirstSeenMs(org.id, "never.example"), undefined);
   });
 });
+
+/**
+ * Cooldown reliability. The policy calls a URL destination "known" when its
+ * exact value OR its host is a known counterparty, but the first-seen lookup
+ * used to read only the exact value. A URL on a host added a minute ago found
+ * no row, was treated as "established before timestamps existed", and skipped
+ * the cooldown. These pin the lookup to the same keys the known-check uses.
+ */
+describe("counterparty cooldown keys", () => {
+  const HOST = "fresh-vendor.example";
+  const URL_ON_HOST = `https://${HOST}/v1/pay`;
+
+  function cooldownOrg(hours: number) {
+    const org = store.createOrg("Cooldown Keys Co", 1_000_000_000n);
+    const agent = store.createAgent(org.id, "Payer");
+    const t = store.getPolicyTemplate(org.id);
+    store.setPolicyTemplate(org.id, {
+      ...t,
+      vendorAllowlist: [],
+      domainAllowlist: [HOST],
+      perTxMaxMicro: 25_000_000n,
+      dailyMaxMicro: 100_000_000n,
+      hitlAboveMicro: 20_000_000n,
+      hitlCategories: [],
+      quietHours: undefined,
+      newCounterpartyCooldownHours: hours,
+    });
+    // Fund it, as orgWithTwoAgents does — an unfunded agent is frozen.
+    store.applyEntries(org.id, [
+      {
+        id: id("j"),
+        orgId: org.id,
+        memo: "seed",
+        createdAt: new Date().toISOString(),
+        lines: [
+          { accountId: `org:${org.id}:available`, deltaMicro: -100_000_000n },
+          { accountId: `agent:${agent.agentId}:available`, deltaMicro: 100_000_000n },
+        ],
+      },
+    ]);
+    return { org, agentId: agent.agentId };
+  }
+
+  function judge(orgId: string, agentId: string, destination: string) {
+    return evaluatePolicy(
+      {
+        agentId,
+        orgId,
+        tool: "pay_api",
+        amountMicro: 1_000_000n,
+        destination,
+        jobId: "job_cooldown",
+        idempotencyKey: id("idem"),
+      },
+      rulesFor(agentId, orgId, destination),
+    );
+  }
+
+  it("keeps a URL in cooldown when only its host was just added", () => {
+    const { org, agentId } = cooldownOrg(24);
+    store.addKnownCounterparty(org.id, HOST); // e.g. allowlisted a minute ago
+    const firstSeen = store.counterpartyFirstSeenForDestination(org.id, URL_ON_HOST);
+    assert.ok(firstSeen, "the host's first-seen time must be found for a URL on it");
+    const d = judge(org.id, agentId, URL_ON_HOST);
+    assert.equal(d.outcome, "review", JSON.stringify(d));
+    assert.ok(d.ruleIds.includes("new_counterparty"));
+    assert.match(d.reasons.join(" "), /24h cooldown/);
+  });
+
+  it("releases the URL once the host has been known for the full cooldown", () => {
+    const { org, agentId } = cooldownOrg(1);
+    store.addKnownCounterparty(org.id, HOST);
+    const tooOld = new Date(Date.now() - 2 * 3600_000).toISOString();
+    // Backdate the host's first sighting past the 1h cooldown.
+    store.__setCounterpartyFirstSeenForTests(org.id, HOST, tooOld);
+    assert.equal(judge(org.id, agentId, URL_ON_HOST).outcome, "allow");
+  });
+
+  it("uses the earliest sighting when both the host and the exact URL are known", () => {
+    const { org } = cooldownOrg(24);
+    store.addKnownCounterparty(org.id, HOST);
+    store.__setCounterpartyFirstSeenForTests(
+      org.id,
+      HOST,
+      new Date(Date.now() - 48 * 3600_000).toISOString(),
+    );
+    store.addKnownCounterparty(org.id, URL_ON_HOST); // brand-new path on an old host
+    const seen = store.counterpartyFirstSeenForDestination(org.id, URL_ON_HOST)!;
+    assert.ok(Date.now() - seen >= 47 * 3600_000, "an old host is not demoted by a new path");
+  });
+
+  it("is still undefined for a destination nobody has seen", () => {
+    const { org } = cooldownOrg(24);
+    assert.equal(
+      store.counterpartyFirstSeenForDestination(org.id, "https://never.example/x"),
+      undefined,
+    );
+  });
+
+  it("a first payment to a never-seen destination is reviewed, not allowed", () => {
+    const { org, agentId } = cooldownOrg(24);
+    const d = judge(org.id, agentId, URL_ON_HOST);
+    // Not allowlisted-and-known yet: the domain allowlist matches, the
+    // counterparty is new, so it waits for a human.
+    assert.equal(d.outcome, "review");
+    assert.ok(d.ruleIds.includes("new_counterparty"));
+  });
+});

@@ -4,7 +4,15 @@ import { Icon, fmtUsd } from "./ui";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
 import { SmoothBarChart } from "./smooth-bar-chart";
-import { applyJudgmentBandDrag, formatBandUsd, judgmentScaleMax, MAX_BAND } from "./judgment-bands";
+import {
+  applyJudgmentBandDrag,
+  bandOutcomeFor,
+  bandPreviewSegments,
+  formatBandUsd,
+  judgmentScaleMax,
+  MAX_BAND,
+} from "./judgment-bands";
+import { AmountStepper } from "@/components/ui/amount-stepper";
 import { BudgetsPanel } from "./policy-budgets-panel";
 import { okJson } from "./api-response";
 
@@ -155,14 +163,16 @@ function LimitControl({
   invalid?: string;
 }) {
   const n = Number(value) || 0;
+  const id = `limit-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
-    <div className="field">
-      <div className="between" style={{ marginBottom: 7 }}>
-        <label style={{ margin: 0 }}>{label}</label>
-        <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+    <div className={`field limit-control${invalid ? " is-invalid" : ""}`}>
+      <div className="limit-control-head">
+        <label htmlFor={id}>{label}</label>
+        <div className="limit-control-value">
           {money && <span className="faint mono">$</span>}
           <input
-            style={{ width: 84, textAlign: "right", padding: "5px 8px" }}
+            id={id}
+            inputMode="numeric"
             value={value}
             onChange={(e) => onChange(e.target.value)}
           />
@@ -171,6 +181,7 @@ function LimitControl({
       <input
         type="range"
         className="slider"
+        aria-label={label}
         min={min}
         max={max}
         step={step}
@@ -216,6 +227,7 @@ export function PolicyView({
   const [quietOn, setQuietOn] = useState(!!policy.quietHours);
   const [automation, setAutomation] = useState(policy.automation ?? []);
   const [touched, setTouched] = useState(false);
+  const [bandProbe, setBandProbe] = useState("");
   const [versions, setVersions] = useState<
     {
       id: string;
@@ -434,19 +446,19 @@ export function PolicyView({
 
       {tab === "limits" && (
         <div className="grid g-main fill">
-          <div className="card">
+          <div className="card judgment-card">
             <div className="card-head">
               <div>
                 <h2>Judgment bands</h2>
                 <div className="sub">
-                  Same drag bars as Agent spend — linked bands keep the review gap and daily
-                  headroom nested as you move them. Nothing is live until you save.
+                  Every agent payment lands in one of three bands by its amount. Drag the bars or
+                  type exact values — nothing is live until you save.
                 </div>
               </div>
             </div>
             <SmoothBarChart
               title="Payment judgment"
-              hint="Drag · thinner spend-style bars · gaps nest only when needed"
+              hint="Drag a bar · neighbours move only if the bands would overlap"
               height={118}
               disabled={locked}
               scaleMax={judgmentScaleMax({ hitl, cap, daily })}
@@ -499,17 +511,135 @@ export function PolicyView({
                 });
               }}
             />
-            <div className="band-legend" style={{ marginTop: 14 }}>
-              <span>
-                <i className="ok" /> Settles instantly under {fmtUsd(hitl)}
-              </span>
-              <span>
-                <i className="warn" /> Waits for you {fmtUsd(hitl)}–{fmtUsd(cap)}
-              </span>
-              <span>
-                <i className="bad" /> Always refused over {fmtUsd(cap)}
-              </span>
+
+            <div className="band-controls" role="group" aria-label="Exact band values">
+              <div className={`band-control tone-warn${bandsInvalid ? " is-invalid" : ""}`}>
+                <label htmlFor="band-hitl">Ask me above</label>
+                <AmountStepper
+                  id="band-hitl"
+                  value={f.hitlAboveUsdc}
+                  onChange={(v) => set("hitlAboveUsdc")(v)}
+                  min={0}
+                  max={MAX_BAND}
+                  step={0.5}
+                  disabled={locked}
+                  inputProps={{ "aria-describedby": "band-hitl-help" }}
+                />
+                <p id="band-hitl-help">
+                  Payments above this wait for a guardian. At or below it, they settle instantly.
+                </p>
+              </div>
+              <div className={`band-control tone-bad${bandsInvalid ? " is-invalid" : ""}`}>
+                <label htmlFor="band-cap">Per-payment ceiling</label>
+                <AmountStepper
+                  id="band-cap"
+                  value={f.perTxMaxUsdc}
+                  onChange={(v) => set("perTxMaxUsdc")(v)}
+                  min={0.5}
+                  max={MAX_BAND}
+                  step={0.5}
+                  disabled={locked}
+                  inputProps={{ "aria-describedby": "band-cap-help" }}
+                />
+                <p id="band-cap-help">
+                  The most one payment can ever be. Anything larger is refused, even with approval.
+                </p>
+              </div>
+              <div className={`band-control tone-ok${dailyInvalid ? " is-invalid" : ""}`}>
+                <label htmlFor="band-daily">Daily max per agent</label>
+                <AmountStepper
+                  id="band-daily"
+                  value={f.dailyMaxUsdc}
+                  onChange={(v) => set("dailyMaxUsdc")(v)}
+                  min={0.5}
+                  max={MAX_BAND}
+                  step={1}
+                  disabled={locked}
+                  inputProps={{ "aria-describedby": "band-daily-help" }}
+                />
+                <p id="band-daily-help">
+                  Total one agent can spend in any rolling 24 hours. Must be at least the ceiling.
+                </p>
+              </div>
             </div>
+
+            {(() => {
+              const seg = bandPreviewSegments({ hitl, cap, daily });
+              const probe = Number(bandProbe) || 0;
+              const outcome = bandOutcomeFor(probe, { hitl, cap, daily });
+              const perDay = cap > 0 ? Math.floor(daily / cap) : 0;
+              return (
+                <div className="band-preview" aria-live="polite">
+                  <div className="band-preview-head">
+                    <span className="band-preview-title">Resulting ranges</span>
+                    <span className="faint">per payment, before allowlists and cool-down</span>
+                  </div>
+                  <div className="band-preview-bar" aria-hidden>
+                    <span className="seg ok" style={{ width: `${seg.instant}%` }} />
+                    <span className="seg warn" style={{ width: `${seg.review}%` }} />
+                    <span className="seg bad" style={{ width: `${seg.refused}%` }} />
+                  </div>
+                  <div className="band-preview-scale" aria-hidden>
+                    <span>$0</span>
+                    <span style={{ left: `${seg.instant}%` }}>{fmtUsd(hitl)}</span>
+                    <span style={{ left: `${seg.instant + seg.review}%` }}>{fmtUsd(cap)}</span>
+                  </div>
+                  <ul className="band-preview-list">
+                    <li>
+                      <i className="ok" />
+                      <b>Settles instantly</b>
+                      <span className="mono">$0 – {fmtUsd(hitl)}</span>
+                    </li>
+                    <li>
+                      <i className="warn" />
+                      <b>Waits for approval</b>
+                      <span className="mono">
+                        {bandsInvalid ? "—" : `over ${fmtUsd(hitl)} up to ${fmtUsd(cap)}`}
+                      </span>
+                    </li>
+                    <li>
+                      <i className="bad" />
+                      <b>Always refused</b>
+                      <span className="mono">over {fmtUsd(cap)}</span>
+                    </li>
+                    <li>
+                      <i className="mute" />
+                      <b>Daily total per agent</b>
+                      <span className="mono">
+                        {fmtUsd(daily)}
+                        {perDay > 0 ? ` · ${perDay}× the ceiling` : ""}
+                      </span>
+                    </li>
+                  </ul>
+                  <div className="band-probe">
+                    <label htmlFor="band-probe">Try an amount</label>
+                    <AmountStepper
+                      id="band-probe"
+                      size="sm"
+                      value={bandProbe}
+                      onChange={setBandProbe}
+                      min={0}
+                      max={MAX_BAND}
+                      step={1}
+                    />
+                    {bandProbe === "" ? (
+                      <span className="faint">See which band a payment lands in.</span>
+                    ) : (
+                      <span
+                        className={`pill ${outcome === "instant" ? "ok" : outcome === "review" ? "warn" : "bad"}`}
+                      >
+                        <i />
+                        {outcome === "instant"
+                          ? "Settles instantly"
+                          : outcome === "review"
+                            ? "Waits for a guardian"
+                            : "Refused"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           <div className="card">
@@ -533,7 +663,11 @@ export function PolicyView({
             />
             <LimitControl
               label="New counterparty cool-down (hours)"
-              hint="First payment to a never-seen destination waits this long or needs approval."
+              hint={
+                Number(f.newCounterpartyCooldownHours) > 0
+                  ? `A destination first seen less than ${Number(f.newCounterpartyCooldownHours)}h ago waits for a guardian — including the very first payment. 0 turns the cool-down off.`
+                  : "Off — payments to brand-new destinations are judged by the bands alone."
+              }
               value={f.newCounterpartyCooldownHours}
               onChange={set("newCounterpartyCooldownHours")}
               min={0}
@@ -541,10 +675,8 @@ export function PolicyView({
               step={1}
               money={false}
             />
-            <div style={{ marginTop: 8 }}>
-              <div className="muted" style={{ fontSize: 12.5, marginBottom: 8 }}>
-                Always ask me for these tools
-              </div>
+            <div className="tool-chips">
+              <div className="tool-chips-label">Always ask me for these tools</div>
               <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
                 {(["pay_api", "pay_address", "x402", "escrow"] as const).map((cat) => {
                   const on = f.hitlCategories.includes(cat);
@@ -988,28 +1120,11 @@ export function PolicyView({
                         Restrict amount
                       </label>
                       {restricted && (
-                        <input
-                          className="sm"
-                          style={{ width: 88 }}
-                          disabled={readOnly}
-                          value={g.conditions?.maxApproveUsdc ?? "50"}
-                          onChange={(e) =>
-                            setGuardians((list) =>
-                              list.map((x) =>
-                                x.id === g.id
-                                  ? {
-                                      ...x,
-                                      conditions: {
-                                        ...x.conditions,
-                                        restricted: true,
-                                        maxApproveUsdc: e.target.value,
-                                      },
-                                    }
-                                  : x,
-                              ),
-                            )
-                          }
-                          onBlur={() =>
+                        <span
+                          className="amount-stepper-wrap"
+                          onBlur={(e) => {
+                            // Save once focus leaves the whole stepper (input or its buttons).
+                            if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
                             void act("Save restriction", async () => {
                               const conditions = {
                                 restricted: true,
@@ -1023,11 +1138,36 @@ export function PolicyView({
                               const d = await res.json();
                               if (!res.ok) throw new Error(d.error?.message ?? "update failed");
                               return `Max approve $${conditions.maxApproveUsdc} for ${g.name}.`;
-                            })
-                          }
-                          placeholder="Max $"
-                          title="Max USDC this guardian may approve alone"
-                        />
+                            });
+                          }}
+                        >
+                          <AmountStepper
+                            size="sm"
+                            className="w-compact"
+                            label={`${g.name} approval limit`}
+                            disabled={readOnly}
+                            step={5}
+                            value={g.conditions?.maxApproveUsdc ?? "50"}
+                            onChange={(v) =>
+                              setGuardians((list) =>
+                                list.map((x) =>
+                                  x.id === g.id
+                                    ? {
+                                        ...x,
+                                        conditions: {
+                                          ...x.conditions,
+                                          restricted: true,
+                                          maxApproveUsdc: v,
+                                        },
+                                      }
+                                    : x,
+                                ),
+                              )
+                            }
+                            placeholder="Max $"
+                            inputProps={{ title: "Max USDC this guardian may approve alone" }}
+                          />
+                        </span>
                       )}
                     </div>
                   </div>
