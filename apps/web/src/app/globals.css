@@ -4220,6 +4220,292 @@ input[type="range"].slider::-moz-range-thumb {
   position: relative;
 }
 
+/* Agent profile (API › select an agent) — compact layout.
+   Capacity, policy, actions and recent decisions stay up top; runs,
+   session keys and identity editing live in collapsed sections. */
+.agent-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.agent-profile > .empty {
+  margin: auto 0;
+}
+
+.agent-profile-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agent-profile-title {
+  min-width: 0;
+}
+
+.agent-profile-title h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-profile-title .sub {
+  margin-top: 2px;
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.agent-profile-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-3);
+}
+
+.agent-profile-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 12px;
+}
+
+.agent-profile-stat:nth-child(odd) {
+  border-right: 1px solid var(--border);
+}
+
+.agent-profile-stat:nth-child(-n + 2) {
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-profile-stat > span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.agent-profile-stat > b {
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.agent-profile-stat:nth-child(-n + 2) > b {
+  font-size: 18px;
+}
+
+.agent-profile-policy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  font-size: 12px;
+}
+
+.agent-profile-tally {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.agent-profile-budget > label,
+.agent-profile-groups > span {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.agent-profile-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-profile-inline > select {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.agent-profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-profile-activity h3 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.agent-profile-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-soft, var(--border));
+}
+
+.agent-profile-row:last-child {
+  border-bottom: 0;
+}
+
+.agent-profile-row-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-profile-ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-profile-empty {
+  font-size: 12px;
+}
+
+.agent-profile-more > summary {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.agent-profile-section {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.agent-profile-section > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.agent-profile-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-profile-section > summary > span:first-child::before {
+  content: "▸";
+  display: inline-block;
+  width: 14px;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.agent-profile-section[open] > summary > span:first-child::before {
+  transform: rotate(90deg);
+}
+
+.agent-profile-section > summary > .faint {
+  font-size: 11.5px;
+  font-weight: 400;
+}
+
+.agent-profile-section-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 2px 12px 12px;
+}
+
+.agent-profile-section-body > * {
+  max-width: 100%;
+}
+
+.agent-profile-section-body > .agent-profile-list,
+.agent-profile-section-body > .agent-profile-field,
+.agent-profile-form-grid,
+.agent-profile-groups {
+  align-self: stretch;
+}
+
+.agent-profile-field {
+  margin: 0;
+}
+
+.agent-profile-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.agent-profile-checks > label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.agent-profile-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.agent-profile-form-grid > label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.agent-profile-form-grid input {
+  min-width: 0;
+  width: 100%;
+}
+
+.agent-profile-secret {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 12px;
+}
+
+.agent-profile-secret code {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+@media (max-width: 520px) {
+  .agent-profile-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .approval-workspace {
   display: flex;
   flex-direction: column;
