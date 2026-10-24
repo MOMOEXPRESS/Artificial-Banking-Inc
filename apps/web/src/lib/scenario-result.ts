@@ -1,4 +1,4 @@
-import type { RunStep } from "./mission";
+import type { RunStep } from "./workflow/types";
 import type { View } from "./console-types";
 
 export type PlainApiResult = {
