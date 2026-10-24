@@ -12434,3 +12434,386 @@ button.sm.ghost.on {
     white-space: nowrap;
   }
 }
+
+/* ------------------------------------------------- API keys card (API → API keys) */
+
+.api-keys-card,
+.console-page .card.api-keys-card {
+  container: api-keys / inline-size;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.api-keys-card > .api-keys-head {
+  margin: 0;
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.api-keys-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.api-keys-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: var(--color-surface-3);
+  color: var(--color-fg-secondary);
+}
+
+.api-keys-card .api-keys-head h2 {
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+
+.api-keys-card .api-keys-head .sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.api-keys-card > .api-keys-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--color-border-soft);
+  background: color-mix(in srgb, var(--color-surface-3) 45%, transparent);
+}
+
+.api-keys-create input,
+.api-keys-create select,
+.api-keys-create > button {
+  width: 100%;
+  height: 36px;
+  min-width: 0;
+  margin: 0;
+  border-radius: 8px;
+}
+
+.api-keys-create input,
+.api-keys-create select {
+  padding: 0 11px;
+  background: var(--color-surface-2);
+  font-family: var(--font-sans-stack, var(--sans));
+  font-size: 13px;
+}
+
+.api-keys-create > button {
+  width: auto;
+  padding: 0 14px;
+  font-size: 12.5px;
+}
+
+.api-keys-card > .api-keys-notice {
+  margin: 14px 20px 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
+  border-radius: 8px;
+  background: var(--color-warning-soft);
+  color: var(--color-fg-secondary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.api-keys-card > .empty {
+  margin: 16px 20px 20px;
+  padding: 32px 20px;
+  border: 1px dashed var(--color-border);
+  border-radius: 10px;
+}
+
+.api-keys-card > .api-keys-table {
+  max-width: 100%;
+}
+
+.api-keys-table table {
+  min-width: 700px;
+  font-size: 13px;
+}
+
+.api-keys-table th {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-border-soft);
+  background: color-mix(in srgb, var(--color-surface-3) 45%, transparent);
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+}
+
+.api-keys-table td {
+  height: 52px;
+  padding: 10px 12px;
+  border-top: 0;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.api-keys-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.api-keys-table th:first-child,
+.api-keys-table td:first-child {
+  padding-left: 20px;
+}
+
+.api-keys-table th:last-child,
+.api-keys-table td:last-child {
+  padding-right: 20px;
+}
+
+.api-keys-table tbody tr:hover {
+  background: color-mix(in srgb, var(--color-surface-3) 55%, transparent);
+}
+
+.api-keys-table tbody tr.on {
+  background: var(--color-accent-soft);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.api-keys-table .akc-name {
+  height: auto;
+  min-height: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-fg);
+  font-size: 13px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+}
+
+.api-keys-table .akc-name:hover:not(:disabled) {
+  background: transparent;
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.api-keys-table .akc-budget-cell,
+.api-keys-table .akc-spend-cell {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.api-keys-table .akc-group-cell {
+  color: var(--color-fg-muted);
+}
+
+.akc-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-3);
+  color: var(--color-fg-muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
+
+.akc-key svg {
+  flex: 0 0 auto;
+  opacity: 0.85;
+}
+
+.akc-key.is-live {
+  border-color: color-mix(in srgb, var(--color-success) 32%, transparent);
+  background: var(--color-success-soft);
+  color: color-mix(in srgb, var(--color-success) 78%, var(--color-fg));
+}
+
+.akc-key.is-revoked {
+  border-style: dashed;
+  color: var(--color-fg-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--color-fg-muted) 60%, transparent);
+}
+
+.api-keys-table .akc-actions {
+  flex-wrap: nowrap;
+}
+
+.api-keys-table .akc-actions > button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-fg-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.api-keys-table .akc-actions > button:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+  color: var(--color-fg);
+}
+
+/* Medium card: the create form folds onto two lines. */
+@container api-keys (max-width: 720px) {
+  .api-keys-card > .api-keys-create {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .api-keys-create input {
+    grid-column: 1 / -1;
+  }
+
+  .api-keys-create > button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
+/* Narrow card: each key becomes a stacked row, no horizontal scroll. */
+@container api-keys (max-width: 620px) {
+  .api-keys-card > .api-keys-head,
+  .api-keys-card > .api-keys-create {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .api-keys-card > .api-keys-table {
+    overflow: visible;
+  }
+
+  .api-keys-table table {
+    display: block;
+    min-width: 0;
+  }
+
+  .api-keys-table thead {
+    display: none;
+  }
+
+  .api-keys-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .api-keys-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--color-border-soft);
+    border-radius: 10px;
+    background: var(--color-surface-2);
+  }
+
+  .api-keys-table tbody tr:hover {
+    background: var(--color-surface-2);
+  }
+
+  .api-keys-table tbody tr.on {
+    border-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+    box-shadow: none;
+  }
+
+  .api-keys-table td,
+  .api-keys-table td:first-child,
+  .api-keys-table td:last-child {
+    display: flex;
+    grid-column: 1 / -1;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    height: auto;
+    min-width: 0;
+    padding: 6px 0;
+    line-height: 1.4;
+    border: 0;
+    border-top: 1px solid var(--color-border-soft);
+    white-space: normal;
+    text-align: right;
+  }
+
+  .console-page .api-keys-table td,
+  .console-page .api-keys-table td:first-child {
+    position: static;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .api-keys-table td[data-label]::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--color-fg-faint);
+    font-family: var(--font-sans-stack, var(--sans));
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.07em;
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  .api-keys-table td.akc-name-cell {
+    grid-column: 1;
+    padding: 0 0 10px;
+    border-top: 0;
+    text-align: left;
+  }
+
+  .api-keys-table td.akc-name-cell::before,
+  .api-keys-table td.akc-status-cell::before {
+    content: none;
+  }
+
+  .api-keys-table td.akc-status-cell {
+    grid-column: 2;
+    grid-row: 1;
+    justify-content: flex-end;
+    padding: 0 0 10px;
+    border-top: 0;
+  }
+
+  .api-keys-table .akc-name {
+    font-size: 14px;
+  }
+
+  .api-keys-table td.akc-actions-cell {
+    padding-top: 10px;
+  }
+
+  .api-keys-table td.akc-actions-cell > .akc-actions {
+    width: 100%;
+    justify-content: flex-start !important;
+  }
+
+  .api-keys-table .akc-actions > button {
+    flex: 1 1 0;
+  }
+}
+
+@container api-keys (max-width: 380px) {
+  .api-keys-card > .api-keys-create {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .api-keys-card > .empty {
+    margin: 12px;
+  }
+}
