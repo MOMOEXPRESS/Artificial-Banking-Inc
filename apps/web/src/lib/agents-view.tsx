@@ -264,60 +264,65 @@ export function AgentsView({
 
       {tab === "roster" && (
         <div className="grid g-main fill">
-          <div className="card">
-            <div className="card-head">
-              <div>
-                <h2>API keys</h2>
-                <div className="sub">{agents.length} connections</div>
-              </div>
-              <div className="agent-create-controls">
-                <input
-                  placeholder="Connection name (e.g. research service)"
-                  aria-label="Connection name"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                />
-                <select
-                  value={newBudgetId}
-                  disabled={locked || budgets.filter((b) => b.status !== "archived").length === 0}
-                  onChange={(e) => setNewBudgetId(e.target.value)}
-                  aria-label="Agent spending budget"
-                >
-                  <option value="">Choose budget…</option>
-                  {budgets
-                    .filter((b) => b.status !== "archived")
-                    .map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
-                </select>
-                <select
-                  value={newGroupId}
-                  disabled={locked || groups.filter((g) => g.status === "active").length === 0}
-                  onChange={(e) => setNewGroupId(e.target.value)}
-                  aria-label="Optional agent group label"
-                >
-                  <option value="">No group label</option>
-                  {groups
-                    .filter((g) => g.status === "active")
-                    .map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name}
-                      </option>
-                    ))}
-                </select>
-                <Button
-                  size="sm"
-                  disabled={locked || !newName.trim() || !newBudgetId}
-                  onClick={() => void createAgent()}
-                >
-                  Create API key
-                </Button>
+          <div className="card api-keys-card">
+            <div className="card-head api-keys-head">
+              <div className="api-keys-title">
+                <span className="api-keys-icon" aria-hidden>
+                  <Icon name="key" size={16} />
+                </span>
+                <div>
+                  <h2>API keys</h2>
+                  <div className="sub">{agents.length} connections</div>
+                </div>
               </div>
             </div>
+            <div className="agent-create-controls api-keys-create">
+              <input
+                placeholder="Connection name (e.g. research service)"
+                aria-label="Connection name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+              />
+              <select
+                value={newBudgetId}
+                disabled={locked || budgets.filter((b) => b.status !== "archived").length === 0}
+                onChange={(e) => setNewBudgetId(e.target.value)}
+                aria-label="Agent spending budget"
+              >
+                <option value="">Choose budget…</option>
+                {budgets
+                  .filter((b) => b.status !== "archived")
+                  .map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+              </select>
+              <select
+                value={newGroupId}
+                disabled={locked || groups.filter((g) => g.status === "active").length === 0}
+                onChange={(e) => setNewGroupId(e.target.value)}
+                aria-label="Optional agent group label"
+              >
+                <option value="">No group label</option>
+                {groups
+                  .filter((g) => g.status === "active")
+                  .map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+              </select>
+              <Button
+                size="sm"
+                disabled={locked || !newName.trim() || !newBudgetId}
+                onClick={() => void createAgent()}
+              >
+                Create API key
+              </Button>
+            </div>
             {budgets.filter((b) => b.status !== "archived").length === 0 ? (
-              <div className="agent-create-group">
+              <div className="agent-create-group api-keys-notice">
                 <span>
                   No active budgets yet. Create a budget in Treasury before creating an API
                   connection.
@@ -328,7 +333,7 @@ export function AgentsView({
               <Empty icon="key">No API yet. Choose a name and budget to create an API key.</Empty>
             ) : (
               <div
-                className="agent-roster-table"
+                className="agent-roster-table api-keys-table"
                 role="region"
                 aria-label="Agent roster"
                 tabIndex={0}
@@ -340,39 +345,50 @@ export function AgentsView({
                       <th>Status</th>
                       <th>Group</th>
                       <th>Assigned budget</th>
-                      <th>24h</th>
+                      <th className="num">24h</th>
                       <th>API key</th>
-                      <th />
+                      <th className="akc-actions-head" />
                     </tr>
                   </thead>
                   <tbody>
                     {agents.map((a) => (
                       <tr key={a.id} className={selected === a.id ? "on" : undefined}>
-                        <td>
+                        <td className="akc-name-cell" data-label="Name">
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="akc-name"
                             style={{ padding: 0, fontWeight: 600 }}
                             onClick={() => void loadDetail(a.id)}
                           >
                             {a.name}
                           </Button>
                         </td>
-                        <td>
+                        <td className="akc-status-cell" data-label="Status">
                           <span className={`pill ${statusTone(a.status)}`}>
                             <i /> {a.status}
                           </span>
                         </td>
-                        <td className="faint">
+                        <td className="faint akc-group-cell" data-label="Group">
                           {a.groupNames?.length ? a.groupNames.join(", ") : "—"}
                         </td>
-                        <td className="mono">
+                        <td className="mono akc-budget-cell" data-label="Assigned budget">
                           {a.budget?.name ?? "Unassigned"} · {fmt(a.availableUsdc)}
                         </td>
-                        <td className="mono faint">{fmt(a.spent24hUsdc)}</td>
-                        <td className="faint">{a.apiKeyLive ? "live" : "revoked"}</td>
-                        <td>
-                          <div className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
+                        <td className="mono faint num akc-spend-cell" data-label="24h">
+                          {fmt(a.spent24hUsdc)}
+                        </td>
+                        <td className="akc-key-cell" data-label="API key">
+                          <span className={`akc-key ${a.apiKeyLive ? "is-live" : "is-revoked"}`}>
+                            <Icon name="key" size={12} />
+                            {a.apiKeyLive ? "live" : "revoked"}
+                          </span>
+                        </td>
+                        <td className="akc-actions-cell">
+                          <div
+                            className="row akc-actions"
+                            style={{ gap: 6, justifyContent: "flex-end" }}
+                          >
                             {a.status === "active" && (
                               <Button
                                 variant="ghost"
