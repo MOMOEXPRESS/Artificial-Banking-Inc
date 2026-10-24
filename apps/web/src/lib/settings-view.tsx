@@ -819,32 +819,15 @@ export function SettingsView({
                   <i /> {golive.filter((g) => g.done).length}/{golive.length} ready
                 </span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div className="settings-checklist">
                 {golive.map((g) => (
-                  <div
-                    key={g.title}
-                    className="row"
-                    style={{ alignItems: "flex-start", gap: 11, flexWrap: "nowrap" }}
-                  >
-                    <span
-                      style={{
-                        width: 26,
-                        height: 26,
-                        borderRadius: 9,
-                        display: "grid",
-                        placeItems: "center",
-                        flexShrink: 0,
-                        background: g.done ? "var(--green-soft)" : "var(--surface-3)",
-                        color: g.done ? "var(--green)" : "var(--faint)",
-                      }}
-                    >
+                  <div key={g.title} className={`settings-check-item${g.done ? " is-done" : ""}`}>
+                    <span className="settings-check-icon">
                       <Icon name={g.done ? "check" : "clock"} size={14} />
                     </span>
-                    <div style={{ minWidth: 0 }}>
-                      <b style={{ fontSize: 13, display: "block" }}>{g.title}</b>
-                      <span className="muted" style={{ fontSize: 12, lineHeight: 1.55 }}>
-                        {g.body}
-                      </span>
+                    <div className="settings-check-copy">
+                      <b>{g.title}</b>
+                      <span className="muted">{g.body}</span>
                     </div>
                   </div>
                 ))}
@@ -1449,7 +1432,7 @@ export function SettingsView({
                     </div>
                   </div>
                 </div>
-                <div className="row" style={{ flexWrap: "wrap" }}>
+                <div className="row settings-inline-form" style={{ flexWrap: "wrap" }}>
                   <input
                     type="email"
                     autoComplete="email"
@@ -1527,7 +1510,7 @@ export function SettingsView({
                   </div>
                 </div>
               </div>
-              <div className="row">
+              <div className="row settings-quorum">
                 {[1, 2, 3].map((n) => (
                   <button
                     key={n}
@@ -1553,7 +1536,7 @@ export function SettingsView({
                     Anyone with a guardian key can approve spending for this org.
                   </div>
                 </div>
-                <div className="row">
+                <div className="row settings-inline-form settings-head-form">
                   <input
                     style={{ width: 170 }}
                     placeholder="Name"
@@ -1822,7 +1805,7 @@ ${agents || "_None saved in this browser session._"}
             <div className="card-head">
               <h2>Approval alerts</h2>
             </div>
-            <div className="between" style={{ marginBottom: 16 }}>
+            <div className="between settings-setting-row">
               <div style={{ minWidth: 0, paddingRight: 14 }}>
                 <b style={{ fontSize: 13, display: "block" }}>Open Approvals automatically</b>
                 <span className="muted" style={{ fontSize: 12, lineHeight: 1.55 }}>
@@ -1867,11 +1850,11 @@ ${agents || "_None saved in this browser session._"}
         )}
 
         {section === "danger" && (
-          <div className="card">
+          <div className="card settings-danger-card">
             <div className="card-head">
               <h2 style={{ color: "var(--red)" }}>Danger zone</h2>
             </div>
-            <div className="between">
+            <div className="between settings-setting-row">
               <div style={{ minWidth: 0, paddingRight: 14 }}>
                 <b style={{ fontSize: 13, display: "block" }}>Org-wide kill switch</b>
                 <span className="muted" style={{ fontSize: 12, lineHeight: 1.55 }}>
