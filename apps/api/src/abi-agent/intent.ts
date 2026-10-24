@@ -1,6 +1,8 @@
 /**
  * Lightweight intent classification for the keyword brain (no LLM required).
  */
+import { parseMemoryCommand } from "./memory-commands.js";
+
 export type AbiIntent =
   | "survey"
   | "agents"
@@ -20,6 +22,7 @@ export type AbiIntent =
   | "recommend"
   | "remember"
   | "recall"
+  | "forget"
   | "compare"
   | "help"
   | "unknown";
@@ -27,12 +30,8 @@ export type AbiIntent =
 export function classifyIntent(message: string): AbiIntent {
   const q = message.toLowerCase().trim();
 
-  if (/^(remember|note that|save that|don't forget)\b/.test(q) || /\bremember that\b/.test(q)) {
-    return "remember";
-  }
-  if (/\b(what did i tell you|what do you remember|recall|your notes)\b/.test(q)) {
-    return "recall";
-  }
+  const memory = parseMemoryCommand(message);
+  if (memory) return memory.kind;
   if (
     /\b(what should i|recommend|next step|priorit|urgent|attention|focus)\b/.test(q) ||
     /^(what now|help me decide)\??$/.test(q)

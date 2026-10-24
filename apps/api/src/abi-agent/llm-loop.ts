@@ -2,7 +2,7 @@
  * Optional OpenAI Chat Completions tool-calling loop for the ABI agent.
  * Falls back to keyword pickTools when no key / failure / empty tool use.
  */
-import { buildOrgContext, formatOrgContext } from "./context.js";
+import { buildOrgBriefSafe } from "./context.js";
 import {
   lastScratchpad,
   resolveFollowUp,
@@ -42,6 +42,8 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
     "Prioritized next actions for the guardian (approvals, low stipends, quiet, drift).",
   remember_fact: "Save a guardian-taught org fact to durable memory.",
   recall_facts: "Recall previously saved org facts / notes.",
+  forget_fact:
+    "Delete a saved org note. Pass target (words from the note, or its number from recall_facts) or all=true only when the guardian explicitly asks to clear everything.",
   draft_marketing_blurb: "Draft marketing copy from org facts (not published).",
 };
 
@@ -117,6 +119,22 @@ function openaiTools() {
         },
       };
     }
+    if (name === "forget_fact") {
+      return {
+        type: "function" as const,
+        function: {
+          name,
+          description: TOOL_DESCRIPTIONS[name],
+          parameters: {
+            type: "object",
+            properties: {
+              target: { type: "string", description: "Words from the note, or its list number" },
+              all: { type: "boolean", description: "Clear every note (explicit request only)" },
+            },
+          },
+        },
+      };
+    }
     if (name === "recall_facts") {
       return {
         type: "function" as const,
@@ -172,10 +190,10 @@ export async function runLlmToolLoop(
   const effectiveMessage = followed.query !== message ? followed.query : message;
   const history = transcriptSnippet(recent, 6);
   const scratch = scratchpadSnippet(lastScratchpad(recent));
-  const ctx = formatOrgContext(buildOrgContext(orgId));
+  const ctx = buildOrgBriefSafe(orgId);
   let memories = "";
   try {
-    const rows = store.listAbiMemories(orgId, 8);
+    const rows = store.listAbiMemories(orgId, 25);
     if (rows.length) {
       // Memories are guardian-supplied data, not an extension of the system
       // prompt. JSON encoding removes ambiguous list/heading structure and the
@@ -209,7 +227,8 @@ export async function runLlmToolLoop(
         "When asked about a named agent, call agent_detail.",
         "When asked why a payment was denied/reviewed, call explain_decision (and get_policy if useful).",
         "For guardian seats / who can approve, call governance_status.",
-        "For durable notes the guardian teaches you, call remember_fact; to list them call recall_facts.",
+        "For durable notes the guardian teaches you, call remember_fact; to list them call recall_facts; to delete one call forget_fact.",
+        "Use the guardian notes below as background facts about this org when they are relevant, and say when an answer relies on one. Connect notes to the live snapshot (e.g. a note about an agent + that agent's current spend) instead of repeating either back.",
         "When asked what to do next, prefer recommend_next.",
         "You cannot post anywhere or sign up for anything. For social or web copy, call draft_marketing_blurb and hand the guardian text to post themselves.",
         "After tools return, write a concise plain-text reply for the guardian.",
