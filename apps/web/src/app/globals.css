@@ -12817,3 +12817,545 @@ button.sm.ghost.on {
     margin: 12px;
   }
 }
+
+/* ------------------------------------------------- Settings: section-card system */
+/* Everything below is scoped to .settings-page so other console pages are untouched. */
+
+.settings-page .settings-content {
+  gap: 16px;
+}
+
+.settings-page .settings-section-summary {
+  padding: 2px 0 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.settings-page .settings-section-summary .ops-eyebrow {
+  margin-bottom: 6px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+}
+
+.settings-page .settings-section-summary h1 {
+  margin: 0 0 6px;
+  font-size: clamp(22px, 2.4vw, 26px);
+  letter-spacing: -0.03em;
+}
+
+.settings-page .settings-section-summary p {
+  margin: 0;
+  color: var(--color-fg-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* Section cards */
+.settings-page .settings-content .card {
+  container: settings-card / inline-size;
+  padding: 20px 22px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-solid);
+  box-shadow: 0 1px 2px rgba(16, 17, 22, 0.04);
+}
+
+.settings-page .settings-content .card:hover {
+  border-color: var(--color-border);
+}
+
+.settings-page .settings-content .card > .card-head {
+  align-items: flex-start;
+  gap: 12px 16px;
+  margin: 0 0 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.settings-page .settings-content .card > .card-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+}
+
+.settings-page .settings-content .card > .card-head .sub {
+  max-width: 64ch;
+  margin-top: 4px;
+  color: var(--color-fg-muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.settings-page .settings-content .card > .card-head > .pill {
+  margin-top: 2px;
+}
+
+/* Profile card keeps its own internal rhythm but shares the type scale. */
+.settings-page .settings-content .settings-profile-card {
+  gap: 20px;
+}
+
+.settings-page .settings-profile-meta span {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.settings-page .settings-profile-meta strong {
+  font-size: 12px;
+}
+
+.settings-page .settings-form-section-heading h2 {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.settings-page .settings-form-section-heading p,
+.settings-page .settings-field-help {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-fg-muted);
+}
+
+.settings-page .settings-profile-fields .field label {
+  font-size: 12px;
+}
+
+.settings-page .settings-profile-fields .field label span {
+  font-size: 11px;
+}
+
+/* Form controls */
+.settings-page .settings-content label,
+.settings-page .settings-content .field label {
+  color: var(--color-fg-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-page .settings-content input:not([type="checkbox"]):not([type="radio"]),
+.settings-page .settings-content select {
+  min-height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  font-size: 13px;
+}
+
+.settings-page .settings-content input:not([type="checkbox"]):not([type="radio"]):not(.mono) {
+  font-family: var(--font-sans-stack, var(--sans));
+}
+
+.settings-page .settings-content textarea {
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  font-size: 13px;
+}
+
+.settings-page .settings-content .field {
+  margin-bottom: 16px;
+}
+
+.settings-page .settings-content .field .hint,
+.settings-page .settings-content .field > p.faint {
+  margin-top: 6px;
+  color: var(--color-fg-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings-page .settings-content .card > button,
+.settings-page .settings-content .card > .row {
+  margin-top: 2px;
+}
+
+.settings-page .settings-content .row {
+  gap: 8px;
+}
+
+.settings-page .settings-content button.sm,
+.settings-page .settings-content .card button[class*="h-8"] {
+  min-height: 32px;
+  border-radius: 8px;
+}
+
+/* Wide cards: label + help on the left, control on the right. */
+@container settings-card (min-width: 640px) {
+  .settings-page .settings-content .card > .field {
+    display: grid;
+    grid-template-columns: minmax(180px, 230px) minmax(0, 1fr);
+    column-gap: 24px;
+    align-items: start;
+  }
+
+  .settings-page .settings-content .card > .field > label {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    margin: 0;
+    padding-top: 9px;
+    line-height: 1.4;
+  }
+
+  .settings-page .settings-content .card > .field > :not(label) {
+    grid-column: 2;
+    min-width: 0;
+  }
+}
+
+/* Key/value rows */
+.settings-page .settings-content .kv {
+  min-height: 42px;
+  padding: 10px 0;
+  border-top: 1px solid var(--color-border-soft);
+  font-size: 13px;
+}
+
+.settings-page .settings-content .card-head + .kv,
+.settings-page .settings-content .kv:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+  min-height: 32px;
+}
+
+.settings-page .settings-content .kv .k {
+  min-width: 0;
+  color: var(--color-fg-muted);
+  font-size: 12.5px;
+}
+
+.settings-page .settings-content .kv .v {
+  min-width: 0;
+  color: var(--color-fg);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Code, banners, notes */
+.settings-page .settings-content .code {
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  font-size: 12px;
+}
+
+.settings-page .settings-content .banner {
+  border-radius: 10px;
+}
+
+.settings-page .settings-content .card > p.muted,
+.settings-page .settings-content .card > p.faint {
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+/* Tables (merchants, invitations, logs) */
+.settings-page .settings-content table {
+  font-size: 12.5px;
+}
+
+.settings-page .settings-content th {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--color-border-soft);
+  background: var(--color-surface-2);
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+}
+
+.settings-page .settings-content th:first-child {
+  border-top-left-radius: 8px;
+}
+
+.settings-page .settings-content th:last-child {
+  border-top-right-radius: 8px;
+}
+
+.settings-page .settings-content td {
+  padding: 10px 12px;
+  border-top: 0;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.settings-page .settings-content tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Inline forms (invite, add guardian) */
+.settings-page .settings-inline-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 180px) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-page .settings-inline-form > input,
+.settings-page .settings-inline-form > select {
+  width: 100% !important;
+  margin: 0;
+}
+
+.settings-page .settings-inline-form > button {
+  min-height: 36px;
+}
+
+.settings-page .settings-head-form {
+  grid-template-columns: minmax(120px, 170px) minmax(100px, 130px) auto;
+}
+
+/* Approval quorum: a segmented choice */
+.settings-page .settings-quorum {
+  gap: 10px 12px;
+}
+
+.settings-page .settings-quorum > button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+
+.settings-page .settings-quorum > button.ghost {
+  background: var(--color-surface-2);
+  color: var(--color-fg-secondary);
+}
+
+.settings-page .settings-quorum > button:not(.ghost) {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+
+/* Toggle / action rows */
+.settings-page .settings-setting-row {
+  align-items: center;
+  gap: 16px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 10px;
+  background: var(--color-surface-2);
+}
+
+.settings-page .settings-setting-row b {
+  margin-bottom: 3px;
+  font-weight: 650;
+}
+
+.settings-page .settings-setting-row > button:not(.switch) {
+  flex: 0 0 auto;
+  min-height: 36px;
+  border-radius: 8px;
+}
+
+/* Danger zone */
+.settings-page .settings-content .settings-danger-card {
+  border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-border));
+}
+
+.settings-page .settings-content .settings-danger-card:hover {
+  border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-border));
+}
+
+.settings-page .settings-content .settings-danger-card > .card-head {
+  border-bottom-color: color-mix(in srgb, var(--color-danger) 18%, transparent);
+}
+
+.settings-page .settings-danger-card .settings-setting-row {
+  border-color: color-mix(in srgb, var(--color-danger) 22%, transparent);
+  background: color-mix(in srgb, var(--color-danger-soft) 45%, transparent);
+}
+
+/* Go-live checklist */
+.settings-page .settings-checklist {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-page .settings-check-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.settings-page .settings-check-item:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.settings-page .settings-check-item:last-child {
+  padding-bottom: 0;
+}
+
+.settings-page .settings-check-icon {
+  display: grid;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  color: var(--color-fg-faint);
+}
+
+.settings-page .settings-check-item.is-done .settings-check-icon {
+  border-color: color-mix(in srgb, var(--color-success) 30%, transparent);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.settings-page .settings-check-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.settings-page .settings-check-copy b {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.settings-page .settings-check-copy .muted {
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+/* AI & data: the radio no longer inherits width:100% and squeezes the copy. */
+.settings-page .ai-egress-choice > input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  flex: 0 0 16px;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: var(--color-accent);
+}
+
+.settings-page .ai-egress-choice {
+  background: var(--color-surface-2);
+}
+
+.settings-page .ai-egress-choice > span {
+  flex: 1 1 auto;
+}
+
+/* Narrow screens */
+@media (max-width: 640px) {
+  .settings-page .settings-content .card {
+    padding: 16px;
+  }
+
+  .settings-page .settings-inline-form,
+  .settings-page .settings-head-form {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .settings-page .settings-content .card > .card-head > .settings-head-form {
+    flex: 1 1 100%;
+  }
+
+  .settings-page .settings-setting-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-page .settings-setting-row > div {
+    padding-right: 0 !important;
+  }
+
+  .settings-page .settings-setting-row > .switch {
+    align-self: flex-start;
+  }
+
+  .settings-page .settings-quorum > button {
+    flex: 1 1 auto;
+  }
+
+  .settings-page .settings-content .kv {
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  .settings-page .settings-content .kv .v {
+    margin-left: auto;
+  }
+}
+
+.settings-page .settings-content label.ai-egress-choice {
+  font-weight: 400;
+  color: var(--color-fg);
+}
+
+.settings-page .settings-content .card > .hint {
+  margin-top: 12px !important;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-soft);
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 1.55;
+}
+
+@media (max-width: 640px) {
+  .settings-page .settings-quorum {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .settings-page .settings-quorum > button {
+    padding: 6px 8px;
+    line-height: 1.25;
+    white-space: normal;
+  }
+
+  .settings-page .settings-quorum > span {
+    grid-column: 1 / -1;
+  }
+}
+
+.settings-page .settings-secret-row > .code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+/* Account access: change-password sub-form */
+.settings-page .settings-password-form {
+  max-width: 460px !important;
+  margin-top: 18px !important;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.settings-page .settings-password-form > b {
+  font-size: 14px !important;
+  font-weight: 650;
+}
+
+.settings-page .settings-password-form label {
+  gap: 6px !important;
+}
+
+.settings-page .settings-password-form label .row > button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-2);
+  color: var(--color-fg-secondary);
+}
+
+.settings-page .settings-password-form > p.faint {
+  font-size: 12px !important;
+  line-height: 1.5;
+}
