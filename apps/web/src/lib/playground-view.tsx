@@ -282,8 +282,8 @@ export function Playground({
         : running
           ? null
           : budget?.frozen
-          ? "This agent is frozen — unfreeze it under Agents."
-          : null;
+            ? "This agent is frozen — unfreeze it under Agents."
+            : null;
 
   async function start() {
     if (!actor || running) return;
