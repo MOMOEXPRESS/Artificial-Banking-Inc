@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { AmountStepper } from "@/components/ui/amount-stepper";
 import { Button } from "@/components/ui/button";
 import type { Policy } from "./policy-view";
 
@@ -164,26 +165,30 @@ export function BudgetsPanel({
             {Object.entries(caps).map(([name, cap]) => (
               <div key={name} className="between" style={{ gap: 10, flexWrap: "wrap" }}>
                 <b style={{ fontSize: 13, minWidth: 110 }}>{name}</b>
-                <input
-                  className="input sm"
-                  style={{ maxWidth: 130 }}
+                <AmountStepper
+                  size="sm"
+                  className="w-compact"
+                  label={`${name} daily max`}
                   placeholder="daily max"
+                  step={5}
                   value={cap.dailyMaxUsdc ?? ""}
                   disabled={locked}
-                  data-shortcut-ignore
-                  onChange={(e) =>
-                    setCaps({ ...caps, [name]: { ...cap, dailyMaxUsdc: e.target.value || null } })
+                  inputProps={{ "data-shortcut-ignore": true }}
+                  onChange={(v) =>
+                    setCaps({ ...caps, [name]: { ...cap, dailyMaxUsdc: v || null } })
                   }
                 />
-                <input
-                  className="input sm"
-                  style={{ maxWidth: 130 }}
+                <AmountStepper
+                  size="sm"
+                  className="w-compact"
+                  label={`${name} approve above`}
                   placeholder="approve above"
+                  step={1}
                   value={cap.hitlAboveUsdc ?? ""}
                   disabled={locked}
-                  data-shortcut-ignore
-                  onChange={(e) =>
-                    setCaps({ ...caps, [name]: { ...cap, hitlAboveUsdc: e.target.value || null } })
+                  inputProps={{ "data-shortcut-ignore": true }}
+                  onChange={(v) =>
+                    setCaps({ ...caps, [name]: { ...cap, hitlAboveUsdc: v || null } })
                   }
                 />
                 <label className="row" style={{ gap: 6, fontSize: 12 }}>
@@ -310,13 +315,13 @@ export function BudgetsPanel({
           </label>
           <label style={{ fontSize: 12, display: "block", marginTop: 8 }}>
             Maximum USDC per rolling 24h (0 blocks the merchant)
-            <input
-              className="input sm"
-              inputMode="decimal"
+            <AmountStepper
+              size="sm"
               placeholder="10.00"
+              step={1}
               value={merchantAmount}
               disabled={locked}
-              onChange={(e) => setMerchantAmount(e.target.value)}
+              onChange={setMerchantAmount}
             />
           </label>
           <Button
@@ -386,13 +391,14 @@ export function BudgetsPanel({
             </label>
             <label style={{ fontSize: 12 }}>
               Total for the whole window (USDC)
-              <input
-                className="input sm"
+              <AmountStepper
+                size="sm"
                 placeholder="5000"
+                step={50}
                 value={win?.totalMaxUsdc ?? ""}
                 disabled={locked}
-                data-shortcut-ignore
-                onChange={(e) => editWindow({ totalMaxUsdc: e.target.value || null })}
+                inputProps={{ "data-shortcut-ignore": true }}
+                onChange={(v) => editWindow({ totalMaxUsdc: v || null })}
               />
             </label>
             <label style={{ fontSize: 12 }}>

@@ -7,6 +7,7 @@ import { Approvals } from "./approvals-view";
 import type { Approval, OrgView, View } from "./console-types";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
+import { AmountStepper } from "@/components/ui/amount-stepper";
 import { okJson } from "./api-response";
 
 type Agent = { id: string; name: string; status: string };
@@ -494,11 +495,12 @@ export function PaymentsView({
                 />
               </div>
               <div className="field">
-                <label>Amount (USDC)</label>
-                <input
+                <label htmlFor="schedule-amount">Amount (USDC)</label>
+                <AmountStepper
+                  id="schedule-amount"
                   value={form.amountUsdc}
                   disabled={readOnly}
-                  onChange={(e) => setForm({ ...form, amountUsdc: e.target.value })}
+                  onChange={(v) => setForm({ ...form, amountUsdc: v })}
                   placeholder="5"
                 />
               </div>
@@ -574,11 +576,12 @@ export function PaymentsView({
                 />
               </div>
               <div className="field">
-                <label>Amount</label>
-                <input
+                <label htmlFor="subscription-amount">Amount (USDC)</label>
+                <AmountStepper
+                  id="subscription-amount"
                   value={form.amountUsdc}
                   disabled={readOnly}
-                  onChange={(e) => setForm({ ...form, amountUsdc: e.target.value })}
+                  onChange={(v) => setForm({ ...form, amountUsdc: v })}
                 />
               </div>
               <div className="field">

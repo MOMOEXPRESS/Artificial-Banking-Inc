@@ -32,6 +32,7 @@ import { reconcileOrgOnchain } from "../treasury-backing.js";
 import { assetBacking, readAssetsOnchain } from "../chain/asset-adapters.js";
 import { transferUsdcFromVault, VaultTransferError } from "../chain/transfer.js";
 import { guardTreasuryWithdraw, type TreasuryGuardDenial } from "../treasury-guard.js";
+import { treasuryApprovalThresholdMicro, treasuryThresholdOutcome } from "../treasury-threshold.js";
 
 /** HTTP body for a refused guardian withdrawal — same shape as an agent policy deny. */
 function withdrawDenialBody(d: TreasuryGuardDenial) {
@@ -103,16 +104,137 @@ function ensureAvailableAccount(orgId: string, scope: WalletScope, ownerId: stri
   }
 }
 
+/** The org's treasury approval threshold — see treasury-threshold.ts. */
 function treasuryHitlMicro(org: OrgRow): bigint {
-  const raw = org.settings?.treasuryHitlUsdc;
-  if (typeof raw === "string" || typeof raw === "number") {
+  return treasuryApprovalThresholdMicro(
+    (store.getOrg(org.id) ?? org).settings as Record<string, unknown> | undefined,
+  );
+}
+
+/** Guardian approvals needed before a parked treasury request executes. */
+function treasuryQuorum(orgId: string): number {
+  return Math.max(1, store.getPolicyTemplate(orgId).approvalQuorum ?? 1);
+}
+
+type WithdrawResult = { status: number; body: Record<string, unknown> };
+
+/**
+ * Send USDC out of the org treasury: guard (freeze, blocklist, allowlist,
+ * caps), broadcast on live orgs, then book the outflow. Shared by an
+ * immediate withdrawal and by a parked one that guardians just approved, so
+ * both go through exactly the same checks.
+ */
+async function performUsdcWithdraw(input: {
+  org: OrgRow;
+  actor: string;
+  amount: bigint;
+  amountUsdc: string;
+  destination?: string;
+  memo?: string;
+}): Promise<WithdrawResult> {
+  const { org, actor, amount, destination } = input;
+  const assetId = USDC_ASSET_ID;
+  const orgAvail = accountId("org", org.id);
+  const available = store.getAccountMap(org.id).get(orgAvail)?.balanceMicro ?? 0n;
+  if (amount <= 0n || amount > available) {
+    return {
+      status: 400,
+      body: {
+        error: {
+          code: "INSUFFICIENT_STIPEND",
+          message: `Org has ${formatMicroToUsdc(available)} available`,
+        },
+      },
+    };
+  }
+  const live = store.getOrgLedgerMode(org.id) === "live";
+  const guard = guardTreasuryWithdraw({
+    org,
+    actor,
+    assetId,
+    amountMicro: amount,
+    amountDisplay: formatMicroToUsdc(amount),
+    destination,
+  });
+  if (!guard.ok) {
+    recordObs({
+      name: "treasury.withdraw.denied",
+      orgId: org.id,
+      attrs: { ruleIds: guard.ruleIds, amountUsdc: input.amountUsdc },
+    });
+    return { status: guard.status, body: withdrawDenialBody(guard) };
+  }
+  let transfer: Awaited<ReturnType<typeof transferUsdcFromVault>> | undefined;
+  if (live && destination) {
     try {
-      return parseUsdcToMicro(String(raw));
-    } catch {
-      /* fall through */
+      // Broadcast first. Booking the outflow before the chain accepts it
+      // is how a ledger ends up claiming a payment that never happened.
+      transfer = await transferUsdcFromVault({
+        orgId: org.id,
+        to: destination,
+        amountMicro: amount,
+      });
+    } catch (e) {
+      const code = e instanceof VaultTransferError ? e.code : "TRANSFER_FAILED";
+      guard.fail(e instanceof Error ? e.message : String(e), code);
+      recordObs({
+        name: "treasury.withdraw.failed",
+        orgId: org.id,
+        attrs: { code, amountUsdc: input.amountUsdc },
+      });
+      return {
+        status: 400,
+        body: { error: { code, message: e instanceof Error ? e.message : String(e) } },
+      };
     }
   }
-  return 50_000_000n; // $50 default — large treasury moves need quorum
+
+  try {
+    store.applyEntries(org.id, [
+      {
+        id: id("j"),
+        orgId: org.id,
+        memo:
+          input.memo ??
+          `${live ? "treasury_withdraw" : "sandbox_withdraw"}:${destination ?? "external"}`,
+        createdAt: new Date().toISOString(),
+        lines: [
+          { accountId: orgAvail, deltaMicro: -amount },
+          { accountId: `org:${org.id}:external`, deltaMicro: amount },
+        ],
+      },
+    ]);
+  } catch (e) {
+    // Live: the transfer already went out, so count it against the cap
+    // even though the books could not record it — a human must
+    // reconcile. Sandbox: nothing moved.
+    if (live && transfer) guard.commit();
+    else guard.fail(e instanceof Error ? e.message : String(e), "LEDGER_WRITE_FAILED");
+    throw e;
+  }
+  guard.commit();
+  // A simulated outflow reduces the unbacked total: the books shed money
+  // the vault never held.
+  if (!live) store.addUnbackedMicro(org.id, -amount);
+  recordObs({
+    name: "treasury.withdraw",
+    orgId: org.id,
+    attrs: { amountUsdc: input.amountUsdc, simulated: !live },
+  });
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      outcome: "allow",
+      intentId: guard.intentId,
+      simulated: !live,
+      amountUsdc: input.amountUsdc,
+      assetId,
+      symbol: "USDC",
+      txHash: transfer?.txHash,
+      explorerUrl: transfer?.explorerUrl,
+    },
+  };
 }
 
 function moveView(m: TreasuryMoveRow) {
@@ -128,6 +250,8 @@ function moveView(m: TreasuryMoveRow) {
     createdAt: m.createdAt,
     resolvedAt: m.resolvedAt,
     resolvedBy: m.resolvedBy,
+    kind: m.kind ?? "move",
+    ...(m.destination && { destination: m.destination }),
   };
 }
 
@@ -516,7 +640,8 @@ export function registerTreasuryRoutes(
         }
 
         const hitl = treasuryHitlMicro(org);
-        const needsApproval = !body.forceImmediate && amount > hitl;
+        const needsApproval =
+          !body.forceImmediate && treasuryThresholdOutcome(amount, hitl) === "review";
         const moveId = id("tmv");
         const move = store.createTreasuryMove({
           id: moveId,
@@ -547,6 +672,8 @@ export function registerTreasuryRoutes(
           return res.status(202).json({
             outcome: "review",
             move: moveView(move),
+            thresholdUsdc: formatMicroToUsdc(hitl),
+            awaitingVotes: Math.max(0, treasuryQuorum(org.id) - move.votes.length),
             hint: "Poll GET /v1/guardian/treasury/moves or resolve via POST .../resolve",
           });
         }
@@ -586,10 +713,14 @@ export function registerTreasuryRoutes(
     }),
   );
 
-  /** Multi-sig resolve for parked treasury moves. */
+  /**
+   * Guardian review for parked treasury requests (moves and withdrawals that
+   * went above the treasury approval threshold). Any one denial stops it;
+   * `approvalQuorum` distinct approvals (the requester's own counts) run it.
+   */
   app.post(
     "/v1/guardian/treasury/moves/:id/resolve",
-    guardianRoute((org, req, res) => {
+    guardianRoute(async (org, req, res) => {
       const body = z
         .object({ approve: z.boolean(), resolvedBy: z.string().optional() })
         .parse(req.body);
@@ -601,7 +732,10 @@ export function registerTreasuryRoutes(
         return res.json({ ok: true, move: moveView(move), replayed: true });
       }
 
-      const voter = body.resolvedBy ?? guardianIdentity(req);
+      // The vote belongs to whoever is authenticated. A client-supplied name
+      // used to be accepted here, which let one guardian satisfy a 2-of-N
+      // quorum alone by resolving twice under two names.
+      const voter = guardianIdentity(req);
       if (!body.approve) {
         store.updateTreasuryMove(move.id, {
           status: "denied",
@@ -616,7 +750,7 @@ export function registerTreasuryRoutes(
       }
 
       const votes = [...new Set([...move.votes, voter])];
-      const quorum = Math.max(1, store.getPolicyTemplate(org.id).approvalQuorum ?? 1);
+      const quorum = treasuryQuorum(org.id);
       if (votes.length < quorum) {
         store.updateTreasuryMove(move.id, { votes });
         return res.json({
@@ -624,6 +758,47 @@ export function registerTreasuryRoutes(
           move: moveView(scopedStore(org.id).getTreasuryMove(move.id)!),
           awaitingVotes: quorum - votes.length,
         });
+      }
+
+      if (move.kind === "withdraw") {
+        // Take it before awaiting anything: a second approval racing this one
+        // must see it as no longer pending, or the money could leave twice.
+        if (!store.claimPendingTreasuryMove(move.id, votes, voter)) {
+          return res.json({
+            ok: true,
+            move: moveView(scopedStore(org.id).getTreasuryMove(move.id)!),
+            replayed: true,
+          });
+        }
+        let result: WithdrawResult;
+        try {
+          result = await performUsdcWithdraw({
+            org,
+            actor: voter,
+            amount: move.amountMicro,
+            amountUsdc: formatMicroToUsdc(move.amountMicro),
+            destination: move.destination,
+            memo: move.memo,
+          });
+        } catch (e) {
+          store.updateTreasuryMove(move.id, { status: "cancelled", resolvedBy: "system" });
+          throw e;
+        }
+        if (result.status !== 200) {
+          // Approved, but the guard or the chain refused it now. Nothing moved.
+          store.updateTreasuryMove(move.id, {
+            status: "cancelled",
+            resolvedAt: new Date().toISOString(),
+            resolvedBy: "system",
+          });
+          return res.status(result.status).json({
+            ...result.body,
+            move: moveView(scopedStore(org.id).getTreasuryMove(move.id)!),
+          });
+        }
+        const done = scopedStore(org.id).getTreasuryMove(move.id)!;
+        emitEvent(org.id, "treasury.move.executed", moveView(done));
+        return res.json({ ok: true, move: moveView(done), withdrawal: result.body });
       }
 
       try {
@@ -806,7 +981,14 @@ export function registerTreasuryRoutes(
         }
 
         if (assetId === "asset_usdc") {
-          const amount = parseUsdcToMicro(body.amountUsdc);
+          let amount: bigint;
+          try {
+            amount = parseUsdcToMicro(body.amountUsdc);
+          } catch {
+            return res
+              .status(400)
+              .json({ error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" } });
+          }
           const orgAvail = accountId("org", org.id);
           const available = store.getAccountMap(org.id).get(orgAvail)?.balanceMicro ?? 0n;
           if (amount <= 0n || amount > available) {
@@ -828,88 +1010,67 @@ export function registerTreasuryRoutes(
               },
             });
           }
-          const guard = guardTreasuryWithdraw({
-            org,
-            actor: guardianIdentity(req),
-            assetId,
-            amountMicro: amount,
-            amountDisplay: formatMicroToUsdc(amount),
-            destination,
-          });
-          if (!guard.ok) {
-            recordObs({
-              name: "treasury.withdraw.denied",
-              orgId: org.id,
-              attrs: { ruleIds: guard.ruleIds, amountUsdc: body.amountUsdc },
+          const actor = guardianIdentity(req);
+
+          // Above the treasury approval threshold: park for guardian review
+          // instead of sending. The guard still runs first (as a dry run), so
+          // a request the hard limits would refuse is refused now rather than
+          // parked, and an approval is never stacked on top of a refusal.
+          const threshold = treasuryHitlMicro(org);
+          if (treasuryThresholdOutcome(amount, threshold) === "review") {
+            const check = guardTreasuryWithdraw({
+              org,
+              actor,
+              assetId,
+              amountMicro: amount,
+              amountDisplay: formatMicroToUsdc(amount),
+              destination,
+              dryRun: true,
             });
-            return res.status(guard.status).json(withdrawDenialBody(guard));
-          }
-          let transfer: Awaited<ReturnType<typeof transferUsdcFromVault>> | undefined;
-          if (live && destination) {
-            try {
-              // Broadcast first. Booking the outflow before the chain accepts it
-              // is how a ledger ends up claiming a payment that never happened.
-              transfer = await transferUsdcFromVault({
-                orgId: org.id,
-                to: destination,
-                amountMicro: amount,
-              });
-            } catch (e) {
-              const code = e instanceof VaultTransferError ? e.code : "TRANSFER_FAILED";
-              guard.fail(e instanceof Error ? e.message : String(e), code);
-              recordObs({
-                name: "treasury.withdraw.failed",
-                orgId: org.id,
-                attrs: { code, amountUsdc: body.amountUsdc },
-              });
-              return res.status(400).json({
-                error: { code, message: e instanceof Error ? e.message : String(e) },
-              });
-            }
+            if (!check.ok) return res.status(check.status).json(withdrawDenialBody(check));
+            const move = store.createTreasuryMove({
+              id: id("tmv"),
+              orgId: org.id,
+              kind: "withdraw",
+              fromScope: "org",
+              fromId: org.id,
+              toScope: "org",
+              toId: "external",
+              destination,
+              amountMicro: amount,
+              assetId,
+              memo: body.memo,
+              status: "pending",
+              votes: [actor],
+              createdAt: new Date().toISOString(),
+            });
+            emitEvent(org.id, "treasury.move.pending", moveView(move));
+            void notify({
+              kind: "info",
+              orgId: org.id,
+              title: "Treasury withdrawal needs approval",
+              body: `${formatMicroToUsdc(amount)} USDC → ${destination ?? "external"}`,
+              meta: { moveId: move.id },
+            });
+            return res.status(202).json({
+              ok: true,
+              outcome: "review",
+              move: moveView(move),
+              thresholdUsdc: formatMicroToUsdc(threshold),
+              awaitingVotes: Math.max(0, treasuryQuorum(org.id) - move.votes.length),
+              hint: "A guardian approves it under Treasury → Move → Activity.",
+            });
           }
 
-          try {
-            store.applyEntries(org.id, [
-              {
-                id: id("j"),
-                orgId: org.id,
-                memo:
-                  body.memo ??
-                  `${live ? "treasury_withdraw" : "sandbox_withdraw"}:${body.destination ?? "external"}`,
-                createdAt: new Date().toISOString(),
-                lines: [
-                  { accountId: orgAvail, deltaMicro: -amount },
-                  { accountId: `org:${org.id}:external`, deltaMicro: amount },
-                ],
-              },
-            ]);
-          } catch (e) {
-            // Live: the transfer already went out, so count it against the cap
-            // even though the books could not record it — a human must
-            // reconcile. Sandbox: nothing moved.
-            if (live && transfer) guard.commit();
-            else guard.fail(e instanceof Error ? e.message : String(e), "LEDGER_WRITE_FAILED");
-            throw e;
-          }
-          guard.commit();
-          // A simulated outflow reduces the unbacked total: the books shed money
-          // the vault never held.
-          if (!live) store.addUnbackedMicro(org.id, -amount);
-          recordObs({
-            name: "treasury.withdraw",
-            orgId: org.id,
-            attrs: { amountUsdc: body.amountUsdc, simulated: !live },
-          });
-          return res.json({
-            ok: true,
-            intentId: guard.intentId,
-            simulated: !live,
+          const result = await performUsdcWithdraw({
+            org,
+            actor,
+            amount,
             amountUsdc: body.amountUsdc,
-            assetId,
-            symbol: asset.symbol,
-            txHash: transfer?.txHash,
-            explorerUrl: transfer?.explorerUrl,
+            destination,
+            memo: body.memo,
           });
+          return res.status(result.status).json(result.body);
         }
 
         let amount: bigint;
