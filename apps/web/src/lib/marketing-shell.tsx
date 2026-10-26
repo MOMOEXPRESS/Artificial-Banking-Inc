@@ -199,15 +199,13 @@ export function SectionHead({
   title,
   sub,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   sub: string;
 }) {
   return (
     <div className="section-head">
-      <span className="eyebrow">
-        <span className="dot" /> {eyebrow}
-      </span>
+      {eyebrow && <span className="eyebrow">{eyebrow}</span>}
       <h2>{title}</h2>
       <p>{sub}</p>
     </div>

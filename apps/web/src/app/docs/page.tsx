@@ -52,7 +52,6 @@ export default function DocsPage() {
       <section className="mkt-page">
         <div className="mkt-page-inner">
           <SectionHead
-            eyebrow="Documentation"
             title="Build agents that can spend — safely"
             sub="The AI asks to pay. Your rules and a signer decide. Keys never go into the model."
           />

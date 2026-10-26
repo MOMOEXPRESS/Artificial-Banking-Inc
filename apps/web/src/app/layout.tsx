@@ -1,17 +1,19 @@
 import type { Metadata, Viewport } from "next";
-import { JetBrains_Mono, Sora } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import { AppProviders } from "../lib/providers";
 import "./globals.css";
 import "./controls.css";
 
-const sora = Sora({
+const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-sans",
   display: "swap",
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
+  weight: ["400", "500"],
   variable: "--font-mono",
   display: "swap",
 });
@@ -53,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html
       lang="en"
       data-theme="light"
-      className={`${sora.variable} ${jetbrainsMono.variable}`}
+      className={`${plexSans.variable} ${plexMono.variable}`}
       suppressHydrationWarning
     >
       <body>

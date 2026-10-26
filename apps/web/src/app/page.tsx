@@ -53,9 +53,6 @@ function Hero() {
       <div className="hero-halo" aria-hidden />
       <div className="hero-inner">
         <div className="hero-copy">
-          <span className="eyebrow">
-            <span className="dot" /> Money controls for AI that can spend
-          </span>
           <h1>
             Let AI agents pay for things — <em>without losing control.</em>
           </h1>
@@ -221,9 +218,6 @@ function ChatGPTIntegrationBand() {
     <section className="chatgpt-integration" aria-labelledby="chatgpt-integration-title">
       <div className="chatgpt-integration-inner">
         <div className="chatgpt-integration-copy">
-          <span className="eyebrow">
-            <span className="dot" /> AI CONNECTION
-          </span>
           <h2 id="chatgpt-integration-title">Connect ChatGPT to ABI.</h2>
           <p>
             Give ChatGPT a scoped, revocable sandbox session to check spending capacity, simulate
@@ -350,9 +344,7 @@ function HomeInterstitial({
     <section className={`home-interstitial ${flip ? "is-flip" : ""}`} aria-label={title}>
       <div className="home-interstitial-inner">
         <div className="home-interstitial-copy">
-          <span className="eyebrow">
-            <span className="dot" /> {eyebrow}
-          </span>
+          <span className="eyebrow">{eyebrow}</span>
           <h2>{title}</h2>
           <p>{body}</p>
         </div>
@@ -393,7 +385,6 @@ function ProductTour() {
   return (
     <section id="product" className="section product-tour">
       <SectionHead
-        eyebrow="Inside the console"
         title="Peek at the product before you sign in"
         sub="Three screens people actually use — balances, approvals, and testing your rules."
       />
@@ -506,7 +497,6 @@ function Features() {
     <div id="features" className="pane-stack">
       <section className="section pane-intro">
         <SectionHead
-          eyebrow="What you get"
           title="Wallets, rules, and a paper trail for AI spend"
           sub="Give agents money they can use — with limits you set, approvals when it matters, and a record you can show finance."
         />
@@ -639,9 +629,8 @@ function HowItWorks() {
     <div id="how" className="pane-stack how">
       <section className="section pane-intro">
         <SectionHead
-          eyebrow="How it works"
           title="From zero to an agent that can pay — in four steps"
-          sub="No smart contracts to write. Agents never get the vault keys. Scroll the first two steps, then the last two side by side."
+          sub="No smart contracts to write. Agents never get the vault keys."
         />
       </section>
       {lead.map((s, i) => (
@@ -653,7 +642,7 @@ function HowItWorks() {
           <div className="pane-inner">
             <div className="pane-copy">
               <span className="pane-index accent" aria-hidden>
-                {s.n}
+                Step {Number(s.n)}
               </span>
               <h3 id={`step-${s.n}`}>{s.title}</h3>
               <p className="pane-lead">{s.lead}</p>
@@ -671,7 +660,7 @@ function HowItWorks() {
             <div className="pane-inner pane-inner-stack">
               <div className="pane-copy">
                 <span className="pane-index accent" aria-hidden>
-                  {s.n}
+                  Step {Number(s.n)}
                 </span>
                 <h3 id={`step-${s.n}`}>{s.title}</h3>
                 <p className="pane-lead">{s.lead}</p>
@@ -727,7 +716,6 @@ function Enterprise() {
   return (
     <section id="enterprise" className="section enterprise">
       <SectionHead
-        eyebrow="For teams"
         title="Controls that hold up when more than one person is watching"
         sub="Because the first surprise AI bill is the one nobody forgets."
       />

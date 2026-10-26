@@ -83,10 +83,7 @@ const MOBILE_NAV: { key: SellerView; label: string; icon: string }[] = [
   { key: "billing", label: "Payouts", icon: "wallet" },
 ];
 
-const VIEW_META: Record<
-  SellerView,
-  { eyebrow: string; title: string; description: string }
-> = {
+const VIEW_META: Record<SellerView, { eyebrow: string; title: string; description: string }> = {
   overview: {
     eyebrow: "Seller · Overview",
     title: "Get paid by agents on your site.",
@@ -114,8 +111,7 @@ const VIEW_META: Record<
   developers: {
     eyebrow: "Developers",
     title: "Challenge shape and snippets.",
-    description:
-      "The agent hits your URL, ABI buyer policy pays, your resource unlocks.",
+    description: "The agent hits your URL, ABI buyer policy pays, your resource unlocks.",
   },
   directory: {
     eyebrow: "Sell · Directory",
@@ -154,7 +150,8 @@ const VIEW_META: Record<
   webhooks: {
     eyebrow: "Developers · Webhooks",
     title: "Get notified.",
-    description: "Signed events for payments received, usage thresholds, policy changes, and deprecations.",
+    description:
+      "Signed events for payments received, usage thresholds, policy changes, and deprecations.",
   },
   settings: {
     eyebrow: "Settings",
@@ -212,8 +209,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
     toast(msg, kind);
   }, []);
 
-  const selectedOffer =
-    offers.find((o) => o.id === selectedOfferId) ?? offers[0] ?? null;
+  const selectedOffer = offers.find((o) => o.id === selectedOfferId) ?? offers[0] ?? null;
 
   const refreshSeller = useCallback(async () => {
     const [profileRes, offersRes, activityRes] = await Promise.all([
@@ -443,7 +439,13 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
               onClick={() => {
                 const next = !railCollapsed;
                 setRailCollapsed(next);
-                setFolderOpen({ Home: true, Sell: true, Money: true, Control: true, Developers: true });
+                setFolderOpen({
+                  Home: true,
+                  Sell: true,
+                  Money: true,
+                  Control: true,
+                  Developers: true,
+                });
               }}
             >
               <Icon name={railCollapsed ? "arrowRight" : "arrowLeft"} size={15} />
@@ -498,7 +500,9 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                 <span className="crumb-sep" aria-hidden>
                   /
                 </span>
-                <span className="crumb-current">{NAV.find((n) => n.key === view)?.label ?? "Settings"}</span>
+                <span className="crumb-current">
+                  {NAV.find((n) => n.key === view)?.label ?? "Settings"}
+                </span>
               </nav>
               <h1>{NAV.find((n) => n.key === view)?.label ?? "Settings"}</h1>
             </div>
@@ -529,380 +533,384 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
           </header>
 
           <div className="scroll">
-              <section className="view">
-                <header className="view-head" style={{ marginBottom: 18 }}>
-                  <p className="eyebrow">{meta.eyebrow}</p>
-                  <h2 style={{ margin: "4px 0 8px", letterSpacing: "-0.02em" }}>{meta.title}</h2>
-                  <p className="muted" style={{ maxWidth: 640 }}>
-                    {meta.description}
-                  </p>
-                </header>
+            <section className="view">
+              <header className="view-head" style={{ marginBottom: 18 }}>
+                <h2 style={{ margin: "0 0 8px", letterSpacing: "-0.02em" }}>{meta.title}</h2>
+                <p className="muted" style={{ maxWidth: 640 }}>
+                  {meta.description}
+                </p>
+              </header>
 
-                {view === "overview" && (
-                  <div className="grid-3" style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))" }}>
-                    <div className="card">
-                      <span className="muted">Profile</span>
-                      <b style={{ display: "block", marginTop: 6, fontSize: 20 }}>
-                        {profile?.status === "ready" ? "Ready" : "Draft"}
-                      </b>
-                    </div>
-                    <div className="card">
-                      <span className="muted">Offers</span>
-                      <b style={{ display: "block", marginTop: 6, fontSize: 20 }}>{offers.length}</b>
-                    </div>
-                    <div className="card">
-                      <span className="muted">Verified / published</span>
-                      <b style={{ display: "block", marginTop: 6, fontSize: 20 }}>
-                        {verified} / {published}
-                      </b>
-                    </div>
-                    <div className="card" style={{ gridColumn: "1 / -1" }}>
-                      <h3 style={{ marginTop: 0 }}>How agents pay</h3>
-                      <ol className="muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
-                        <li>Agent finds your offer in the ABI buyer directory or on your website.</li>
-                        <li>Your server returns an x402 payment challenge (ABI snippet or BYO).</li>
-                        <li>The agent’s buyer org evaluates policy and pays USDC to your wallet.</li>
-                        <li>Your resource unlocks; the settlement shows under Activity.</li>
-                      </ol>
-                      <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
-                        <Button onClick={() => setView("catalog")}>Open catalog</Button>
-                        <Button variant="secondary" onClick={() => setView("settings")}>
-                          Edit payout profile
-                        </Button>
-                      </div>
-                    </div>
+              {view === "overview" && (
+                <div
+                  className="grid-3"
+                  style={{
+                    display: "grid",
+                    gap: 12,
+                    gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+                  }}
+                >
+                  <div className="card">
+                    <span className="muted">Profile</span>
+                    <b style={{ display: "block", marginTop: 6, fontSize: 20 }}>
+                      {profile?.status === "ready" ? "Ready" : "Draft"}
+                    </b>
                   </div>
-                )}
-
-                {view === "catalog" && (
-                  <div style={{ display: "grid", gap: 16, maxWidth: 820 }}>
-                    <div className="card">
-                      <h3 style={{ marginTop: 0 }}>New offer</h3>
-                      <div
-                        style={{
-                          display: "grid",
-                          gap: 10,
-                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                        }}
-                      >
-                        <label className="field">
-                          <span>Slug</span>
-                          <input
-                            value={offerForm.slug}
-                            onChange={(e) =>
-                              setOfferForm({ ...offerForm, slug: e.target.value.toLowerCase() })
-                            }
-                            placeholder="market-report"
-                          />
-                        </label>
-                        <label className="field">
-                          <span>Title</span>
-                          <input
-                            value={offerForm.title}
-                            onChange={(e) => setOfferForm({ ...offerForm, title: e.target.value })}
-                            placeholder="Market report"
-                          />
-                        </label>
-                        <label className="field" style={{ gridColumn: "1 / -1" }}>
-                          <span>Endpoint URL (on your site)</span>
-                          <input
-                            value={offerForm.endpointUrl}
-                            onChange={(e) =>
-                              setOfferForm({ ...offerForm, endpointUrl: e.target.value })
-                            }
-                            placeholder="https://api.yoursite.com/report"
-                          />
-                        </label>
-                        <label className="field">
-                          <span>Price (USDC)</span>
-                          <input
-                            value={offerForm.priceUsdc}
-                            onChange={(e) =>
-                              setOfferForm({ ...offerForm, priceUsdc: e.target.value })
-                            }
-                          />
-                        </label>
-                        <label className="field">
-                          <span>Network</span>
-                          <select
-                            value={offerForm.network}
-                            onChange={(e) =>
-                              setOfferForm({ ...offerForm, network: e.target.value })
-                            }
-                          >
-                            <option value="base-sepolia">Base Sepolia</option>
-                            <option value="base">Base</option>
-                          </select>
-                        </label>
-                      </div>
-                      <Button
-                        style={{ marginTop: 12 }}
-                        disabled={busy}
-                        onClick={() => void createOffer()}
-                      >
-                        Add offer
+                  <div className="card">
+                    <span className="muted">Offers</span>
+                    <b style={{ display: "block", marginTop: 6, fontSize: 20 }}>{offers.length}</b>
+                  </div>
+                  <div className="card">
+                    <span className="muted">Verified / published</span>
+                    <b style={{ display: "block", marginTop: 6, fontSize: 20 }}>
+                      {verified} / {published}
+                    </b>
+                  </div>
+                  <div className="card" style={{ gridColumn: "1 / -1" }}>
+                    <h3 style={{ marginTop: 0 }}>How agents pay</h3>
+                    <ol className="muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
+                      <li>Agent finds your offer in the ABI buyer directory or on your website.</li>
+                      <li>Your server returns an x402 payment challenge (ABI snippet or BYO).</li>
+                      <li>The agent’s buyer org evaluates policy and pays USDC to your wallet.</li>
+                      <li>Your resource unlocks; the settlement shows under Activity.</li>
+                    </ol>
+                    <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+                      <Button onClick={() => setView("catalog")}>Open catalog</Button>
+                      <Button variant="secondary" onClick={() => setView("settings")}>
+                        Edit payout profile
                       </Button>
                     </div>
-                    <div className="card">
-                      <h3 style={{ marginTop: 0 }}>Your catalog</h3>
-                      {offers.length === 0 ? (
-                        <p className="muted">No offers yet. Add one to start integrating x402.</p>
-                      ) : (
-                        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                          {offers.map((o) => (
-                            <li
-                              key={o.id}
-                              style={{
-                                padding: "12px 0",
-                                borderTop: "1px solid var(--color-border)",
-                                display: "flex",
-                                justifyContent: "space-between",
-                                gap: 12,
-                                flexWrap: "wrap",
-                              }}
-                            >
-                              <div>
-                                <b>{o.title}</b>
-                                <div className="muted" style={{ fontSize: 12.5 }}>
-                                  {o.slug} · {o.priceUsdc} USDC · {o.status}
-                                </div>
-                                <div className="muted" style={{ fontSize: 12 }}>
-                                  {o.endpointUrl}
-                                </div>
-                              </div>
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedOfferId(o.id);
-                                  setView("integrations");
-                                }}
-                              >
-                                Integrate
-                              </Button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
                   </div>
-                )}
+                </div>
+              )}
 
-                {view === "integrations" && (
-                  <div style={{ display: "grid", gap: 16, maxWidth: 860 }}>
-                    {offers.length === 0 ? (
-                      <div className="card">
-                        <p className="muted">Create an offer in Catalog first.</p>
-                        <Button onClick={() => setView("catalog")}>Go to catalog</Button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="card">
-                          <label className="field">
-                            <span>Offer</span>
-                            <select
-                              value={selectedOffer?.id ?? ""}
-                              onChange={(e) => setSelectedOfferId(e.target.value)}
-                            >
-                              {offers.map((o) => (
-                                <option key={o.id} value={o.id}>
-                                  {o.title} ({o.status})
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          {selectedOffer && (
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-                              <Button
-                                disabled={busy}
-                                onClick={() => void loadSnippet(selectedOffer.id)}
-                              >
-                                Copy snippet
-                              </Button>
-                              <Button
-                                variant="secondary"
-                                disabled={busy}
-                                onClick={() => void verifyOffer(selectedOffer.id)}
-                              >
-                                Verify unpaid 402
-                              </Button>
-                              <Button
-                                variant="secondary"
-                                disabled={busy || selectedOffer.status === "draft"}
-                                onClick={() => void publishOffer(selectedOffer.id)}
-                              >
-                                Publish
-                              </Button>
-                            </div>
-                          )}
-                          {selectedOffer?.integration.error && (
-                            <p style={{ color: "var(--color-danger)", marginTop: 12 }}>
-                              {selectedOffer.integration.error}
-                            </p>
-                          )}
-                          {selectedOffer?.integration.lastVerifiedAt && (
-                            <p className="muted" style={{ marginTop: 12 }}>
-                              Last verified {selectedOffer.integration.lastVerifiedAt}
-                            </p>
-                          )}
-                        </div>
-                        {snippet && (
-                          <div className="card">
-                            <h3 style={{ marginTop: 0 }}>Snippet v0</h3>
-                            <pre
-                              style={{
-                                whiteSpace: "pre-wrap",
-                                fontSize: 12,
-                                background: "var(--color-surface-2)",
-                                padding: 14,
-                                borderRadius: 12,
-                                overflow: "auto",
-                              }}
-                            >
-                              {snippet}
-                            </pre>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={async () => {
-                                await navigator.clipboard.writeText(snippet);
-                                setToast("Snippet copied", "ok");
-                              }}
-                            >
-                              Copy to clipboard
-                            </Button>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {view === "activity" && (
-                  <div className="card" style={{ maxWidth: 820 }}>
-                    <h3 style={{ marginTop: 0 }}>Inbound payments</h3>
-                    {activity.length === 0 ? (
-                      <p className="muted">
-                        No settlements yet. After a buyer agent pays an offer on your site, the
-                        transaction lands here.
-                      </p>
-                    ) : (
-                      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                        {activity.map((row) => (
-                          <li
-                            key={row.id}
-                            style={{
-                              padding: "10px 0",
-                              borderTop: "1px solid var(--color-border)",
-                            }}
-                          >
-                            <b>{row.amountUsdc} USDC</b> · {row.state}
-                            <div className="muted" style={{ fontSize: 12 }}>
-                              {row.txHash ?? "pending hash"} · {row.createdAt}
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
-
-                {view === "developers" && (
-                  <div className="card" style={{ maxWidth: 820 }}>
-                    <h3 style={{ marginTop: 0 }}>Payment path</h3>
-                    <p className="muted">
-                      Published offers are listed in the ABI buyer directory unless you opt out
-                      (Directory). When an agent requests the paid URL, return x402; the agent’s
-                      buyer policy path settles USDC to your payout address and retries to unlock.
-                    </p>
-                    <ul className="muted" style={{ lineHeight: 1.6 }}>
-                      <li>Required unpaid response: HTTP 402</li>
-                      <li>payTo must match your seller profile payout address</li>
-                      <li>Network and price must match the catalog offer</li>
-                      <li>Use Integrations → Verify before Publish</li>
-                    </ul>
-                    <Button variant="secondary" onClick={() => setView("integrations")}>
-                      Open integrations
-                    </Button>
-                  </div>
-                )}
-
-                {view === "directory" && (
-                  <DirectoryView offers={offers} onOffersChanged={refreshSeller} />
-                )}
-                {view === "versions" && (
-                  <VersionsView offers={offers} onOffersChanged={refreshSeller} />
-                )}
-                {view === "sandbox" && (
-                  <SandboxView offers={offers} onOffersChanged={refreshSeller} />
-                )}
-                {view === "analytics" && <AnalyticsView />}
-                {view === "billing" && <BillingView />}
-                {view === "policies" && <PoliciesView offers={offers} />}
-                {view === "webhooks" && <WebhooksView offers={offers} />}
-
-                {view === "settings" && (
-                  <div className="card" style={{ maxWidth: 640 }}>
-                    <div style={{ display: "grid", gap: 12 }}>
+              {view === "catalog" && (
+                <div style={{ display: "grid", gap: 16, maxWidth: 820 }}>
+                  <div className="card">
+                    <h3 style={{ marginTop: 0 }}>New offer</h3>
+                    <div
+                      style={{
+                        display: "grid",
+                        gap: 10,
+                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                      }}
+                    >
                       <label className="field">
-                        <span>Display name</span>
+                        <span>Slug</span>
                         <input
-                          value={profileDraft.displayName}
+                          value={offerForm.slug}
                           onChange={(e) =>
-                            setProfileDraft({ ...profileDraft, displayName: e.target.value })
+                            setOfferForm({ ...offerForm, slug: e.target.value.toLowerCase() })
                           }
+                          placeholder="market-report"
                         />
                       </label>
                       <label className="field">
-                        <span>Payout address</span>
+                        <span>Title</span>
                         <input
-                          value={profileDraft.payoutAddress}
+                          value={offerForm.title}
+                          onChange={(e) => setOfferForm({ ...offerForm, title: e.target.value })}
+                          placeholder="Market report"
+                        />
+                      </label>
+                      <label className="field" style={{ gridColumn: "1 / -1" }}>
+                        <span>Endpoint URL (on your site)</span>
+                        <input
+                          value={offerForm.endpointUrl}
                           onChange={(e) =>
-                            setProfileDraft({ ...profileDraft, payoutAddress: e.target.value })
+                            setOfferForm({ ...offerForm, endpointUrl: e.target.value })
                           }
-                          placeholder="0x…"
-                          spellCheck={false}
+                          placeholder="https://api.yoursite.com/report"
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Price (USDC)</span>
+                        <input
+                          value={offerForm.priceUsdc}
+                          onChange={(e) =>
+                            setOfferForm({ ...offerForm, priceUsdc: e.target.value })
+                          }
                         />
                       </label>
                       <label className="field">
                         <span>Network</span>
                         <select
-                          value={profileDraft.network}
-                          onChange={(e) =>
-                            setProfileDraft({ ...profileDraft, network: e.target.value })
-                          }
+                          value={offerForm.network}
+                          onChange={(e) => setOfferForm({ ...offerForm, network: e.target.value })}
                         >
                           <option value="base-sepolia">Base Sepolia</option>
                           <option value="base">Base</option>
                         </select>
                       </label>
-                      <label className="field">
-                        <span>Website</span>
-                        <input
-                          value={profileDraft.website}
-                          onChange={(e) =>
-                            setProfileDraft({ ...profileDraft, website: e.target.value })
-                          }
-                          placeholder="https://"
-                        />
-                      </label>
-                      <label className="field">
-                        <span>Description</span>
-                        <textarea
-                          value={profileDraft.description}
-                          onChange={(e) =>
-                            setProfileDraft({ ...profileDraft, description: e.target.value })
-                          }
-                          rows={3}
-                        />
-                      </label>
-                      <Button disabled={busy} onClick={() => void saveProfile()}>
-                        {busy ? "Saving…" : "Save profile"}
-                      </Button>
                     </div>
+                    <Button
+                      style={{ marginTop: 12 }}
+                      disabled={busy}
+                      onClick={() => void createOffer()}
+                    >
+                      Add offer
+                    </Button>
                   </div>
-                )}
-              </section>
+                  <div className="card">
+                    <h3 style={{ marginTop: 0 }}>Your catalog</h3>
+                    {offers.length === 0 ? (
+                      <p className="muted">No offers yet. Add one to start integrating x402.</p>
+                    ) : (
+                      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                        {offers.map((o) => (
+                          <li
+                            key={o.id}
+                            style={{
+                              padding: "12px 0",
+                              borderTop: "1px solid var(--color-border)",
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: 12,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <div>
+                              <b>{o.title}</b>
+                              <div className="muted" style={{ fontSize: 12.5 }}>
+                                {o.slug} · {o.priceUsdc} USDC · {o.status}
+                              </div>
+                              <div className="muted" style={{ fontSize: 12 }}>
+                                {o.endpointUrl}
+                              </div>
+                            </div>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedOfferId(o.id);
+                                setView("integrations");
+                              }}
+                            >
+                              Integrate
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {view === "integrations" && (
+                <div style={{ display: "grid", gap: 16, maxWidth: 860 }}>
+                  {offers.length === 0 ? (
+                    <div className="card">
+                      <p className="muted">Create an offer in Catalog first.</p>
+                      <Button onClick={() => setView("catalog")}>Go to catalog</Button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="card">
+                        <label className="field">
+                          <span>Offer</span>
+                          <select
+                            value={selectedOffer?.id ?? ""}
+                            onChange={(e) => setSelectedOfferId(e.target.value)}
+                          >
+                            {offers.map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {o.title} ({o.status})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        {selectedOffer && (
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                            <Button
+                              disabled={busy}
+                              onClick={() => void loadSnippet(selectedOffer.id)}
+                            >
+                              Copy snippet
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              disabled={busy}
+                              onClick={() => void verifyOffer(selectedOffer.id)}
+                            >
+                              Verify unpaid 402
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              disabled={busy || selectedOffer.status === "draft"}
+                              onClick={() => void publishOffer(selectedOffer.id)}
+                            >
+                              Publish
+                            </Button>
+                          </div>
+                        )}
+                        {selectedOffer?.integration.error && (
+                          <p style={{ color: "var(--color-danger)", marginTop: 12 }}>
+                            {selectedOffer.integration.error}
+                          </p>
+                        )}
+                        {selectedOffer?.integration.lastVerifiedAt && (
+                          <p className="muted" style={{ marginTop: 12 }}>
+                            Last verified {selectedOffer.integration.lastVerifiedAt}
+                          </p>
+                        )}
+                      </div>
+                      {snippet && (
+                        <div className="card">
+                          <h3 style={{ marginTop: 0 }}>Snippet v0</h3>
+                          <pre
+                            style={{
+                              whiteSpace: "pre-wrap",
+                              fontSize: 12,
+                              background: "var(--color-surface-2)",
+                              padding: 14,
+                              borderRadius: 12,
+                              overflow: "auto",
+                            }}
+                          >
+                            {snippet}
+                          </pre>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={async () => {
+                              await navigator.clipboard.writeText(snippet);
+                              setToast("Snippet copied", "ok");
+                            }}
+                          >
+                            Copy to clipboard
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {view === "activity" && (
+                <div className="card" style={{ maxWidth: 820 }}>
+                  <h3 style={{ marginTop: 0 }}>Inbound payments</h3>
+                  {activity.length === 0 ? (
+                    <p className="muted">
+                      No settlements yet. After a buyer agent pays an offer on your site, the
+                      transaction lands here.
+                    </p>
+                  ) : (
+                    <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                      {activity.map((row) => (
+                        <li
+                          key={row.id}
+                          style={{
+                            padding: "10px 0",
+                            borderTop: "1px solid var(--color-border)",
+                          }}
+                        >
+                          <b>{row.amountUsdc} USDC</b> · {row.state}
+                          <div className="muted" style={{ fontSize: 12 }}>
+                            {row.txHash ?? "pending hash"} · {row.createdAt}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {view === "developers" && (
+                <div className="card" style={{ maxWidth: 820 }}>
+                  <h3 style={{ marginTop: 0 }}>Payment path</h3>
+                  <p className="muted">
+                    Published offers are listed in the ABI buyer directory unless you opt out
+                    (Directory). When an agent requests the paid URL, return x402; the agent’s buyer
+                    policy path settles USDC to your payout address and retries to unlock.
+                  </p>
+                  <ul className="muted" style={{ lineHeight: 1.6 }}>
+                    <li>Required unpaid response: HTTP 402</li>
+                    <li>payTo must match your seller profile payout address</li>
+                    <li>Network and price must match the catalog offer</li>
+                    <li>Use Integrations → Verify before Publish</li>
+                  </ul>
+                  <Button variant="secondary" onClick={() => setView("integrations")}>
+                    Open integrations
+                  </Button>
+                </div>
+              )}
+
+              {view === "directory" && (
+                <DirectoryView offers={offers} onOffersChanged={refreshSeller} />
+              )}
+              {view === "versions" && (
+                <VersionsView offers={offers} onOffersChanged={refreshSeller} />
+              )}
+              {view === "sandbox" && (
+                <SandboxView offers={offers} onOffersChanged={refreshSeller} />
+              )}
+              {view === "analytics" && <AnalyticsView />}
+              {view === "billing" && <BillingView />}
+              {view === "policies" && <PoliciesView offers={offers} />}
+              {view === "webhooks" && <WebhooksView offers={offers} />}
+
+              {view === "settings" && (
+                <div className="card" style={{ maxWidth: 640 }}>
+                  <div style={{ display: "grid", gap: 12 }}>
+                    <label className="field">
+                      <span>Display name</span>
+                      <input
+                        value={profileDraft.displayName}
+                        onChange={(e) =>
+                          setProfileDraft({ ...profileDraft, displayName: e.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Payout address</span>
+                      <input
+                        value={profileDraft.payoutAddress}
+                        onChange={(e) =>
+                          setProfileDraft({ ...profileDraft, payoutAddress: e.target.value })
+                        }
+                        placeholder="0x…"
+                        spellCheck={false}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Network</span>
+                      <select
+                        value={profileDraft.network}
+                        onChange={(e) =>
+                          setProfileDraft({ ...profileDraft, network: e.target.value })
+                        }
+                      >
+                        <option value="base-sepolia">Base Sepolia</option>
+                        <option value="base">Base</option>
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Website</span>
+                      <input
+                        value={profileDraft.website}
+                        onChange={(e) =>
+                          setProfileDraft({ ...profileDraft, website: e.target.value })
+                        }
+                        placeholder="https://"
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Description</span>
+                      <textarea
+                        value={profileDraft.description}
+                        onChange={(e) =>
+                          setProfileDraft({ ...profileDraft, description: e.target.value })
+                        }
+                        rows={3}
+                      />
+                    </label>
+                    <Button disabled={busy} onClick={() => void saveProfile()}>
+                      {busy ? "Saving…" : "Save profile"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </section>
           </div>
         </main>
 

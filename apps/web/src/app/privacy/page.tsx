@@ -11,7 +11,6 @@ export default function PrivacyPage() {
       <section className="mkt-page">
         <div className="mkt-page-inner">
           <SectionHead
-            eyebrow="Legal"
             title="Privacy notice"
             sub="What ABI stores for accounts, sessions, and money-path audit trails during pre-beta."
           />

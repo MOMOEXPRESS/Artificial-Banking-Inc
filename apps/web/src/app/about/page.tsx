@@ -17,7 +17,6 @@ export default function AboutPage() {
       <section className="mkt-page about-page">
         <div className="mkt-page-inner mkt-about-hero">
           <SectionHead
-            eyebrow="About"
             title="Artificial Banking Incorporated"
             sub="We help companies let AI agents spend money — with budgets, approvals, and a clear record — without handing the wallet keys to the AI."
           />
@@ -113,7 +112,6 @@ function AboutPane({
     >
       <div className="pane-inner">
         <div className="pane-copy">
-          <span className="pane-index">{n}</span>
           <h3 id={`about-${n}`}>{title}</h3>
           <p className="pane-lead">{lead}</p>
           <p className="pane-body">{body}</p>

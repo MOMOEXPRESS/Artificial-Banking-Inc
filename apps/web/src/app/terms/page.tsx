@@ -11,7 +11,6 @@ export default function TermsPage() {
       <section className="mkt-page">
         <div className="mkt-page-inner">
           <SectionHead
-            eyebrow="Legal"
             title="Terms of use"
             sub="Pre-beta software. Not a bank. Not FDIC insured. Operators remain responsible for agent spend."
           />

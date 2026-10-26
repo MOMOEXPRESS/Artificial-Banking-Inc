@@ -1301,11 +1301,7 @@ export default function Console() {
               <div className="view">
                 {view !== "overview" && viewMeta && (
                   <section className="console-section-intro">
-                    <div className="console-section-mark" aria-hidden>
-                      <Icon name={viewMeta.icon} size={18} />
-                    </div>
                     <div className="console-section-copy">
-                      <div className="ops-eyebrow">{viewMeta.eyebrow}</div>
                       <h2>{viewMeta.title}</h2>
                       <p>{viewMeta.description}</p>
                     </div>

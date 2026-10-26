@@ -24,10 +24,19 @@ const STEPS = [
 ];
 
 const POINTS = [
-  ["Private discovery", "Your product URLs stay on your domain. ABI is the payment unlock path."],
-  ["Separate partner account", "Partner logins are not linked to buyer accounts. Your seller org is yours alone."],
+  [
+    "Listed unless you opt out",
+    "Published offers appear in the ABI buyer directory. Turn listing off per offer to keep it site-only.",
+  ],
+  [
+    "Separate partner account",
+    "Partner logins are not linked to buyer accounts. Your seller org is yours alone.",
+  ],
   ["BYO or snippet", "Verify an existing x402 server or paste generated Express middleware."],
-  ["Wallet settlement", "USDC goes to your payout address via the facilitator — ABI does not custody seller funds."],
+  [
+    "Wallet settlement",
+    "USDC goes to your payout address via the facilitator — ABI does not custody seller funds.",
+  ],
 ];
 
 export default function PartnershipsPage() {
@@ -36,9 +45,8 @@ export default function PartnershipsPage() {
       <section className="mkt-page">
         <div className="mkt-page-inner">
           <SectionHead
-            eyebrow="Partnerships"
             title="Get paid when agents buy on your site."
-            sub="Partners get their own login and seller console — catalog, x402 integrate, and inbound activity. It is separate from the buyer console your agents spend from."
+            sub="Partners get their own login and seller console: catalog, x402 setup, per-endpoint analytics, invoices and payouts, access policies, versioning, a buyer sandbox, and webhooks. It is separate from the buyer console your agents spend from."
           />
 
           <div className="mkt-price-grid" style={{ marginBottom: 36 }}>
@@ -57,8 +65,8 @@ export default function PartnershipsPage() {
           <div className="mkt-compare" style={{ marginBottom: 28 }}>
             <h3 className="mkt-compare-title">How it works</h3>
             <p className="mkt-compare-sub">
-              Agents discover products privately on your website. ABI buyer orgs pay; your endpoint
-              unlocks.
+              Agents find your offers in the ABI directory or on your own site. ABI buyer orgs pay;
+              your endpoint unlocks.
             </p>
             <ol style={{ margin: "18px 0 0", paddingLeft: 20, lineHeight: 1.7 }}>
               {STEPS.map((step) => (
@@ -86,7 +94,8 @@ export default function PartnershipsPage() {
               Become a partner
             </Link>
             <span className="muted" style={{ fontSize: 13 }}>
-              <Icon name="shield" size={14} /> Separate partner account · seller org created at sign-up
+              <Icon name="shield" size={14} /> Separate partner account · seller org created at
+              sign-up
             </span>
           </div>
 
