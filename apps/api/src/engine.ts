@@ -45,6 +45,7 @@ import { notify } from "./platform/notifier.js";
 import { recordObs } from "./platform/observability.js";
 import { scopedStore, store, type ApprovalRow, type EscrowRow } from "./store.js";
 import { emitEvent } from "./webhooks.js";
+import { ingestSellerPayment } from "./seller-ingest.js";
 
 export const APPROVAL_TTL_MINUTES = Number(process.env.APPROVAL_TTL_MINUTES ?? 10);
 export const ESCROW_DEFAULT_TIMEOUT_MINUTES = Number(process.env.ESCROW_TIMEOUT_MINUTES ?? 15);
@@ -849,6 +850,13 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     destination: input.destination,
     jobId: input.jobId,
     rail,
+    txHash,
+  });
+  ingestSellerPayment({
+    destination: input.destination,
+    amountMicro: chargedMicro,
+    buyerOrgId: input.orgId,
+    agentId: input.agentId,
     txHash,
   });
   return { ok: true, payload };

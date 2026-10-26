@@ -1,13 +1,15 @@
 /**
  * Seller partnership surfaces: dedicated seller orgs, profile, catalog, integrate.
- * Discovery is private — agents hit the seller’s own site; ABI unlocks payment.
+ * Published offers are listed in the buyer directory by default; sellers opt out
+ * per offer with `directoryListed: false`. Agents can still reach offers on the
+ * seller’s own site either way.
  */
 import type express from "express";
 import { isAddress } from "viem";
 import { z } from "zod";
 import { parseUsdcToMicro, formatMicroToUsdc } from "@policyvault/common";
 import { recordObs } from "../platform/observability.js";
-import { store, type OfferRow, type SellerProfileRow } from "../store.js";
+import { sellerStore, store, type OfferRow, type SellerProfileRow } from "../store.js";
 import { partnerRoute } from "./partner-auth-routes.js";
 
 const payoutSchema = z
@@ -72,6 +74,8 @@ const offerPatchSchema = z.object({
   priceUsdc: z.string().trim().min(1).max(32).optional(),
   network: z.enum(["base-sepolia", "base"]).optional(),
   status: z.enum(["draft", "verified", "published", "paused"]).optional(),
+  directoryListed: z.boolean().optional(),
+  sandboxEnabled: z.boolean().optional(),
 });
 
 function sellerProfileView(profile: SellerProfileRow) {
@@ -98,6 +102,12 @@ function offerView(offer: OfferRow) {
     priceUsdcMicro: offer.priceUsdcMicro,
     network: offer.network,
     status: offer.status,
+    version: offer.version,
+    deprecatedAt: offer.deprecatedAt ?? null,
+    sunsetAt: offer.sunsetAt ?? null,
+    successorOfferId: offer.successorOfferId ?? null,
+    directoryListed: offer.directoryListed,
+    sandboxEnabled: offer.sandboxEnabled,
     createdAt: offer.createdAt,
     updatedAt: offer.updatedAt,
     integration: {
@@ -264,6 +274,8 @@ export function registerSellerRoutes(app: express.Express): void {
             network: body.network,
             slug: body.slug,
             status: body.status,
+            directoryListed: body.directoryListed,
+            sandboxEnabled: body.sandboxEnabled,
           });
           res.json({ offer: offerView(offer) });
         } catch (error) {
@@ -419,7 +431,9 @@ export function registerSellerRoutes(app: express.Express): void {
         recordObs({ name: "seller.offer_published", orgId: org.id });
         res.json({
           offer: offerView(updated),
-          note: "Published for agents that reach this URL on your site. There is no public ABI directory listing.",
+          note: updated.directoryListed
+            ? "Published and listed in the ABI buyer directory. Set directoryListed: false to hide it."
+            : "Published for agents that reach this URL on your site. Hidden from the ABI buyer directory.",
         });
       },
     ),
@@ -444,11 +458,23 @@ export function registerSellerRoutes(app: express.Express): void {
     }),
   );
 
-  /** Private discovery: no public marketplace. Kept for compat → empty + guidance. */
+  /** Buyer directory: published offers are listed unless the seller opted out. */
   app.get("/v1/directory/offers", (_req, res) => {
     res.json({
-      offers: [],
-      note: "Discovery is private. Agents find products on the seller’s site; ABI handles payment unlock. See /partnerships.",
+      offers: sellerStore.listDirectoryOffers().map((offer) => ({
+        id: offer.id,
+        slug: offer.slug,
+        title: offer.title,
+        endpointUrl: offer.endpointUrl,
+        priceUsdc: formatMicroToUsdc(BigInt(offer.priceUsdcMicro)),
+        network: offer.network,
+        version: offer.version,
+        deprecatedAt: offer.deprecatedAt ?? null,
+        sunsetAt: offer.sunsetAt ?? null,
+        successorOfferId: offer.successorOfferId ?? null,
+        sandboxEnabled: offer.sandboxEnabled,
+        seller: { orgId: offer.orgId, name: offer.sellerName, website: offer.website || null },
+      })),
     });
   });
 }

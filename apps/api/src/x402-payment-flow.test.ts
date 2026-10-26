@@ -26,7 +26,7 @@ process.env.ABI_CHAT_AGENT = "0";
 process.env.POLICYVAULT_ALLOW_BOOTSTRAP = "0";
 process.env.ABI_ALLOW_LOCAL_TARGETS = "1";
 
-const { store } = await import("./store.js");
+const { store, sellerStore } = await import("./store.js");
 const { app } = await import("./index.js");
 
 const PAY_TO = `0x${"22".repeat(20)}` as `0x${string}`;
@@ -120,6 +120,16 @@ after(async () => {
 it("replays one x402 settlement without a second seller request or ledger posting", async () => {
   const org = store.createOrg("x402 Flow Co", 1_000_000n);
   const agent = store.createAgent(org.id, "Buyer");
+  const sellerOrg = store.createOrg("Report Seller", 0n, { kind: "seller" });
+  const offer = store.createOffer({
+    orgId: sellerOrg.id,
+    slug: "flow-report",
+    title: "Report",
+    endpointUrl: `${sellerBase}/report`,
+    priceUsdcMicro: "10000",
+    network: "base-sepolia",
+  });
+  store.updateOffer(sellerOrg.id, offer.id, { status: "published" });
   const policy = store.getPolicyTemplate(org.id);
   store.setPolicyTemplate(org.id, {
     ...policy,
@@ -173,6 +183,13 @@ it("replays one x402 settlement without a second seller request or ledger postin
   assert.equal(replayBody.intentId, firstBody.intentId);
   assert.equal(sellerChallenges, 1);
   assert.equal(sellerPaidRequests, 1, "one facilitator-style paid request for both API calls");
+  const sellerUsage = sellerStore.listUsage(sellerOrg.id, new Date(0).toISOString());
+  assert.equal(sellerUsage.length, 1, "replays do not double-count seller usage");
+  assert.equal(sellerUsage[0].mode, "paid");
+  assert.equal(sellerUsage[0].buyerOrgId, org.id);
+  assert.equal(sellerUsage[0].agentId, agent.agentId);
+  assert.equal(sellerUsage[0].amountMicro, "10000");
+  assert.equal(sellerStore.payoutSummary(sellerOrg.id).lastTxHash, TX_HASH);
   const balances = store.getAccountMap(org.id);
   const budgetId = store.getAgentAnyOrg(agent.agentId)?.budgetId;
   assert.equal(balances.get(`dept:${budgetId}:available`)?.balanceMicro, 90_000n);

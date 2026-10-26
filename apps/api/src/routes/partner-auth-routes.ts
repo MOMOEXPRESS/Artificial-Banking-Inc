@@ -126,7 +126,7 @@ function handleError(req: express.Request, res: express.Response, e: unknown) {
   res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
 }
 
-function route(
+export function route(
   handler: (req: express.Request, res: express.Response) => unknown,
 ): express.RequestHandler {
   return (req, res) => {

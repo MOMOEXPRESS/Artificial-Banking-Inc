@@ -123,6 +123,12 @@ export interface OfferRow {
   status: OfferStatus;
   createdAt: string;
   updatedAt: string;
+  version: string;
+  deprecatedAt?: string;
+  sunsetAt?: string;
+  successorOfferId?: string;
+  directoryListed: boolean;
+  sandboxEnabled: boolean;
 }
 
 export interface OfferIntegrationRow {
@@ -1027,6 +1033,75 @@ CREATE TABLE IF NOT EXISTS partner_sessions (
 CREATE INDEX IF NOT EXISTS idx_partner_sessions_account ON partner_sessions(account_id);
 `);
 
+// Seller platform features. Offer columns are added after the offers table exists
+// so fresh and existing databases converge on the same shape.
+for (const migration of [
+  "ALTER TABLE offers ADD COLUMN version TEXT NOT NULL DEFAULT 'v1'",
+  "ALTER TABLE offers ADD COLUMN deprecated_at TEXT",
+  "ALTER TABLE offers ADD COLUMN sunset_at TEXT",
+  "ALTER TABLE offers ADD COLUMN successor_offer_id TEXT",
+  // Listed by default: sellers opt out to hide an offer from buyer directories.
+  "ALTER TABLE offers ADD COLUMN directory_listed INTEGER NOT NULL DEFAULT 1",
+  "ALTER TABLE offers ADD COLUMN sandbox_enabled INTEGER NOT NULL DEFAULT 1",
+]) {
+  try {
+    db.exec(migration);
+  } catch {
+    /* column already exists */
+  }
+}
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS seller_usage_events (
+  id TEXT PRIMARY KEY,
+  seller_org_id TEXT NOT NULL REFERENCES orgs(id),
+  offer_id TEXT NOT NULL REFERENCES offers(id),
+  buyer_org_id TEXT,
+  agent_id TEXT,
+  mode TEXT NOT NULL,
+  amount_micro TEXT NOT NULL DEFAULT '0',
+  settlement_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_seller_usage_org ON seller_usage_events(seller_org_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_seller_usage_offer ON seller_usage_events(offer_id, created_at);
+CREATE TABLE IF NOT EXISTS seller_access_policies (
+  id TEXT PRIMARY KEY,
+  seller_org_id TEXT NOT NULL REFERENCES orgs(id),
+  offer_id TEXT,
+  buyer_org_id TEXT,
+  agent_id TEXT,
+  effect TEXT NOT NULL,
+  rate_per_minute INTEGER,
+  rate_per_day INTEGER,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_seller_policies_org ON seller_access_policies(seller_org_id);
+CREATE TABLE IF NOT EXISTS seller_invoices (
+  id TEXT PRIMARY KEY,
+  seller_org_id TEXT NOT NULL REFERENCES orgs(id),
+  period_start TEXT NOT NULL,
+  period_end TEXT NOT NULL,
+  total_micro TEXT NOT NULL,
+  settlement_count INTEGER NOT NULL,
+  payout_address TEXT,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(seller_org_id, period_start, period_end)
+);
+CREATE TABLE IF NOT EXISTS seller_usage_alerts (
+  id TEXT PRIMARY KEY,
+  seller_org_id TEXT NOT NULL REFERENCES orgs(id),
+  offer_id TEXT,
+  threshold_calls INTEGER NOT NULL,
+  last_fired_day TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_seller_alerts_org ON seller_usage_alerts(seller_org_id);
+`);
+
 // Backfill the canonical one-shot memos written before schedule_kind existed.
 db.exec(`
 UPDATE subscriptions
@@ -1662,6 +1737,12 @@ function rowToOffer(r: Row): OfferRow {
     status,
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
+    version: r.version ? String(r.version) : "v1",
+    deprecatedAt: r.deprecated_at ? String(r.deprecated_at) : undefined,
+    sunsetAt: r.sunset_at ? String(r.sunset_at) : undefined,
+    successorOfferId: r.successor_offer_id ? String(r.successor_offer_id) : undefined,
+    directoryListed: r.directory_listed === undefined || r.directory_listed === null ? true : Number(r.directory_listed) === 1,
+    sandboxEnabled: r.sandbox_enabled === undefined || r.sandbox_enabled === null ? true : Number(r.sandbox_enabled) === 1,
   };
 }
 
@@ -2336,10 +2417,22 @@ export const store = {
       network?: string;
       slug?: string;
       status?: OfferStatus;
+      directoryListed?: boolean;
+      sandboxEnabled?: boolean;
     },
   ): OfferRow {
     const existing = this.getOffer(orgId, offerId);
     if (!existing) throw new Error("OFFER_NOT_FOUND");
+    if (patch.directoryListed !== undefined || patch.sandboxEnabled !== undefined) {
+      db.prepare(
+        "UPDATE offers SET directory_listed = ?, sandbox_enabled = ? WHERE id = ? AND org_id = ?",
+      ).run(
+        (patch.directoryListed ?? existing.directoryListed) ? 1 : 0,
+        (patch.sandboxEnabled ?? existing.sandboxEnabled) ? 1 : 0,
+        offerId,
+        orgId,
+      );
+    }
     const next = {
       title: patch.title ?? existing.title,
       endpointUrl: patch.endpointUrl ?? existing.endpointUrl,
@@ -6230,3 +6323,447 @@ export function scopedStore(orgId: string) {
 }
 
 export type ScopedStore = ReturnType<typeof scopedStore>;
+
+// ------------------------------------------------------------ seller platform
+
+export type SellerUsageMode = "paid" | "sandbox" | "denied";
+
+export interface SellerUsageEventRow {
+  id: string;
+  sellerOrgId: string;
+  offerId: string;
+  buyerOrgId?: string;
+  agentId?: string;
+  mode: SellerUsageMode;
+  amountMicro: string;
+  settlementId?: string;
+  createdAt: string;
+}
+
+export interface SellerAccessPolicyRow {
+  id: string;
+  sellerOrgId: string;
+  offerId?: string;
+  buyerOrgId?: string;
+  agentId?: string;
+  effect: "allow" | "deny";
+  ratePerMinute?: number;
+  ratePerDay?: number;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SellerInvoiceRow {
+  id: string;
+  sellerOrgId: string;
+  periodStart: string;
+  periodEnd: string;
+  totalMicro: string;
+  settlementCount: number;
+  payoutAddress?: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface SellerUsageAlertRow {
+  id: string;
+  sellerOrgId: string;
+  offerId?: string;
+  thresholdCalls: number;
+  lastFiredDay?: string;
+  createdAt: string;
+}
+
+function optStr(v: unknown): string | undefined {
+  return v === null || v === undefined || v === "" ? undefined : String(v);
+}
+
+function optNum(v: unknown): number | undefined {
+  return v === null || v === undefined ? undefined : Number(v);
+}
+
+function rowToUsageEvent(r: Row): SellerUsageEventRow {
+  return {
+    id: String(r.id),
+    sellerOrgId: String(r.seller_org_id),
+    offerId: String(r.offer_id),
+    buyerOrgId: optStr(r.buyer_org_id),
+    agentId: optStr(r.agent_id),
+    mode: String(r.mode) as SellerUsageMode,
+    amountMicro: String(r.amount_micro),
+    settlementId: optStr(r.settlement_id),
+    createdAt: String(r.created_at),
+  };
+}
+
+function rowToAccessPolicy(r: Row): SellerAccessPolicyRow {
+  return {
+    id: String(r.id),
+    sellerOrgId: String(r.seller_org_id),
+    offerId: optStr(r.offer_id),
+    buyerOrgId: optStr(r.buyer_org_id),
+    agentId: optStr(r.agent_id),
+    effect: String(r.effect) === "deny" ? "deny" : "allow",
+    ratePerMinute: optNum(r.rate_per_minute),
+    ratePerDay: optNum(r.rate_per_day),
+    note: String(r.note ?? ""),
+    createdAt: String(r.created_at),
+    updatedAt: String(r.updated_at),
+  };
+}
+
+function rowToSellerInvoice(r: Row): SellerInvoiceRow {
+  return {
+    id: String(r.id),
+    sellerOrgId: String(r.seller_org_id),
+    periodStart: String(r.period_start),
+    periodEnd: String(r.period_end),
+    totalMicro: String(r.total_micro),
+    settlementCount: Number(r.settlement_count),
+    payoutAddress: optStr(r.payout_address),
+    status: String(r.status),
+    createdAt: String(r.created_at),
+  };
+}
+
+function rowToUsageAlert(r: Row): SellerUsageAlertRow {
+  return {
+    id: String(r.id),
+    sellerOrgId: String(r.seller_org_id),
+    offerId: optStr(r.offer_id),
+    thresholdCalls: Number(r.threshold_calls),
+    lastFiredDay: optStr(r.last_fired_day),
+    createdAt: String(r.created_at),
+  };
+}
+
+function normalizeEndpointUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    u.hash = "";
+    const path = u.pathname.length > 1 ? u.pathname.replace(/\/+$/, "") : u.pathname;
+    return `${u.protocol}//${u.host.toLowerCase()}${path}${u.search}`;
+  } catch {
+    return url.trim();
+  }
+}
+
+export const sellerStore = {
+  /** Offers whose endpoint matches a buyer pay destination (exact URL, normalized). */
+  findOffersByEndpoint(endpointUrl: string): OfferRow[] {
+    const target = normalizeEndpointUrl(endpointUrl);
+    return (db.prepare("SELECT * FROM offers WHERE status != 'draft'").all() as Row[])
+      .map(rowToOffer)
+      .filter((o) => normalizeEndpointUrl(o.endpointUrl) === target);
+  },
+
+  getOfferAnyOrg(offerId: string): OfferRow | undefined {
+    const r = db.prepare("SELECT * FROM offers WHERE id = ?").get(offerId) as Row | undefined;
+    return r ? rowToOffer(r) : undefined;
+  },
+
+  listDirectoryOffers(nowIsoStr = nowIso()): (OfferRow & { sellerName: string; website: string })[] {
+    return (
+      db
+        .prepare(
+          `SELECT o.*, COALESCE(p.display_name, g.name) AS seller_name, COALESCE(p.website, '') AS seller_website
+           FROM offers o
+           JOIN orgs g ON g.id = o.org_id
+           LEFT JOIN seller_profiles p ON p.org_id = o.org_id
+           WHERE o.status = 'published' AND o.directory_listed = 1
+             AND (o.sunset_at IS NULL OR o.sunset_at > ?)
+           ORDER BY o.updated_at DESC`,
+        )
+        .all(nowIsoStr) as Row[]
+    ).map((r) => ({
+      ...rowToOffer(r),
+      sellerName: String(r.seller_name),
+      website: String(r.seller_website ?? ""),
+    }));
+  },
+
+  recordUsage(input: {
+    sellerOrgId: string;
+    offerId: string;
+    buyerOrgId?: string;
+    agentId?: string;
+    mode: SellerUsageMode;
+    amountMicro?: string;
+    settlementId?: string;
+  }): SellerUsageEventRow {
+    const row: SellerUsageEventRow = {
+      id: id("susg"),
+      sellerOrgId: input.sellerOrgId,
+      offerId: input.offerId,
+      buyerOrgId: input.buyerOrgId,
+      agentId: input.agentId,
+      mode: input.mode,
+      amountMicro: input.amountMicro ?? "0",
+      settlementId: input.settlementId,
+      createdAt: nowIso(),
+    };
+    db.prepare(
+      `INSERT INTO seller_usage_events (id, seller_org_id, offer_id, buyer_org_id, agent_id, mode, amount_micro, settlement_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      row.id,
+      row.sellerOrgId,
+      row.offerId,
+      row.buyerOrgId ?? null,
+      row.agentId ?? null,
+      row.mode,
+      row.amountMicro,
+      row.settlementId ?? null,
+      row.createdAt,
+    );
+    return row;
+  },
+
+  recordSettlement(input: {
+    sellerOrgId: string;
+    offerId: string;
+    buyerOrgId?: string;
+    amountMicro: string;
+    txHash?: string;
+  }): string {
+    const settlementId = id("sset");
+    db.prepare(
+      `INSERT INTO seller_settlements (id, seller_org_id, offer_id, buyer_org_id, amount_micro, tx_hash, state, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'settled', ?)`,
+    ).run(
+      settlementId,
+      input.sellerOrgId,
+      input.offerId,
+      input.buyerOrgId ?? null,
+      input.amountMicro,
+      input.txHash ?? null,
+      nowIso(),
+    );
+    return settlementId;
+  },
+
+  listUsage(sellerOrgId: string, sinceIso: string): SellerUsageEventRow[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM seller_usage_events WHERE seller_org_id = ? AND created_at >= ? ORDER BY created_at ASC",
+        )
+        .all(sellerOrgId, sinceIso) as Row[]
+    ).map(rowToUsageEvent);
+  },
+
+  countCalls(input: {
+    offerId?: string;
+    sellerOrgId?: string;
+    buyerOrgId?: string;
+    agentId?: string;
+    sinceIso: string;
+    modes?: SellerUsageMode[];
+  }): number {
+    const where = ["created_at >= ?"];
+    const args: unknown[] = [input.sinceIso];
+    if (input.offerId) {
+      where.push("offer_id = ?");
+      args.push(input.offerId);
+    }
+    if (input.sellerOrgId) {
+      where.push("seller_org_id = ?");
+      args.push(input.sellerOrgId);
+    }
+    if (input.buyerOrgId) {
+      where.push("buyer_org_id = ?");
+      args.push(input.buyerOrgId);
+    }
+    if (input.agentId) {
+      where.push("agent_id = ?");
+      args.push(input.agentId);
+    }
+    const modes = input.modes ?? ["paid"];
+    where.push(`mode IN (${modes.map(() => "?").join(",")})`);
+    args.push(...modes);
+    const r = db
+      .prepare(`SELECT COUNT(*) AS c FROM seller_usage_events WHERE ${where.join(" AND ")}`)
+      .get(...args) as Row;
+    return Number(r.c);
+  },
+
+  listPolicies(sellerOrgId: string): SellerAccessPolicyRow[] {
+    return (
+      db
+        .prepare("SELECT * FROM seller_access_policies WHERE seller_org_id = ? ORDER BY created_at ASC")
+        .all(sellerOrgId) as Row[]
+    ).map(rowToAccessPolicy);
+  },
+
+  createPolicy(input: Omit<SellerAccessPolicyRow, "id" | "createdAt" | "updatedAt">): SellerAccessPolicyRow {
+    const now = nowIso();
+    const row: SellerAccessPolicyRow = { ...input, id: id("spol"), createdAt: now, updatedAt: now };
+    db.prepare(
+      `INSERT INTO seller_access_policies (id, seller_org_id, offer_id, buyer_org_id, agent_id, effect, rate_per_minute, rate_per_day, note, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      row.id,
+      row.sellerOrgId,
+      row.offerId ?? null,
+      row.buyerOrgId ?? null,
+      row.agentId ?? null,
+      row.effect,
+      row.ratePerMinute ?? null,
+      row.ratePerDay ?? null,
+      row.note,
+      now,
+      now,
+    );
+    return row;
+  },
+
+  deletePolicy(sellerOrgId: string, policyId: string): boolean {
+    return (
+      db
+        .prepare("DELETE FROM seller_access_policies WHERE id = ? AND seller_org_id = ?")
+        .run(policyId, sellerOrgId).changes === 1
+    );
+  },
+
+  /** Idempotent per period: regenerating the same window returns the existing invoice. */
+  generateInvoice(input: {
+    sellerOrgId: string;
+    periodStart: string;
+    periodEnd: string;
+    payoutAddress?: string;
+  }): { invoice: SellerInvoiceRow; created: boolean } {
+    return db.transaction(() => {
+      const existing = db
+        .prepare(
+          "SELECT * FROM seller_invoices WHERE seller_org_id = ? AND period_start = ? AND period_end = ?",
+        )
+        .get(input.sellerOrgId, input.periodStart, input.periodEnd) as Row | undefined;
+      if (existing) return { invoice: rowToSellerInvoice(existing), created: false };
+      const rows = db
+        .prepare(
+          `SELECT amount_micro FROM seller_settlements
+           WHERE seller_org_id = ? AND state = 'settled' AND created_at >= ? AND created_at < ?`,
+        )
+        .all(input.sellerOrgId, input.periodStart, input.periodEnd) as Row[];
+      const total = rows.reduce((sum, r) => sum + BigInt(String(r.amount_micro)), 0n);
+      const invoice: SellerInvoiceRow = {
+        id: id("sinv"),
+        sellerOrgId: input.sellerOrgId,
+        periodStart: input.periodStart,
+        periodEnd: input.periodEnd,
+        totalMicro: total.toString(),
+        settlementCount: rows.length,
+        payoutAddress: input.payoutAddress,
+        status: "issued",
+        createdAt: nowIso(),
+      };
+      db.prepare(
+        `INSERT INTO seller_invoices (id, seller_org_id, period_start, period_end, total_micro, settlement_count, payout_address, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        invoice.id,
+        invoice.sellerOrgId,
+        invoice.periodStart,
+        invoice.periodEnd,
+        invoice.totalMicro,
+        invoice.settlementCount,
+        invoice.payoutAddress ?? null,
+        invoice.status,
+        invoice.createdAt,
+      );
+      return { invoice, created: true };
+    })();
+  },
+
+  listInvoices(sellerOrgId: string): SellerInvoiceRow[] {
+    return (
+      db
+        .prepare("SELECT * FROM seller_invoices WHERE seller_org_id = ? ORDER BY period_start DESC")
+        .all(sellerOrgId) as Row[]
+    ).map(rowToSellerInvoice);
+  },
+
+  payoutSummary(sellerOrgId: string): { settledMicro: string; count: number; lastTxHash?: string } {
+    const r = db
+      .prepare(
+        `SELECT COUNT(*) AS c, COALESCE(SUM(CAST(amount_micro AS INTEGER)), 0) AS total,
+                (SELECT tx_hash FROM seller_settlements WHERE seller_org_id = ? AND tx_hash IS NOT NULL ORDER BY created_at DESC LIMIT 1) AS last_tx
+         FROM seller_settlements WHERE seller_org_id = ? AND state = 'settled'`,
+      )
+      .get(sellerOrgId, sellerOrgId) as Row;
+    return {
+      settledMicro: String(r.total ?? 0),
+      count: Number(r.c),
+      ...(r.last_tx ? { lastTxHash: String(r.last_tx) } : {}),
+    };
+  },
+
+  deprecateOffer(input: {
+    sellerOrgId: string;
+    offerId: string;
+    sunsetAt: string;
+    successorOfferId?: string;
+  }): void {
+    db.prepare(
+      `UPDATE offers SET deprecated_at = COALESCE(deprecated_at, ?), sunset_at = ?, successor_offer_id = ?, updated_at = ?
+       WHERE id = ? AND org_id = ?`,
+    ).run(
+      nowIso(),
+      input.sunsetAt,
+      input.successorOfferId ?? null,
+      nowIso(),
+      input.offerId,
+      input.sellerOrgId,
+    );
+  },
+
+  setOfferVersion(sellerOrgId: string, offerId: string, version: string): void {
+    db.prepare("UPDATE offers SET version = ? WHERE id = ? AND org_id = ?").run(
+      version,
+      offerId,
+      sellerOrgId,
+    );
+  },
+
+  listAlerts(sellerOrgId: string): SellerUsageAlertRow[] {
+    return (
+      db
+        .prepare("SELECT * FROM seller_usage_alerts WHERE seller_org_id = ? ORDER BY created_at ASC")
+        .all(sellerOrgId) as Row[]
+    ).map(rowToUsageAlert);
+  },
+
+  createAlert(input: { sellerOrgId: string; offerId?: string; thresholdCalls: number }): SellerUsageAlertRow {
+    const row: SellerUsageAlertRow = {
+      id: id("salrt"),
+      sellerOrgId: input.sellerOrgId,
+      offerId: input.offerId,
+      thresholdCalls: input.thresholdCalls,
+      createdAt: nowIso(),
+    };
+    db.prepare(
+      "INSERT INTO seller_usage_alerts (id, seller_org_id, offer_id, threshold_calls, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).run(row.id, row.sellerOrgId, row.offerId ?? null, row.thresholdCalls, row.createdAt);
+    return row;
+  },
+
+  deleteAlert(sellerOrgId: string, alertId: string): boolean {
+    return (
+      db
+        .prepare("DELETE FROM seller_usage_alerts WHERE id = ? AND seller_org_id = ?")
+        .run(alertId, sellerOrgId).changes === 1
+    );
+  },
+
+  /** Marks the alert fired for `day`; false when it already fired that day. */
+  claimAlertFiring(alertId: string, day: string): boolean {
+    return (
+      db
+        .prepare(
+          "UPDATE seller_usage_alerts SET last_fired_day = ? WHERE id = ? AND (last_fired_day IS NULL OR last_fired_day != ?)",
+        )
+        .run(day, alertId, day).changes === 1
+    );
+  },
+};

@@ -258,12 +258,11 @@ describe("seller partnership — separate partner accounts", () => {
     assert.equal(after.status, 401);
   });
 
-  it("keeps directory private (empty + guidance, no public marketplace)", async () => {
+  it("serves the buyer directory publicly (empty until an offer is published)", async () => {
     const res = await fetch(`${base}/v1/directory/offers`);
     assert.equal(res.status, 200);
-    const body = (await res.json()) as { offers: unknown[]; note?: string };
+    const body = (await res.json()) as { offers: unknown[] };
     assert.deepEqual(body.offers, []);
-    assert.match(String(body.note ?? ""), /private/i);
   });
 
   it("supports profile, catalog offers, snippet, publish gate, and activity", async () => {

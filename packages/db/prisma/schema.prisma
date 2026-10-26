@@ -381,6 +381,12 @@ model Offers {
   status String @default("draft")
   createdAt String @map("created_at")
   updatedAt String @map("updated_at")
+  version String @default("v1")
+  deprecatedAt String? @map("deprecated_at")
+  sunsetAt String? @map("sunset_at")
+  successorOfferId String? @map("successor_offer_id")
+  directoryListed Int @default(1) @map("directory_listed")
+  sandboxEnabled Int @default(1) @map("sandbox_enabled")
   @@index([orgId])
   @@unique([orgId, slug])
   @@map("offers")
@@ -544,6 +550,36 @@ model Runs {
   @@map("runs")
 }
 
+model SellerAccessPolicies {
+  id String @id
+  sellerOrgId String @map("seller_org_id") // -> orgs.id
+  offerId String? @map("offer_id")
+  buyerOrgId String? @map("buyer_org_id")
+  agentId String? @map("agent_id")
+  effect String
+  ratePerMinute Int? @map("rate_per_minute")
+  ratePerDay Int? @map("rate_per_day")
+  note String @default("")
+  createdAt String @map("created_at")
+  updatedAt String @map("updated_at")
+  @@index([sellerOrgId])
+  @@map("seller_access_policies")
+}
+
+model SellerInvoices {
+  id String @id
+  sellerOrgId String @map("seller_org_id") // -> orgs.id
+  periodStart String @map("period_start")
+  periodEnd String @map("period_end")
+  totalMicro BigInt @map("total_micro")
+  settlementCount Int @map("settlement_count")
+  payoutAddress String? @map("payout_address")
+  status String
+  createdAt String @map("created_at")
+  @@unique([sellerOrgId, periodStart, periodEnd])
+  @@map("seller_invoices")
+}
+
 model SellerProfiles {
   orgId String @id @map("org_id") // -> orgs.id
   displayName String @map("display_name")
@@ -567,6 +603,32 @@ model SellerSettlements {
   createdAt String @map("created_at")
   @@index([sellerOrgId, createdAt])
   @@map("seller_settlements")
+}
+
+model SellerUsageAlerts {
+  id String @id
+  sellerOrgId String @map("seller_org_id") // -> orgs.id
+  offerId String? @map("offer_id")
+  thresholdCalls Int @map("threshold_calls")
+  lastFiredDay String? @map("last_fired_day")
+  createdAt String @map("created_at")
+  @@index([sellerOrgId])
+  @@map("seller_usage_alerts")
+}
+
+model SellerUsageEvents {
+  id String @id
+  sellerOrgId String @map("seller_org_id") // -> orgs.id
+  offerId String @map("offer_id") // -> offers.id
+  buyerOrgId String? @map("buyer_org_id")
+  agentId String? @map("agent_id")
+  mode String
+  amountMicro BigInt @default(0) @map("amount_micro")
+  settlementId String? @map("settlement_id")
+  createdAt String @map("created_at")
+  @@index([offerId, createdAt])
+  @@index([sellerOrgId, createdAt])
+  @@map("seller_usage_events")
 }
 
 model SessionKeys {

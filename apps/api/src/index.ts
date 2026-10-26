@@ -88,6 +88,7 @@ import { startScheduler } from "./jobs/scheduler.js";
 import { registerPaymentRoutes } from "./routes/payment-routes.js";
 import { registerPlatformRoutes } from "./routes/platform-routes.js";
 import { registerSellerRoutes } from "./routes/seller-routes.js";
+import { registerSellerFeatureRoutes } from "./routes/seller-feature-routes.js";
 import { registerPartnerAuthRoutes } from "./routes/partner-auth-routes.js";
 import { registerPolicyRoutes } from "./routes/policy-routes.js";
 import { registerTreasuryRoutes } from "./routes/treasury-routes.js";
@@ -650,6 +651,7 @@ registerPaymentRoutes(app, { guardianRoute });
 registerPlatformRoutes(app, { guardianRoute });
 registerPartnerAuthRoutes(app);
 registerSellerRoutes(app);
+registerSellerFeatureRoutes(app);
 registerRemoteMcp(app);
 registerTelegramWebhookRoute(app);
 
