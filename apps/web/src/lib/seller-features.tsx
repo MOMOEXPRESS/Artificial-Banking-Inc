@@ -57,11 +57,27 @@ const preStyle = {
   margin: 0,
 };
 
-function Card({ title, children, actions }: { title?: string; children: ReactNode; actions?: ReactNode }) {
+function Card({
+  title,
+  children,
+  actions,
+}: {
+  title?: string;
+  children: ReactNode;
+  actions?: ReactNode;
+}) {
   return (
     <div className="card">
       {(title || actions) && (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
           {title && <h3 style={{ marginTop: 0 }}>{title}</h3>}
           {actions}
         </div>
@@ -81,10 +97,20 @@ function Stat({ label, value }: { label: string; value: ReactNode }) {
 }
 
 function Empty({ children }: { children: ReactNode }) {
-  return <p className="muted" style={{ margin: 0 }}>{children}</p>;
+  return (
+    <p className="muted" style={{ margin: 0 }}>
+      {children}
+    </p>
+  );
 }
 
-function Pill({ tone, children }: { tone: "ok" | "warn" | "muted" | "danger"; children: ReactNode }) {
+function Pill({
+  tone,
+  children,
+}: {
+  tone: "ok" | "warn" | "muted" | "danger";
+  children: ReactNode;
+}) {
   const colors: Record<string, string> = {
     ok: "var(--color-success, #1f9d55)",
     warn: "var(--color-warning, #b7791f)",
@@ -119,7 +145,14 @@ function Toggle({
   label: string;
 }) {
   return (
-    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: disabled ? "default" : "pointer" }}>
+    <label
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        cursor: disabled ? "default" : "pointer",
+      }}
+    >
       <input
         type="checkbox"
         checked={checked}
@@ -190,15 +223,24 @@ export function DirectoryView({ offers, onOffersChanged }: FeatureProps) {
   if (offers.length === 0) return <NoOffers />;
   return (
     <div style={{ display: "grid", gap: 16, maxWidth: 860 }}>
-      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))" }}>
+      <div
+        style={{
+          display: "grid",
+          gap: 12,
+          gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+        }}
+      >
         <Stat label="Live in directory" value={offers.filter((o) => publicIds.has(o.id)).length} />
         <Stat label="Opted out" value={offers.filter((o) => o.directoryListed === false).length} />
-        <Stat label="Not yet published" value={offers.filter((o) => o.status !== "published").length} />
+        <Stat
+          label="Not yet published"
+          value={offers.filter((o) => o.status !== "published").length}
+        />
       </div>
       <Card title="Directory listing">
         <p className="muted" style={{ marginTop: 0 }}>
-          Published offers are listed for buyers by default. Turn listing off to keep an offer site-only;
-          agents can still pay it on your website.
+          Published offers are listed for buyers by default. Turn listing off to keep an offer
+          site-only; agents can still pay it on your website.
         </p>
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {offers.map((o) => {
@@ -260,7 +302,10 @@ function DailyBars({ daily }: { daily: AnalyticsOffer["daily"] }) {
   if (daily.length === 0) return null;
   const max = Math.max(...daily.map((d) => d.calls), 1);
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 48, marginTop: 10 }} aria-label="Calls per day">
+    <div
+      style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 48, marginTop: 10 }}
+      aria-label="Calls per day"
+    >
       {daily.map((d) => (
         <div
           key={d.day}
@@ -318,7 +363,13 @@ export function AnalyticsView() {
           {loading ? "Loading…" : "Refresh"}
         </Button>
       </div>
-      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))" }}>
+      <div
+        style={{
+          display: "grid",
+          gap: 12,
+          gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+        }}
+      >
         <Stat label="Paid calls" value={data?.totals.paidCalls ?? "—"} />
         <Stat label="Revenue" value={data ? `${data.totals.revenueUsdc} USDC` : "—"} />
         <Stat label="Unique buyers" value={data?.totals.uniqueBuyers ?? "—"} />
@@ -335,14 +386,23 @@ export function AnalyticsView() {
           actions={<b>{o.revenueUsdc} USDC</b>}
         >
           <div className="muted" style={{ fontSize: 13 }}>
-            {o.calls.paid} paid · {o.calls.sandbox} sandbox · {o.calls.denied} denied · {o.uniqueBuyers} buyers ·{" "}
-            {o.uniqueAgents} agents
+            {o.calls.paid} paid · {o.calls.sandbox} sandbox · {o.calls.denied} denied ·{" "}
+            {o.uniqueBuyers} buyers · {o.uniqueAgents} agents
           </div>
           <DailyBars daily={o.daily} />
           {(o.topBuyers.length > 0 || o.topAgents.length > 0) && (
-            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", marginTop: 12 }}>
+            <div
+              style={{
+                display: "grid",
+                gap: 12,
+                gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+                marginTop: 12,
+              }}
+            >
               <div>
-                <span className="muted" style={{ fontSize: 12 }}>Top buyers</span>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Top buyers
+                </span>
                 <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 13 }}>
                   {o.topBuyers.map((b) => (
                     <li key={b.id}>
@@ -352,7 +412,9 @@ export function AnalyticsView() {
                 </ul>
               </div>
               <div>
-                <span className="muted" style={{ fontSize: 12 }}>Top agents</span>
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Top agents
+                </span>
                 <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 13 }}>
                   {o.topAgents.map((a) => (
                     <li key={a.id}>
@@ -405,7 +467,10 @@ export function BillingView() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const [inv, pay] = await Promise.all([apiFetch("/v1/seller/invoices"), apiFetch("/v1/seller/payouts")]);
+    const [inv, pay] = await Promise.all([
+      apiFetch("/v1/seller/invoices"),
+      apiFetch("/v1/seller/payouts"),
+    ]);
     if (inv.ok) setInvoices(((await inv.json()) as { invoices: Invoice[] }).invoices);
     if (pay.ok) setPayouts((await pay.json()) as Payouts);
   }, []);
@@ -431,7 +496,10 @@ export function BillingView() {
         return;
       }
       const body = (await res.json()) as { created: boolean };
-      toast(body.created ? "Invoice issued" : "Invoice for that month already exists", body.created ? "ok" : "info");
+      toast(
+        body.created ? "Invoice issued" : "Invoice for that month already exists",
+        body.created ? "ok" : "info",
+      );
       await load();
     } finally {
       setBusy(false);
@@ -440,7 +508,13 @@ export function BillingView() {
 
   return (
     <div style={{ display: "grid", gap: 16, maxWidth: 860 }}>
-      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))" }}>
+      <div
+        style={{
+          display: "grid",
+          gap: 12,
+          gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
+        }}
+      >
         <Stat label="Settled to wallet" value={payouts ? `${payouts.settledUsdc} USDC` : "—"} />
         <Stat label="Settlements" value={payouts?.settlementCount ?? "—"} />
         <Stat label="Invoices" value={invoices.length} />
@@ -551,7 +625,10 @@ export function PoliciesView({ offers }: { offers: SellerOffer[] }) {
         if (form.ratePerMinute) body.ratePerMinute = Number(form.ratePerMinute);
         if (form.ratePerDay) body.ratePerDay = Number(form.ratePerDay);
       }
-      const res = await apiFetch("/v1/seller/policies", { method: "POST", body: JSON.stringify(body) });
+      const res = await apiFetch("/v1/seller/policies", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
       if (!res.ok) {
         toast(await sellerApiError(res, "Could not save policy"), "err");
         return;
@@ -575,7 +652,7 @@ export function PoliciesView({ offers }: { offers: SellerOffer[] }) {
   }
 
   const offerLabel = (id: string | null) =>
-    id ? offers.find((o) => o.id === id)?.slug ?? id : "All offers";
+    id ? (offers.find((o) => o.id === id)?.slug ?? id) : "All offers";
 
   return (
     <div style={{ display: "grid", gap: 16, maxWidth: 860 }}>
@@ -583,7 +660,10 @@ export function PoliciesView({ offers }: { offers: SellerOffer[] }) {
         <div style={formGrid}>
           <label className="field">
             <span>Offer</span>
-            <select value={form.offerId} onChange={(e) => setForm({ ...form, offerId: e.target.value })}>
+            <select
+              value={form.offerId}
+              onChange={(e) => setForm({ ...form, offerId: e.target.value })}
+            >
               <option value="">All offers</option>
               {offers.map((o) => (
                 <option key={o.id} value={o.id}>
@@ -710,7 +790,9 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
 
   useEffect(() => {
     if (!offer) return;
-    setNewSlug(`${offer.slug.replace(/-v\d+$/, "")}-v${Number((offer.version ?? "v1").slice(1)) + 1}`);
+    setNewSlug(
+      `${offer.slug.replace(/-v\d+$/, "")}-v${Number((offer.version ?? "v1").slice(1)) + 1}`,
+    );
     setNewEndpoint(offer.endpointUrl);
     setSuccessor(offer.successorOfferId ?? "");
   }, [offer?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -729,7 +811,10 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
         return;
       }
       const body = (await res.json()) as { offer: { id: string; version: string } };
-      toast(`Created ${body.offer.version} as a draft — verify and publish it in Integrations`, "ok");
+      toast(
+        `Created ${body.offer.version} as a draft — verify and publish it in Integrations`,
+        "ok",
+      );
       setSuccessor(body.offer.id);
       await onOffersChanged();
     } finally {
@@ -768,10 +853,15 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
             <li key={o.id} style={rowStyle}>
               <div>
                 <b>{o.slug}</b> <Pill tone="muted">{o.version ?? "v1"}</Pill>{" "}
-                {o.deprecatedAt ? <Pill tone="warn">Sunsets {o.sunsetAt?.slice(0, 10)}</Pill> : <Pill tone="ok">{o.status}</Pill>}
+                {o.deprecatedAt ? (
+                  <Pill tone="warn">Sunsets {o.sunsetAt?.slice(0, 10)}</Pill>
+                ) : (
+                  <Pill tone="ok">{o.status}</Pill>
+                )}
                 {o.successorOfferId && (
                   <div className="muted" style={{ fontSize: 12 }}>
-                    Successor: {offers.find((s) => s.id === o.successorOfferId)?.slug ?? o.successorOfferId}
+                    Successor:{" "}
+                    {offers.find((s) => s.id === o.successorOfferId)?.slug ?? o.successorOfferId}
                   </div>
                 )}
               </div>
@@ -797,7 +887,11 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
             <input value={newEndpoint} onChange={(e) => setNewEndpoint(e.target.value)} />
           </label>
         </div>
-        <Button style={{ marginTop: 12 }} disabled={busy || !newSlug} onClick={() => void createVersion()}>
+        <Button
+          style={{ marginTop: 12 }}
+          disabled={busy || !newSlug}
+          onClick={() => void createVersion()}
+        >
           Create version
         </Button>
         <p className="muted" style={{ fontSize: 12.5, marginBottom: 0 }}>
@@ -808,7 +902,12 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
         <div style={formGrid}>
           <label className="field">
             <span>Sunset date (UTC)</span>
-            <input type="date" min={minSunset} value={sunset} onChange={(e) => setSunset(e.target.value)} />
+            <input
+              type="date"
+              min={minSunset}
+              value={sunset}
+              onChange={(e) => setSunset(e.target.value)}
+            />
           </label>
           <label className="field">
             <span>Successor (optional)</span>
@@ -824,11 +923,17 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
             </select>
           </label>
         </div>
-        <Button variant="secondary" style={{ marginTop: 12 }} disabled={busy} onClick={() => void deprecate()}>
+        <Button
+          variant="secondary"
+          style={{ marginTop: 12 }}
+          disabled={busy}
+          onClick={() => void deprecate()}
+        >
           {offer.deprecatedAt ? "Update deprecation" : "Schedule deprecation"}
         </Button>
         <p className="muted" style={{ fontSize: 12.5, marginBottom: 0 }}>
-          Buyers get at least 7 days of notice. The offer stays listed and payable until the sunset date.
+          Buyers get at least 7 days of notice. The offer stays listed and payable until the sunset
+          date.
         </p>
       </Card>
     </div>
@@ -883,8 +988,8 @@ export function SandboxView({ offers, onOffersChanged }: FeatureProps) {
     <div style={{ display: "grid", gap: 16, maxWidth: 860 }}>
       <Card title="Buyer sandbox">
         <p className="muted" style={{ marginTop: 0 }}>
-          Buyers can wire their agent against a simulated payment request and unlock before paying. No USDC
-          moves.
+          Buyers can wire their agent against a simulated payment request and unlock before paying.
+          No USDC moves.
         </p>
         <div style={formGrid}>
           <label className="field">
@@ -914,11 +1019,19 @@ export function SandboxView({ offers, onOffersChanged }: FeatureProps) {
         <div style={formGrid}>
           <label className="field">
             <span>Buyer org (optional)</span>
-            <input value={buyerOrgId} onChange={(e) => setBuyerOrgId(e.target.value)} spellCheck={false} />
+            <input
+              value={buyerOrgId}
+              onChange={(e) => setBuyerOrgId(e.target.value)}
+              spellCheck={false}
+            />
           </label>
           <label className="field">
             <span>Agent (optional)</span>
-            <input value={agentId} onChange={(e) => setAgentId(e.target.value)} spellCheck={false} />
+            <input
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              spellCheck={false}
+            />
           </label>
         </div>
         <Button style={{ marginTop: 12 }} disabled={busy || !tryable} onClick={() => void tryIt()}>
@@ -953,7 +1066,10 @@ export function WebhooksView({ offers }: { offers: SellerOffer[] }) {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const [w, a] = await Promise.all([apiFetch("/v1/seller/webhooks"), apiFetch("/v1/seller/alerts")]);
+    const [w, a] = await Promise.all([
+      apiFetch("/v1/seller/webhooks"),
+      apiFetch("/v1/seller/alerts"),
+    ]);
     if (w.ok) {
       const body = (await w.json()) as { webhooks: Webhook[]; events: string[] };
       setWebhooks(body.webhooks);
@@ -969,7 +1085,10 @@ export function WebhooksView({ offers }: { offers: SellerOffer[] }) {
   async function addWebhook() {
     setBusy(true);
     try {
-      const res = await apiFetch("/v1/seller/webhooks", { method: "POST", body: JSON.stringify({ url }) });
+      const res = await apiFetch("/v1/seller/webhooks", {
+        method: "POST",
+        body: JSON.stringify({ url }),
+      });
       if (!res.ok) {
         toast(await sellerApiError(res, "Could not add webhook"), "err");
         return;
@@ -1088,7 +1207,8 @@ export function WebhooksView({ offers }: { offers: SellerOffer[] }) {
       </Card>
       <Card title="Usage threshold alerts">
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-          Sends <code>seller.usage.threshold</code> once per UTC day when paid calls reach the threshold.
+          Sends <code>seller.usage.threshold</code> once per UTC day when paid calls reach the
+          threshold.
         </p>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
           <label className="field" style={{ margin: 0 }}>
@@ -1104,7 +1224,12 @@ export function WebhooksView({ offers }: { offers: SellerOffer[] }) {
           </label>
           <label className="field" style={{ margin: 0 }}>
             <span>Calls per day</span>
-            <input type="number" min={1} value={threshold} onChange={(e) => setThreshold(e.target.value)} />
+            <input
+              type="number"
+              min={1}
+              value={threshold}
+              onChange={(e) => setThreshold(e.target.value)}
+            />
           </label>
           <Button disabled={busy || !Number(threshold)} onClick={() => void addAlert()}>
             Add alert
@@ -1116,7 +1241,9 @@ export function WebhooksView({ offers }: { offers: SellerOffer[] }) {
               <li key={a.id} style={rowStyle}>
                 <div>
                   <b>{a.thresholdCalls} calls/day</b> ·{" "}
-                  {a.offerId ? offers.find((o) => o.id === a.offerId)?.slug ?? a.offerId : "All offers"}
+                  {a.offerId
+                    ? (offers.find((o) => o.id === a.offerId)?.slug ?? a.offerId)
+                    : "All offers"}
                   <div className="muted" style={{ fontSize: 12 }}>
                     Last fired {a.lastFiredDay ?? "never"}
                   </div>

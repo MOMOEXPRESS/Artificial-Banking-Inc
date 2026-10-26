@@ -11,10 +11,17 @@ const RATE_LIMITED_MODES: SellerUsageMode[] = ["paid", "sandbox"];
 
 export type SellerAccessDecision =
   | { allowed: true }
-  | { allowed: false; code: "SELLER_DENIED" | "SELLER_RATE_LIMITED"; policyId: string; message: string };
+  | {
+      allowed: false;
+      code: "SELLER_DENIED" | "SELLER_RATE_LIMITED";
+      policyId: string;
+      message: string;
+    };
 
 function startOfUtcDay(now: Date): string {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  ).toISOString();
 }
 
 /**

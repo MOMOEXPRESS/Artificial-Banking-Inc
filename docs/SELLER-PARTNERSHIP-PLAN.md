@@ -24,13 +24,13 @@ Money settles USDC to the **seller wallet** via the x402 facilitator. ABI does n
 
 ## Org model
 
-| Rule | Detail |
-|------|--------|
-| `orgs.kind` | `buyer` (default) or `seller` — security boundary |
-| Partner account | `partner_accounts` (own email/password) owns exactly one seller org; never in `users`/`memberships` |
+| Rule            | Detail                                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------------------ |
+| `orgs.kind`     | `buyer` (default) or `seller` — security boundary                                                            |
+| Partner account | `partner_accounts` (own email/password) owns exactly one seller org; never in `users`/`memberships`          |
 | Partner session | `partner_sessions` + `abi_partner_session` / `abi_partner_csrf` cookies — independent of buyer `abi_session` |
-| Buyer org | Refuses `workspace=seller\|both` — selling needs a partner account |
-| Entry | `/partnerships` → `/partners/login` (sign in / become a partner) → `/seller` |
+| Buyer org       | Refuses `workspace=seller\|both` — selling needs a partner account                                           |
+| Entry           | `/partnerships` → `/partners/login` (sign in / become a partner) → `/seller`                                 |
 
 Partner auth API: `POST /v1/partner/auth/signup` (creates account + seller org + profile), `POST /v1/partner/auth/login`, `POST /v1/partner/auth/logout`, `GET /v1/partner/auth/me`. All `/v1/seller/*` routes authenticate with the partner session only; buyer sessions and guardian keys get 401.
 
@@ -40,14 +40,14 @@ Deploy: the console and API must ship from the same commit. A console calling `/
 
 ## Seller navigation
 
-| Nav | Purpose |
-|-----|---------|
-| **Overview** | Profile readiness, offer counts, next actions |
-| **Catalog** | Offers (SKU / endpoint / price) — unit agents pay for |
-| **Integrations** | BYO verify + snippet for each offer |
-| **Activity** | Inbound settlements / payments |
-| **Developers** | Snippets, challenge shape, webhook notes |
-| **Settings** | Seller profile + payout wallet |
+| Nav              | Purpose                                               |
+| ---------------- | ----------------------------------------------------- |
+| **Overview**     | Profile readiness, offer counts, next actions         |
+| **Catalog**      | Offers (SKU / endpoint / price) — unit agents pay for |
+| **Integrations** | BYO verify + snippet for each offer                   |
+| **Activity**     | Inbound settlements / payments                        |
+| **Developers**   | Snippets, challenge shape, webhook notes              |
+| **Settings**     | Seller profile + payout wallet                        |
 
 ## Schema
 
@@ -65,34 +65,34 @@ CREATE TABLE seller_settlements (...);     -- activity (later fill from pay path
 
 ## Phases
 
-| Phase | Scope |
-|-------|--------|
-| **0** | Separate orgs, profile, seller console chrome, Partnerships landing |
+| Phase | Scope                                                                                     |
+| ----- | ----------------------------------------------------------------------------------------- |
+| **0** | Separate orgs, profile, seller console chrome, Partnerships landing                       |
 | **1** | Catalog CRUD, Integrations verify + snippet, buyer directory (listed by default, opt-out) |
-| **2** | Pay-time bind, Activity from real pays, Test as agent, partner password reset |
-| **3** | Optional hosted paywall, analytics, negotiated prices |
+| **2** | Pay-time bind, Activity from real pays, Test as agent, partner password reset             |
+| **3** | Optional hosted paywall, analytics, negotiated prices                                     |
 
 ## Integrate modes
 
-| Mode | When |
-|------|------|
-| BYO | Seller already serves x402 — verify + catalog |
-| Snippet | Paste Express/`@x402` middleware generated from offer |
-| Hosted paywall | Only if BYO churn is high |
+| Mode           | When                                                  |
+| -------------- | ----------------------------------------------------- |
+| BYO            | Seller already serves x402 — verify + catalog         |
+| Snippet        | Paste Express/`@x402` middleware generated from offer |
+| Hosted paywall | Only if BYO churn is high                             |
 
 ## Seller features (API scaffolded)
 
 All under `partnerRoute` unless noted. Tables: `seller_usage_events`, `seller_access_policies`, `seller_invoices`, `seller_usage_alerts`; new `offers` columns `version`, `deprecated_at`, `sunset_at`, `successor_offer_id`, `directory_listed` (default 1), `sandbox_enabled` (default 1).
 
-| Feature | API | Status |
-|---------|-----|--------|
-| List once, auto-publish to directory | `POST /v1/seller/offers/:id/publish`, `PATCH … { directoryListed }`, public `GET /v1/directory/offers` | Done (opt-out) |
-| Usage analytics | `GET /v1/seller/analytics?days=` — per offer calls by mode, revenue, unique/top buyers + agents, daily series | Done; fed from buyer `pay_api` settlements matched by endpoint URL |
-| Invoicing + payouts | `POST /v1/seller/invoices/generate` (idempotent per period, defaults to last UTC month), `GET /v1/seller/invoices`, `GET /v1/seller/payouts` | Manual trigger; no scheduled job yet. Payout = direct x402 settlement to the payout address |
-| Rate limits + access policies | `GET/POST /v1/seller/policies`, `DELETE /v1/seller/policies/:id` | Evaluated on sandbox calls; **not yet enforced before buyer pay** |
-| Versioning + deprecation | `POST /v1/seller/offers/:id/versions`, `POST /v1/seller/offers/:id/deprecate` (≥ 7 days notice, optional successor) | Done; offers drop out of the directory after sunset |
-| Buyer sandbox | public `POST /v1/sandbox/offers/:id/try` — simulated 402 + unlock, no money | Done; caller ids are self-declared |
-| Webhooks | `GET/POST /v1/seller/webhooks`, `DELETE /v1/seller/webhooks/:id`; events `seller.payment.received`, `seller.usage.threshold`, `seller.policy.changed`, `seller.offer.deprecated`; alerts via `GET/POST/DELETE /v1/seller/alerts` | Done; reuses the signed, retried org webhook dispatcher |
+| Feature                              | API                                                                                                                                                                                                                              | Status                                                                                      |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| List once, auto-publish to directory | `POST /v1/seller/offers/:id/publish`, `PATCH … { directoryListed }`, public `GET /v1/directory/offers`                                                                                                                           | Done (opt-out)                                                                              |
+| Usage analytics                      | `GET /v1/seller/analytics?days=` — per offer calls by mode, revenue, unique/top buyers + agents, daily series                                                                                                                    | Done; fed from buyer `pay_api` settlements matched by endpoint URL                          |
+| Invoicing + payouts                  | `POST /v1/seller/invoices/generate` (idempotent per period, defaults to last UTC month), `GET /v1/seller/invoices`, `GET /v1/seller/payouts`                                                                                     | Manual trigger; no scheduled job yet. Payout = direct x402 settlement to the payout address |
+| Rate limits + access policies        | `GET/POST /v1/seller/policies`, `DELETE /v1/seller/policies/:id`                                                                                                                                                                 | Evaluated on sandbox calls; **not yet enforced before buyer pay**                           |
+| Versioning + deprecation             | `POST /v1/seller/offers/:id/versions`, `POST /v1/seller/offers/:id/deprecate` (≥ 7 days notice, optional successor)                                                                                                              | Done; offers drop out of the directory after sunset                                         |
+| Buyer sandbox                        | public `POST /v1/sandbox/offers/:id/try` — simulated 402 + unlock, no money                                                                                                                                                      | Done; caller ids are self-declared                                                          |
+| Webhooks                             | `GET/POST /v1/seller/webhooks`, `DELETE /v1/seller/webhooks/:id`; events `seller.payment.received`, `seller.usage.threshold`, `seller.policy.changed`, `seller.offer.deprecated`; alerts via `GET/POST/DELETE /v1/seller/alerts` | Done; reuses the signed, retried org webhook dispatcher                                     |
 
 ## Exit criteria
 

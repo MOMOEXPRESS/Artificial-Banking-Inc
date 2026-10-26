@@ -175,32 +175,30 @@ export function registerSellerRoutes(app: express.Express): void {
 
   app.patch(
     "/v1/seller/profile",
-    partnerRoute(
-      (org, req, res) => {
-        const body = sellerProfileSchema.parse(req.body ?? {});
-        try {
-          const profile = store.upsertSellerProfile(org.id, {
-            displayName: body.displayName,
-            payoutAddress: body.payoutAddress === "" ? null : body.payoutAddress,
-            network: body.network,
-            website: body.website,
-            description: body.description,
+    partnerRoute((org, req, res) => {
+      const body = sellerProfileSchema.parse(req.body ?? {});
+      try {
+        const profile = store.upsertSellerProfile(org.id, {
+          displayName: body.displayName,
+          payoutAddress: body.payoutAddress === "" ? null : body.payoutAddress,
+          network: body.network,
+          website: body.website,
+          description: body.description,
+        });
+        recordObs({ name: "seller.profile_updated", orgId: org.id });
+        res.json({ ok: true, orgId: org.id, profile: sellerProfileView(profile) });
+      } catch (error) {
+        if (error instanceof Error && error.message === "SELLER_ORG_REQUIRED") {
+          return res.status(403).json({
+            error: {
+              code: "SELLER_ORG_REQUIRED",
+              message: "Seller profile updates require a seller organization.",
+            },
           });
-          recordObs({ name: "seller.profile_updated", orgId: org.id });
-          res.json({ ok: true, orgId: org.id, profile: sellerProfileView(profile) });
-        } catch (error) {
-          if (error instanceof Error && error.message === "SELLER_ORG_REQUIRED") {
-            return res.status(403).json({
-              error: {
-                code: "SELLER_ORG_REQUIRED",
-                message: "Seller profile updates require a seller organization.",
-              },
-            });
-          }
-          throw error;
         }
-      },
-    ),
+        throw error;
+      }
+    }),
   );
 
   app.get(
@@ -212,10 +210,49 @@ export function registerSellerRoutes(app: express.Express): void {
 
   app.post(
     "/v1/seller/offers",
-    partnerRoute(
-      (org, req, res) => {
-        const body = offerCreateSchema.parse(req.body ?? {});
-        let priceUsdcMicro: string;
+    partnerRoute((org, req, res) => {
+      const body = offerCreateSchema.parse(req.body ?? {});
+      let priceUsdcMicro: string;
+      try {
+        priceUsdcMicro = parseUsdcToMicro(body.priceUsdc).toString();
+      } catch {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
+        });
+      }
+      if (BigInt(priceUsdcMicro) <= 0n) {
+        return res.status(400).json({
+          error: { code: "VALIDATION_ERROR", message: "priceUsdc must be greater than zero" },
+        });
+      }
+      try {
+        const offer = store.createOffer({
+          orgId: org.id,
+          slug: body.slug,
+          title: body.title,
+          endpointUrl: body.endpointUrl,
+          priceUsdcMicro,
+          network: body.network,
+        });
+        recordObs({ name: "seller.offer_created", orgId: org.id });
+        res.status(201).json({ offer: offerView(offer) });
+      } catch (error) {
+        if (error instanceof Error && error.message === "OFFER_SLUG_TAKEN") {
+          return res.status(409).json({
+            error: { code: "OFFER_SLUG_TAKEN", message: "That slug is already in use." },
+          });
+        }
+        throw error;
+      }
+    }),
+  );
+
+  app.patch(
+    "/v1/seller/offers/:offerId",
+    partnerRoute((org, req, res) => {
+      const body = offerPatchSchema.parse(req.body ?? {});
+      let priceUsdcMicro: string | undefined;
+      if (body.priceUsdc !== undefined) {
         try {
           priceUsdcMicro = parseUsdcToMicro(body.priceUsdc).toString();
         } catch {
@@ -223,74 +260,31 @@ export function registerSellerRoutes(app: express.Express): void {
             error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
           });
         }
-        if (BigInt(priceUsdcMicro) <= 0n) {
-          return res.status(400).json({
-            error: { code: "VALIDATION_ERROR", message: "priceUsdc must be greater than zero" },
+      }
+      try {
+        const offer = store.updateOffer(org.id, req.params.offerId, {
+          title: body.title,
+          endpointUrl: body.endpointUrl,
+          priceUsdcMicro,
+          network: body.network,
+          slug: body.slug,
+          status: body.status,
+          directoryListed: body.directoryListed,
+          sandboxEnabled: body.sandboxEnabled,
+        });
+        res.json({ offer: offerView(offer) });
+      } catch (error) {
+        if (error instanceof Error && error.message === "OFFER_NOT_FOUND") {
+          return res.status(404).json({ error: { code: "NOT_FOUND", message: "Offer not found" } });
+        }
+        if (error instanceof Error && error.message === "OFFER_SLUG_TAKEN") {
+          return res.status(409).json({
+            error: { code: "OFFER_SLUG_TAKEN", message: "That slug is already in use." },
           });
         }
-        try {
-          const offer = store.createOffer({
-            orgId: org.id,
-            slug: body.slug,
-            title: body.title,
-            endpointUrl: body.endpointUrl,
-            priceUsdcMicro,
-            network: body.network,
-          });
-          recordObs({ name: "seller.offer_created", orgId: org.id });
-          res.status(201).json({ offer: offerView(offer) });
-        } catch (error) {
-          if (error instanceof Error && error.message === "OFFER_SLUG_TAKEN") {
-            return res.status(409).json({
-              error: { code: "OFFER_SLUG_TAKEN", message: "That slug is already in use." },
-            });
-          }
-          throw error;
-        }
-      },
-    ),
-  );
-
-  app.patch(
-    "/v1/seller/offers/:offerId",
-    partnerRoute(
-      (org, req, res) => {
-        const body = offerPatchSchema.parse(req.body ?? {});
-        let priceUsdcMicro: string | undefined;
-        if (body.priceUsdc !== undefined) {
-          try {
-            priceUsdcMicro = parseUsdcToMicro(body.priceUsdc).toString();
-          } catch {
-            return res.status(400).json({
-              error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" },
-            });
-          }
-        }
-        try {
-          const offer = store.updateOffer(org.id, req.params.offerId, {
-            title: body.title,
-            endpointUrl: body.endpointUrl,
-            priceUsdcMicro,
-            network: body.network,
-            slug: body.slug,
-            status: body.status,
-            directoryListed: body.directoryListed,
-            sandboxEnabled: body.sandboxEnabled,
-          });
-          res.json({ offer: offerView(offer) });
-        } catch (error) {
-          if (error instanceof Error && error.message === "OFFER_NOT_FOUND") {
-            return res.status(404).json({ error: { code: "NOT_FOUND", message: "Offer not found" } });
-          }
-          if (error instanceof Error && error.message === "OFFER_SLUG_TAKEN") {
-            return res.status(409).json({
-              error: { code: "OFFER_SLUG_TAKEN", message: "That slug is already in use." },
-            });
-          }
-          throw error;
-        }
-      },
-    ),
+        throw error;
+      }
+    }),
   );
 
   app.get(
@@ -315,128 +309,127 @@ export function registerSellerRoutes(app: express.Express): void {
 
   app.post(
     "/v1/seller/offers/:offerId/verify",
-    partnerRoute(
-      async (org, req, res) => {
-        const offer = store.getOffer(org.id, req.params.offerId);
-        if (!offer) {
-          return res.status(404).json({ error: { code: "NOT_FOUND", message: "Offer not found" } });
-        }
-        const profile = store.getSellerProfile(org.id);
+    partnerRoute(async (org, req, res) => {
+      const offer = store.getOffer(org.id, req.params.offerId);
+      if (!offer) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "Offer not found" } });
+      }
+      const profile = store.getSellerProfile(org.id);
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8_000);
+        const response = await fetch(offer.endpointUrl, {
+          method: "GET",
+          redirect: "manual",
+          signal: controller.signal,
+          headers: { accept: "application/json" },
+        });
+        clearTimeout(timer);
+        const status = response.status;
+        const paymentHeader =
+          response.headers.get("payment-required") ||
+          response.headers.get("x-payment") ||
+          response.headers.get("www-authenticate");
+        let bodyText = "";
         try {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 8_000);
-          const response = await fetch(offer.endpointUrl, {
-            method: "GET",
-            redirect: "manual",
-            signal: controller.signal,
-            headers: { accept: "application/json" },
-          });
-          clearTimeout(timer);
-          const status = response.status;
-          const paymentHeader =
-            response.headers.get("payment-required") ||
-            response.headers.get("x-payment") ||
-            response.headers.get("www-authenticate");
-          let bodyText = "";
-          try {
-            bodyText = (await response.text()).slice(0, 4_000);
-          } catch {
-            bodyText = "";
-          }
-          const looks402 = status === 402;
-          const challenge = {
-            httpStatus: status,
-            paymentHeader: paymentHeader ? paymentHeader.slice(0, 500) : null,
-            bodyPreview: bodyText.slice(0, 800),
-            expectedPayTo: profile?.payoutAddress ?? null,
-            expectedNetwork: offer.network,
-            expectedPriceUsdc: formatMicroToUsdc(BigInt(offer.priceUsdcMicro)),
-          };
-          if (!looks402) {
-            store.setOfferIntegration(offer.id, {
-              lastChallengeJson: JSON.stringify(challenge),
-              lastVerifiedAt: null,
-              error: `Expected HTTP 402 from unpaid GET; got ${status}`,
-            });
-            if (offer.status === "verified" || offer.status === "published") {
-              store.updateOffer(org.id, offer.id, { status: "draft" });
-            }
-            return res.status(422).json({
-              ok: false,
-              error: {
-                code: "VERIFY_FAILED",
-                message: `Expected HTTP 402 Payment Required from unpaid GET; got ${status}`,
-              },
-              challenge,
-              offer: offerView(store.getOffer(org.id, offer.id)!),
-            });
-          }
+          bodyText = (await response.text()).slice(0, 4_000);
+        } catch {
+          bodyText = "";
+        }
+        const looks402 = status === 402;
+        const challenge = {
+          httpStatus: status,
+          paymentHeader: paymentHeader ? paymentHeader.slice(0, 500) : null,
+          bodyPreview: bodyText.slice(0, 800),
+          expectedPayTo: profile?.payoutAddress ?? null,
+          expectedNetwork: offer.network,
+          expectedPriceUsdc: formatMicroToUsdc(BigInt(offer.priceUsdcMicro)),
+        };
+        if (!looks402) {
           store.setOfferIntegration(offer.id, {
             lastChallengeJson: JSON.stringify(challenge),
-            lastVerifiedAt: new Date().toISOString(),
-            error: null,
-            snippetVersion: "v0",
-          });
-          const updated = store.updateOffer(org.id, offer.id, { status: "verified" });
-          recordObs({ name: "seller.offer_verified", orgId: org.id });
-          res.json({
-            ok: true,
-            challenge,
-            offer: offerView(updated),
-            note: "Unpaid GET returned 402. Publish when you are ready for buyer agents.",
-          });
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : "Could not reach offer endpoint";
-          store.setOfferIntegration(offer.id, {
-            error: message.slice(0, 500),
             lastVerifiedAt: null,
+            error: `Expected HTTP 402 from unpaid GET; got ${status}`,
           });
+          if (offer.status === "verified" || offer.status === "published") {
+            store.updateOffer(org.id, offer.id, { status: "draft" });
+          }
           return res.status(422).json({
             ok: false,
-            error: { code: "VERIFY_FAILED", message },
+            error: {
+              code: "VERIFY_FAILED",
+              message: `Expected HTTP 402 Payment Required from unpaid GET; got ${status}`,
+            },
+            challenge,
             offer: offerView(store.getOffer(org.id, offer.id)!),
           });
         }
-      },
-    ),
+        store.setOfferIntegration(offer.id, {
+          lastChallengeJson: JSON.stringify(challenge),
+          lastVerifiedAt: new Date().toISOString(),
+          error: null,
+          snippetVersion: "v0",
+        });
+        const updated = store.updateOffer(org.id, offer.id, { status: "verified" });
+        recordObs({ name: "seller.offer_verified", orgId: org.id });
+        res.json({
+          ok: true,
+          challenge,
+          offer: offerView(updated),
+          note: "Unpaid GET returned 402. Publish when you are ready for buyer agents.",
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not reach offer endpoint";
+        store.setOfferIntegration(offer.id, {
+          error: message.slice(0, 500),
+          lastVerifiedAt: null,
+        });
+        return res.status(422).json({
+          ok: false,
+          error: { code: "VERIFY_FAILED", message },
+          offer: offerView(store.getOffer(org.id, offer.id)!),
+        });
+      }
+    }),
   );
 
   app.post(
     "/v1/seller/offers/:offerId/publish",
-    partnerRoute(
-      (org, req, res) => {
-        const offer = store.getOffer(org.id, req.params.offerId);
-        if (!offer) {
-          return res.status(404).json({ error: { code: "NOT_FOUND", message: "Offer not found" } });
-        }
-        if (offer.status !== "verified" && offer.status !== "published" && offer.status !== "paused") {
-          return res.status(400).json({
-            error: {
-              code: "NOT_VERIFIED",
-              message: "Verify the unpaid 402 challenge before publishing.",
-            },
-          });
-        }
-        const profile = store.getSellerProfile(org.id);
-        if (!profile?.payoutAddress) {
-          return res.status(400).json({
-            error: {
-              code: "PAYOUT_REQUIRED",
-              message: "Set a payout address on your seller profile before publishing.",
-            },
-          });
-        }
-        const updated = store.updateOffer(org.id, offer.id, { status: "published" });
-        recordObs({ name: "seller.offer_published", orgId: org.id });
-        res.json({
-          offer: offerView(updated),
-          note: updated.directoryListed
-            ? "Published and listed in the ABI buyer directory. Set directoryListed: false to hide it."
-            : "Published for agents that reach this URL on your site. Hidden from the ABI buyer directory.",
+    partnerRoute((org, req, res) => {
+      const offer = store.getOffer(org.id, req.params.offerId);
+      if (!offer) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "Offer not found" } });
+      }
+      if (
+        offer.status !== "verified" &&
+        offer.status !== "published" &&
+        offer.status !== "paused"
+      ) {
+        return res.status(400).json({
+          error: {
+            code: "NOT_VERIFIED",
+            message: "Verify the unpaid 402 challenge before publishing.",
+          },
         });
-      },
-    ),
+      }
+      const profile = store.getSellerProfile(org.id);
+      if (!profile?.payoutAddress) {
+        return res.status(400).json({
+          error: {
+            code: "PAYOUT_REQUIRED",
+            message: "Set a payout address on your seller profile before publishing.",
+          },
+        });
+      }
+      const updated = store.updateOffer(org.id, offer.id, { status: "published" });
+      recordObs({ name: "seller.offer_published", orgId: org.id });
+      res.json({
+        offer: offerView(updated),
+        note: updated.directoryListed
+          ? "Published and listed in the ABI buyer directory. Set directoryListed: false to hide it."
+          : "Published for agents that reach this URL on your site. Hidden from the ABI buyer directory.",
+      });
+    }),
   );
 
   app.get(

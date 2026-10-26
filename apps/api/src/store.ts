@@ -1741,8 +1741,14 @@ function rowToOffer(r: Row): OfferRow {
     deprecatedAt: r.deprecated_at ? String(r.deprecated_at) : undefined,
     sunsetAt: r.sunset_at ? String(r.sunset_at) : undefined,
     successorOfferId: r.successor_offer_id ? String(r.successor_offer_id) : undefined,
-    directoryListed: r.directory_listed === undefined || r.directory_listed === null ? true : Number(r.directory_listed) === 1,
-    sandboxEnabled: r.sandbox_enabled === undefined || r.sandbox_enabled === null ? true : Number(r.sandbox_enabled) === 1,
+    directoryListed:
+      r.directory_listed === undefined || r.directory_listed === null
+        ? true
+        : Number(r.directory_listed) === 1,
+    sandboxEnabled:
+      r.sandbox_enabled === undefined || r.sandbox_enabled === null
+        ? true
+        : Number(r.sandbox_enabled) === 1,
   };
 }
 
@@ -2178,7 +2184,15 @@ export const store = {
       db.prepare(
         `INSERT INTO partner_accounts (id, email, name, password_hash, org_id, created_at, email_verified_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      ).run(accountId, email, input.name.trim(), input.passwordHash, org.id, createdAt, emailVerifiedAt);
+      ).run(
+        accountId,
+        email,
+        input.name.trim(),
+        input.passwordHash,
+        org.id,
+        createdAt,
+        emailVerifiedAt,
+      );
       if (!input.markEmailVerified && input.verificationToken) {
         this.createPartnerEmailVerification(
           accountId,
@@ -2240,7 +2254,9 @@ export const store = {
         .get(hashSecret(token), now) as Row | undefined;
       if (!row) return undefined;
       const claimed = db
-        .prepare("UPDATE partner_email_verifications SET used_at = ? WHERE id = ? AND used_at IS NULL")
+        .prepare(
+          "UPDATE partner_email_verifications SET used_at = ? WHERE id = ? AND used_at IS NULL",
+        )
         .run(now, row.id);
       if (claimed.changes !== 1) return undefined;
       db.prepare(
@@ -2254,7 +2270,10 @@ export const store = {
   },
 
   markPartnerLogin(accountId: string): void {
-    db.prepare("UPDATE partner_accounts SET last_login_at = ? WHERE id = ?").run(nowIso(), accountId);
+    db.prepare("UPDATE partner_accounts SET last_login_at = ? WHERE id = ?").run(
+      nowIso(),
+      accountId,
+    );
   },
 
   createPartnerSession(input: { accountId: string; token: string; ttlMs: number }): {
@@ -2270,7 +2289,9 @@ export const store = {
     return { id: sessionId, expiresAt };
   },
 
-  getPartnerBySessionToken(token: string): { account: PartnerAccountRow; sessionId: string } | undefined {
+  getPartnerBySessionToken(
+    token: string,
+  ): { account: PartnerAccountRow; sessionId: string } | undefined {
     const r = db
       .prepare(
         `SELECT a.*, s.id AS session_id FROM partner_sessions s
@@ -2291,8 +2312,7 @@ export const store = {
 
   getSellerProfile(orgId: string): SellerProfileRow | undefined {
     const r = db.prepare("SELECT * FROM seller_profiles WHERE org_id = ?").get(orgId) as
-      | Row
-      | undefined;
+      Row | undefined;
     return r ? rowToSellerProfile(r) : undefined;
   },
 
@@ -2362,9 +2382,8 @@ export const store = {
   },
 
   getOffer(orgId: string, offerId: string): OfferRow | undefined {
-    const r = db
-      .prepare("SELECT * FROM offers WHERE id = ? AND org_id = ?")
-      .get(offerId, orgId) as Row | undefined;
+    const r = db.prepare("SELECT * FROM offers WHERE id = ? AND org_id = ?").get(offerId, orgId) as
+      Row | undefined;
     return r ? rowToOffer(r) : undefined;
   },
 
@@ -2469,8 +2488,7 @@ export const store = {
 
   getOfferIntegration(offerId: string): OfferIntegrationRow | undefined {
     const r = db.prepare("SELECT * FROM offer_integrations WHERE offer_id = ?").get(offerId) as
-      | Row
-      | undefined;
+      Row | undefined;
     return r ? rowToOfferIntegration(r) : undefined;
   },
 
@@ -2505,13 +2523,7 @@ export const store = {
     db.prepare(
       `UPDATE offer_integrations SET last_challenge_json = ?, snippet_version = ?, last_verified_at = ?, error = ?
        WHERE offer_id = ?`,
-    ).run(
-      next.lastChallengeJson,
-      next.snippetVersion,
-      next.lastVerifiedAt,
-      next.error,
-      offerId,
-    );
+    ).run(next.lastChallengeJson, next.snippetVersion, next.lastVerifiedAt, next.error, offerId);
     const row = this.getOfferIntegration(offerId);
     if (!row) throw new Error("OFFER_INTEGRATION_MISSING");
     return row;
@@ -6463,7 +6475,9 @@ export const sellerStore = {
     return r ? rowToOffer(r) : undefined;
   },
 
-  listDirectoryOffers(nowIsoStr = nowIso()): (OfferRow & { sellerName: string; website: string })[] {
+  listDirectoryOffers(
+    nowIsoStr = nowIso(),
+  ): (OfferRow & { sellerName: string; website: string })[] {
     return (
       db
         .prepare(
@@ -6591,12 +6605,16 @@ export const sellerStore = {
   listPolicies(sellerOrgId: string): SellerAccessPolicyRow[] {
     return (
       db
-        .prepare("SELECT * FROM seller_access_policies WHERE seller_org_id = ? ORDER BY created_at ASC")
+        .prepare(
+          "SELECT * FROM seller_access_policies WHERE seller_org_id = ? ORDER BY created_at ASC",
+        )
         .all(sellerOrgId) as Row[]
     ).map(rowToAccessPolicy);
   },
 
-  createPolicy(input: Omit<SellerAccessPolicyRow, "id" | "createdAt" | "updatedAt">): SellerAccessPolicyRow {
+  createPolicy(
+    input: Omit<SellerAccessPolicyRow, "id" | "createdAt" | "updatedAt">,
+  ): SellerAccessPolicyRow {
     const now = nowIso();
     const row: SellerAccessPolicyRow = { ...input, id: id("spol"), createdAt: now, updatedAt: now };
     db.prepare(
@@ -6729,12 +6747,18 @@ export const sellerStore = {
   listAlerts(sellerOrgId: string): SellerUsageAlertRow[] {
     return (
       db
-        .prepare("SELECT * FROM seller_usage_alerts WHERE seller_org_id = ? ORDER BY created_at ASC")
+        .prepare(
+          "SELECT * FROM seller_usage_alerts WHERE seller_org_id = ? ORDER BY created_at ASC",
+        )
         .all(sellerOrgId) as Row[]
     ).map(rowToUsageAlert);
   },
 
-  createAlert(input: { sellerOrgId: string; offerId?: string; thresholdCalls: number }): SellerUsageAlertRow {
+  createAlert(input: {
+    sellerOrgId: string;
+    offerId?: string;
+    thresholdCalls: number;
+  }): SellerUsageAlertRow {
     const row: SellerUsageAlertRow = {
       id: id("salrt"),
       sellerOrgId: input.sellerOrgId,

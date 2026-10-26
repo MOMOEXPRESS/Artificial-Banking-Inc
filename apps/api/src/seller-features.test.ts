@@ -106,7 +106,9 @@ describe("seller features", () => {
     assert.equal(offer.version, "v1");
     assert.ok((await directoryIds()).includes(offer.id));
 
-    const optOut = await call(s, "PATCH", `/v1/seller/offers/${offer.id}`, { directoryListed: false });
+    const optOut = await call(s, "PATCH", `/v1/seller/offers/${offer.id}`, {
+      directoryListed: false,
+    });
     assert.equal(optOut.status, 200);
     assert.equal(((await optOut.json()) as { offer: OfferJson }).offer.directoryListed, false);
     assert.ok(!(await directoryIds()).includes(offer.id));
@@ -130,7 +132,10 @@ describe("seller features", () => {
     const hook = await call(s, "POST", "/v1/seller/webhooks", { url: "abi://demo-inbox" });
     assert.equal(hook.status, 201);
     assert.match(((await hook.json()) as { secret: string }).secret, /^pv_whsec_/);
-    const alert = await call(s, "POST", "/v1/seller/alerts", { offerId: offer.id, thresholdCalls: 2 });
+    const alert = await call(s, "POST", "/v1/seller/alerts", {
+      offerId: offer.id,
+      thresholdCalls: 2,
+    });
     assert.equal(alert.status, 201);
 
     for (const agentId of ["agent_a", "agent_a", "agent_b"]) {
@@ -148,7 +153,11 @@ describe("seller features", () => {
     assert.equal(analytics.status, 200);
     const a = (await analytics.json()) as {
       totals: { paidCalls: number; revenueUsdc: string; uniqueBuyers: number };
-      offers: { offerId: string; calls: { paid: number }; topAgents: { id: string; calls: number }[] }[];
+      offers: {
+        offerId: string;
+        calls: { paid: number };
+        topAgents: { id: string; calls: number }[];
+      }[];
     };
     assert.equal(a.totals.paidCalls, 3);
     assert.equal(a.totals.revenueUsdc, "0.75");
@@ -159,7 +168,11 @@ describe("seller features", () => {
 
     const events = store.listDeliveries(s.orgId).map((d) => d.event);
     assert.equal(events.filter((e) => e === "seller.payment.received").length, 3);
-    assert.equal(events.filter((e) => e === "seller.usage.threshold").length, 1, "fires once per day");
+    assert.equal(
+      events.filter((e) => e === "seller.usage.threshold").length,
+      1,
+      "fires once per day",
+    );
 
     const payouts = (await (await call(s, "GET", "/v1/seller/payouts")).json()) as {
       settledUsdc: string;
@@ -185,14 +198,19 @@ describe("seller features", () => {
     };
     const first = await call(s, "POST", "/v1/seller/invoices/generate", window);
     assert.equal(first.status, 201);
-    const inv = (await first.json()) as { created: boolean; invoice: { id: string; totalUsdc: string } };
+    const inv = (await first.json()) as {
+      created: boolean;
+      invoice: { id: string; totalUsdc: string };
+    };
     assert.equal(inv.invoice.totalUsdc, "1");
     const again = await call(s, "POST", "/v1/seller/invoices/generate", window);
     assert.equal(again.status, 200);
     const inv2 = (await again.json()) as { created: boolean; invoice: { id: string } };
     assert.equal(inv2.created, false);
     assert.equal(inv2.invoice.id, inv.invoice.id);
-    const list = (await (await call(s, "GET", "/v1/seller/invoices")).json()) as { invoices: unknown[] };
+    const list = (await (await call(s, "GET", "/v1/seller/invoices")).json()) as {
+      invoices: unknown[];
+    };
     assert.equal(list.invoices.length, 1);
   });
 
@@ -201,9 +219,16 @@ describe("seller features", () => {
     const offer = await publishedOffer(s, "pol-api", "https://policy.example/api");
     const bad = await call(s, "POST", "/v1/seller/policies", { effect: "allow" });
     assert.equal(bad.status, 400, "allow without a rate is rejected");
-    const deny = await call(s, "POST", "/v1/seller/policies", { buyerOrgId: "org_blocked", effect: "deny" });
+    const deny = await call(s, "POST", "/v1/seller/policies", {
+      buyerOrgId: "org_blocked",
+      effect: "deny",
+    });
     assert.equal(deny.status, 201);
-    await call(s, "POST", "/v1/seller/policies", { offerId: offer.id, agentId: "agent_fast", ratePerMinute: 2 });
+    await call(s, "POST", "/v1/seller/policies", {
+      offerId: offer.id,
+      agentId: "agent_fast",
+      ratePerMinute: 2,
+    });
 
     const row = sellerStore.getOfferAnyOrg(offer.id)!;
     assert.equal(evaluateSellerAccess(row, "org_blocked", "agent_x").allowed, false);
@@ -272,7 +297,8 @@ describe("seller features", () => {
       endpointUrl: "https://version.example/v2",
     });
     assert.equal(v2res.status, 201, await v2res.clone().text());
-    const v2 = ((await v2res.json()) as { offer: { id: string; version: string; status: string } }).offer;
+    const v2 = ((await v2res.json()) as { offer: { id: string; version: string; status: string } })
+      .offer;
     assert.equal(v2.version, "v2");
     assert.equal(v2.status, "draft");
 
@@ -287,13 +313,18 @@ describe("seller features", () => {
       successorOfferId: v2.id,
     });
     assert.equal(dep.status, 200);
-    const depBody = (await dep.json()) as { offer: { sunsetAt: string; successorOfferId: string; deprecatedAt: string } };
+    const depBody = (await dep.json()) as {
+      offer: { sunsetAt: string; successorOfferId: string; deprecatedAt: string };
+    };
     assert.equal(depBody.offer.successorOfferId, v2.id);
     assert.ok(depBody.offer.deprecatedAt);
 
     const dirRes = await fetch(`${base}/v1/directory/offers`);
-    const listed = ((await dirRes.json()) as { offers: { id: string; sunsetAt: string | null; successorOfferId: string | null }[] })
-      .offers.find((o) => o.id === v1.id);
+    const listed = (
+      (await dirRes.json()) as {
+        offers: { id: string; sunsetAt: string | null; successorOfferId: string | null }[];
+      }
+    ).offers.find((o) => o.id === v1.id);
     assert.ok(listed, "deprecated offers stay listed until sunset");
     assert.equal(listed!.successorOfferId, v2.id);
 
@@ -309,7 +340,12 @@ describe("seller features", () => {
   });
 
   it("requires a partner session for seller feature routes", async () => {
-    for (const path of ["/v1/seller/analytics", "/v1/seller/policies", "/v1/seller/invoices", "/v1/seller/webhooks"]) {
+    for (const path of [
+      "/v1/seller/analytics",
+      "/v1/seller/policies",
+      "/v1/seller/invoices",
+      "/v1/seller/webhooks",
+    ]) {
       const res = await fetch(`${base}${path}`);
       assert.equal(res.status, 401, path);
     }

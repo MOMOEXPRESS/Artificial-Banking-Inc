@@ -21,8 +21,8 @@ export async function sellerApiFetch(path: string, init: RequestInit = {}) {
 }
 
 export async function sellerApiError(res: Response, fallback: string): Promise<string> {
-  const body = (await res.json().catch(() => null)) as
-    | { error?: { message?: string; issues?: { message?: string }[] } }
-    | null;
+  const body = (await res.json().catch(() => null)) as {
+    error?: { message?: string; issues?: { message?: string }[] };
+  } | null;
   return body?.error?.issues?.[0]?.message ?? body?.error?.message ?? fallback;
 }

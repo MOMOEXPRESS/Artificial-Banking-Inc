@@ -44,7 +44,11 @@ const versionSchema = z.object({
     .min(1)
     .max(64)
     .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "slug must be lowercase kebab-case"),
-  version: z.string().trim().regex(/^v\d+$/, "version must look like v2").optional(),
+  version: z
+    .string()
+    .trim()
+    .regex(/^v\d+$/, "version must look like v2")
+    .optional(),
   endpointUrl: z
     .string()
     .url()
@@ -146,7 +150,11 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
           topAgents: top(byAgent),
           daily: [...daily.entries()]
             .sort((a, b) => a[0].localeCompare(b[0]))
-            .map(([day, d]) => ({ day, calls: d.calls, revenueUsdc: formatMicroToUsdc(d.revenueMicro) })),
+            .map(([day, d]) => ({
+              day,
+              calls: d.calls,
+              revenueUsdc: formatMicroToUsdc(d.revenueMicro),
+            })),
         };
       });
       const totalRevenue = events
@@ -198,7 +206,10 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
     "/v1/seller/policies/:policyId",
     partnerRoute((org, req, res) => {
       if (!sellerStore.deletePolicy(org.id, req.params.policyId)) return notFound(res, "Policy");
-      emitEvent(org.id, "seller.policy.changed", { action: "deleted", policyId: req.params.policyId });
+      emitEvent(org.id, "seller.policy.changed", {
+        action: "deleted",
+        policyId: req.params.policyId,
+      });
       res.json({ ok: true });
     }),
   );
@@ -210,7 +221,10 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
       const body = invoiceSchema.parse(req.body ?? {});
       const window =
         body.periodStart && body.periodEnd
-          ? { periodStart: new Date(body.periodStart).toISOString(), periodEnd: new Date(body.periodEnd).toISOString() }
+          ? {
+              periodStart: new Date(body.periodStart).toISOString(),
+              periodEnd: new Date(body.periodEnd).toISOString(),
+            }
           : lastMonthWindow();
       if (window.periodStart >= window.periodEnd) {
         return res.status(400).json({
@@ -418,7 +432,10 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
       }
       if (!offer.sandboxEnabled) {
         return res.status(403).json({
-          error: { code: "SANDBOX_DISABLED", message: "This seller has turned off the sandbox for this offer." },
+          error: {
+            code: "SANDBOX_DISABLED",
+            message: "This seller has turned off the sandbox for this offer.",
+          },
         });
       }
       const body = sandboxSchema.parse(req.body ?? {});
