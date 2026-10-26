@@ -658,7 +658,40 @@ export function reloadDbFromDisk(): void {
   prepareHookInstalled = true;
   migrateSecretsAtRest();
   migrateVaultKeysAtRest();
+  migrateChallengeChecks();
   bumpRevision();
+}
+
+/**
+ * Offers verified before challenge checks carried a `problems` list stored the
+ * check without it. Add an empty list so every saved check has one. Idempotent.
+ */
+function migrateChallengeChecks(): void {
+  try {
+    const rows = db
+      .prepare(
+        `SELECT offer_id, last_challenge_json FROM offer_integrations
+         WHERE last_challenge_json IS NOT NULL AND last_challenge_json NOT LIKE '%"problems"%'`,
+      )
+      .all() as { offer_id: string; last_challenge_json: string }[];
+    const upd = db.prepare(
+      "UPDATE offer_integrations SET last_challenge_json = ? WHERE offer_id = ?",
+    );
+    for (const row of rows) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(row.last_challenge_json);
+      } catch {
+        continue;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+      const check = parsed as Record<string, unknown>;
+      if (Array.isArray(check.problems)) continue;
+      upd.run(JSON.stringify({ ...check, problems: [] }), row.offer_id);
+    }
+  } catch (e) {
+    console.error("challenge check backfill skipped:", e);
+  }
 }
 
 /** Flush WAL into the main DB file before persisting a single-file snapshot. */
@@ -1687,6 +1720,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_policies_org ON agent_policies(org_id);
 // C4 — runs after every table exists, so both vaults and the key archive
 // are covered. Idempotent, so it is safe on every boot.
 migrateVaultKeysAtRest();
+migrateChallengeChecks();
 
 // Seed platform USDC asset once (legacy path kept for older DBs).
 {

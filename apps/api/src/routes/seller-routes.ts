@@ -165,9 +165,24 @@ export function offerView(offer: OfferRow) {
       snippetVersion: integration?.snippetVersion ?? null,
       error: integration?.error ?? null,
       lastChallenge: integration?.lastChallengeJson
-        ? safeJson(integration.lastChallengeJson)
+        ? challengeView(safeJson(integration.lastChallengeJson))
         : null,
     },
+  };
+}
+
+/** Saved checks from older builds lack `problems`; always return a list. */
+function challengeView(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const check = raw as Record<string, unknown>;
+  return {
+    ...check,
+    problems: Array.isArray(check.problems)
+      ? check.problems.filter((p): p is string => typeof p === "string")
+      : [],
+    ...(check.offered !== undefined && {
+      offered: Array.isArray(check.offered) ? check.offered : [],
+    }),
   };
 }
 

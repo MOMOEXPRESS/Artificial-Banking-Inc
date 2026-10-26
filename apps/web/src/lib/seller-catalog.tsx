@@ -48,6 +48,17 @@ type ChallengeCheck = {
   problems: string[];
 };
 
+/** Older saved checks have no `problems` (or `offered`) list; treat those as empty. */
+export function toChallengeCheck(raw: unknown): ChallengeCheck | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const check = raw as Partial<ChallengeCheck>;
+  return {
+    ...(check as ChallengeCheck),
+    problems: Array.isArray(check.problems) ? check.problems : [],
+    offered: Array.isArray(check.offered) ? check.offered : undefined,
+  };
+}
+
 export function statusTone(status: SellerOffer["status"]): "ok" | "warn" | "muted" | "danger" {
   if (status === "published") return "ok";
   if (status === "verified") return "warn";
@@ -554,7 +565,7 @@ export function IntegrationsView({
 
   useEffect(() => {
     setSnippet(null);
-    setCheck((offer?.integration.lastChallenge as ChallengeCheck | null) ?? null);
+    setCheck(toChallengeCheck(offer?.integration.lastChallenge));
     if (!offer) return;
     void (async () => {
       const res = await apiFetch(`/v1/seller/offers/${offer.id}/snippet`).catch(() => null);
@@ -580,10 +591,10 @@ export function IntegrationsView({
       });
       const body = (await res.json().catch(() => null)) as {
         ok?: boolean;
-        challenge?: ChallengeCheck;
+        challenge?: unknown;
         error?: { message?: string };
       } | null;
-      if (body?.challenge) setCheck(body.challenge);
+      if (body?.challenge) setCheck(toChallengeCheck(body.challenge));
       if (!res.ok || body?.ok === false) {
         toast(body?.error?.message ?? "Verify failed", "err");
       } else {

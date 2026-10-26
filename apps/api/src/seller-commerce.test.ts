@@ -23,7 +23,7 @@ process.env.ABI_ALLOW_UNVERIFIED_SIGNUP = "1";
 process.env.POLICYVAULT_ALLOW_BOOTSTRAP = "0";
 process.env.ABI_PUBLIC_API_URL = "https://api.abi.test";
 
-const { store, sellerStore } = await import("./store.js");
+const { store, sellerStore, reloadDbFromDisk } = await import("./store.js");
 const { app } = await import("./index.js");
 const { setHostedFacilitator } = await import("./seller-x402.js");
 const { currentCode } = await import("./auth/totp.js");
@@ -514,6 +514,31 @@ describe("partner account security", () => {
     assert.equal((await confirm(devResetToken!)).status, 400);
     assert.equal((await login(email)).status, 401);
     assert.equal((await login(email, {}, "Reset-Strong-Pass-3!")).status, 200);
+  });
+
+  it("serves and backfills checks saved before they carried a problems list", async () => {
+    const s = await signup("legacy-check@example.com", "Legacy Check Co");
+    const offer = await hostedOffer(s, "legacy-brief", "old");
+    const legacy = {
+      httpStatus: 402,
+      paymentHeader: "x",
+      bodyPreview: "",
+      expectedPayTo: PAYOUT,
+      expectedNetwork: "base-sepolia",
+      expectedPriceUsdc: "0.05",
+    };
+    store.setOfferIntegration(offer.id, { lastChallengeJson: JSON.stringify(legacy) });
+
+    const listed = (await (await call(s, "GET", "/v1/seller/offers")).json()) as {
+      offers: { id: string; integration: { lastChallenge: { problems: unknown } } }[];
+    };
+    const view = listed.offers.find((o) => o.id === offer.id)!;
+    assert.deepEqual(view.integration.lastChallenge.problems, []);
+
+    reloadDbFromDisk();
+    const stored = JSON.parse(store.getOfferIntegration(offer.id)!.lastChallengeJson!);
+    assert.deepEqual(stored.problems, []);
+    assert.equal(stored.expectedPayTo, PAYOUT, "the rest of the check is kept");
   });
 
   it("closes the account and takes every offer off sale", async () => {
