@@ -88,6 +88,7 @@ export type AgentStatus = "active" | "frozen" | "archived";
 export type EscrowState = "locked" | "settling" | "released" | "refunded" | "timeout_refunded";
 export type ApprovalStatus = "pending" | "approved" | "denied" | "expired";
 export type SellerProfileStatus = "draft" | "ready";
+export type OfferStatus = "draft" | "verified" | "published" | "paused";
 
 export interface OrgRow {
   id: string;
@@ -109,6 +110,27 @@ export interface SellerProfileRow {
   website: string;
   description: string;
   updatedAt: string;
+}
+
+export interface OfferRow {
+  id: string;
+  orgId: string;
+  slug: string;
+  title: string;
+  endpointUrl: string;
+  priceUsdcMicro: string;
+  network: string;
+  status: OfferStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OfferIntegrationRow {
+  offerId: string;
+  lastChallengeJson?: string;
+  snippetVersion?: string;
+  lastVerifiedAt?: string;
+  error?: string;
 }
 
 export interface AgentRow {
@@ -929,6 +951,38 @@ CREATE TABLE IF NOT EXISTS seller_profiles (
   description TEXT,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS offers (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  slug TEXT NOT NULL,
+  title TEXT NOT NULL,
+  endpoint_url TEXT NOT NULL,
+  price_usdc_micro TEXT NOT NULL,
+  network TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'draft',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(org_id, slug)
+);
+CREATE INDEX IF NOT EXISTS idx_offers_org ON offers(org_id);
+CREATE TABLE IF NOT EXISTS offer_integrations (
+  offer_id TEXT PRIMARY KEY REFERENCES offers(id),
+  last_challenge_json TEXT,
+  snippet_version TEXT,
+  last_verified_at TEXT,
+  error TEXT
+);
+CREATE TABLE IF NOT EXISTS seller_settlements (
+  id TEXT PRIMARY KEY,
+  seller_org_id TEXT NOT NULL REFERENCES orgs(id),
+  offer_id TEXT REFERENCES offers(id),
+  buyer_org_id TEXT,
+  amount_micro TEXT NOT NULL,
+  tx_hash TEXT,
+  state TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_seller_settlements_org ON seller_settlements(seller_org_id, created_at);
 `);
 
 // Backfill the canonical one-shot memos written before schedule_kind existed.
@@ -1549,6 +1603,36 @@ function rowToSellerProfile(r: Row): SellerProfileRow {
   };
 }
 
+function rowToOffer(r: Row): OfferRow {
+  const statusRaw = String(r.status ?? "draft");
+  const status: OfferStatus =
+    statusRaw === "verified" || statusRaw === "published" || statusRaw === "paused"
+      ? statusRaw
+      : "draft";
+  return {
+    id: String(r.id),
+    orgId: String(r.org_id),
+    slug: String(r.slug),
+    title: String(r.title),
+    endpointUrl: String(r.endpoint_url),
+    priceUsdcMicro: String(r.price_usdc_micro),
+    network: String(r.network),
+    status,
+    createdAt: String(r.created_at),
+    updatedAt: String(r.updated_at),
+  };
+}
+
+function rowToOfferIntegration(r: Row): OfferIntegrationRow {
+  return {
+    offerId: String(r.offer_id),
+    lastChallengeJson: r.last_challenge_json ? String(r.last_challenge_json) : undefined,
+    snippetVersion: r.snippet_version ? String(r.snippet_version) : undefined,
+    lastVerifiedAt: r.last_verified_at ? String(r.last_verified_at) : undefined,
+    error: r.error ? String(r.error) : undefined,
+  };
+}
+
 function rowToAgent(r: Row): AgentRow {
   let profile: Record<string, unknown> = {};
   if (typeof r.profile_json === "string" && r.profile_json) {
@@ -2004,6 +2088,184 @@ export const store = {
     const row = this.getSellerProfile(orgId);
     if (!row) throw new Error("SELLER_PROFILE_MISSING");
     return row;
+  },
+
+  listOffers(orgId: string): OfferRow[] {
+    return (
+      db
+        .prepare("SELECT * FROM offers WHERE org_id = ? ORDER BY created_at DESC")
+        .all(orgId) as Row[]
+    ).map(rowToOffer);
+  },
+
+  getOffer(orgId: string, offerId: string): OfferRow | undefined {
+    const r = db
+      .prepare("SELECT * FROM offers WHERE id = ? AND org_id = ?")
+      .get(offerId, orgId) as Row | undefined;
+    return r ? rowToOffer(r) : undefined;
+  },
+
+  createOffer(input: {
+    orgId: string;
+    slug: string;
+    title: string;
+    endpointUrl: string;
+    priceUsdcMicro: string;
+    network: string;
+  }): OfferRow {
+    const org = this.getOrg(input.orgId);
+    if (!org || org.kind !== "seller") throw new Error("SELLER_ORG_REQUIRED");
+    const offerId = id("offer");
+    const now = nowIso();
+    try {
+      db.prepare(
+        `INSERT INTO offers (id, org_id, slug, title, endpoint_url, price_usdc_micro, network, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`,
+      ).run(
+        offerId,
+        input.orgId,
+        input.slug,
+        input.title,
+        input.endpointUrl,
+        input.priceUsdcMicro,
+        input.network,
+        now,
+        now,
+      );
+      db.prepare("INSERT INTO offer_integrations (offer_id) VALUES (?)").run(offerId);
+    } catch (error) {
+      if (error instanceof Error && /UNIQUE/i.test(error.message)) {
+        throw new Error("OFFER_SLUG_TAKEN");
+      }
+      throw error;
+    }
+    const row = this.getOffer(input.orgId, offerId);
+    if (!row) throw new Error("OFFER_MISSING");
+    return row;
+  },
+
+  updateOffer(
+    orgId: string,
+    offerId: string,
+    patch: {
+      title?: string;
+      endpointUrl?: string;
+      priceUsdcMicro?: string;
+      network?: string;
+      slug?: string;
+      status?: OfferStatus;
+    },
+  ): OfferRow {
+    const existing = this.getOffer(orgId, offerId);
+    if (!existing) throw new Error("OFFER_NOT_FOUND");
+    const next = {
+      title: patch.title ?? existing.title,
+      endpointUrl: patch.endpointUrl ?? existing.endpointUrl,
+      priceUsdcMicro: patch.priceUsdcMicro ?? existing.priceUsdcMicro,
+      network: patch.network ?? existing.network,
+      slug: patch.slug ?? existing.slug,
+      status: patch.status ?? existing.status,
+    };
+    try {
+      db.prepare(
+        `UPDATE offers SET title = ?, endpoint_url = ?, price_usdc_micro = ?, network = ?, slug = ?, status = ?, updated_at = ?
+         WHERE id = ? AND org_id = ?`,
+      ).run(
+        next.title,
+        next.endpointUrl,
+        next.priceUsdcMicro,
+        next.network,
+        next.slug,
+        next.status,
+        nowIso(),
+        offerId,
+        orgId,
+      );
+    } catch (error) {
+      if (error instanceof Error && /UNIQUE/i.test(error.message)) {
+        throw new Error("OFFER_SLUG_TAKEN");
+      }
+      throw error;
+    }
+    const row = this.getOffer(orgId, offerId);
+    if (!row) throw new Error("OFFER_NOT_FOUND");
+    return row;
+  },
+
+  getOfferIntegration(offerId: string): OfferIntegrationRow | undefined {
+    const r = db.prepare("SELECT * FROM offer_integrations WHERE offer_id = ?").get(offerId) as
+      | Row
+      | undefined;
+    return r ? rowToOfferIntegration(r) : undefined;
+  },
+
+  setOfferIntegration(
+    offerId: string,
+    patch: {
+      lastChallengeJson?: string | null;
+      snippetVersion?: string | null;
+      lastVerifiedAt?: string | null;
+      error?: string | null;
+    },
+  ): OfferIntegrationRow {
+    if (!this.getOfferIntegration(offerId)) {
+      db.prepare("INSERT INTO offer_integrations (offer_id) VALUES (?)").run(offerId);
+    }
+    const current = this.getOfferIntegration(offerId)!;
+    const next = {
+      lastChallengeJson:
+        patch.lastChallengeJson === undefined
+          ? (current.lastChallengeJson ?? null)
+          : patch.lastChallengeJson,
+      snippetVersion:
+        patch.snippetVersion === undefined
+          ? (current.snippetVersion ?? null)
+          : patch.snippetVersion,
+      lastVerifiedAt:
+        patch.lastVerifiedAt === undefined
+          ? (current.lastVerifiedAt ?? null)
+          : patch.lastVerifiedAt,
+      error: patch.error === undefined ? (current.error ?? null) : patch.error,
+    };
+    db.prepare(
+      `UPDATE offer_integrations SET last_challenge_json = ?, snippet_version = ?, last_verified_at = ?, error = ?
+       WHERE offer_id = ?`,
+    ).run(
+      next.lastChallengeJson,
+      next.snippetVersion,
+      next.lastVerifiedAt,
+      next.error,
+      offerId,
+    );
+    const row = this.getOfferIntegration(offerId);
+    if (!row) throw new Error("OFFER_INTEGRATION_MISSING");
+    return row;
+  },
+
+  listSellerSettlements(orgId: string): {
+    id: string;
+    offerId?: string;
+    buyerOrgId?: string;
+    amountMicro: string;
+    txHash?: string;
+    state: string;
+    createdAt: string;
+  }[] {
+    return (
+      db
+        .prepare(
+          `SELECT * FROM seller_settlements WHERE seller_org_id = ? ORDER BY created_at DESC LIMIT 100`,
+        )
+        .all(orgId) as Row[]
+    ).map((r) => ({
+      id: String(r.id),
+      offerId: r.offer_id ? String(r.offer_id) : undefined,
+      buyerOrgId: r.buyer_org_id ? String(r.buyer_org_id) : undefined,
+      amountMicro: String(r.amount_micro),
+      txHash: r.tx_hash ? String(r.tx_hash) : undefined,
+      state: String(r.state),
+      createdAt: String(r.created_at),
+    }));
   },
 
   getOrg(orgId: string): OrgRow | undefined {

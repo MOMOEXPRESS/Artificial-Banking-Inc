@@ -156,11 +156,94 @@ describe("seller partnership phase 0", () => {
     assert.equal(store.getOrg(created.org.id)?.name, "Seller Desk Live");
   });
 
-  it("exposes an empty early directory stub", async () => {
+  it("keeps directory private (empty + guidance, no public marketplace)", async () => {
     const res = await fetch(`${base}/v1/directory/offers`);
     assert.equal(res.status, 200);
-    const body = (await res.json()) as { offers: unknown[] };
+    const body = (await res.json()) as { offers: unknown[]; note?: string };
     assert.deepEqual(body.offers, []);
+    assert.match(String(body.note ?? ""), /private/i);
+  });
+
+  it("supports catalog offers, snippet, and activity for a seller org", async () => {
+    const session = await signInUser("seller-catalog@example.com");
+    const createOrg = await fetch(`${base}/v1/seller/orgs`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: session.cookies,
+        "x-abi-csrf": session.csrf,
+      },
+      body: JSON.stringify({ name: "Catalog Seller" }),
+    });
+    assert.equal(createOrg.status, 201);
+    const { org } = (await createOrg.json()) as { org: { id: string } };
+
+    await fetch(`${base}/v1/seller/profile`, {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        cookie: session.cookies,
+        "x-abi-org": org.id,
+        "x-abi-csrf": session.csrf,
+      },
+      body: JSON.stringify({
+        displayName: "Catalog Seller",
+        payoutAddress: "0x0000000000000000000000000000000000000001",
+      }),
+    });
+
+    const created = await fetch(`${base}/v1/seller/offers`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: session.cookies,
+        "x-abi-org": org.id,
+        "x-abi-csrf": session.csrf,
+      },
+      body: JSON.stringify({
+        slug: "market-report",
+        title: "Market report",
+        endpointUrl: "https://seller.example/report",
+        priceUsdc: "0.25",
+        network: "base-sepolia",
+      }),
+    });
+    assert.equal(created.status, 201);
+    const offerBody = (await created.json()) as {
+      offer: { id: string; status: string; priceUsdc: string };
+    };
+    assert.equal(offerBody.offer.status, "draft");
+    assert.equal(offerBody.offer.priceUsdc, "0.25");
+
+    const snippet = await fetch(`${base}/v1/seller/offers/${offerBody.offer.id}/snippet`, {
+      headers: { cookie: session.cookies, "x-abi-org": org.id },
+    });
+    assert.equal(snippet.status, 200);
+    const snippetBody = (await snippet.json()) as { snippet: string; version: string };
+    assert.equal(snippetBody.version, "v0");
+    assert.match(snippetBody.snippet, /paymentMiddleware|x402/i);
+
+    const publishTooSoon = await fetch(
+      `${base}/v1/seller/offers/${offerBody.offer.id}/publish`,
+      {
+        method: "POST",
+        headers: {
+          cookie: session.cookies,
+          "x-abi-org": org.id,
+          "x-abi-csrf": session.csrf,
+          "content-type": "application/json",
+        },
+        body: "{}",
+      },
+    );
+    assert.equal(publishTooSoon.status, 400);
+
+    const activity = await fetch(`${base}/v1/seller/activity`, {
+      headers: { cookie: session.cookies, "x-abi-org": org.id },
+    });
+    assert.equal(activity.status, 200);
+    const activityBody = (await activity.json()) as { settlements: unknown[] };
+    assert.deepEqual(activityBody.settlements, []);
   });
 
   it("refuses seller workspace on a buyer org via organization-profile", async () => {

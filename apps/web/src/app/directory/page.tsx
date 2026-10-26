@@ -1,8 +1,6 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { SellerShell } from "../../lib/seller-shell";
-import "../seller/seller.css";
-
-export default function DirectoryPage() {
-  return <SellerShell active="directory" />;
+/** Public directory removed — discovery is private on the seller’s site. */
+export default function DirectoryRedirectPage() {
+  redirect("/partnerships");
 }

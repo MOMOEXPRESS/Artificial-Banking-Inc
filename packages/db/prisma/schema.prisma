@@ -361,6 +361,31 @@ model Merchants {
   @@map("merchants")
 }
 
+model OfferIntegrations {
+  offerId String @id @map("offer_id") // -> offers.id
+  lastChallengeJson String? @map("last_challenge_json")
+  snippetVersion String? @map("snippet_version")
+  lastVerifiedAt String? @map("last_verified_at")
+  error String?
+  @@map("offer_integrations")
+}
+
+model Offers {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  slug String
+  title String
+  endpointUrl String @map("endpoint_url")
+  priceUsdcMicro BigInt @map("price_usdc_micro")
+  network String
+  status String @default("draft")
+  createdAt String @map("created_at")
+  updatedAt String @map("updated_at")
+  @@index([orgId])
+  @@unique([orgId, slug])
+  @@map("offers")
+}
+
 model OnchainDeposits {
   id String @id
   orgId String @map("org_id")
@@ -492,6 +517,19 @@ model SellerProfiles {
   description String?
   updatedAt String @map("updated_at")
   @@map("seller_profiles")
+}
+
+model SellerSettlements {
+  id String @id
+  sellerOrgId String @map("seller_org_id") // -> orgs.id
+  offerId String? @map("offer_id") // -> offers.id
+  buyerOrgId String? @map("buyer_org_id")
+  amountMicro BigInt @map("amount_micro")
+  txHash String? @map("tx_hash")
+  state String
+  createdAt String @map("created_at")
+  @@index([sellerOrgId, createdAt])
+  @@map("seller_settlements")
 }
 
 model SessionKeys {

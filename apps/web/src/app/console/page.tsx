@@ -1102,7 +1102,7 @@ export default function Console() {
             <div className="spacer" />
             <nav className="workspace-switch" aria-label="Workspace switcher">
               <span className="workspace-chip active">Buyer</span>
-              <Link href="/seller" className="workspace-chip">
+              <Link href="/seller" className="workspace-chip" title="Open seller partner console">
                 Seller
               </Link>
             </nav>

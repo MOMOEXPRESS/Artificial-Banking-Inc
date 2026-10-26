@@ -12,7 +12,7 @@ export function MarketingShell({
   active,
 }: {
   children: ReactNode;
-  active?: "home" | "landing" | "docs" | "pricing" | "about" | "console";
+  active?: "home" | "landing" | "docs" | "pricing" | "about" | "console" | "partnerships";
 }) {
   const navActive = active === "landing" ? "home" : active;
   return (
@@ -27,7 +27,7 @@ export function MarketingShell({
 export function MarketingNav({
   active,
 }: {
-  active?: "home" | "landing" | "docs" | "pricing" | "about" | "console";
+  active?: "home" | "landing" | "docs" | "pricing" | "about" | "console" | "partnerships";
 }) {
   const current = active === "landing" ? "home" : active;
   const [scrolled, setScrolled] = useState(false);
@@ -81,6 +81,13 @@ export function MarketingNav({
             Pricing
           </Link>
           <Link
+            href="/partnerships"
+            className={current === "partnerships" ? "is-active" : undefined}
+            onClick={close}
+          >
+            Partnerships
+          </Link>
+          <Link
             href="/about"
             className={current === "about" ? "is-active" : undefined}
             onClick={close}
@@ -130,8 +137,9 @@ export function MarketingFooter() {
             title="Product"
             links={[
               ["Home", "/"],
-              ["Console", "/console"],
-              ["Live demo", "/console?demo=1"],
+              ["Buyer console", "/console"],
+              ["Partnerships", "/partnerships"],
+              ["Seller console", "/seller"],
               ["Features", "/#features"],
             ]}
           />

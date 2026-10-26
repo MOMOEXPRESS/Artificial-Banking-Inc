@@ -2887,6 +2887,30 @@ input[type="range"].slider::-moz-range-thumb {
   color: var(--color-fg);
 }
 
+.app .card .field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 0;
+}
+
+.app .card .field > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-fg-secondary);
+}
+
+.app .card .field input,
+.app .card .field select,
+.app .card .field textarea {
+  width: 100%;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg);
+  padding: 10px 12px;
+  font: inherit;
+}
+
 .ops-overview {
   width: 100%;
   max-width: 1440px;

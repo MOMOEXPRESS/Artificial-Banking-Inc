@@ -1,8 +1,7 @@
 "use client";
 
-import { SellerShell } from "../../../lib/seller-shell";
-import "../seller.css";
+import { SellerConsole } from "../../../lib/seller-console";
 
 export default function SellerSettingsPage() {
-  return <SellerShell active="settings" />;
+  return <SellerConsole initialView="settings" />;
 }
