@@ -5,16 +5,10 @@
 import type express from "express";
 import { isAddress } from "viem";
 import { z } from "zod";
-import { csrfProblem } from "../auth/session.js";
 import { parseUsdcToMicro, formatMicroToUsdc } from "@policyvault/common";
 import { recordObs } from "../platform/observability.js";
-import { store, type OfferRow, type OrgRow, type SellerProfileRow } from "../store.js";
-import { currentUser } from "./auth-routes.js";
-
-type GuardianRoute = (
-  handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
-  opts?: { ownerOnly?: boolean },
-) => express.RequestHandler;
+import { store, type OfferRow, type SellerProfileRow } from "../store.js";
+import { partnerRoute } from "./partner-auth-routes.js";
 
 const payoutSchema = z
   .union([
@@ -125,20 +119,6 @@ function safeJson(raw: string): unknown {
   }
 }
 
-function requireSellerOrg(org: OrgRow, res: express.Response): boolean {
-  if (org.kind !== "seller") {
-    res.status(403).json({
-      error: {
-        code: "SELLER_ORG_REQUIRED",
-        message:
-          "Seller APIs require a dedicated seller organization. Create one with POST /v1/seller/orgs.",
-      },
-    });
-    return false;
-  }
-  return true;
-}
-
 function buildSnippet(offer: OfferRow, profile: SellerProfileRow | undefined): string {
   const payTo = profile?.payoutAddress || "0xYOUR_PAYOUT_ADDRESS";
   const price = formatMicroToUsdc(BigInt(offer.priceUsdcMicro));
@@ -170,46 +150,10 @@ function safePath(endpointUrl: string): string {
   }
 }
 
-export function registerSellerRoutes(
-  app: express.Express,
-  deps: { guardianRoute: GuardianRoute },
-): void {
-  const { guardianRoute } = deps;
-
-  app.post("/v1/seller/orgs", (req, res) => {
-    const me = currentUser(req);
-    if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
-    const csrf = csrfProblem(req);
-    if (csrf) {
-      return res.status(403).json({ error: { code: "CSRF_FAILED", message: csrf } });
-    }
-
-    const body = z
-      .object({
-        name: z.string().trim().min(1).max(80).optional(),
-      })
-      .parse(req.body ?? {});
-
-    const existing = store.listMembershipsForUser(me.user.id).filter((m) => m.orgKind === "seller");
-    const name =
-      body.name?.trim() ||
-      (existing.length === 0
-        ? `${me.user.name.trim()}'s seller org`
-        : `${me.user.name.trim()}'s seller org ${existing.length + 1}`);
-
-    const { org, profile } = store.createSellerOrgForUser(me.user.id, name);
-    recordObs({ name: "seller.org_created", orgId: org.id });
-    res.status(201).json({
-      org: { id: org.id, name: org.name, kind: org.kind, status: org.status },
-      profile: sellerProfileView(profile),
-      note: "Use x-abi-org with this org id for /v1/seller/* routes. Buyer and seller floats stay separate.",
-    });
-  });
-
+export function registerSellerRoutes(app: express.Express): void {
   app.get(
     "/v1/seller/profile",
-    guardianRoute((org, _req, res) => {
-      if (!requireSellerOrg(org, res)) return;
+    partnerRoute((org, _req, res) => {
       const profile = store.getSellerProfile(org.id) ?? store.upsertSellerProfile(org.id, {});
       res.json({
         orgId: org.id,
@@ -221,9 +165,8 @@ export function registerSellerRoutes(
 
   app.patch(
     "/v1/seller/profile",
-    guardianRoute(
+    partnerRoute(
       (org, req, res) => {
-        if (!requireSellerOrg(org, res)) return;
         const body = sellerProfileSchema.parse(req.body ?? {});
         try {
           const profile = store.upsertSellerProfile(org.id, {
@@ -247,23 +190,20 @@ export function registerSellerRoutes(
           throw error;
         }
       },
-      { ownerOnly: true },
     ),
   );
 
   app.get(
     "/v1/seller/offers",
-    guardianRoute((org, _req, res) => {
-      if (!requireSellerOrg(org, res)) return;
+    partnerRoute((org, _req, res) => {
       res.json({ offers: store.listOffers(org.id).map(offerView) });
     }),
   );
 
   app.post(
     "/v1/seller/offers",
-    guardianRoute(
+    partnerRoute(
       (org, req, res) => {
-        if (!requireSellerOrg(org, res)) return;
         const body = offerCreateSchema.parse(req.body ?? {});
         let priceUsdcMicro: string;
         try {
@@ -298,15 +238,13 @@ export function registerSellerRoutes(
           throw error;
         }
       },
-      { ownerOnly: true },
     ),
   );
 
   app.patch(
     "/v1/seller/offers/:offerId",
-    guardianRoute(
+    partnerRoute(
       (org, req, res) => {
-        if (!requireSellerOrg(org, res)) return;
         const body = offerPatchSchema.parse(req.body ?? {});
         let priceUsdcMicro: string | undefined;
         if (body.priceUsdc !== undefined) {
@@ -340,14 +278,12 @@ export function registerSellerRoutes(
           throw error;
         }
       },
-      { ownerOnly: true },
     ),
   );
 
   app.get(
     "/v1/seller/offers/:offerId/snippet",
-    guardianRoute((org, req, res) => {
-      if (!requireSellerOrg(org, res)) return;
+    partnerRoute((org, req, res) => {
       const offer = store.getOffer(org.id, req.params.offerId);
       if (!offer) {
         return res.status(404).json({ error: { code: "NOT_FOUND", message: "Offer not found" } });
@@ -367,9 +303,8 @@ export function registerSellerRoutes(
 
   app.post(
     "/v1/seller/offers/:offerId/verify",
-    guardianRoute(
+    partnerRoute(
       async (org, req, res) => {
-        if (!requireSellerOrg(org, res)) return;
         const offer = store.getOffer(org.id, req.params.offerId);
         if (!offer) {
           return res.status(404).json({ error: { code: "NOT_FOUND", message: "Offer not found" } });
@@ -452,15 +387,13 @@ export function registerSellerRoutes(
           });
         }
       },
-      { ownerOnly: true },
     ),
   );
 
   app.post(
     "/v1/seller/offers/:offerId/publish",
-    guardianRoute(
+    partnerRoute(
       (org, req, res) => {
-        if (!requireSellerOrg(org, res)) return;
         const offer = store.getOffer(org.id, req.params.offerId);
         if (!offer) {
           return res.status(404).json({ error: { code: "NOT_FOUND", message: "Offer not found" } });
@@ -489,14 +422,12 @@ export function registerSellerRoutes(
           note: "Published for agents that reach this URL on your site. There is no public ABI directory listing.",
         });
       },
-      { ownerOnly: true },
     ),
   );
 
   app.get(
     "/v1/seller/activity",
-    guardianRoute((org, _req, res) => {
-      if (!requireSellerOrg(org, res)) return;
+    partnerRoute((org, _req, res) => {
       const rows = store.listSellerSettlements(org.id);
       res.json({
         settlements: rows.map((r) => ({

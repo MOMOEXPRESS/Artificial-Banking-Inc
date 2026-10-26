@@ -6,7 +6,8 @@
 1. **Force separate seller org** for partners (`Acme Buyer` ≠ `Acme Seller`).
 2. **Private discovery** — agents find products on the **seller’s own site**; ABI is the payment unlock path, not a public marketplace directory.
 3. **BYO + snippet** over hosted paywall (hosted deferred if BYO churn is high).
-4. **Buyer console stays buyer-only.** Seller gets a **dedicated seller console** (same design system), entered from marketing **Partnerships** → seller login.
+4. **Buyer console stays buyer-only.** Seller gets a **dedicated seller console** (same design system), entered from marketing **Partnerships** → partner login.
+5. **Separate partner accounts.** Partner logins are not linked to buyer accounts (same email may exist in both). Sign-up creates the seller org from the partner's company details. No buyer/seller switcher anywhere.
 
 ## Product thesis
 
@@ -26,9 +27,14 @@ Money settles USDC to the **seller wallet** via the x402 facilitator. ABI does n
 | Rule | Detail |
 |------|--------|
 | `orgs.kind` | `buyer` (default) or `seller` — security boundary |
-| Same user | May hold memberships in both |
-| Buyer org | Refuses `workspace=seller\|both` — must create a seller org |
-| Entry | `/partnerships` marketing → `/seller` login (same accounts as buyer) |
+| Partner account | `partner_accounts` (own email/password) owns exactly one seller org; never in `users`/`memberships` |
+| Partner session | `partner_sessions` + `abi_partner_session` / `abi_partner_csrf` cookies — independent of buyer `abi_session` |
+| Buyer org | Refuses `workspace=seller\|both` — selling needs a partner account |
+| Entry | `/partnerships` → `/partners/login` (sign in / become a partner) → `/seller` |
+
+Partner auth API: `POST /v1/partner/auth/signup` (creates account + seller org + profile), `POST /v1/partner/auth/login`, `POST /v1/partner/auth/logout`, `GET /v1/partner/auth/me`. All `/v1/seller/*` routes authenticate with the partner session only; buyer sessions and guardian keys get 401.
+
+Production: partner sign-up is refused until partner email verification ships, unless `ABI_ALLOW_UNVERIFIED_SIGNUP=1` on testnet.
 
 ## Seller navigation
 
@@ -46,6 +52,8 @@ Money settles USDC to the **seller wallet** via the x402 facilitator. ABI does n
 ```sql
 ALTER TABLE orgs ADD COLUMN kind TEXT NOT NULL DEFAULT 'buyer';
 
+CREATE TABLE partner_accounts (...);       -- separate partner identity, 1:1 seller org
+CREATE TABLE partner_sessions (...);
 CREATE TABLE seller_profiles (...);
 CREATE TABLE offers (...);                 -- catalog
 CREATE TABLE offer_integrations (...);     -- verify / snippet state
@@ -59,7 +67,7 @@ CREATE TABLE seller_settlements (...);     -- activity (later fill from pay path
 |-------|--------|
 | **0** | Separate orgs, profile, seller console chrome, Partnerships landing |
 | **1** | Catalog CRUD, Integrations verify + snippet, private (no public directory) |
-| **2** | Pay-time bind, Activity from real pays, Test as agent |
+| **2** | Pay-time bind, Activity from real pays, Test as agent, partner email verification + password reset |
 | **3** | Optional hosted paywall, analytics, negotiated prices |
 
 ## Integrate modes

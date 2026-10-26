@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Sidebar, SidebarFolder, SidebarItem } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,12 +15,6 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ABAppIcon } from "./brand";
 import { browserApiBase } from "./browser-api";
-import {
-  sessionForPersistentStorage,
-  type Session,
-} from "./console-types";
-import { Login } from "./login-view";
-import { performSignOut, readCsrfCookie } from "./sign-out";
 import { toast } from "./toast";
 import { Icon } from "./ui";
 import { useTheme } from "./theme-provider";
@@ -35,7 +29,9 @@ type SellerView =
   | "developers"
   | "settings";
 
-type SellerOrg = { id: string; name: string; kind: "buyer" | "seller"; role: string };
+type SellerOrg = { id: string; name: string; kind: "buyer" | "seller"; status: string };
+
+type Partner = { id: string; email: string; name: string };
 
 type SellerProfile = {
   displayName: string;
@@ -112,27 +108,28 @@ const VIEW_META: Record<
   },
 };
 
-async function apiFetch(path: string, init: RequestInit & { orgId?: string } = {}) {
+function readPartnerCsrf(cookie: string): string {
+  const hit = cookie.split(";").find((c) => c.trim().startsWith("abi_partner_csrf="));
+  return hit ? decodeURIComponent(hit.trim().slice("abi_partner_csrf=".length)) : "";
+}
+
+async function apiFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("accept", "application/json");
   if (init.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
-  if (typeof document !== "undefined") {
-    const csrf = readCsrfCookie(document.cookie);
-    if (csrf && init.method && init.method.toUpperCase() !== "GET") {
-      headers.set("x-abi-csrf", csrf);
-    }
+  if (typeof document !== "undefined" && init.method && init.method.toUpperCase() !== "GET") {
+    const csrf = readPartnerCsrf(document.cookie);
+    if (csrf) headers.set("x-abi-csrf", csrf);
   }
-  if (init.orgId) headers.set("x-abi-org", init.orgId);
-  const { orgId: _orgId, ...rest } = init;
-  return fetch(`${API}${path}`, { ...rest, headers, credentials: "include" });
+  return fetch(`${API}${path}`, { ...init, headers, credentials: "include", cache: "no-store" });
 }
 
 export function SellerConsole({ initialView = "overview" }: { initialView?: SellerView }) {
   const theme = useTheme();
-  const [session, setSession] = useState<Session | null>(null);
-  const [hydrated, setHydrated] = useState(false);
+  const [partner, setPartner] = useState<Partner | null>(null);
+  const [activeSeller, setActiveSeller] = useState<SellerOrg | null>(null);
   const [view, setView] = useState<SellerView>(initialView);
   const [railOpen, setRailOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
@@ -142,8 +139,6 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
     Money: true,
     Developers: true,
   });
-  const [orgs, setOrgs] = useState<SellerOrg[]>([]);
-  const [sellerOrgId, setSellerOrgId] = useState<string | null>(null);
   const [profile, setProfile] = useState<SellerProfile | null>(null);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [activity, setActivity] = useState<
@@ -179,147 +174,55 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
     toast(msg, kind);
   }, []);
 
-  const saveSession = useCallback((s: Session | null) => {
-    setSession(s);
-    const persistent = sessionForPersistentStorage(s);
-    if (persistent) localStorage.setItem("pv_session", JSON.stringify(persistent));
-    else localStorage.removeItem("pv_session");
-  }, []);
-
-  const sellerOrgs = useMemo(() => orgs.filter((o) => o.kind === "seller"), [orgs]);
-  const activeSeller = sellerOrgs.find((o) => o.id === sellerOrgId) ?? sellerOrgs[0] ?? null;
   const selectedOffer =
     offers.find((o) => o.id === selectedOfferId) ?? offers[0] ?? null;
 
-  const refreshSeller = useCallback(
-    async (orgId: string) => {
-      const [profileRes, offersRes, activityRes] = await Promise.all([
-        apiFetch("/v1/seller/profile", { orgId }),
-        apiFetch("/v1/seller/offers", { orgId }),
-        apiFetch("/v1/seller/activity", { orgId }),
-      ]);
-      if (profileRes.ok) {
-        const body = (await profileRes.json()) as { profile: SellerProfile };
-        setProfile(body.profile);
-        setProfileDraft(body.profile);
-      }
-      if (offersRes.ok) {
-        const body = (await offersRes.json()) as { offers: Offer[] };
-        setOffers(body.offers);
-        if (!selectedOfferId && body.offers[0]) setSelectedOfferId(body.offers[0].id);
-      }
-      if (activityRes.ok) {
-        const body = (await activityRes.json()) as { settlements: typeof activity };
-        setActivity(body.settlements);
-      }
-    },
-    [selectedOfferId],
-  );
+  const refreshSeller = useCallback(async () => {
+    const [profileRes, offersRes, activityRes] = await Promise.all([
+      apiFetch("/v1/seller/profile"),
+      apiFetch("/v1/seller/offers"),
+      apiFetch("/v1/seller/activity"),
+    ]);
+    if (profileRes.ok) {
+      const body = (await profileRes.json()) as { profile: SellerProfile };
+      setProfile(body.profile);
+      setProfileDraft(body.profile);
+    }
+    if (offersRes.ok) {
+      const body = (await offersRes.json()) as { offers: Offer[] };
+      setOffers(body.offers);
+      setSelectedOfferId((prev) => prev ?? body.offers[0]?.id ?? null);
+    }
+    if (activityRes.ok) {
+      const body = (await activityRes.json()) as { settlements: typeof activity };
+      setActivity(body.settlements);
+    }
+  }, []);
 
-  const refreshMe = useCallback(async () => {
-    const me = await apiFetch("/v1/auth/me");
-    if (!me.ok) {
-      if (me.status === 401) saveSession(null);
-      return;
-    }
-    const body = (await me.json()) as {
-      user: { id: string; email: string; name: string };
-      orgs: SellerOrg[];
-    };
-    setOrgs(body.orgs);
-    const sellers = body.orgs.filter((o) => o.kind === "seller");
-    const nextId =
-      (sellerOrgId && sellers.some((o) => o.id === sellerOrgId) ? sellerOrgId : null) ??
-      sellers[0]?.id ??
-      null;
-    setSellerOrgId(nextId);
-    if (session) {
-      saveSession({
-        ...session,
-        mode: "session",
-        user: body.user,
-        orgId: nextId ?? session.orgId,
-        guardianKey: session.guardianKey || "",
-        agentKeys: session.agentKeys ?? [],
-      });
-    }
-    if (nextId) await refreshSeller(nextId);
-    else {
-      setProfile(null);
-      setOffers([]);
-      setActivity([]);
-    }
-  }, [refreshSeller, saveSession, sellerOrgId, session]);
+  const refreshMe = useCallback(async (): Promise<boolean> => {
+    const me = await apiFetch("/v1/partner/auth/me").catch(() => null);
+    if (!me?.ok) return false;
+    const body = (await me.json()) as { partner: Partner; org: SellerOrg | null };
+    setPartner(body.partner);
+    setActiveSeller(body.org);
+    return true;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const raw = localStorage.getItem("pv_session");
-        if (raw) {
-          const parsed = JSON.parse(raw) as Session;
-          const safe = sessionForPersistentStorage(parsed);
-          const me = await fetch(`${API}/v1/auth/me`, {
-            credentials: "include",
-            cache: "no-store",
-          }).catch(() => null);
-          if (cancelled) return;
-          if (me?.ok) {
-            const body = (await me.json()) as {
-              user: { id: string; email: string; name: string };
-              orgs: SellerOrg[];
-            };
-            setOrgs(body.orgs);
-            const sellers = body.orgs.filter((o) => o.kind === "seller");
-            const orgId = sellers[0]?.id ?? body.orgs[0]?.id;
-            setSellerOrgId(sellers[0]?.id ?? null);
-            setSession({
-              mode: "session",
-              guardianKey: "",
-              user: body.user,
-              orgId,
-              agentKeys: [],
-            });
-            if (sellers[0]?.id) await refreshSeller(sellers[0].id);
-          } else if (safe && me && me.status !== 401) {
-            setSession({ ...safe, agentKeys: [] });
-          } else if (parsed.mode === "key") {
-            // Seller console is account-based; key mode belongs on buyer console.
-            localStorage.removeItem("pv_session");
-          }
-        }
-      } finally {
-        if (!cancelled) setHydrated(true);
+    void (async () => {
+      const ok = await refreshMe();
+      if (cancelled) return;
+      if (!ok) {
+        window.location.replace("/partners/login");
+        return;
       }
+      await refreshSeller();
     })();
     return () => {
       cancelled = true;
     };
-  }, [refreshSeller]);
-
-  async function createSellerOrg() {
-    setBusy(true);
-    try {
-      const res = await apiFetch("/v1/seller/orgs", {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
-        setToast(body?.error?.message ?? "Could not create seller org", "err");
-        return;
-      }
-      const body = (await res.json()) as { org: { id: string } };
-      setSellerOrgId(body.org.id);
-      setToast("Seller organization created", "ok");
-      await refreshMe();
-      setView("settings");
-    } finally {
-      setBusy(false);
-    }
-  }
+  }, [refreshMe, refreshSeller]);
 
   async function saveProfile() {
     if (!activeSeller) return;
@@ -327,7 +230,6 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
     try {
       const res = await apiFetch("/v1/seller/profile", {
         method: "PATCH",
-        orgId: activeSeller.id,
         body: JSON.stringify(profileDraft),
       });
       if (!res.ok) {
@@ -353,7 +255,6 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
     try {
       const res = await apiFetch("/v1/seller/offers", {
         method: "POST",
-        orgId: activeSeller.id,
         body: JSON.stringify(offerForm),
       });
       if (!res.ok) {
@@ -386,7 +287,6 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
     try {
       const res = await apiFetch(`/v1/seller/offers/${offerId}/verify`, {
         method: "POST",
-        orgId: activeSeller.id,
         body: "{}",
       });
       const body = (await res.json().catch(() => null)) as {
@@ -413,7 +313,6 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
     try {
       const res = await apiFetch(`/v1/seller/offers/${offerId}/publish`, {
         method: "POST",
-        orgId: activeSeller.id,
         body: "{}",
       });
       const body = (await res.json().catch(() => null)) as {
@@ -437,9 +336,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
     if (!activeSeller) return;
     setBusy(true);
     try {
-      const res = await apiFetch(`/v1/seller/offers/${offerId}/snippet`, {
-        orgId: activeSeller.id,
-      });
+      const res = await apiFetch(`/v1/seller/offers/${offerId}/snippet`);
       if (!res.ok) {
         setToast("Could not load snippet", "err");
         return;
@@ -453,42 +350,11 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
   }
 
   async function signOut() {
-    await performSignOut({
-      apiBase: API,
-      mode: session?.mode ?? "session",
-      csrf: typeof document !== "undefined" ? readCsrfCookie(document.cookie) : "",
-      orgId: activeSeller?.id,
-      local: typeof localStorage === "undefined" ? null : localStorage,
-      tab: typeof sessionStorage === "undefined" ? null : sessionStorage,
-    });
-    saveSession(null);
-    window.location.assign("/seller");
+    await apiFetch("/v1/partner/auth/logout", { method: "POST", body: "{}" }).catch(() => null);
+    window.location.assign("/partners/login");
   }
 
-  if (!hydrated) return null;
-  if (!session) {
-    return (
-      <Login
-        onLogin={(s) => {
-          saveSession(s);
-          void (async () => {
-            const me = await apiFetch("/v1/auth/me");
-            if (!me.ok) return;
-            const body = (await me.json()) as {
-              user: { id: string; email: string; name: string };
-              orgs: SellerOrg[];
-            };
-            setOrgs(body.orgs);
-            const sellers = body.orgs.filter((o) => o.kind === "seller");
-            const nextId = sellers[0]?.id ?? null;
-            setSellerOrgId(nextId);
-            if (nextId) await refreshSeller(nextId);
-          })();
-        }}
-        setToast={setToast}
-      />
-    );
-  }
+  if (!partner) return null;
 
   const meta = VIEW_META[view];
   const published = offers.filter((o) => o.status === "published").length;
@@ -594,12 +460,6 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
               <h1>{NAV.find((n) => n.key === view)?.label ?? "Settings"}</h1>
             </div>
             <div className="spacer" />
-            <nav className="workspace-switch" aria-label="Workspace switcher">
-              <Link href="/console" className="workspace-chip">
-                Buyer
-              </Link>
-              <span className="workspace-chip active">Seller</span>
-            </nav>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button type="button" className="user-chip" aria-label="Account menu">
@@ -607,8 +467,8 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                     {(activeSeller?.name ?? "SL").slice(0, 2).toUpperCase()}
                   </div>
                   <div className="who">
-                    <b>{activeSeller?.name ?? "Create seller org"}</b>
-                    <span>{session.user?.email ?? "Seller"}</span>
+                    <b>{activeSeller?.name ?? "Seller"}</b>
+                    <span>{partner.email}</span>
                   </div>
                 </button>
               </DropdownMenuTrigger>
@@ -626,21 +486,6 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
           </header>
 
           <div className="scroll">
-            {!activeSeller ? (
-              <section className="view">
-                <div className="card" style={{ maxWidth: 640 }}>
-                  <p className="eyebrow">Partnerships</p>
-                  <h2 style={{ marginTop: 0 }}>Create a seller organization</h2>
-                  <p className="muted">
-                    The buyer console stays for agent spend. Selling uses a separate org so your
-                    catalog and payout wallet never share the buyer float.
-                  </p>
-                  <Button disabled={busy} onClick={() => void createSellerOrg()}>
-                    {busy ? "Creating…" : "Create seller org"}
-                  </Button>
-                </div>
-              </section>
-            ) : (
               <section className="view">
                 <header className="view-head" style={{ marginBottom: 18 }}>
                   <p className="eyebrow">{meta.eyebrow}</p>
@@ -694,7 +539,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                         style={{
                           display: "grid",
                           gap: 10,
-                          gridTemplateColumns: "1fr 1fr",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
                         }}
                       >
                         <label className="field">
@@ -1001,7 +846,6 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                   </div>
                 )}
               </section>
-            )}
           </div>
         </main>
       </div>

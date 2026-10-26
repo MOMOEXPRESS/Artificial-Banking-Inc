@@ -139,7 +139,7 @@ export function MarketingFooter() {
               ["Home", "/"],
               ["Buyer console", "/console"],
               ["Partnerships", "/partnerships"],
-              ["Seller console", "/seller"],
+              ["Partner login", "/partners/login"],
               ["Features", "/#features"],
             ]}
           />

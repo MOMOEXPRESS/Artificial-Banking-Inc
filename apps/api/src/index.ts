@@ -88,6 +88,7 @@ import { startScheduler } from "./jobs/scheduler.js";
 import { registerPaymentRoutes } from "./routes/payment-routes.js";
 import { registerPlatformRoutes } from "./routes/platform-routes.js";
 import { registerSellerRoutes } from "./routes/seller-routes.js";
+import { registerPartnerAuthRoutes } from "./routes/partner-auth-routes.js";
 import { registerPolicyRoutes } from "./routes/policy-routes.js";
 import { registerTreasuryRoutes } from "./routes/treasury-routes.js";
 import { registerRemoteMcp } from "./remote-mcp.js";
@@ -389,9 +390,15 @@ function overLimit(key: string, limit: number, windowMs: number): boolean {
   return hits.length > limit;
 }
 
-const SIGNUP_PATHS = new Set(["/v1/auth/signup", "/v1/guardian/orgs", "/v1/demo/bootstrap"]);
+const SIGNUP_PATHS = new Set([
+  "/v1/auth/signup",
+  "/v1/partner/auth/signup",
+  "/v1/guardian/orgs",
+  "/v1/demo/bootstrap",
+]);
 const AUTH_LIMITS: Record<string, { ipLimit: number; accountLimit: number; windowMs: number }> = {
   "/v1/auth/login": { ipLimit: 30, accountLimit: 20, windowMs: 15 * 60_000 },
+  "/v1/partner/auth/login": { ipLimit: 30, accountLimit: 20, windowMs: 15 * 60_000 },
   "/v1/auth/email/resend": { ipLimit: 10, accountLimit: 5, windowMs: 60 * 60_000 },
   "/v1/auth/password-reset/request": { ipLimit: 10, accountLimit: 5, windowMs: 60 * 60_000 },
   // Setting a new password from an emailed link: bucketed per token, so one
@@ -640,7 +647,8 @@ registerAgentRoutes(app, { guardianRoute });
 registerPolicyRoutes(app, { guardianRoute });
 registerPaymentRoutes(app, { guardianRoute });
 registerPlatformRoutes(app, { guardianRoute });
-registerSellerRoutes(app, { guardianRoute });
+registerPartnerAuthRoutes(app);
+registerSellerRoutes(app);
 registerRemoteMcp(app);
 registerTelegramWebhookRoute(app);
 

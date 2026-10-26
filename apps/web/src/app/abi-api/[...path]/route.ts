@@ -53,7 +53,7 @@ function resolveOrigin(): string | null {
  * narrow: self-serve signup, and demo bootstrap (still also gated by
  * POLICYVAULT_ALLOW_BOOTSTRAP on the API).
  */
-const SIGNUP_PATHS = new Set(["v1/auth/signup", "v1/demo/bootstrap"]);
+const SIGNUP_PATHS = new Set(["v1/auth/signup", "v1/partner/auth/signup", "v1/demo/bootstrap"]);
 
 const HOP_BY_HOP = new Set([
   "connection",

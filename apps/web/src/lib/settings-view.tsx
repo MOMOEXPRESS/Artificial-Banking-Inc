@@ -742,9 +742,8 @@ export function SettingsView({
                     <option value="buyer">Buying services</option>
                   </select>
                   <p id="profile-workspace-hint" className="muted" style={{ marginTop: 8 }}>
-                    Selling requires a separate seller organization. Open{" "}
-                    <a href="/seller">ABI Seller</a> to create one — buyer and seller floats stay
-                    separate.
+                    Selling to agents uses a separate partner account. See{" "}
+                    <a href="/partnerships">Partnerships</a>.
                   </p>
                 </div>
                 <div className="field">

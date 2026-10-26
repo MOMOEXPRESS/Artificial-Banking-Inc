@@ -437,6 +437,31 @@ model Orgs {
   @@map("orgs")
 }
 
+model PartnerAccounts {
+  id String @id
+  email String
+  name String
+  passwordHash String @map("password_hash")
+  orgId String @map("org_id") // -> orgs.id
+  createdAt String @map("created_at")
+  lastLoginAt String? @map("last_login_at")
+  disabledAt String? @map("disabled_at")
+  @@unique([email])
+  @@map("partner_accounts")
+}
+
+model PartnerSessions {
+  id String @id
+  accountId String @map("account_id") // -> partner_accounts.id
+  tokenHash String @map("token_hash")
+  createdAt String @map("created_at")
+  expiresAt String @map("expires_at")
+  revokedAt String? @map("revoked_at")
+  @@index([accountId])
+  @@unique([tokenHash])
+  @@map("partner_sessions")
+}
+
 model PasswordResets {
   id String @id
   userId String @map("user_id") // -> users.id

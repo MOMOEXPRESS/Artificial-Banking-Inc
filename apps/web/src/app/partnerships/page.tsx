@@ -6,8 +6,8 @@ import { Icon } from "../../lib/ui";
 
 const STEPS = [
   {
-    title: "Create a seller organization",
-    body: "Same ABI login as buyers — a dedicated seller org keeps your catalog and payout wallet off the buyer float.",
+    title: "Become a partner",
+    body: "Sign up on the partner portal. We create your seller organization from your company details — no buyer account needed.",
   },
   {
     title: "List offers in Catalog",
@@ -25,7 +25,7 @@ const STEPS = [
 
 const POINTS = [
   ["Private discovery", "Your product URLs stay on your domain. ABI is the payment unlock path."],
-  ["Separate seller org", "Buyer console for spend; seller console for catalog, integrate, and activity."],
+  ["Separate partner account", "Partner logins are not linked to buyer accounts. Your seller org is yours alone."],
   ["BYO or snippet", "Verify an existing x402 server or paste generated Express middleware."],
   ["Wallet settlement", "USDC goes to your payout address via the facilitator — ABI does not custody seller funds."],
 ];
@@ -38,7 +38,7 @@ export default function PartnershipsPage() {
           <SectionHead
             eyebrow="Partnerships"
             title="Get paid when agents buy on your site."
-            sub="The console at /console is the buyer side. Seller partners use a dedicated seller console — catalog, x402 integrate, and inbound activity — entered from here."
+            sub="Partners get their own login and seller console — catalog, x402 integrate, and inbound activity. It is separate from the buyer console your agents spend from."
           />
 
           <div className="mkt-price-grid" style={{ marginBottom: 36 }}>
@@ -79,14 +79,14 @@ export default function PartnershipsPage() {
               marginBottom: 28,
             }}
           >
-            <Link className="btn-primary" href="/seller">
+            <Link className="btn-primary" href="/partners/login">
               Open seller console
             </Link>
-            <Link className="btn-ghost" href="/console">
-              Buyer console
+            <Link className="btn-ghost" href="/partners/login?mode=signup">
+              Become a partner
             </Link>
             <span className="muted" style={{ fontSize: 13 }}>
-              <Icon name="shield" size={14} /> Same account · separate seller organization
+              <Icon name="shield" size={14} /> Separate partner account · seller org created at sign-up
             </span>
           </div>
 

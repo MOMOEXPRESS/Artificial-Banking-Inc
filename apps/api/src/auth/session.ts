@@ -95,6 +95,50 @@ export function clearSessionCookies(res: express.Response) {
 }
 
 /**
+ * Partner (seller) realm. Separate cookie names so a browser can hold a buyer
+ * and a partner session at once, and signing out of one never clears the other.
+ */
+export const PARTNER_SESSION_COOKIE = "abi_partner_session";
+export const PARTNER_CSRF_COOKIE = "abi_partner_csrf";
+
+export function setPartnerSessionCookies(
+  res: express.Response,
+  sessionToken: string,
+  csrfToken: string,
+) {
+  res.append(
+    "Set-Cookie",
+    serialize(PARTNER_SESSION_COOKIE, sessionToken, { maxAgeMs: SESSION_TTL_MS, httpOnly: true }),
+  );
+  res.append(
+    "Set-Cookie",
+    serialize(PARTNER_CSRF_COOKIE, csrfToken, { maxAgeMs: SESSION_TTL_MS, httpOnly: false }),
+  );
+}
+
+export function clearPartnerSessionCookies(res: express.Response) {
+  for (const name of [PARTNER_SESSION_COOKIE, PARTNER_CSRF_COOKIE]) {
+    res.append(
+      "Set-Cookie",
+      `${name}=; Path=/; SameSite=Lax; Max-Age=0${secure() ? "; Secure" : ""}${
+        name === PARTNER_SESSION_COOKIE ? "; HttpOnly" : ""
+      }`,
+    );
+  }
+}
+
+export function partnerCsrfProblem(req: express.Request): string | null {
+  const method = req.method.toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return null;
+  const cookieToken = parseCookies(req)[PARTNER_CSRF_COOKIE];
+  const headerToken = req.header(CSRF_HEADER);
+  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+    return "Missing or mismatched CSRF token.";
+  }
+  return null;
+}
+
+/**
  * Double-submit CSRF check for cookie-authenticated mutations.
  *
  * Bearer-authenticated callers are exempt: a token that must be attached

@@ -133,6 +133,15 @@ export interface OfferIntegrationRow {
   error?: string;
 }
 
+export interface PartnerAccountRow {
+  id: string;
+  email: string;
+  name: string;
+  orgId: string;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
 export interface AgentRow {
   id: string;
   orgId: string;
@@ -983,6 +992,28 @@ CREATE TABLE IF NOT EXISTS seller_settlements (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_seller_settlements_org ON seller_settlements(seller_org_id, created_at);
+-- Partner (seller) identities are deliberately separate from buyer users:
+-- the same email may hold an unrelated account in each, and neither session
+-- can read the other's organizations.
+CREATE TABLE IF NOT EXISTS partner_accounts (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  created_at TEXT NOT NULL,
+  last_login_at TEXT,
+  disabled_at TEXT
+);
+CREATE TABLE IF NOT EXISTS partner_sessions (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES partner_accounts(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_partner_sessions_account ON partner_sessions(account_id);
 `);
 
 // Backfill the canonical one-shot memos written before schedule_kind existed.
@@ -1633,6 +1664,17 @@ function rowToOfferIntegration(r: Row): OfferIntegrationRow {
   };
 }
 
+function rowToPartnerAccount(r: Row): PartnerAccountRow {
+  return {
+    id: String(r.id),
+    email: String(r.email),
+    name: String(r.name),
+    orgId: String(r.org_id),
+    createdAt: String(r.created_at),
+    lastLoginAt: r.last_login_at ? String(r.last_login_at) : undefined,
+  };
+}
+
 function rowToAgent(r: Row): AgentRow {
   let profile: Record<string, unknown> = {};
   if (typeof r.profile_json === "string" && r.profile_json) {
@@ -2005,25 +2047,93 @@ export const store = {
     return { id: orgId, name, status: "active", kind, guardianKey, settings: {} };
   },
 
+  // ------------------------------------------------------------ partner accounts
+
   /**
-   * Create a dedicated seller org and attach the user as owner.
-   * Partners never reuse a buyer org float for seller operations.
+   * Partner sign-up: one account owns exactly one seller org, created from the
+   * company details. Partner accounts never appear in `users`/`memberships`.
    */
-  createSellerOrgForUser(
-    userId: string,
-    name: string,
-    opts?: { ledgerMode?: "sandbox" | "live" },
-  ): { org: OrgRow; profile: SellerProfileRow } {
+  createPartnerAccountWithOrg(input: {
+    email: string;
+    name: string;
+    passwordHash: string;
+    companyName: string;
+    website?: string;
+    description?: string;
+    payoutAddress?: string;
+  }): { account: PartnerAccountRow; org: OrgRow; profile: SellerProfileRow } {
+    const email = input.email.trim().toLowerCase();
     return db.transaction(() => {
-      const org = this.createOrg(name, 0n, {
+      const taken = db.prepare("SELECT 1 FROM partner_accounts WHERE email = ?").get(email);
+      if (taken) throw new Error("PARTNER_EMAIL_TAKEN");
+      const org = this.createOrg(input.companyName.trim(), 0n, {
         kind: "seller",
-        ledgerMode: opts?.ledgerMode ?? "sandbox",
+        ledgerMode: "sandbox",
       });
-      this.addMembership(userId, org.id, "owner");
-      const profile = this.getSellerProfile(org.id);
-      if (!profile) throw new Error("SELLER_PROFILE_MISSING");
-      return { org, profile };
+      const profile = this.upsertSellerProfile(org.id, {
+        displayName: input.companyName,
+        website: input.website ?? "",
+        description: input.description ?? "",
+        payoutAddress: input.payoutAddress || null,
+      });
+      const accountId = id("pacct");
+      const createdAt = nowIso();
+      db.prepare(
+        `INSERT INTO partner_accounts (id, email, name, password_hash, org_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(accountId, email, input.name.trim(), input.passwordHash, org.id, createdAt);
+      return {
+        account: { id: accountId, email, name: input.name.trim(), orgId: org.id, createdAt },
+        org: this.getOrg(org.id) ?? org,
+        profile,
+      };
     })();
+  },
+
+  findPartnerCredentialsByEmail(
+    email: string,
+  ): { account: PartnerAccountRow; passwordHash: string } | undefined {
+    const r = db
+      .prepare("SELECT * FROM partner_accounts WHERE email = ? AND disabled_at IS NULL")
+      .get(email.trim().toLowerCase()) as Row | undefined;
+    if (!r) return undefined;
+    return { account: rowToPartnerAccount(r), passwordHash: String(r.password_hash) };
+  },
+
+  markPartnerLogin(accountId: string): void {
+    db.prepare("UPDATE partner_accounts SET last_login_at = ? WHERE id = ?").run(nowIso(), accountId);
+  },
+
+  createPartnerSession(input: { accountId: string; token: string; ttlMs: number }): {
+    id: string;
+    expiresAt: string;
+  } {
+    const sessionId = id("psess");
+    const expiresAt = new Date(Date.now() + input.ttlMs).toISOString();
+    db.prepare(
+      `INSERT INTO partner_sessions (id, account_id, token_hash, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(sessionId, input.accountId, hashSecret(input.token), nowIso(), expiresAt);
+    return { id: sessionId, expiresAt };
+  },
+
+  getPartnerBySessionToken(token: string): { account: PartnerAccountRow; sessionId: string } | undefined {
+    const r = db
+      .prepare(
+        `SELECT a.*, s.id AS session_id FROM partner_sessions s
+         JOIN partner_accounts a ON a.id = s.account_id
+         WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ?
+           AND a.disabled_at IS NULL`,
+      )
+      .get(hashSecret(token), nowIso()) as Row | undefined;
+    if (!r) return undefined;
+    return { account: rowToPartnerAccount(r), sessionId: String(r.session_id) };
+  },
+
+  revokePartnerSessionByToken(token: string): void {
+    db.prepare(
+      "UPDATE partner_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
+    ).run(nowIso(), hashSecret(token));
   },
 
   getSellerProfile(orgId: string): SellerProfileRow | undefined {

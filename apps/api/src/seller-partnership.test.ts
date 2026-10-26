@@ -28,132 +28,168 @@ after(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+const PASSWORD = "Seller-Test-Pass-1!";
+
 function cookieHeader(res: Response): string {
   const raw = res.headers.getSetCookie?.() ?? [];
   return raw.map((c) => c.split(";")[0]).join("; ");
 }
 
-async function signInUser(email: string) {
-  const password = "Seller-Test-Pass-1!";
-  const passwordHash = await hashPassword(password);
-  const created = store.createAccountWithOrg({
-    email,
-    name: "Seller Tester",
-    orgName: "Buyer Desk",
-    passwordHash,
-    verificationToken: `verify-${email}`,
-    verificationTtlMs: 60_000,
-    markEmailVerified: true,
-    ledgerMode: "sandbox",
-  });
-  assert.equal(created.status, "created");
-  if (created.status !== "created") throw new Error("expected created");
-
-  const login = await fetch(`${base}/v1/auth/login`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  assert.equal(login.status, 200);
-  const cookies = cookieHeader(login);
-  const csrf = cookies
+function cookieValue(cookies: string, name: string): string | undefined {
+  return cookies
     .split("; ")
-    .find((c) => c.startsWith("abi_csrf="))
-    ?.slice("abi_csrf=".length);
-  assert.ok(csrf);
-  const body = (await login.json()) as {
-    orgs: { id: string; kind: string; name: string }[];
-  };
-  assert.equal(body.orgs[0]?.kind, "buyer");
-  return {
-    cookies,
-    csrf: csrf!,
-    buyerOrgId: body.orgs[0]!.id,
-    userId: created.status === "created" ? created.user.id : "",
-  };
+    .find((c) => c.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
 }
 
-describe("seller partnership phase 0", () => {
-  it("creates a separate seller org and profile without reusing the buyer float", async () => {
-    const session = await signInUser("seller-phase0@example.com");
-    const create = await fetch(`${base}/v1/seller/orgs`, {
+type PartnerSession = { cookies: string; csrf: string; orgId: string };
+type SignupBody = { partner: { email: string }; org: { id: string; name: string; kind: string } };
+
+async function partnerSignup(
+  email: string,
+  extra: Record<string, string> = {},
+): Promise<PartnerSession & { body: SignupBody }> {
+  const res = await fetch(`${base}/v1/partner/auth/signup`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      email,
+      name: "Partner Tester",
+      password: PASSWORD,
+      companyName: "Seller Desk",
+      website: "https://seller.example",
+      description: "Gets paid by agents",
+      ...extra,
+    }),
+  });
+  assert.equal(res.status, 201, await res.clone().text());
+  const cookies = cookieHeader(res);
+  const csrf = cookieValue(cookies, "abi_partner_csrf");
+  assert.ok(csrf);
+  assert.ok(cookieValue(cookies, "abi_partner_session"));
+  assert.equal(cookieValue(cookies, "abi_session"), undefined);
+  const body = (await res.json()) as SignupBody;
+  return { cookies, csrf: csrf!, orgId: body.org.id, body };
+}
+
+function partnerHeaders(s: PartnerSession, mutate = false): Record<string, string> {
+  return mutate
+    ? { cookie: s.cookies, "x-abi-csrf": s.csrf, "content-type": "application/json" }
+    : { cookie: s.cookies };
+}
+
+describe("seller partnership — separate partner accounts", () => {
+  it("partner sign-up creates the seller org from company details", async () => {
+    const s = await partnerSignup("partner-signup@example.com");
+    assert.equal(s.body.org.kind, "seller");
+    assert.equal(s.body.org.name, "Seller Desk");
+    assert.equal(store.getOrg(s.orgId)?.kind, "seller");
+
+    const profile = await fetch(`${base}/v1/seller/profile`, { headers: partnerHeaders(s) });
+    assert.equal(profile.status, 200);
+    const p = (await profile.json()) as { profile: Record<string, string> };
+    assert.equal(p.profile.displayName, "Seller Desk");
+    assert.equal(p.profile.website, "https://seller.example");
+    assert.equal(p.profile.status, "draft");
+
+    const me = await fetch(`${base}/v1/partner/auth/me`, { headers: partnerHeaders(s) });
+    assert.equal(me.status, 200);
+    const meBody = (await me.json()) as { partner: { email: string }; org: { id: string } };
+    assert.equal(meBody.partner.email, "partner-signup@example.com");
+    assert.equal(meBody.org.id, s.orgId);
+
+    const dup = await fetch(`${base}/v1/partner/auth/signup`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        cookie: session.cookies,
-        "x-abi-csrf": session.csrf,
-      },
-      body: JSON.stringify({ name: "Seller Desk" }),
-    });
-    assert.equal(create.status, 201);
-    const created = (await create.json()) as {
-      org: { id: string; kind: string; name: string };
-      profile: { displayName: string; status: string; payoutAddress: string };
-    };
-    assert.equal(created.org.kind, "seller");
-    assert.equal(created.org.name, "Seller Desk");
-    assert.notEqual(created.org.id, session.buyerOrgId);
-    assert.equal(created.profile.status, "draft");
-    assert.equal(created.profile.payoutAddress, "");
-
-    const buyer = store.getOrg(session.buyerOrgId);
-    const seller = store.getOrg(created.org.id);
-    assert.equal(buyer?.kind, "buyer");
-    assert.equal(seller?.kind, "seller");
-
-    const me = await fetch(`${base}/v1/auth/me`, {
-      headers: { cookie: session.cookies },
-    });
-    const meBody = (await me.json()) as { orgs: { id: string; kind: string }[] };
-    assert.equal(meBody.orgs.length, 2);
-    assert.ok(meBody.orgs.some((o) => o.kind === "buyer"));
-    assert.ok(meBody.orgs.some((o) => o.kind === "seller"));
-
-    const profileGet = await fetch(`${base}/v1/seller/profile`, {
-      headers: {
-        cookie: session.cookies,
-        "x-abi-org": created.org.id,
-      },
-    });
-    assert.equal(profileGet.status, 200);
-
-    const onBuyer = await fetch(`${base}/v1/seller/profile`, {
-      headers: {
-        cookie: session.cookies,
-        "x-abi-org": session.buyerOrgId,
-      },
-    });
-    assert.equal(onBuyer.status, 403);
-    const onBuyerBody = (await onBuyer.json()) as { error: { code: string } };
-    assert.equal(onBuyerBody.error.code, "SELLER_ORG_REQUIRED");
-
-    const patched = await fetch(`${base}/v1/seller/profile`, {
-      method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-        cookie: session.cookies,
-        "x-abi-org": created.org.id,
-        "x-abi-csrf": session.csrf,
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        displayName: "Seller Desk Live",
-        payoutAddress: "0x0000000000000000000000000000000000000001",
-        network: "base-sepolia",
-        website: "https://seller.example",
-        description: "Gets paid by agents",
+        email: "partner-signup@example.com",
+        name: "Again",
+        password: PASSWORD,
+        companyName: "Other",
       }),
     });
-    assert.equal(patched.status, 200);
-    const patchedBody = (await patched.json()) as {
-      profile: { status: string; payoutAddress: string; displayName: string };
-    };
-    assert.equal(patchedBody.profile.status, "ready");
-    assert.equal(
-      patchedBody.profile.payoutAddress.toLowerCase(),
-      "0x0000000000000000000000000000000000000001",
-    );
-    assert.equal(patchedBody.profile.displayName, "Seller Desk Live");
-    assert.equal(store.getOrg(created.org.id)?.name, "Seller Desk Live");
+    assert.equal(dup.status, 409);
+  });
+
+  it("partner and buyer accounts are separate realms, even with the same email", async () => {
+    const email = "same-person@example.com";
+    const buyer = store.createAccountWithOrg({
+      email,
+      name: "Buyer Person",
+      orgName: "Buyer Desk",
+      passwordHash: await hashPassword("Buyer-Only-Pass-9!"),
+      verificationToken: "verify-same",
+      verificationTtlMs: 60_000,
+      markEmailVerified: true,
+      ledgerMode: "sandbox",
+    });
+    assert.equal(buyer.status, "created");
+
+    const s = await partnerSignup(email, { companyName: "Same Person Seller" });
+
+    // Buyer password does not open the partner realm, and vice versa.
+    const wrong = await fetch(`${base}/v1/partner/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password: "Buyer-Only-Pass-9!" }),
+    });
+    assert.equal(wrong.status, 401);
+    const buyerWithPartnerPw = await fetch(`${base}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password: PASSWORD }),
+    });
+    assert.equal(buyerWithPartnerPw.status, 401);
+
+    // A partner session is not a buyer session.
+    const buyerMe = await fetch(`${base}/v1/auth/me`, { headers: partnerHeaders(s) });
+    assert.equal(buyerMe.status, 401);
+
+    // A buyer session cannot reach seller APIs, and its orgs list has no seller org.
+    const buyerLogin = await fetch(`${base}/v1/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password: "Buyer-Only-Pass-9!" }),
+    });
+    assert.equal(buyerLogin.status, 200);
+    const buyerBody = (await buyerLogin.json()) as { orgs: { kind: string }[] };
+    assert.ok(buyerBody.orgs.every((o) => o.kind === "buyer"));
+    const buyerCookies = cookieHeader(buyerLogin);
+    const sellerAsBuyer = await fetch(`${base}/v1/seller/profile`, {
+      headers: { cookie: buyerCookies },
+    });
+    assert.equal(sellerAsBuyer.status, 401);
+
+    const login = await fetch(`${base}/v1/partner/auth/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password: PASSWORD }),
+    });
+    assert.equal(login.status, 200);
+    const loginBody = (await login.json()) as { org: { id: string; name: string } };
+    assert.equal(loginBody.org.id, s.orgId);
+    assert.equal(loginBody.org.name, "Same Person Seller");
+  });
+
+  it("seller APIs require a partner session and CSRF on mutations", async () => {
+    const anon = await fetch(`${base}/v1/seller/profile`);
+    assert.equal(anon.status, 401);
+
+    const s = await partnerSignup("partner-csrf@example.com");
+    const noCsrf = await fetch(`${base}/v1/seller/profile`, {
+      method: "PATCH",
+      headers: { cookie: s.cookies, "content-type": "application/json" },
+      body: JSON.stringify({ displayName: "Nope" }),
+    });
+    assert.equal(noCsrf.status, 403);
+
+    const logout = await fetch(`${base}/v1/partner/auth/logout`, {
+      method: "POST",
+      headers: partnerHeaders(s, true),
+    });
+    assert.equal(logout.status, 200);
+    const after = await fetch(`${base}/v1/seller/profile`, { headers: partnerHeaders(s) });
+    assert.equal(after.status, 401);
   });
 
   it("keeps directory private (empty + guidance, no public marketplace)", async () => {
@@ -164,42 +200,25 @@ describe("seller partnership phase 0", () => {
     assert.match(String(body.note ?? ""), /private/i);
   });
 
-  it("supports catalog offers, snippet, and activity for a seller org", async () => {
-    const session = await signInUser("seller-catalog@example.com");
-    const createOrg = await fetch(`${base}/v1/seller/orgs`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        cookie: session.cookies,
-        "x-abi-csrf": session.csrf,
-      },
-      body: JSON.stringify({ name: "Catalog Seller" }),
-    });
-    assert.equal(createOrg.status, 201);
-    const { org } = (await createOrg.json()) as { org: { id: string } };
+  it("supports profile, catalog offers, snippet, publish gate, and activity", async () => {
+    const s = await partnerSignup("partner-catalog@example.com", { companyName: "Catalog Seller" });
 
-    await fetch(`${base}/v1/seller/profile`, {
+    const patched = await fetch(`${base}/v1/seller/profile`, {
       method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-        cookie: session.cookies,
-        "x-abi-org": org.id,
-        "x-abi-csrf": session.csrf,
-      },
+      headers: partnerHeaders(s, true),
       body: JSON.stringify({
-        displayName: "Catalog Seller",
+        displayName: "Catalog Seller Live",
         payoutAddress: "0x0000000000000000000000000000000000000001",
       }),
     });
+    assert.equal(patched.status, 200);
+    const patchedBody = (await patched.json()) as { profile: { status: string } };
+    assert.equal(patchedBody.profile.status, "ready");
+    assert.equal(store.getOrg(s.orgId)?.name, "Catalog Seller Live");
 
     const created = await fetch(`${base}/v1/seller/offers`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        cookie: session.cookies,
-        "x-abi-org": org.id,
-        "x-abi-csrf": session.csrf,
-      },
+      headers: partnerHeaders(s, true),
       body: JSON.stringify({
         slug: "market-report",
         title: "Market report",
@@ -216,31 +235,21 @@ describe("seller partnership phase 0", () => {
     assert.equal(offerBody.offer.priceUsdc, "0.25");
 
     const snippet = await fetch(`${base}/v1/seller/offers/${offerBody.offer.id}/snippet`, {
-      headers: { cookie: session.cookies, "x-abi-org": org.id },
+      headers: partnerHeaders(s),
     });
     assert.equal(snippet.status, 200);
     const snippetBody = (await snippet.json()) as { snippet: string; version: string };
     assert.equal(snippetBody.version, "v0");
     assert.match(snippetBody.snippet, /paymentMiddleware|x402/i);
 
-    const publishTooSoon = await fetch(
-      `${base}/v1/seller/offers/${offerBody.offer.id}/publish`,
-      {
-        method: "POST",
-        headers: {
-          cookie: session.cookies,
-          "x-abi-org": org.id,
-          "x-abi-csrf": session.csrf,
-          "content-type": "application/json",
-        },
-        body: "{}",
-      },
-    );
+    const publishTooSoon = await fetch(`${base}/v1/seller/offers/${offerBody.offer.id}/publish`, {
+      method: "POST",
+      headers: partnerHeaders(s, true),
+      body: "{}",
+    });
     assert.equal(publishTooSoon.status, 400);
 
-    const activity = await fetch(`${base}/v1/seller/activity`, {
-      headers: { cookie: session.cookies, "x-abi-org": org.id },
-    });
+    const activity = await fetch(`${base}/v1/seller/activity`, { headers: partnerHeaders(s) });
     assert.equal(activity.status, 200);
     const activityBody = (await activity.json()) as { settlements: unknown[] };
     assert.deepEqual(activityBody.settlements, []);
@@ -255,10 +264,7 @@ describe("seller partnership phase 0", () => {
         authorization: `Bearer ${org.guardianKey}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        displayName: "Workspace Gate Co",
-        workspace: "seller",
-      }),
+      body: JSON.stringify({ displayName: "Workspace Gate Co", workspace: "seller" }),
     });
     assert.equal(res.status, 400);
     const body = (await res.json()) as { error: { code: string } };
