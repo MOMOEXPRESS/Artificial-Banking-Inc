@@ -14,20 +14,35 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ABAppIcon } from "./brand";
-import { browserApiBase } from "./browser-api";
+import { sellerApiFetch as apiFetch } from "./seller-api";
+import {
+  AnalyticsView,
+  BillingView,
+  DirectoryView,
+  PoliciesView,
+  SandboxView,
+  VersionsView,
+  WebhooksView,
+  type SellerOffer,
+} from "./seller-features";
 import { toast } from "./toast";
 import { Icon } from "./ui";
 import { useTheme } from "./theme-provider";
 
-const API = browserApiBase();
-
-type SellerView =
+export type SellerView =
   | "overview"
   | "catalog"
   | "integrations"
   | "activity"
   | "developers"
-  | "settings";
+  | "settings"
+  | "directory"
+  | "versions"
+  | "sandbox"
+  | "analytics"
+  | "billing"
+  | "policies"
+  | "webhooks";
 
 type SellerOrg = { id: string; name: string; kind: "buyer" | "seller"; status: string };
 
@@ -42,36 +57,30 @@ type SellerProfile = {
   description: string;
 };
 
-type Offer = {
-  id: string;
-  slug: string;
-  title: string;
-  endpointUrl: string;
-  priceUsdc: string;
-  network: string;
-  status: "draft" | "verified" | "published" | "paused";
-  integration: {
-    lastVerifiedAt: string | null;
-    snippetVersion: string | null;
-    error: string | null;
-  };
-};
+type Offer = SellerOffer;
 
 const NAV: { key: SellerView; label: string; icon: string; group: string }[] = [
   { key: "overview", label: "Overview", icon: "home", group: "Home" },
   { key: "catalog", label: "Catalog", icon: "book", group: "Sell" },
   { key: "integrations", label: "Integrations", icon: "zap", group: "Sell" },
+  { key: "directory", label: "Directory", icon: "search", group: "Sell" },
+  { key: "versions", label: "Versions", icon: "layers", group: "Sell" },
+  { key: "sandbox", label: "Sandbox", icon: "play", group: "Sell" },
+  { key: "analytics", label: "Analytics", icon: "chart", group: "Money" },
   { key: "activity", label: "Activity", icon: "list", group: "Money" },
+  { key: "billing", label: "Invoices & payouts", icon: "wallet", group: "Money" },
+  { key: "policies", label: "Access policies", icon: "shield", group: "Control" },
+  { key: "webhooks", label: "Webhooks", icon: "bell", group: "Developers" },
   { key: "developers", label: "Developers", icon: "key", group: "Developers" },
 ];
 
-const NAV_GROUPS = ["Home", "Sell", "Money", "Developers"] as const;
+const NAV_GROUPS = ["Home", "Sell", "Money", "Control", "Developers"] as const;
 
 const MOBILE_NAV: { key: SellerView; label: string; icon: string }[] = [
   { key: "overview", label: "Home", icon: "home" },
   { key: "catalog", label: "Catalog", icon: "book" },
-  { key: "integrations", label: "Integrate", icon: "zap" },
-  { key: "activity", label: "Activity", icon: "chart" },
+  { key: "analytics", label: "Analytics", icon: "chart" },
+  { key: "billing", label: "Payouts", icon: "wallet" },
 ];
 
 const VIEW_META: Record<
@@ -106,7 +115,46 @@ const VIEW_META: Record<
     eyebrow: "Developers",
     title: "Challenge shape and snippets.",
     description:
-      "Private discovery: the agent hits your URL, ABI buyer policy pays, your resource unlocks.",
+      "The agent hits your URL, ABI buyer policy pays, your resource unlocks.",
+  },
+  directory: {
+    eyebrow: "Sell · Directory",
+    title: "Buyer directory listing.",
+    description:
+      "Published offers are listed for buyers by default. Opt out per offer to keep it on your site only.",
+  },
+  versions: {
+    eyebrow: "Sell · Versions",
+    title: "Version and retire offers safely.",
+    description:
+      "Ship a new version as a draft, then deprecate the old one with a sunset date and a successor. Buyers get at least 7 days of notice.",
+  },
+  sandbox: {
+    eyebrow: "Sell · Sandbox",
+    title: "Let buyers test before paying.",
+    description:
+      "A simulated payment request and unlock for each offer. Nothing settles and no USDC moves.",
+  },
+  analytics: {
+    eyebrow: "Money · Analytics",
+    title: "Usage per endpoint.",
+    description: "Who calls each offer, how often, and what it earned.",
+  },
+  billing: {
+    eyebrow: "Money · Invoices & payouts",
+    title: "Invoices and wallet payouts.",
+    description:
+      "Every paid call settles USDC straight to your payout wallet. Invoices summarize those settlements per month.",
+  },
+  policies: {
+    eyebrow: "Control · Access policies",
+    title: "Who can call, and how often.",
+    description: "Block buyer orgs or agents, and set per-minute or per-day rate limits by offer.",
+  },
+  webhooks: {
+    eyebrow: "Developers · Webhooks",
+    title: "Get notified.",
+    description: "Signed events for payments received, usage thresholds, policy changes, and deprecations.",
   },
   settings: {
     eyebrow: "Settings",
@@ -114,24 +162,6 @@ const VIEW_META: Record<
     description: "Display name, website, and the wallet that receives USDC.",
   },
 };
-
-function readPartnerCsrf(cookie: string): string {
-  const hit = cookie.split(";").find((c) => c.trim().startsWith("abi_partner_csrf="));
-  return hit ? decodeURIComponent(hit.trim().slice("abi_partner_csrf=".length)) : "";
-}
-
-async function apiFetch(path: string, init: RequestInit = {}) {
-  const headers = new Headers(init.headers);
-  headers.set("accept", "application/json");
-  if (init.body && !headers.has("content-type")) {
-    headers.set("content-type", "application/json");
-  }
-  if (typeof document !== "undefined" && init.method && init.method.toUpperCase() !== "GET") {
-    const csrf = readPartnerCsrf(document.cookie);
-    if (csrf) headers.set("x-abi-csrf", csrf);
-  }
-  return fetch(`${API}${path}`, { ...init, headers, credentials: "include", cache: "no-store" });
-}
 
 export function SellerConsole({ initialView = "overview" }: { initialView?: SellerView }) {
   const theme = useTheme();
@@ -144,6 +174,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
     Home: true,
     Sell: true,
     Money: true,
+    Control: true,
     Developers: true,
   });
   const [profile, setProfile] = useState<SellerProfile | null>(null);
@@ -333,7 +364,12 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
       if (body?.offer) {
         setOffers((prev) => prev.map((o) => (o.id === body.offer!.id ? body.offer! : o)));
       }
-      setToast("Offer published for agents on your site", "ok");
+      setToast(
+        body?.offer?.directoryListed === false
+          ? "Offer published (hidden from the buyer directory)"
+          : "Offer published and listed in the buyer directory",
+        "ok",
+      );
     } finally {
       setBusy(false);
     }
@@ -407,7 +443,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
               onClick={() => {
                 const next = !railCollapsed;
                 setRailCollapsed(next);
-                setFolderOpen({ Home: true, Sell: true, Money: true, Developers: true });
+                setFolderOpen({ Home: true, Sell: true, Money: true, Control: true, Developers: true });
               }}
             >
               <Icon name={railCollapsed ? "arrowRight" : "arrowLeft"} size={15} />
@@ -521,9 +557,9 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                       </b>
                     </div>
                     <div className="card" style={{ gridColumn: "1 / -1" }}>
-                      <h3 style={{ marginTop: 0 }}>How agents pay (private)</h3>
+                      <h3 style={{ marginTop: 0 }}>How agents pay</h3>
                       <ol className="muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
-                        <li>Agent visits a product URL on your website.</li>
+                        <li>Agent finds your offer in the ABI buyer directory or on your website.</li>
                         <li>Your server returns an x402 payment challenge (ABI snippet or BYO).</li>
                         <li>The agent’s buyer org evaluates policy and pays USDC to your wallet.</li>
                         <li>Your resource unlocks; the settlement shows under Activity.</li>
@@ -773,11 +809,11 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
 
                 {view === "developers" && (
                   <div className="card" style={{ maxWidth: 820 }}>
-                    <h3 style={{ marginTop: 0 }}>Private payment path</h3>
+                    <h3 style={{ marginTop: 0 }}>Payment path</h3>
                     <p className="muted">
-                      ABI does not list your offers publicly. Put the paid URL on your product
-                      page. When an agent requests it, return x402; the agent’s buyer console /
-                      policy path settles USDC to your payout address and retries to unlock.
+                      Published offers are listed in the ABI buyer directory unless you opt out
+                      (Directory). When an agent requests the paid URL, return x402; the agent’s
+                      buyer policy path settles USDC to your payout address and retries to unlock.
                     </p>
                     <ul className="muted" style={{ lineHeight: 1.6 }}>
                       <li>Required unpaid response: HTTP 402</li>
@@ -790,6 +826,20 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                     </Button>
                   </div>
                 )}
+
+                {view === "directory" && (
+                  <DirectoryView offers={offers} onOffersChanged={refreshSeller} />
+                )}
+                {view === "versions" && (
+                  <VersionsView offers={offers} onOffersChanged={refreshSeller} />
+                )}
+                {view === "sandbox" && (
+                  <SandboxView offers={offers} onOffersChanged={refreshSeller} />
+                )}
+                {view === "analytics" && <AnalyticsView />}
+                {view === "billing" && <BillingView />}
+                {view === "policies" && <PoliciesView offers={offers} />}
+                {view === "webhooks" && <WebhooksView offers={offers} />}
 
                 {view === "settings" && (
                   <div className="card" style={{ maxWidth: 640 }}>
