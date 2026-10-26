@@ -108,7 +108,12 @@ export default function PartnerLoginPage() {
             console — sign up here and we create your seller organization for you.
           </p>
 
-          <div className="login-mode-row" role="tablist" aria-label="Partner access">
+          <div
+            className="login-mode-row"
+            role="tablist"
+            aria-label="Partner access"
+            style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}
+          >
             {(
               [
                 ["signin", "Sign in"],

@@ -67,6 +67,13 @@ const NAV: { key: SellerView; label: string; icon: string; group: string }[] = [
 
 const NAV_GROUPS = ["Home", "Sell", "Money", "Developers"] as const;
 
+const MOBILE_NAV: { key: SellerView; label: string; icon: string }[] = [
+  { key: "overview", label: "Home", icon: "home" },
+  { key: "catalog", label: "Catalog", icon: "book" },
+  { key: "integrations", label: "Integrate", icon: "zap" },
+  { key: "activity", label: "Activity", icon: "chart" },
+];
+
 const VIEW_META: Record<
   SellerView,
   { eyebrow: string; title: string; description: string }
@@ -848,6 +855,37 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
               </section>
           </div>
         </main>
+
+        <nav className="mobile-bottom-nav" aria-label="Seller navigation">
+          {MOBILE_NAV.map((item) => (
+            <button
+              type="button"
+              key={item.key}
+              className={view === item.key ? "active" : ""}
+              aria-current={view === item.key ? "page" : undefined}
+              onClick={() => {
+                setView(item.key);
+                setRailOpen(false);
+              }}
+            >
+              <span className="mobile-nav-icon">
+                <Icon name={item.icon} size={19} />
+              </span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+          <button
+            type="button"
+            className={railOpen ? "active" : ""}
+            aria-expanded={railOpen}
+            onClick={() => setRailOpen((open) => !open)}
+          >
+            <span className="mobile-nav-icon">
+              <Icon name="list" size={19} />
+            </span>
+            <span>More</span>
+          </button>
+        </nav>
       </div>
     </TooltipProvider>
   );
