@@ -444,10 +444,22 @@ model PartnerAccounts {
   passwordHash String @map("password_hash")
   orgId String @map("org_id") // -> orgs.id
   createdAt String @map("created_at")
+  emailVerifiedAt String? @map("email_verified_at")
   lastLoginAt String? @map("last_login_at")
   disabledAt String? @map("disabled_at")
   @@unique([email])
   @@map("partner_accounts")
+}
+
+model PartnerEmailVerifications {
+  id String @id
+  accountId String @map("account_id") // -> partner_accounts.id
+  tokenHash String @map("token_hash")
+  createdAt String @map("created_at")
+  expiresAt String @map("expires_at")
+  usedAt String? @map("used_at")
+  @@unique([tokenHash])
+  @@map("partner_email_verifications")
 }
 
 model PartnerSessions {

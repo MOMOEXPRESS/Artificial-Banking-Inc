@@ -20,7 +20,12 @@ import {
 } from "../auth/session.js";
 import { signupTokenProblem } from "../auth/signup-token.js";
 import { assertAuthRuntimeReady } from "../auth/key-encryption.js";
-import { allowUnverifiedSignup } from "../platform/email.js";
+import {
+  allowUnverifiedSignup,
+  emailDeliveryConfigured,
+  resolveConsoleUrl,
+  sendEmail,
+} from "../platform/email.js";
 import { recordObs } from "../platform/observability.js";
 import { store, type OrgRow, type PartnerAccountRow } from "../store.js";
 
@@ -32,6 +37,24 @@ export type PartnerRoute = (
     account: PartnerAccountRow,
   ) => unknown,
 ) => express.RequestHandler;
+
+const VERIFY_EMAIL_TTL_MS = 24 * 60 * 60_000;
+
+async function sendPartnerVerificationEmail(
+  email: string,
+  name: string,
+  token: string,
+): Promise<{ sent: boolean; error?: string }> {
+  const consoleUrl = resolveConsoleUrl();
+  if (!consoleUrl.ok) return { sent: false, error: consoleUrl.error };
+  const link = `${consoleUrl.url}/partners/login?verify=${encodeURIComponent(token)}`;
+  const result = await sendEmail({
+    to: email,
+    subject: "Verify your ABI partner account",
+    text: `Hi ${name},\n\nVerify your ABI partner account: ${link}\n\nThis link expires in 24 hours. If you did not sign up as an ABI partner, ignore this email.`,
+  });
+  return result.ok ? { sent: true } : { sent: false, error: result.error };
+}
 
 const LOGIN_FAILED = {
   error: { code: "UNAUTHORIZED", message: "Email or password is incorrect." },
@@ -54,7 +77,10 @@ const signupSchema = z.object({
   payoutAddress: z
     .union([
       z.literal(""),
-      z.string().trim().refine((v) => isAddress(v), "payoutAddress must be a valid EVM address"),
+      z
+        .string()
+        .trim()
+        .refine((v) => isAddress(v), "payoutAddress must be a valid EVM address"),
     ])
     .optional(),
 });
@@ -92,7 +118,9 @@ function handleError(req: express.Request, res: express.Response, e: unknown) {
     });
   }
   if (e instanceof Error && e.message === "INVALID_USDC_AMOUNT") {
-    return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" } });
+    return res
+      .status(400)
+      .json({ error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" } });
   }
   req.log?.error({ err: e }, "partner route error");
   res.status(500).json({ error: { code: "RAIL_FAILED", message: "Internal error" } });
@@ -142,20 +170,20 @@ export function registerPartnerAuthRoutes(app: express.Express): void {
       if (pwProblem) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: pwProblem } });
       }
-      // Partner email verification is not built yet; production refuses
-      // unverified partner sign-ups unless the operator opted in for demos.
-      if (process.env.NODE_ENV === "production" && !allowUnverifiedSignup()) {
+      const skipVerify = allowUnverifiedSignup();
+      if (process.env.NODE_ENV === "production" && !skipVerify && !emailDeliveryConfigured()) {
         return res.status(503).json({
           error: {
-            code: "PARTNER_SIGNUP_UNAVAILABLE",
+            code: "EMAIL_DELIVERY_UNAVAILABLE",
             message:
-              "Partner sign-up requires email verification, which is not enabled yet. " +
-              "For testnet demos set ABI_ALLOW_UNVERIFIED_SIGNUP=1.",
+              "Partner sign-up sends a verification email, but email delivery is not configured " +
+              "on the API (RESEND_API_KEY or BREVO_API_KEY, ABI_NOTIFY_EMAIL_FROM, ABI_CONSOLE_URL).",
           },
         });
       }
       assertAuthRuntimeReady();
 
+      const verificationToken = newToken();
       let created;
       try {
         created = store.createPartnerAccountWithOrg({
@@ -166,6 +194,9 @@ export function registerPartnerAuthRoutes(app: express.Express): void {
           website: body.website || "",
           description: body.description || "",
           payoutAddress: body.payoutAddress || undefined,
+          markEmailVerified: skipVerify,
+          verificationToken,
+          verificationTtlMs: VERIFY_EMAIL_TTL_MS,
         });
       } catch (e) {
         if (e instanceof Error && e.message === "PARTNER_EMAIL_TAKEN") {
@@ -179,10 +210,32 @@ export function registerPartnerAuthRoutes(app: express.Express): void {
         throw e;
       }
       recordObs({ name: "seller.org_created", orgId: created.org.id });
-      issuePartnerSession(res, created.account);
+      if (skipVerify) {
+        issuePartnerSession(res, created.account);
+        return res.status(201).json({
+          partner: partnerView(created.account),
+          org: orgView(created.org),
+          verificationRequired: false,
+        });
+      }
+      const delivery = await sendPartnerVerificationEmail(
+        created.account.email,
+        created.account.name,
+        verificationToken,
+      );
       res.status(201).json({
         partner: partnerView(created.account),
         org: orgView(created.org),
+        verificationRequired: true,
+        emailSent: delivery.sent,
+        ...(process.env.NODE_ENV !== "production" && !delivery.sent
+          ? { devVerificationToken: verificationToken }
+          : {}),
+        note: delivery.sent
+          ? "Check your email to verify your partner account. The link expires in 24 hours."
+          : `Your account was created, but the verification email could not be sent${
+              delivery.error ? ` (${delivery.error})` : ""
+            }. Use Resend verification once email is configured.`,
       });
     }),
   );
@@ -201,10 +254,62 @@ export function registerPartnerAuthRoutes(app: express.Express): void {
       if (!(await verifyPassword(body.password, found.passwordHash))) {
         return res.status(401).json(LOGIN_FAILED);
       }
+      if (!found.account.emailVerifiedAt) {
+        return res.status(403).json({
+          error: {
+            code: "EMAIL_NOT_VERIFIED",
+            message: "Verify your email before signing in. Check your inbox for the partner link.",
+          },
+        });
+      }
       store.markPartnerLogin(found.account.id);
       issuePartnerSession(res, found.account);
       const org = store.getOrg(found.account.orgId);
       res.json({ partner: partnerView(found.account), org: org ? orgView(org) : null });
+    }),
+  );
+
+  app.post(
+    "/v1/partner/auth/email/verify",
+    route((req, res) => {
+      const body = z.object({ token: z.string().min(1) }).parse(req.body ?? {});
+      const account = store.consumePartnerEmailVerification(body.token);
+      if (!account) {
+        return res.status(400).json({
+          error: {
+            code: "INVALID_TOKEN",
+            message: "That verification link is invalid, used, or expired.",
+          },
+        });
+      }
+      issuePartnerSession(res, account);
+      const org = store.getOrg(account.orgId);
+      res.json({ partner: partnerView(account), org: org ? orgView(org) : null });
+    }),
+  );
+
+  app.post(
+    "/v1/partner/auth/email/resend",
+    route(async (req, res) => {
+      const body = z.object({ email: z.string().trim().email().max(200) }).parse(req.body ?? {});
+      const found = store.findPartnerCredentialsByEmail(body.email);
+      let devVerificationToken: string | undefined;
+      if (found && !found.account.emailVerifiedAt) {
+        const token = newToken();
+        store.revokePartnerEmailVerifications(found.account.id);
+        store.createPartnerEmailVerification(found.account.id, token, VERIFY_EMAIL_TTL_MS);
+        const delivery = await sendPartnerVerificationEmail(
+          found.account.email,
+          found.account.name,
+          token,
+        );
+        if (!delivery.sent && process.env.NODE_ENV !== "production") devVerificationToken = token;
+      }
+      res.json({
+        ok: true,
+        note: "If an unverified partner account exists for that address, a verification link is on its way.",
+        ...(devVerificationToken ? { devVerificationToken } : {}),
+      });
     }),
   );
 

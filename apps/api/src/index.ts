@@ -399,6 +399,7 @@ const SIGNUP_PATHS = new Set([
 const AUTH_LIMITS: Record<string, { ipLimit: number; accountLimit: number; windowMs: number }> = {
   "/v1/auth/login": { ipLimit: 30, accountLimit: 20, windowMs: 15 * 60_000 },
   "/v1/partner/auth/login": { ipLimit: 30, accountLimit: 20, windowMs: 15 * 60_000 },
+  "/v1/partner/auth/email/resend": { ipLimit: 10, accountLimit: 5, windowMs: 60 * 60_000 },
   "/v1/auth/email/resend": { ipLimit: 10, accountLimit: 5, windowMs: 60 * 60_000 },
   "/v1/auth/password-reset/request": { ipLimit: 10, accountLimit: 5, windowMs: 60 * 60_000 },
   // Setting a new password from an emailed link: bucketed per token, so one

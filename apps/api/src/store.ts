@@ -139,6 +139,7 @@ export interface PartnerAccountRow {
   name: string;
   orgId: string;
   createdAt: string;
+  emailVerifiedAt?: string;
   lastLoginAt?: string;
 }
 
@@ -941,6 +942,7 @@ for (const migration of [
   "ALTER TABLE webhook_deliveries ADD COLUMN next_attempt_at TEXT",
   // Seller partnership Phase 0: buyer vs seller org boundary.
   "ALTER TABLE orgs ADD COLUMN kind TEXT NOT NULL DEFAULT 'buyer'",
+  "ALTER TABLE partner_accounts ADD COLUMN email_verified_at TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -1002,8 +1004,17 @@ CREATE TABLE IF NOT EXISTS partner_accounts (
   password_hash TEXT NOT NULL,
   org_id TEXT NOT NULL REFERENCES orgs(id),
   created_at TEXT NOT NULL,
+  email_verified_at TEXT,
   last_login_at TEXT,
   disabled_at TEXT
+);
+CREATE TABLE IF NOT EXISTS partner_email_verifications (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES partner_accounts(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at TEXT
 );
 CREATE TABLE IF NOT EXISTS partner_sessions (
   id TEXT PRIMARY KEY,
@@ -1671,6 +1682,7 @@ function rowToPartnerAccount(r: Row): PartnerAccountRow {
     name: String(r.name),
     orgId: String(r.org_id),
     createdAt: String(r.created_at),
+    emailVerifiedAt: r.email_verified_at ? String(r.email_verified_at) : undefined,
     lastLoginAt: r.last_login_at ? String(r.last_login_at) : undefined,
   };
 }
@@ -2061,6 +2073,9 @@ export const store = {
     website?: string;
     description?: string;
     payoutAddress?: string;
+    markEmailVerified?: boolean;
+    verificationToken?: string;
+    verificationTtlMs?: number;
   }): { account: PartnerAccountRow; org: OrgRow; profile: SellerProfileRow } {
     const email = input.email.trim().toLowerCase();
     return db.transaction(() => {
@@ -2078,12 +2093,27 @@ export const store = {
       });
       const accountId = id("pacct");
       const createdAt = nowIso();
+      const emailVerifiedAt = input.markEmailVerified ? createdAt : null;
       db.prepare(
-        `INSERT INTO partner_accounts (id, email, name, password_hash, org_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(accountId, email, input.name.trim(), input.passwordHash, org.id, createdAt);
+        `INSERT INTO partner_accounts (id, email, name, password_hash, org_id, created_at, email_verified_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(accountId, email, input.name.trim(), input.passwordHash, org.id, createdAt, emailVerifiedAt);
+      if (!input.markEmailVerified && input.verificationToken) {
+        this.createPartnerEmailVerification(
+          accountId,
+          input.verificationToken,
+          input.verificationTtlMs ?? 24 * 3600_000,
+        );
+      }
       return {
-        account: { id: accountId, email, name: input.name.trim(), orgId: org.id, createdAt },
+        account: {
+          id: accountId,
+          email,
+          name: input.name.trim(),
+          orgId: org.id,
+          createdAt,
+          ...(emailVerifiedAt ? { emailVerifiedAt } : {}),
+        },
         org: this.getOrg(org.id) ?? org,
         profile,
       };
@@ -2098,6 +2128,48 @@ export const store = {
       .get(email.trim().toLowerCase()) as Row | undefined;
     if (!r) return undefined;
     return { account: rowToPartnerAccount(r), passwordHash: String(r.password_hash) };
+  },
+
+  createPartnerEmailVerification(accountId: string, token: string, ttlMs: number): void {
+    db.prepare(
+      `INSERT INTO partner_email_verifications (id, account_id, token_hash, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(
+      id("pev"),
+      accountId,
+      hashSecret(token),
+      nowIso(),
+      new Date(Date.now() + ttlMs).toISOString(),
+    );
+  },
+
+  revokePartnerEmailVerifications(accountId: string): void {
+    db.prepare(
+      "UPDATE partner_email_verifications SET used_at = COALESCE(used_at, ?) WHERE account_id = ?",
+    ).run(nowIso(), accountId);
+  },
+
+  consumePartnerEmailVerification(token: string): PartnerAccountRow | undefined {
+    return db.transaction(() => {
+      const now = nowIso();
+      const row = db
+        .prepare(
+          "SELECT id, account_id FROM partner_email_verifications WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
+        )
+        .get(hashSecret(token), now) as Row | undefined;
+      if (!row) return undefined;
+      const claimed = db
+        .prepare("UPDATE partner_email_verifications SET used_at = ? WHERE id = ? AND used_at IS NULL")
+        .run(now, row.id);
+      if (claimed.changes !== 1) return undefined;
+      db.prepare(
+        "UPDATE partner_accounts SET email_verified_at = COALESCE(email_verified_at, ?) WHERE id = ?",
+      ).run(now, row.account_id);
+      const r = db
+        .prepare("SELECT * FROM partner_accounts WHERE id = ? AND disabled_at IS NULL")
+        .get(row.account_id) as Row | undefined;
+      return r ? rowToPartnerAccount(r) : undefined;
+    })();
   },
 
   markPartnerLogin(accountId: string): void {

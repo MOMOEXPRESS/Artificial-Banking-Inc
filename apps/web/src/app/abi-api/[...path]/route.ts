@@ -139,6 +139,19 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
       const preview = (await upstream.text()).slice(0, 240);
       const waking =
         /waking up|starting|cold start|loading/i.test(preview) || upstream.status === 503;
+      // Express answers unknown routes with an HTML "Cannot GET /v1/..." page: the API is
+      // reachable but its deployed version predates this console build.
+      if (upstream.status === 404 && /Cannot (GET|POST|PUT|PATCH|DELETE) \//.test(preview)) {
+        return NextResponse.json(
+          {
+            error: {
+              code: "API_ROUTE_MISSING",
+              message: `The ABI API does not have /${joined} yet — the deployed API is older than this console. Deploy the API from the same commit.`,
+            },
+          },
+          { status: 404, headers: { "Cache-Control": "no-store" } },
+        );
+      }
       return NextResponse.json(
         {
           error: {

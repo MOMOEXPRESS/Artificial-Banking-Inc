@@ -12,6 +12,7 @@ process.env.ABI_KEY_PEPPER = "seller-test-pepper";
 process.env.ABI_NO_LISTEN = "1";
 process.env.ABI_CHAT_LLM = "0";
 process.env.ABI_CHAT_AGENT = "0";
+process.env.ABI_ALLOW_UNVERIFIED_SIGNUP = "1";
 
 const { store } = await import("./store.js");
 const { app } = await import("./index.js");
@@ -109,6 +110,71 @@ describe("seller partnership — separate partner accounts", () => {
       }),
     });
     assert.equal(dup.status, 409);
+  });
+
+  it("verifies partner email before sign-in when unverified sign-up is off", async () => {
+    process.env.ABI_ALLOW_UNVERIFIED_SIGNUP = "0";
+    try {
+      const email = "partner-verify@example.com";
+      const res = await fetch(`${base}/v1/partner/auth/signup`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email,
+          name: "Verify Me",
+          password: PASSWORD,
+          companyName: "Verify Co",
+        }),
+      });
+      assert.equal(res.status, 201);
+      assert.equal(cookieValue(cookieHeader(res), "abi_partner_session"), undefined);
+      const body = (await res.json()) as {
+        verificationRequired: boolean;
+        devVerificationToken?: string;
+        org: { kind: string };
+      };
+      assert.equal(body.verificationRequired, true);
+      assert.equal(body.org.kind, "seller");
+      assert.ok(body.devVerificationToken);
+
+      const early = await fetch(`${base}/v1/partner/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password: PASSWORD }),
+      });
+      assert.equal(early.status, 403);
+      assert.equal(
+        ((await early.json()) as { error: { code: string } }).error.code,
+        "EMAIL_NOT_VERIFIED",
+      );
+
+      const verify = await fetch(`${base}/v1/partner/auth/email/verify`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: body.devVerificationToken }),
+      });
+      assert.equal(verify.status, 200);
+      const cookies = cookieHeader(verify);
+      assert.ok(cookieValue(cookies, "abi_partner_session"));
+      const profile = await fetch(`${base}/v1/seller/profile`, { headers: { cookie: cookies } });
+      assert.equal(profile.status, 200);
+
+      const reuse = await fetch(`${base}/v1/partner/auth/email/verify`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token: body.devVerificationToken }),
+      });
+      assert.equal(reuse.status, 400);
+
+      const login = await fetch(`${base}/v1/partner/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password: PASSWORD }),
+      });
+      assert.equal(login.status, 200);
+    } finally {
+      process.env.ABI_ALLOW_UNVERIFIED_SIGNUP = "1";
+    }
   });
 
   it("partner and buyer accounts are separate realms, even with the same email", async () => {

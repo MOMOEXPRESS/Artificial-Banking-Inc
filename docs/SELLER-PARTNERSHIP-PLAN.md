@@ -34,7 +34,9 @@ Money settles USDC to the **seller wallet** via the x402 facilitator. ABI does n
 
 Partner auth API: `POST /v1/partner/auth/signup` (creates account + seller org + profile), `POST /v1/partner/auth/login`, `POST /v1/partner/auth/logout`, `GET /v1/partner/auth/me`. All `/v1/seller/*` routes authenticate with the partner session only; buyer sessions and guardian keys get 401.
 
-Production: partner sign-up is refused until partner email verification ships, unless `ABI_ALLOW_UNVERIFIED_SIGNUP=1` on testnet.
+Email verification: sign-up sends a link to `/partners/login?verify=…` (`POST /v1/partner/auth/email/verify`, resend via `POST /v1/partner/auth/email/resend`); login is refused until verified. `ABI_ALLOW_UNVERIFIED_SIGNUP=1` (testnet only) skips it and signs the partner in immediately.
+
+Deploy: the console and API must ship from the same commit. A console calling `/v1/partner/*` against an older API Worker gets `API_ROUTE_MISSING` (Express 404).
 
 ## Seller navigation
 
@@ -67,7 +69,7 @@ CREATE TABLE seller_settlements (...);     -- activity (later fill from pay path
 |-------|--------|
 | **0** | Separate orgs, profile, seller console chrome, Partnerships landing |
 | **1** | Catalog CRUD, Integrations verify + snippet, private (no public directory) |
-| **2** | Pay-time bind, Activity from real pays, Test as agent, partner email verification + password reset |
+| **2** | Pay-time bind, Activity from real pays, Test as agent, partner password reset |
 | **3** | Optional hosted paywall, analytics, negotiated prices |
 
 ## Integrate modes
