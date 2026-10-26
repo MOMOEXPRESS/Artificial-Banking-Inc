@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Public directory removed — discovery is private on the seller’s site. */
+/** No buyer directory UI yet; the listing is served by GET /v1/directory/offers. */
 export default function DirectoryRedirectPage() {
   redirect("/partnerships");
 }

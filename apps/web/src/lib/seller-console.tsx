@@ -88,7 +88,7 @@ const VIEW_META: Record<
     eyebrow: "Sell · Catalog",
     title: "Offers agents can purchase.",
     description:
-      "Each offer is an endpoint + price. Agents discover it on your website — not a public ABI directory.",
+      "Each offer is an endpoint + price. Published offers are listed in the ABI buyer directory by default — opt out per offer to keep it site-only.",
   },
   integrations: {
     eyebrow: "Sell · Integrations",

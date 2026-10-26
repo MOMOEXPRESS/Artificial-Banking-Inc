@@ -11,7 +11,7 @@ const STEPS = [
   },
   {
     title: "List offers in Catalog",
-    body: "Each offer is an endpoint on your site plus a USDC price. Agents find it there, not in a public ABI directory.",
+    body: "Each offer is an endpoint on your site plus a USDC price. Published offers are listed in the ABI buyer directory by default; opt out per offer to keep one site-only.",
   },
   {
     title: "Attach x402 (BYO or snippet)",
