@@ -22,6 +22,7 @@ async function post(path: string, body: unknown) {
     error?: { code?: string; message?: string };
     verificationRequired?: boolean;
     devVerificationToken?: string;
+    devResetToken?: string;
     note?: string;
   } | null;
   return {
@@ -30,6 +31,7 @@ async function post(path: string, body: unknown) {
     error: json?.error?.message,
     verificationRequired: Boolean(json?.verificationRequired),
     devVerificationToken: json?.devVerificationToken,
+    devResetToken: json?.devResetToken,
     note: json?.note,
   };
 }
@@ -51,6 +53,11 @@ export default function PartnerLoginPage() {
     devToken?: string;
   } | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [mfaStep, setMfaStep] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
+  const [useRecovery, setUseRecovery] = useState(false);
+  const [forgot, setForgot] = useState(false);
+  const [resetToken, setResetToken] = useState<string | null>(null);
 
   async function verify(token: string) {
     setBusy(true);
@@ -84,6 +91,12 @@ export default function PartnerLoginPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const reset = params.get("reset");
+    if (reset) {
+      window.history.replaceState(null, "", "/partners/login");
+      setResetToken(reset);
+      return;
+    }
     const token = params.get("verify");
     if (token) {
       window.history.replaceState(null, "", "/partners/login");
@@ -98,8 +111,56 @@ export default function PartnerLoginPage() {
       .catch(() => undefined);
   }, []);
 
+  async function requestReset() {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await post("/v1/partner/auth/password-reset/request", {
+        email: email.trim(),
+      });
+      if (!result.ok) {
+        setError(result.error ?? "Could not send a reset link.");
+        return;
+      }
+      setInfo(result.note ?? "If that account exists, a reset link is on its way.");
+      if (result.devResetToken) setResetToken(result.devResetToken);
+    } catch {
+      setError("Could not reach the ABI API.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmReset() {
+    const pw = newPasswordProblem(password, password);
+    if (pw) return setError(pw);
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await post("/v1/partner/auth/password-reset/confirm", {
+        token: resetToken,
+        newPassword: password,
+      });
+      if (!result.ok) {
+        setError(result.error ?? "That reset link is invalid or expired.");
+        return;
+      }
+      setResetToken(null);
+      setForgot(false);
+      setPassword("");
+      setMode("signin");
+      setInfo(result.note ?? "Password reset. Sign in with your new password.");
+    } catch {
+      setError("Could not reach the ABI API.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit() {
     setError(null);
+    if (resetToken) return confirmReset();
+    if (forgot) return requestReset();
     if (mode === "signup") {
       const pw = newPasswordProblem(password, password);
       if (pw) return setError(pw);
@@ -108,7 +169,15 @@ export default function PartnerLoginPage() {
     try {
       const result =
         mode === "signin"
-          ? await post("/v1/partner/auth/login", { email: email.trim(), password })
+          ? await post("/v1/partner/auth/login", {
+              email: email.trim(),
+              password,
+              ...(mfaStep && mfaCode.trim()
+                ? useRecovery
+                  ? { recoveryCode: mfaCode.trim() }
+                  : { code: mfaCode.trim() }
+                : {}),
+            })
           : await post("/v1/partner/auth/signup", {
               email: email.trim(),
               password,
@@ -119,6 +188,11 @@ export default function PartnerLoginPage() {
               payoutAddress: payoutAddress.trim(),
             });
       if (!result.ok) {
+        if (result.code === "MFA_REQUIRED") {
+          setMfaStep(true);
+          setInfo(result.error ?? "Enter the code from your authenticator app.");
+          return;
+        }
         if (result.code === "EMAIL_NOT_VERIFIED") setPendingVerify({ email: email.trim() });
         setError(result.error ?? (mode === "signin" ? "Could not sign in" : "Could not sign up"));
         return;
@@ -139,10 +213,13 @@ export default function PartnerLoginPage() {
     }
   }
 
-  const canSubmit =
-    mode === "signin"
-      ? Boolean(email.trim() && password)
-      : Boolean(email.trim() && password && name.trim() && companyName.trim());
+  const canSubmit = resetToken
+    ? Boolean(password)
+    : forgot
+      ? Boolean(email.trim())
+      : mode === "signin"
+        ? Boolean(email.trim() && password && (!mfaStep || mfaCode.trim()))
+        : Boolean(email.trim() && password && name.trim() && companyName.trim());
 
   return (
     <div className="login-wrap is-ready">
@@ -201,7 +278,71 @@ export default function PartnerLoginPage() {
             ))}
           </div>
 
-          {pendingVerify && mode === "signup" && !error ? (
+          {(resetToken || forgot) && (
+            <div data-testid="partner-reset">
+              <h3 style={{ margin: "4px 0 8px" }}>
+                {resetToken ? "Choose a new password" : "Reset your password"}
+              </h3>
+              {resetToken ? (
+                <div className="field">
+                  <label htmlFor="p-new-password">New password</label>
+                  <input
+                    id="p-new-password"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                  <p className="faint" style={{ fontSize: 11.5, margin: "6px 0 0" }}>
+                    {PASSWORD_RULES_HINT}
+                  </p>
+                </div>
+              ) : (
+                <div className="field">
+                  <label htmlFor="p-reset-email">Work email</label>
+                  <input
+                    id="p-reset-email"
+                    type="email"
+                    autoComplete="username"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+              )}
+              {error && (
+                <p
+                  role="alert"
+                  style={{ color: "var(--color-danger)", fontSize: 13, margin: "4px 0 10px" }}
+                >
+                  {error}
+                </p>
+              )}
+              {info && !resetToken && (
+                <p className="faint" style={{ fontSize: 12, margin: "0 0 10px" }}>
+                  {info}
+                </p>
+              )}
+              <button type="submit" style={{ width: "100%" }} disabled={busy || !canSubmit}>
+                {busy ? "Working…" : resetToken ? "Set new password" : "Email me a reset link"}
+              </button>
+              <button
+                type="button"
+                className="bare"
+                style={{ marginTop: 10 }}
+                disabled={busy}
+                onClick={() => {
+                  setForgot(false);
+                  setResetToken(null);
+                  setError(null);
+                  setInfo(null);
+                }}
+              >
+                Back to sign in
+              </button>
+            </div>
+          )}
+
+          {!(resetToken || forgot) && pendingVerify && mode === "signup" && !error ? (
             <div data-testid="partner-verify-pending">
               <h3 style={{ margin: "4px 0 8px" }}>Check your email</h3>
               <p className="muted" style={{ fontSize: 13.5, lineHeight: 1.55 }}>
@@ -229,7 +370,7 @@ export default function PartnerLoginPage() {
             </div>
           ) : null}
 
-          {!(pendingVerify && mode === "signup" && !error) && (
+          {!(resetToken || forgot) && !(pendingVerify && mode === "signup" && !error) && (
             <>
               {mode === "signup" && (
                 <>
@@ -281,7 +422,55 @@ export default function PartnerLoginPage() {
                     {PASSWORD_RULES_HINT}
                   </p>
                 )}
+                {mode === "signin" && (
+                  <button
+                    type="button"
+                    className="bare"
+                    style={{ fontSize: 12, marginTop: 6 }}
+                    disabled={busy}
+                    onClick={() => {
+                      setError(null);
+                      setInfo(null);
+                      setForgot(true);
+                    }}
+                  >
+                    Forgot password?
+                  </button>
+                )}
               </div>
+
+              {mode === "signin" && mfaStep && (
+                <div className="field" data-testid="partner-mfa">
+                  <label htmlFor="p-mfa">
+                    {useRecovery ? "Recovery code" : "Authenticator code"}
+                  </label>
+                  <input
+                    id="p-mfa"
+                    inputMode={useRecovery ? "text" : "numeric"}
+                    autoComplete="one-time-code"
+                    placeholder={useRecovery ? "xxxx-xxxx" : "123456"}
+                    value={mfaCode}
+                    onChange={(e) => setMfaCode(e.target.value)}
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="bare"
+                    style={{ fontSize: 12, marginTop: 6 }}
+                    onClick={() => {
+                      setUseRecovery((v) => !v);
+                      setMfaCode("");
+                    }}
+                  >
+                    {useRecovery ? "Use authenticator code" : "Use a recovery code"}
+                  </button>
+                </div>
+              )}
+              {mode === "signin" && info && !pendingVerify && (
+                <p className="faint" style={{ fontSize: 12, margin: "0 0 10px" }}>
+                  {info}
+                </p>
+              )}
 
               {mode === "signup" && (
                 <>

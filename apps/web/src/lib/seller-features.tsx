@@ -9,20 +9,28 @@ export type SellerOffer = {
   id: string;
   slug: string;
   title: string;
+  description?: string;
+  category?: string;
   endpointUrl: string;
+  hosted?: boolean;
+  hostedContent?: string;
   priceUsdc: string;
   network: string;
   status: "draft" | "verified" | "published" | "paused";
+  accessMode?: "open" | "allowlist";
   version?: string;
+  familyId?: string;
   deprecatedAt?: string | null;
   sunsetAt?: string | null;
   successorOfferId?: string | null;
+  archivedAt?: string | null;
   directoryListed?: boolean;
   sandboxEnabled?: boolean;
   integration: {
     lastVerifiedAt: string | null;
     snippetVersion: string | null;
     error: string | null;
+    lastChallenge?: unknown;
   };
 };
 
@@ -31,7 +39,7 @@ type FeatureProps = {
   onOffersChanged: () => Promise<void> | void;
 };
 
-const rowStyle = {
+export const rowStyle = {
   padding: "12px 0",
   borderTop: "1px solid var(--color-border)",
   display: "flex",
@@ -41,13 +49,13 @@ const rowStyle = {
   flexWrap: "wrap" as const,
 };
 
-const formGrid = {
+export const formGrid = {
   display: "grid",
   gap: 10,
   gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
 };
 
-const preStyle = {
+export const preStyle = {
   whiteSpace: "pre-wrap" as const,
   fontSize: 12,
   background: "var(--color-surface-2)",
@@ -57,7 +65,7 @@ const preStyle = {
   margin: 0,
 };
 
-function Card({
+export function Card({
   title,
   children,
   actions,
@@ -87,7 +95,7 @@ function Card({
   );
 }
 
-function Stat({ label, value }: { label: string; value: ReactNode }) {
+export function Stat({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="card">
       <span className="muted">{label}</span>
@@ -96,7 +104,7 @@ function Stat({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function Empty({ children }: { children: ReactNode }) {
+export function Empty({ children }: { children: ReactNode }) {
   return (
     <p className="muted" style={{ margin: 0 }}>
       {children}
@@ -104,7 +112,7 @@ function Empty({ children }: { children: ReactNode }) {
   );
 }
 
-function Pill({
+export function Pill({
   tone,
   children,
 }: {
@@ -133,7 +141,7 @@ function Pill({
   );
 }
 
-function Toggle({
+export function Toggle({
   checked,
   disabled,
   onChange,
@@ -165,7 +173,7 @@ function Toggle({
   );
 }
 
-function fmtDate(iso: string | null | undefined): string {
+export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
@@ -179,7 +187,10 @@ function NoOffers() {
   );
 }
 
-async function patchOffer(offerId: string, patch: Record<string, unknown>): Promise<boolean> {
+export async function patchOffer(
+  offerId: string,
+  patch: Record<string, unknown>,
+): Promise<boolean> {
   const res = await apiFetch(`/v1/seller/offers/${offerId}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
@@ -433,14 +444,41 @@ export function AnalyticsView() {
 
 // ---------------------------------------------------------------- invoices + payouts
 
+type InvoiceLine = {
+  offerId: string;
+  slug: string;
+  title: string;
+  version: string;
+  calls: number;
+  unitPriceUsdc: string;
+  amountUsdc: string;
+};
+
 type Invoice = {
   id: string;
+  number: string;
   periodStart: string;
   periodEnd: string;
   totalUsdc: string;
+  feeUsdc: string;
+  netUsdc: string;
   settlementCount: number;
   payoutAddress?: string;
+  network?: string;
+  lines: InvoiceLine[];
   status: string;
+  createdAt: string;
+  emailedAt?: string;
+};
+
+type Settlement = {
+  id: string;
+  offerSlug: string | null;
+  buyerOrgId: string | null;
+  buyerName: string | null;
+  amountUsdc: string;
+  txHash: string | null;
+  explorerUrl: string | null;
   createdAt: string;
 };
 
@@ -450,6 +488,14 @@ type Payouts = {
   settledUsdc: string;
   settlementCount: number;
   lastTxHash: string | null;
+  currentPeriod: { periodStart: string; settledUsdc: string; settlementCount: number };
+  recent: Settlement[];
+  payoutAddressChanges: {
+    id: string;
+    newAddress: string | null;
+    changedBy: string;
+    createdAt: string;
+  }[];
   note: string;
 };
 
@@ -457,9 +503,138 @@ function monthInputValue(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+function shortHash(h: string): string {
+  return h.length > 18 ? `${h.slice(0, 10)}…${h.slice(-6)}` : h;
+}
+
+export function SettlementList({ rows, empty }: { rows: Settlement[]; empty: string }) {
+  if (rows.length === 0) return <Empty>{empty}</Empty>;
+  return (
+    <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+      {rows.map((r) => (
+        <li key={r.id} style={rowStyle}>
+          <div style={{ minWidth: 0 }}>
+            <b>{r.amountUsdc} USDC</b>{" "}
+            <span className="muted" style={{ fontSize: 12.5 }}>
+              {r.offerSlug ?? "offer"} · {r.buyerName ?? r.buyerOrgId ?? "external buyer"}
+            </span>
+            <div className="muted" style={{ fontSize: 12 }}>
+              {fmtDate(r.createdAt)}
+            </div>
+          </div>
+          {r.txHash && r.explorerUrl ? (
+            <a href={r.explorerUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5 }}>
+              <code>{shortHash(r.txHash)}</code> ↗
+            </a>
+          ) : (
+            <span className="muted">no tx</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+async function downloadCsv(invoice: Invoice) {
+  const res = await apiFetch(`/v1/seller/invoices/${invoice.id}/csv`);
+  if (!res.ok) {
+    toast(await sellerApiError(res, "Could not download CSV"), "err");
+    return;
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${invoice.number}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function InvoiceDetail({ invoiceId, onClose }: { invoiceId: string; onClose: () => void }) {
+  const [data, setData] = useState<{
+    invoice: Invoice;
+    seller: { name: string; supportEmail: string | null };
+    settlements: Settlement[];
+  } | null>(null);
+  useEffect(() => {
+    void (async () => {
+      const res = await apiFetch(`/v1/seller/invoices/${invoiceId}`);
+      if (res.ok) setData(await res.json());
+      else toast(await sellerApiError(res, "Could not load statement"), "err");
+    })();
+  }, [invoiceId]);
+  if (!data) return <Card title="Statement">Loading…</Card>;
+  const { invoice } = data;
+  return (
+    <Card
+      title={`Statement ${invoice.number}`}
+      actions={
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button size="sm" variant="secondary" onClick={() => void downloadCsv(invoice)}>
+            Download CSV
+          </Button>
+          <Button size="sm" variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      }
+    >
+      <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+        {data.seller.name} · {invoice.periodStart.slice(0, 10)} to {invoice.periodEnd.slice(0, 10)}{" "}
+        (UTC) · paid to{" "}
+        <code style={{ wordBreak: "break-all" }}>{invoice.payoutAddress ?? "—"}</code>
+        {invoice.network ? ` on ${invoice.network}` : ""}
+      </p>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead>
+          <tr className="muted" style={{ textAlign: "left" }}>
+            <th style={{ padding: "6px 0" }}>Offer</th>
+            <th>Version</th>
+            <th style={{ textAlign: "right" }}>Calls</th>
+            <th style={{ textAlign: "right" }}>Unit</th>
+            <th style={{ textAlign: "right" }}>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {invoice.lines.length === 0 && (
+            <tr>
+              <td colSpan={5} className="muted" style={{ padding: "8px 0" }}>
+                No paid calls in this period.
+              </td>
+            </tr>
+          )}
+          {invoice.lines.map((l) => (
+            <tr key={l.offerId} style={{ borderTop: "1px solid var(--color-border)" }}>
+              <td style={{ padding: "8px 0" }}>{l.title || l.slug}</td>
+              <td>{l.version}</td>
+              <td style={{ textAlign: "right" }}>{l.calls}</td>
+              <td style={{ textAlign: "right" }}>{l.unitPriceUsdc}</td>
+              <td style={{ textAlign: "right" }}>{l.amountUsdc}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr style={{ borderTop: "1px solid var(--color-border)" }}>
+            <td colSpan={4} style={{ padding: "8px 0" }}>
+              Gross / ABI fee / net to wallet
+            </td>
+            <td style={{ textAlign: "right" }}>
+              <b>
+                {invoice.totalUsdc} / {invoice.feeUsdc} / {invoice.netUsdc} USDC
+              </b>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+      <h4 style={{ margin: "16px 0 4px" }}>Settlements</h4>
+      <SettlementList rows={data.settlements} empty="No settlements in this period." />
+    </Card>
+  );
+}
+
 export function BillingView() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [payouts, setPayouts] = useState<Payouts | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const [month, setMonth] = useState(() => {
     const now = new Date();
     return monthInputValue(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)));
@@ -492,14 +667,17 @@ export function BillingView() {
         }),
       });
       if (!res.ok) {
-        toast(await sellerApiError(res, "Could not generate invoice"), "err");
+        toast(await sellerApiError(res, "Could not generate statement"), "err");
         return;
       }
-      const body = (await res.json()) as { created: boolean };
+      const body = (await res.json()) as { created: boolean; invoice: Invoice };
       toast(
-        body.created ? "Invoice issued" : "Invoice for that month already exists",
+        body.created
+          ? `Statement ${body.invoice.number} issued`
+          : "That month already has a statement",
         body.created ? "ok" : "info",
       );
+      setOpenId(body.invoice.id);
       await load();
     } finally {
       setBusy(false);
@@ -507,7 +685,7 @@ export function BillingView() {
   }
 
   return (
-    <div style={{ display: "grid", gap: 16, maxWidth: 860 }}>
+    <div style={{ display: "grid", gap: 16, maxWidth: 900 }}>
       <div
         style={{
           display: "grid",
@@ -515,9 +693,13 @@ export function BillingView() {
           gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
         }}
       >
-        <Stat label="Settled to wallet" value={payouts ? `${payouts.settledUsdc} USDC` : "—"} />
-        <Stat label="Settlements" value={payouts?.settlementCount ?? "—"} />
-        <Stat label="Invoices" value={invoices.length} />
+        <Stat
+          label="This month so far"
+          value={payouts ? `${payouts.currentPeriod.settledUsdc} USDC` : "—"}
+        />
+        <Stat label="All-time settled" value={payouts ? `${payouts.settledUsdc} USDC` : "—"} />
+        <Stat label="Paid calls" value={payouts?.settlementCount ?? "—"} />
+        <Stat label="Statements" value={invoices.length} />
       </div>
       <Card title="Payout wallet">
         {payouts?.payoutAddress ? (
@@ -526,47 +708,61 @@ export function BillingView() {
             <span className="muted"> · {payouts.network}</span>
           </>
         ) : (
-          <Empty>No payout address yet. Set one in Settings before publishing.</Empty>
-        )}
-        {payouts?.lastTxHash && (
-          <p className="muted" style={{ fontSize: 12, marginBottom: 0, wordBreak: "break-all" }}>
-            Last settlement tx {payouts.lastTxHash}
-          </p>
+          <Empty>No payout address yet. Set one in Settings → Payout before publishing.</Empty>
         )}
         {payouts && (
           <p className="muted" style={{ fontSize: 12.5, marginBottom: 0 }}>
             {payouts.note}
           </p>
         )}
+        {payouts && payouts.payoutAddressChanges.length > 0 && (
+          <p className="muted" style={{ fontSize: 12, marginBottom: 0 }}>
+            Last changed {fmtDate(payouts.payoutAddressChanges[0].createdAt)} by{" "}
+            {payouts.payoutAddressChanges[0].changedBy}
+          </p>
+        )}
       </Card>
-      <Card title="Generate invoice">
+      <Card title="Recent payments">
+        <SettlementList
+          rows={payouts?.recent ?? []}
+          empty="No payments yet. Each paid agent call lands here with its Base transaction."
+        />
+      </Card>
+      {openId && <InvoiceDetail invoiceId={openId} onClose={() => setOpenId(null)} />}
+      <Card title="Monthly statements">
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
           <label className="field" style={{ margin: 0 }}>
             <span>Month (UTC)</span>
             <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
           </label>
           <Button disabled={busy} onClick={() => void generate()}>
-            {busy ? "Generating…" : "Generate"}
+            {busy ? "Generating…" : "Generate statement"}
           </Button>
         </div>
-        <p className="muted" style={{ fontSize: 12.5, marginBottom: 0 }}>
-          One invoice per month. Generating the same month again returns the existing invoice.
+        <p className="muted" style={{ fontSize: 12.5 }}>
+          ABI issues last month&apos;s statement automatically on the 1st and emails it to you. One
+          statement per month; generating a month again opens the existing one.
         </p>
-      </Card>
-      <Card title="Invoices">
         {invoices.length === 0 ? (
-          <Empty>No invoices yet.</Empty>
+          <Empty>No statements yet.</Empty>
         ) : (
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {invoices.map((i) => (
               <li key={i.id} style={rowStyle}>
                 <div>
-                  <b>{i.periodStart.slice(0, 7)}</b> <Pill tone="ok">{i.status}</Pill>
+                  <b>{i.number || i.periodStart.slice(0, 7)}</b> <Pill tone="ok">{i.status}</Pill>{" "}
+                  {i.emailedAt && <Pill tone="muted">emailed</Pill>}
                   <div className="muted" style={{ fontSize: 12 }}>
-                    {i.settlementCount} settlements · issued {fmtDate(i.createdAt)}
+                    {i.periodStart.slice(0, 7)} · {i.settlementCount} payments · issued{" "}
+                    {fmtDate(i.createdAt)}
                   </div>
                 </div>
-                <b>{i.totalUsdc} USDC</b>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <b>{i.totalUsdc} USDC</b>
+                  <Button size="sm" variant="secondary" onClick={() => setOpenId(i.id)}>
+                    View
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
@@ -600,7 +796,40 @@ const emptyPolicy = {
   note: "",
 };
 
-export function PoliciesView({ offers }: { offers: SellerOffer[] }) {
+type PolicyForm = typeof emptyPolicy;
+
+/** Starting points that mirror how API businesses actually meter and gate access. */
+const PRESETS: { label: string; detail: string; form: Partial<PolicyForm> }[] = [
+  {
+    label: "Fair use per agent",
+    detail: "60 calls a minute for any single agent, so one runaway loop cannot drain capacity.",
+    form: { effect: "allow", ratePerMinute: "60", note: "Fair use: 60 calls/minute per agent" },
+  },
+  {
+    label: "Daily quota per customer",
+    detail: "Cap a buyer org at 5,000 calls a day. Name the org to give it its own quota.",
+    form: { effect: "allow", ratePerDay: "5000", note: "Daily quota: 5,000 calls/day" },
+  },
+  {
+    label: "Approved customer",
+    detail:
+      "Admit a named buyer org to offers in Approved customers only mode (after an MSA or KYB).",
+    form: { effect: "allow", note: "Approved under signed agreement" },
+  },
+  {
+    label: "Block a buyer",
+    detail: "Refuse a buyer org or agent outright: abuse, chargebacks, or a terminated contract.",
+    form: { effect: "deny", note: "Access revoked. Contact support." },
+  },
+];
+
+export function PoliciesView({
+  offers,
+  onOffersChanged,
+}: {
+  offers: SellerOffer[];
+  onOffersChanged?: () => Promise<void> | void;
+}) {
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [form, setForm] = useState(emptyPolicy);
   const [busy, setBusy] = useState(false);
@@ -633,7 +862,7 @@ export function PoliciesView({ offers }: { offers: SellerOffer[] }) {
         toast(await sellerApiError(res, "Could not save policy"), "err");
         return;
       }
-      toast("Policy saved", "ok");
+      toast("Policy saved. It applies to the next call.", "ok");
       setForm(emptyPolicy);
       await load();
     } finally {
@@ -651,13 +880,73 @@ export function PoliciesView({ offers }: { offers: SellerOffer[] }) {
     await load();
   }
 
+  async function setMode(offer: SellerOffer, accessMode: "open" | "allowlist") {
+    if (await patchOffer(offer.id, { accessMode })) {
+      toast(
+        accessMode === "allowlist"
+          ? `${offer.title}: approved customers only`
+          : `${offer.title}: open to every buyer`,
+        "ok",
+      );
+      await onOffersChanged?.();
+    }
+  }
+
   const offerLabel = (id: string | null) =>
     id ? (offers.find((o) => o.id === id)?.slug ?? id) : "All offers";
 
   return (
-    <div style={{ display: "grid", gap: 16, maxWidth: 860 }}>
-      <Card title="New policy">
-        <div style={formGrid}>
+    <div style={{ display: "grid", gap: 16, maxWidth: 900 }}>
+      <Card title="Who can buy each offer">
+        {offers.length === 0 ? (
+          <Empty>Create an offer in Catalog first.</Empty>
+        ) : (
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {offers.map((o) => (
+              <li key={o.id} style={rowStyle}>
+                <div>
+                  <b>{o.title}</b>{" "}
+                  <Pill tone={o.accessMode === "allowlist" ? "warn" : "ok"}>
+                    {o.accessMode === "allowlist" ? "Approved customers only" : "Open"}
+                  </Pill>
+                </div>
+                <select
+                  value={o.accessMode ?? "open"}
+                  onChange={(e) => void setMode(o, e.target.value as "open" | "allowlist")}
+                  aria-label={`Access mode for ${o.title}`}
+                >
+                  <option value="open">Open to any buyer</option>
+                  <option value="allowlist">Approved customers only</option>
+                </select>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+      <Card title="Add a rule">
+        <div
+          style={{
+            display: "grid",
+            gap: 8,
+            gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))",
+          }}
+        >
+          {PRESETS.map((p) => (
+            <button
+              type="button"
+              key={p.label}
+              className="card"
+              style={{ textAlign: "left", cursor: "pointer", padding: 12 }}
+              onClick={() => setForm({ ...emptyPolicy, offerId: form.offerId, ...p.form })}
+            >
+              <b style={{ fontSize: 13.5 }}>{p.label}</b>
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                {p.detail}
+              </div>
+            </button>
+          ))}
+        </div>
+        <div style={{ ...formGrid, marginTop: 12 }}>
           <label className="field">
             <span>Offer</span>
             <select
@@ -678,25 +967,25 @@ export function PoliciesView({ offers }: { offers: SellerOffer[] }) {
               value={form.effect}
               onChange={(e) => setForm({ ...form, effect: e.target.value as "allow" | "deny" })}
             >
-              <option value="allow">Allow with rate limit</option>
+              <option value="allow">Allow (limit or approve)</option>
               <option value="deny">Deny</option>
             </select>
           </label>
           <label className="field">
-            <span>Buyer org (optional)</span>
+            <span>Buyer org</span>
             <input
               value={form.buyerOrgId}
               onChange={(e) => setForm({ ...form, buyerOrgId: e.target.value })}
-              placeholder="org_…  (blank = any buyer)"
+              placeholder="org_…  (blank = every buyer)"
               spellCheck={false}
             />
           </label>
           <label className="field">
-            <span>Agent (optional)</span>
+            <span>Agent</span>
             <input
               value={form.agentId}
               onChange={(e) => setForm({ ...form, agentId: e.target.value })}
-              placeholder="agt_…  (blank = any agent)"
+              placeholder="agt_…  (blank = every agent)"
               spellCheck={false}
             />
           </label>
@@ -727,17 +1016,21 @@ export function PoliciesView({ offers }: { offers: SellerOffer[] }) {
             <input
               value={form.note}
               onChange={(e) => setForm({ ...form, note: e.target.value })}
-              placeholder="Shown to the buyer when blocked"
+              placeholder="Shown to the buyer when a call is refused"
             />
           </label>
         </div>
         <Button style={{ marginTop: 12 }} disabled={busy} onClick={() => void create()}>
-          Save policy
+          Save rule
         </Button>
+        <p className="muted" style={{ fontSize: 12.5, marginBottom: 0 }}>
+          Rules are checked before the buyer&apos;s money is held, on every paid call and sandbox
+          call. Denies win; every matching rate limit applies. Buyer org ids appear in Activity.
+        </p>
       </Card>
-      <Card title="Active policies">
+      <Card title="Active rules">
         {policies.length === 0 ? (
-          <Empty>No policies. Every buyer and agent can call your offers without limits.</Empty>
+          <Empty>No rules. Every buyer and agent can call your open offers without limits.</Empty>
         ) : (
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {policies.map((p) => (
@@ -763,9 +1056,6 @@ export function PoliciesView({ offers }: { offers: SellerOffer[] }) {
             ))}
           </ul>
         )}
-        <p className="muted" style={{ fontSize: 12.5, marginBottom: 0 }}>
-          Policies apply to sandbox calls today. Enforcement on live buyer payments is coming next.
-        </p>
       </Card>
     </div>
   );
@@ -799,12 +1089,22 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
 
   if (!offer) return <NoOffers />;
 
+  const families = new Map<string, SellerOffer[]>();
+  for (const o of offers) {
+    const key = o.familyId ?? o.id;
+    families.set(key, [...(families.get(key) ?? []), o]);
+  }
+  const siblings = families.get(offer.familyId ?? offer.id) ?? [offer];
+
   async function createVersion() {
     setBusy(true);
     try {
       const res = await apiFetch(`/v1/seller/offers/${offer.id}/versions`, {
         method: "POST",
-        body: JSON.stringify({ slug: newSlug, endpointUrl: newEndpoint || undefined }),
+        body: JSON.stringify({
+          slug: newSlug,
+          endpointUrl: offer.hosted ? undefined : newEndpoint || undefined,
+        }),
       });
       if (!res.ok) {
         toast(await sellerApiError(res, "Could not create version"), "err");
@@ -812,7 +1112,7 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
       }
       const body = (await res.json()) as { offer: { id: string; version: string } };
       toast(
-        `Created ${body.offer.version} as a draft — verify and publish it in Integrations`,
+        `Created ${body.offer.version} as a draft. Verify and publish it in Integrations.`,
         "ok",
       );
       setSuccessor(body.offer.id);
@@ -836,7 +1136,29 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
         toast(await sellerApiError(res, "Could not deprecate"), "err");
         return;
       }
-      toast("Deprecation scheduled; buyers and webhooks are notified", "ok");
+      const body = (await res.json()) as { notifiedBuyers: number };
+      toast(
+        `Deprecation scheduled. ${body.notifiedBuyers} recent buyer${body.notifiedBuyers === 1 ? "" : "s"} notified.`,
+        "ok",
+      );
+      await onOffersChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undeprecate() {
+    setBusy(true);
+    try {
+      const res = await apiFetch(`/v1/seller/offers/${offer.id}/undeprecate`, {
+        method: "POST",
+        body: "{}",
+      });
+      if (!res.ok) {
+        toast(await sellerApiError(res, "Could not cancel deprecation"), "err");
+        return;
+      }
+      toast("Deprecation cancelled", "ok");
       await onOffersChanged();
     } finally {
       setBusy(false);
@@ -846,35 +1168,53 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
   const minSunset = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   return (
-    <div style={{ display: "grid", gap: 16, maxWidth: 860 }}>
-      <Card title="Versions">
-        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-          {offers.map((o) => (
-            <li key={o.id} style={rowStyle}>
-              <div>
-                <b>{o.slug}</b> <Pill tone="muted">{o.version ?? "v1"}</Pill>{" "}
-                {o.deprecatedAt ? (
-                  <Pill tone="warn">Sunsets {o.sunsetAt?.slice(0, 10)}</Pill>
-                ) : (
-                  <Pill tone="ok">{o.status}</Pill>
-                )}
-                {o.successorOfferId && (
-                  <div className="muted" style={{ fontSize: 12 }}>
-                    Successor:{" "}
-                    {offers.find((s) => s.id === o.successorOfferId)?.slug ?? o.successorOfferId}
-                  </div>
-                )}
-              </div>
-              <Button
-                variant={o.id === offer.id ? "default" : "secondary"}
-                size="sm"
-                onClick={() => setOfferId(o.id)}
-              >
-                {o.id === offer.id ? "Selected" : "Select"}
-              </Button>
-            </li>
-          ))}
-        </ul>
+    <div style={{ display: "grid", gap: 16, maxWidth: 900 }}>
+      <Card title="Products and their versions">
+        {[...families.values()].map((group) => (
+          <div key={group[0].familyId ?? group[0].id} style={{ marginBottom: 12 }}>
+            <b>{group[group.length - 1].title}</b>
+            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+              {group
+                .slice()
+                .sort((a, b) =>
+                  (a.version ?? "v1").localeCompare(b.version ?? "v1", undefined, {
+                    numeric: true,
+                  }),
+                )
+                .map((o) => (
+                  <li key={o.id} style={rowStyle}>
+                    <div>
+                      <Pill tone="muted">{o.version ?? "v1"}</Pill> {o.slug}{" "}
+                      {o.deprecatedAt ? (
+                        <Pill tone="warn">Sunsets {o.sunsetAt?.slice(0, 10)}</Pill>
+                      ) : (
+                        <Pill tone={o.status === "published" ? "ok" : "muted"}>{o.status}</Pill>
+                      )}
+                      {o.successorOfferId && (
+                        <div className="muted" style={{ fontSize: 12 }}>
+                          Buyers are pointed to{" "}
+                          {offers.find((s) => s.id === o.successorOfferId)?.slug ??
+                            o.successorOfferId}
+                        </div>
+                      )}
+                    </div>
+                    <Button
+                      variant={o.id === offer.id ? "default" : "secondary"}
+                      size="sm"
+                      onClick={() => setOfferId(o.id)}
+                    >
+                      {o.id === offer.id ? "Selected" : "Select"}
+                    </Button>
+                  </li>
+                ))}
+            </ul>
+          </div>
+        ))}
+        <p className="muted" style={{ fontSize: 12.5, marginBottom: 0 }}>
+          When versions share a URL, buyers paying it are billed against the newest published
+          version that is not deprecated. After sunset, paid calls are refused with a pointer to the
+          successor.
+        </p>
       </Card>
       <Card title={`New version of ${offer.slug}`}>
         <div style={formGrid}>
@@ -882,10 +1222,12 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
             <span>New slug</span>
             <input value={newSlug} onChange={(e) => setNewSlug(e.target.value.toLowerCase())} />
           </label>
-          <label className="field">
-            <span>Endpoint URL</span>
-            <input value={newEndpoint} onChange={(e) => setNewEndpoint(e.target.value)} />
-          </label>
+          {!offer.hosted && (
+            <label className="field">
+              <span>Endpoint URL</span>
+              <input value={newEndpoint} onChange={(e) => setNewEndpoint(e.target.value)} />
+            </label>
+          )}
         </div>
         <Button
           style={{ marginTop: 12 }}
@@ -895,10 +1237,11 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
           Create version
         </Button>
         <p className="muted" style={{ fontSize: 12.5, marginBottom: 0 }}>
-          The copy keeps price, network, and directory settings, and starts as a draft.
+          The copy keeps price, network, access mode and directory settings, and starts as a draft.
+          {offer.hosted ? " Hosted versions get their own ABI URL." : ""}
         </p>
       </Card>
-      <Card title={`Deprecate ${offer.slug}`}>
+      <Card title={`Retire ${offer.slug} ${offer.version ?? "v1"}`}>
         <div style={formGrid}>
           <label className="field">
             <span>Sunset date (UTC)</span>
@@ -910,10 +1253,11 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
             />
           </label>
           <label className="field">
-            <span>Successor (optional)</span>
+            <span>Successor</span>
             <select value={successor} onChange={(e) => setSuccessor(e.target.value)}>
               <option value="">None</option>
-              {offers
+              {siblings
+                .concat(offers.filter((o) => !siblings.includes(o)))
                 .filter((o) => o.id !== offer.id)
                 .map((o) => (
                   <option key={o.id} value={o.id}>
@@ -923,17 +1267,20 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
             </select>
           </label>
         </div>
-        <Button
-          variant="secondary"
-          style={{ marginTop: 12 }}
-          disabled={busy}
-          onClick={() => void deprecate()}
-        >
-          {offer.deprecatedAt ? "Update deprecation" : "Schedule deprecation"}
-        </Button>
+        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+          <Button variant="secondary" disabled={busy} onClick={() => void deprecate()}>
+            {offer.deprecatedAt ? "Update deprecation" : "Schedule deprecation"}
+          </Button>
+          {offer.deprecatedAt && (
+            <Button variant="secondary" disabled={busy} onClick={() => void undeprecate()}>
+              Cancel deprecation
+            </Button>
+          )}
+        </div>
         <p className="muted" style={{ fontSize: 12.5, marginBottom: 0 }}>
-          Buyers get at least 7 days of notice. The offer stays listed and payable until the sunset
-          date.
+          Buyers get at least 7 days of notice. Buyer orgs that used this version in the last 90
+          days get an <code>offer.deprecated</code> webhook. It stays listed and payable until the
+          sunset date.
         </p>
       </Card>
     </div>
@@ -944,8 +1291,6 @@ export function VersionsView({ offers, onOffersChanged }: FeatureProps) {
 
 export function SandboxView({ offers, onOffersChanged }: FeatureProps) {
   const [offerId, setOfferId] = useState<string>(offers[0]?.id ?? "");
-  const [buyerOrgId, setBuyerOrgId] = useState("");
-  const [agentId, setAgentId] = useState("");
   const [result, setResult] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const offer = offers.find((o) => o.id === offerId) ?? offers[0];
@@ -969,10 +1314,7 @@ export function SandboxView({ offers, onOffersChanged }: FeatureProps) {
     try {
       const res = await apiFetch(`/v1/sandbox/offers/${offer.id}/try`, {
         method: "POST",
-        body: JSON.stringify({
-          ...(buyerOrgId.trim() ? { buyerOrgId: buyerOrgId.trim() } : {}),
-          ...(agentId.trim() ? { agentId: agentId.trim() } : {}),
-        }),
+        body: "{}",
       });
       const body = (await res.json().catch(() => null)) as unknown;
       setResult({ httpStatus: res.status, ...(body as object) });
@@ -985,12 +1327,19 @@ export function SandboxView({ offers, onOffersChanged }: FeatureProps) {
   const tryable = offer.status === "published" || offer.status === "verified";
 
   return (
-    <div style={{ display: "grid", gap: 16, maxWidth: 860 }}>
-      <Card title="Buyer sandbox">
+    <div style={{ display: "grid", gap: 16, maxWidth: 900 }}>
+      <Card title="What the sandbox is for">
         <p className="muted" style={{ marginTop: 0 }}>
-          Buyers can wire their agent against a simulated payment request and unlock before paying.
-          No USDC moves.
+          Before a buyer spends money, their developer points an agent at the sandbox. It returns
+          the real payment request for your offer (payee, network, price) and your access decision
+          for that caller, then a simulated unlock. No USDC moves, nothing is signed.
         </p>
+        <p className="muted" style={{ marginBottom: 0 }}>
+          Buyers authenticate with their ABI agent key, so your rate limits and blocks apply and the
+          call shows in Analytics as a sandbox call. Your own test runs below are not counted.
+        </p>
+      </Card>
+      <Card title="Sandbox settings">
         <div style={formGrid}>
           <label className="field">
             <span>Offer</span>
@@ -1011,31 +1360,14 @@ export function SandboxView({ offers, onOffersChanged }: FeatureProps) {
             />
           </div>
         </div>
-        <p className="muted" style={{ fontSize: 12.5 }}>
-          Public endpoint: <code>POST {sandboxUrl}</code>
-        </p>
+        <pre style={{ ...preStyle, marginTop: 8 }}>
+          {`curl -X POST ${typeof window === "undefined" ? "" : window.location.origin}/abi-api${sandboxUrl} \\
+  -H "authorization: Bearer $ABI_AGENT_KEY"`}
+        </pre>
       </Card>
-      <Card title="Try it as a buyer">
-        <div style={formGrid}>
-          <label className="field">
-            <span>Buyer org (optional)</span>
-            <input
-              value={buyerOrgId}
-              onChange={(e) => setBuyerOrgId(e.target.value)}
-              spellCheck={false}
-            />
-          </label>
-          <label className="field">
-            <span>Agent (optional)</span>
-            <input
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              spellCheck={false}
-            />
-          </label>
-        </div>
-        <Button style={{ marginTop: 12 }} disabled={busy || !tryable} onClick={() => void tryIt()}>
-          Run sandbox call
+      <Card title="Test it yourself">
+        <Button disabled={busy || !tryable} onClick={() => void tryIt()}>
+          Run a self-test
         </Button>
         {!tryable && (
           <p className="muted" style={{ fontSize: 12.5 }}>
