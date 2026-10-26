@@ -735,14 +735,17 @@ export function SettingsView({
                   <label htmlFor="profile-workspace">Workspace role</label>
                   <select
                     id="profile-workspace"
-                    value={profile.workspace}
-                    disabled={readOnly}
-                    onChange={(event) => setProfile({ ...profile, workspace: event.target.value })}
+                    value="buyer"
+                    disabled
+                    aria-describedby="profile-workspace-hint"
                   >
                     <option value="buyer">Buying services</option>
-                    <option value="seller">Selling services</option>
-                    <option value="both">Buying and selling</option>
                   </select>
+                  <p id="profile-workspace-hint" className="muted" style={{ marginTop: 8 }}>
+                    Selling requires a separate seller organization. Open{" "}
+                    <a href="/seller">ABI Seller</a> to create one — buyer and seller floats stay
+                    separate.
+                  </p>
                 </div>
                 <div className="field">
                   <label htmlFor="profile-description">

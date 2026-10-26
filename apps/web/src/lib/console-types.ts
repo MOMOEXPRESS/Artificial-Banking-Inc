@@ -31,7 +31,13 @@ export function sessionForPersistentStorage(session: Session | null): Session | 
 export type Prefs = { autoJump: boolean };
 
 export type OrgView = {
-  org: { id: string; name: string; status: string; settings?: Record<string, unknown> };
+  org: {
+    id: string;
+    name: string;
+    status: string;
+    kind?: "buyer" | "seller";
+    settings?: Record<string, unknown>;
+  };
   actor?: { role: "owner" | "approver" | "viewer"; guardianId: string };
   agents: {
     id: string;

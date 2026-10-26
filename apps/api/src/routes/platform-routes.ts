@@ -66,9 +66,34 @@ export function registerPlatformRoutes(
     guardianRoute(
       (org, req, res) => {
         const profile = profileSchema.parse(req.body);
-        store.setOrgProfile(org.id, profile.displayName, { ...org.settings, profile });
+        // Seller operations require a dedicated seller org — workspace is not a
+        // security boundary and cannot flip a buyer float into a seller catalog.
+        if (org.kind !== "seller" && (profile.workspace === "seller" || profile.workspace === "both")) {
+          return res.status(400).json({
+            error: {
+              code: "SELLER_ORG_REQUIRED",
+              message:
+                "Selling requires a separate seller organization. Create one with POST /v1/seller/orgs, then use the Buyer | Seller switcher.",
+            },
+          });
+        }
+        if (org.kind === "seller" && profile.workspace === "buyer") {
+          return res.status(400).json({
+            error: {
+              code: "BUYER_ORG_REQUIRED",
+              message:
+                "This organization is a seller org. Switch to a buyer organization for buying workflows.",
+            },
+          });
+        }
+        const nextProfile =
+          org.kind === "seller" ? { ...profile, workspace: "seller" as const } : profile;
+        store.setOrgProfile(org.id, nextProfile.displayName, {
+          ...org.settings,
+          profile: nextProfile,
+        });
         recordObs({ name: "org.profile_updated", orgId: org.id });
-        res.json({ ok: true, orgId: org.id, profile });
+        res.json({ ok: true, orgId: org.id, profile: nextProfile });
       },
       { ownerOnly: true },
     ),

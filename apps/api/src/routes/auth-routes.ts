@@ -47,6 +47,15 @@ export function currentUser(req: express.Request): { user: UserRow; sessionId: s
   return store.getUserBySessionToken(token) ?? null;
 }
 
+function orgMembershipView(m: {
+  orgId: string;
+  orgName: string;
+  orgKind: "buyer" | "seller";
+  role: string;
+}) {
+  return { id: m.orgId, name: m.orgName, role: m.role, kind: m.orgKind };
+}
+
 function userView(user: UserRow) {
   return {
     id: user.id,
@@ -249,9 +258,7 @@ export function registerAuthRoutes(app: express.Express) {
     issueSession(res, user, req);
     res.json({
       user: userView(user),
-      orgs: store
-        .listMembershipsForUser(user.id)
-        .map((m) => ({ id: m.orgId, name: m.orgName, role: m.role })),
+      orgs: store.listMembershipsForUser(user.id).map(orgMembershipView),
     });
   });
 
@@ -312,11 +319,7 @@ export function registerAuthRoutes(app: express.Express) {
       issueSession(res, found.user, req);
       res.json({
         user: userView(found.user),
-        orgs: store.listMembershipsForUser(found.user.id).map((m) => ({
-          id: m.orgId,
-          name: m.orgName,
-          role: m.role,
-        })),
+        orgs: store.listMembershipsForUser(found.user.id).map(orgMembershipView),
       });
     }),
   );
@@ -342,11 +345,7 @@ export function registerAuthRoutes(app: express.Express) {
     if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
     res.json({
       user: userView(me.user),
-      orgs: store.listMembershipsForUser(me.user.id).map((m) => ({
-        id: m.orgId,
-        name: m.orgName,
-        role: m.role,
-      })),
+      orgs: store.listMembershipsForUser(me.user.id).map(orgMembershipView),
       csrfToken: parseCookies(req)[CSRF_COOKIE] ?? null,
     });
   });

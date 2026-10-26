@@ -87,6 +87,7 @@ import { registerAgentRoutes } from "./routes/agent-routes.js";
 import { startScheduler } from "./jobs/scheduler.js";
 import { registerPaymentRoutes } from "./routes/payment-routes.js";
 import { registerPlatformRoutes } from "./routes/platform-routes.js";
+import { registerSellerRoutes } from "./routes/seller-routes.js";
 import { registerPolicyRoutes } from "./routes/policy-routes.js";
 import { registerTreasuryRoutes } from "./routes/treasury-routes.js";
 import { registerRemoteMcp } from "./remote-mcp.js";
@@ -639,6 +640,7 @@ registerAgentRoutes(app, { guardianRoute });
 registerPolicyRoutes(app, { guardianRoute });
 registerPaymentRoutes(app, { guardianRoute });
 registerPlatformRoutes(app, { guardianRoute });
+registerSellerRoutes(app, { guardianRoute });
 registerRemoteMcp(app);
 registerTelegramWebhookRoute(app);
 
@@ -1144,7 +1146,13 @@ app.get(
     // account snapshot rather than the pre-migration balances.
     const accounts = [...store.getAccountMap(org.id).values()];
     res.json({
-      org: { id: org.id, name: org.name, status: org.status, settings: org.settings },
+      org: {
+        id: org.id,
+        name: org.name,
+        status: org.status,
+        kind: org.kind,
+        settings: org.settings,
+      },
       actor: actor
         ? { role: actor.role, guardianId: actor.guardianId }
         : { role: "owner", guardianId: "owner" },

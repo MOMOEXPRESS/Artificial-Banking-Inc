@@ -407,6 +407,7 @@ model Orgs {
   settingsJson String? @map("settings_json")
   ledgerMode String @default("sandbox") @map("ledger_mode")
   unbackedMicro BigInt @default(0) @map("unbacked_micro")
+  kind String @default("buyer")
   @@unique([guardianKey])
   @@map("orgs")
 }
@@ -479,6 +480,18 @@ model Runs {
   deliverableMd String? @map("deliverable_md")
   @@index([orgId, startedAt])
   @@map("runs")
+}
+
+model SellerProfiles {
+  orgId String @id @map("org_id") // -> orgs.id
+  displayName String @map("display_name")
+  payoutAddress String? @map("payout_address")
+  network String @default("base-sepolia")
+  status String @default("draft")
+  website String?
+  description String?
+  updatedAt String @map("updated_at")
+  @@map("seller_profiles")
 }
 
 model SessionKeys {

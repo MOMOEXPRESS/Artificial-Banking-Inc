@@ -1100,6 +1100,12 @@ export default function Console() {
               <h1>{viewLabel}</h1>
             </div>
             <div className="spacer" />
+            <nav className="workspace-switch" aria-label="Workspace switcher">
+              <span className="workspace-chip active">Buyer</span>
+              <Link href="/seller" className="workspace-chip">
+                Seller
+              </Link>
+            </nav>
             <button
               type="button"
               className={`environment-chip ${org?.ledgerMode === "live" ? "live" : "sandbox"}`}

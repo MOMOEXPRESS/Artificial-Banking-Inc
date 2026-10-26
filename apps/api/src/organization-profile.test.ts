@@ -45,6 +45,20 @@ it("saves a validated profile without changing its treasury mode", async () => {
   assert.equal(bad.status, 400);
   assert.equal(store.getOrg(org.id)?.name, "Before");
 
+  const refused = await fetch(url, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({
+      displayName: "After",
+      website: "https://example.com",
+      workspace: "both",
+    }),
+  });
+  assert.equal(refused.status, 400);
+  const refusedBody = (await refused.json()) as { error: { code: string } };
+  assert.equal(refusedBody.error.code, "SELLER_ORG_REQUIRED");
+  assert.equal(store.getOrg(org.id)?.name, "Before");
+
   const saved = await fetch(url, {
     method: "PATCH",
     headers,
@@ -52,7 +66,7 @@ it("saves a validated profile without changing its treasury mode", async () => {
       displayName: "After",
       legalName: "After Ltd",
       website: "https://example.com",
-      workspace: "both",
+      workspace: "buyer",
       defaultCurrencyDisplay: "EUR",
       plan: "enterprise",
       environment: "sandbox",
@@ -63,7 +77,7 @@ it("saves a validated profile without changing its treasury mode", async () => {
   const data = (await read.json()) as { environment: string; profile: Record<string, unknown> };
   assert.equal(data.environment, "live");
   assert.equal(data.profile.displayName, "After");
-  assert.equal(data.profile.workspace, "both");
+  assert.equal(data.profile.workspace, "buyer");
   assert.equal(data.profile.defaultCurrencyDisplay, "EUR");
   assert.equal(data.profile.plan, undefined);
   assert.equal(store.getOrg(org.id)?.name, "After");

@@ -82,17 +82,33 @@ export interface SettlementRow {
 }
 
 export type OrgStatus = "active" | "frozen" | "archived";
+/** Security boundary: buyer float vs seller partnership catalog. */
+export type OrgKind = "buyer" | "seller";
 export type AgentStatus = "active" | "frozen" | "archived";
 export type EscrowState = "locked" | "settling" | "released" | "refunded" | "timeout_refunded";
 export type ApprovalStatus = "pending" | "approved" | "denied" | "expired";
+export type SellerProfileStatus = "draft" | "ready";
 
 export interface OrgRow {
   id: string;
   name: string;
   status: OrgStatus;
+  /** `buyer` (default) or `seller` — separate orgs for partners. */
+  kind: OrgKind;
   guardianKey: string;
   /** Feature / plan / SSO flags — extend without migrations per flag. */
   settings: OrgSettings;
+}
+
+export interface SellerProfileRow {
+  orgId: string;
+  displayName: string;
+  payoutAddress?: string;
+  network: string;
+  status: SellerProfileStatus;
+  website: string;
+  description: string;
+  updatedAt: string;
 }
 
 export interface AgentRow {
@@ -892,6 +908,8 @@ for (const migration of [
   "ALTER TABLE decisions ADD COLUMN receipt_json TEXT",
   // Durable webhook retries — survives process restarts (replaces in-memory setTimeout).
   "ALTER TABLE webhook_deliveries ADD COLUMN next_attempt_at TEXT",
+  // Seller partnership Phase 0: buyer vs seller org boundary.
+  "ALTER TABLE orgs ADD COLUMN kind TEXT NOT NULL DEFAULT 'buyer'",
 ]) {
   try {
     db.exec(migration);
@@ -899,6 +917,19 @@ for (const migration of [
     /* column already exists */
   }
 }
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS seller_profiles (
+  org_id TEXT PRIMARY KEY REFERENCES orgs(id),
+  display_name TEXT NOT NULL,
+  payout_address TEXT,
+  network TEXT NOT NULL DEFAULT 'base-sepolia',
+  status TEXT NOT NULL DEFAULT 'draft',
+  website TEXT,
+  description TEXT,
+  updated_at TEXT NOT NULL
+);
+`);
 
 // Backfill the canonical one-shot memos written before schedule_kind existed.
 db.exec(`
@@ -1493,12 +1524,28 @@ function rowToOrg(r: Row): OrgRow {
       settings = {};
     }
   }
+  const kind: OrgKind = r.kind === "seller" ? "seller" : "buyer";
   return {
     id: r.id,
     name: r.name,
     status: r.status,
+    kind,
     guardianKey: r.guardian_key,
     settings,
+  };
+}
+
+function rowToSellerProfile(r: Row): SellerProfileRow {
+  const status: SellerProfileStatus = r.status === "ready" ? "ready" : "draft";
+  return {
+    orgId: String(r.org_id),
+    displayName: String(r.display_name),
+    payoutAddress: r.payout_address ? String(r.payout_address) : undefined,
+    network: String(r.network ?? "base-sepolia"),
+    status,
+    website: String(r.website ?? ""),
+    description: String(r.description ?? ""),
+    updatedAt: String(r.updated_at),
   };
 }
 
@@ -1808,11 +1855,12 @@ export const store = {
   createOrg(
     name: string,
     depositMicro: MicroUsdc,
-    opts?: { ledgerMode?: "sandbox" | "live" },
+    opts?: { ledgerMode?: "sandbox" | "live"; kind?: OrgKind },
   ): OrgRow {
     const orgId = id("org");
     const guardianKey = `pv_guardian_${randomBytes(12).toString("hex")}`;
     const guardianKeyHash = hashSecret(guardianKey);
+    const kind: OrgKind = opts?.kind === "seller" ? "seller" : "buyer";
     const tx = db.transaction(() => {
       // An opening balance nobody sent on-chain is simulated money, so an org
       // seeded with one is a sandbox org. Orgs that start empty default to live
@@ -1823,10 +1871,15 @@ export const store = {
       // written straight onto org:available and never debits `external`, so
       // -(external) already excludes it. Counting it here would subtract it
       // twice and make every seeded org look short by its own float.
-      const ledgerMode = opts?.ledgerMode ?? (depositMicro > 0n ? "sandbox" : "live");
+      //
+      // Seller orgs default to sandbox with zero float — they settle on-chain to
+      // the partner wallet, not through the buyer treasury.
+      const ledgerMode =
+        opts?.ledgerMode ??
+        (kind === "seller" ? "sandbox" : depositMicro > 0n ? "sandbox" : "live");
       db.prepare(
-        "INSERT INTO orgs (id, name, status, guardian_key, deposit_micro, ledger_mode, unbacked_micro) VALUES (?, ?, 'active', ?, ?, ?, ?)",
-      ).run(orgId, name, guardianKeyHash, depositMicro.toString(), ledgerMode, "0");
+        "INSERT INTO orgs (id, name, status, guardian_key, deposit_micro, ledger_mode, unbacked_micro, kind) VALUES (?, ?, 'active', ?, ?, ?, ?, ?)",
+      ).run(orgId, name, guardianKeyHash, depositMicro.toString(), ledgerMode, "0", kind);
       const privateKey = generatePrivateKey();
       const address = privateKeyToAccount(privateKey).address;
       db.prepare("INSERT INTO vaults (org_id, address, private_key) VALUES (?, ?, ?)").run(
@@ -1857,9 +1910,100 @@ export const store = {
       for (const v of [...template.vendorAllowlist, ...template.domainAllowlist]) {
         insertKc.run(orgId, v.toLowerCase());
       }
+      if (kind === "seller") {
+        db.prepare(
+          `INSERT INTO seller_profiles (org_id, display_name, network, status, website, description, updated_at)
+           VALUES (?, ?, 'base-sepolia', 'draft', '', '', ?)`,
+        ).run(orgId, name, nowIso());
+      }
     });
     tx();
-    return { id: orgId, name, status: "active", guardianKey, settings: {} };
+    return { id: orgId, name, status: "active", kind, guardianKey, settings: {} };
+  },
+
+  /**
+   * Create a dedicated seller org and attach the user as owner.
+   * Partners never reuse a buyer org float for seller operations.
+   */
+  createSellerOrgForUser(
+    userId: string,
+    name: string,
+    opts?: { ledgerMode?: "sandbox" | "live" },
+  ): { org: OrgRow; profile: SellerProfileRow } {
+    return db.transaction(() => {
+      const org = this.createOrg(name, 0n, {
+        kind: "seller",
+        ledgerMode: opts?.ledgerMode ?? "sandbox",
+      });
+      this.addMembership(userId, org.id, "owner");
+      const profile = this.getSellerProfile(org.id);
+      if (!profile) throw new Error("SELLER_PROFILE_MISSING");
+      return { org, profile };
+    })();
+  },
+
+  getSellerProfile(orgId: string): SellerProfileRow | undefined {
+    const r = db.prepare("SELECT * FROM seller_profiles WHERE org_id = ?").get(orgId) as
+      | Row
+      | undefined;
+    return r ? rowToSellerProfile(r) : undefined;
+  },
+
+  upsertSellerProfile(
+    orgId: string,
+    patch: {
+      displayName?: string;
+      payoutAddress?: string | null;
+      network?: string;
+      website?: string;
+      description?: string;
+    },
+  ): SellerProfileRow {
+    const org = this.getOrg(orgId);
+    if (!org || org.kind !== "seller") {
+      throw new Error("SELLER_ORG_REQUIRED");
+    }
+    const existing = this.getSellerProfile(orgId);
+    const displayName = (patch.displayName ?? existing?.displayName ?? org.name).trim();
+    const payoutAddress =
+      patch.payoutAddress === null
+        ? undefined
+        : patch.payoutAddress !== undefined
+          ? patch.payoutAddress.trim() || undefined
+          : existing?.payoutAddress;
+    const network = (patch.network ?? existing?.network ?? "base-sepolia").trim() || "base-sepolia";
+    const website = patch.website !== undefined ? patch.website : (existing?.website ?? "");
+    const description =
+      patch.description !== undefined ? patch.description : (existing?.description ?? "");
+    const status: SellerProfileStatus = payoutAddress ? "ready" : "draft";
+    const updatedAt = nowIso();
+    db.prepare(
+      `INSERT INTO seller_profiles (org_id, display_name, payout_address, network, status, website, description, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(org_id) DO UPDATE SET
+         display_name = excluded.display_name,
+         payout_address = excluded.payout_address,
+         network = excluded.network,
+         status = excluded.status,
+         website = excluded.website,
+         description = excluded.description,
+         updated_at = excluded.updated_at`,
+    ).run(
+      orgId,
+      displayName,
+      payoutAddress ?? null,
+      network,
+      status,
+      website,
+      description,
+      updatedAt,
+    );
+    if (displayName && displayName !== org.name) {
+      this.setOrgName(orgId, displayName);
+    }
+    const row = this.getSellerProfile(orgId);
+    if (!row) throw new Error("SELLER_PROFILE_MISSING");
+    return row;
   },
 
   getOrg(orgId: string): OrgRow | undefined {
@@ -3116,17 +3260,23 @@ export const store = {
     return r ? rowToMembership(r) : undefined;
   },
 
-  listMembershipsForUser(userId: string): (MembershipRow & { orgName: string })[] {
+  listMembershipsForUser(
+    userId: string,
+  ): (MembershipRow & { orgName: string; orgKind: OrgKind })[] {
     return (
       db
         .prepare(
-          `SELECT m.*, o.name AS org_name FROM memberships m
+          `SELECT m.*, o.name AS org_name, o.kind AS org_kind FROM memberships m
            JOIN orgs o ON o.id = m.org_id
            WHERE m.user_id = ? AND m.revoked_at IS NULL
            ORDER BY m.created_at`,
         )
         .all(userId) as Row[]
-    ).map((r) => ({ ...rowToMembership(r), orgName: String(r.org_name) }));
+    ).map((r) => ({
+      ...rowToMembership(r),
+      orgName: String(r.org_name),
+      orgKind: r.org_kind === "seller" ? ("seller" as const) : ("buyer" as const),
+    }));
   },
 
   listMembersOfOrg(orgId: string): (MembershipRow & { email: string; name: string })[] {
