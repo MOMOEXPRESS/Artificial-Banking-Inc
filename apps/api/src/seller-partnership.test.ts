@@ -304,7 +304,7 @@ describe("seller partnership — separate partner accounts", () => {
     });
     assert.equal(snippet.status, 200);
     const snippetBody = (await snippet.json()) as { snippet: string; version: string };
-    assert.equal(snippetBody.version, "v0");
+    assert.equal(snippetBody.version, "v2");
     assert.match(snippetBody.snippet, /paymentMiddleware|x402/i);
 
     const publishTooSoon = await fetch(`${base}/v1/seller/offers/${offerBody.offer.id}/publish`, {

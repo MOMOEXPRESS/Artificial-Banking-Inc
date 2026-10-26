@@ -43,9 +43,10 @@ import type { PaymentRail } from "./rails/types.js";
 import { screenDestination } from "./platform/compliance.js";
 import { notify } from "./platform/notifier.js";
 import { recordObs } from "./platform/observability.js";
-import { scopedStore, store, type ApprovalRow, type EscrowRow } from "./store.js";
+import { scopedStore, sellerStore, store, type ApprovalRow, type EscrowRow } from "./store.js";
 import { emitEvent } from "./webhooks.js";
-import { ingestSellerPayment } from "./seller-ingest.js";
+import { ingestSellerPayment, sellerPrePayCheck } from "./seller-ingest.js";
+import { X402_NETWORKS } from "./seller-x402.js";
 
 export const APPROVAL_TTL_MINUTES = Number(process.env.APPROVAL_TTL_MINUTES ?? 10);
 export const ESCROW_DEFAULT_TIMEOUT_MINUTES = Number(process.env.ESCROW_TIMEOUT_MINUTES ?? 15);
@@ -210,7 +211,17 @@ export function x402ExpectationFor(
   const merchant = store.listMerchants(orgId).find((m) => m.key === key);
   const gateway = merchant?.meta?.gateway as
     { payoutAddress?: unknown; network?: unknown; amountMicro?: unknown } | undefined;
-  if (!gateway || typeof gateway.payoutAddress !== "string") return undefined;
+  if (!gateway || typeof gateway.payoutAddress !== "string") {
+    // A seller listed on ABI declared payee, network and price when publishing.
+    const offer = sellerStore.resolveOfferForPay(destination);
+    const payTo = offer ? store.getSellerProfile(offer.orgId)?.payoutAddress : undefined;
+    if (!offer || !payTo || offer.orgId === orgId) return undefined;
+    return {
+      payTo,
+      network: X402_NETWORKS[offer.network]?.caip2,
+      maxAmountMicro: BigInt(offer.priceUsdcMicro),
+    };
+  }
   let maxAmountMicro: bigint | undefined;
   try {
     maxAmountMicro =
@@ -466,6 +477,32 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
         payload: {
           intentId: input.intentId,
           error: { code: "INSUFFICIENT_STIPEND", message: String(e) },
+        },
+      };
+    }
+  }
+
+  if (input.tool === "pay_api") {
+    const seller = sellerPrePayCheck(input.destination, input.orgId, input.agentId);
+    if (!seller.ok) {
+      emitEvent(input.orgId, "payment.failed", {
+        intentId: input.intentId,
+        tool: input.tool,
+        agentId: input.agentId,
+        amountUsdc: input.amountUsdc,
+        destination: input.destination,
+        reason: seller.error.message,
+      });
+      return {
+        ok: false,
+        status: seller.status,
+        payload: {
+          intentId: input.intentId,
+          error: {
+            ...seller.error,
+            message: `The seller refused this call: ${seller.error.message}`,
+            offerId: seller.offer.id,
+          },
         },
       };
     }

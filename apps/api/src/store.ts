@@ -109,8 +109,11 @@ export interface SellerProfileRow {
   status: SellerProfileStatus;
   website: string;
   description: string;
+  supportEmail: string;
   updatedAt: string;
 }
+
+export type OfferAccessMode = "open" | "allowlist";
 
 export interface OfferRow {
   id: string;
@@ -129,6 +132,17 @@ export interface OfferRow {
   successorOfferId?: string;
   directoryListed: boolean;
   sandboxEnabled: boolean;
+  description: string;
+  category: string;
+  /** `allowlist` admits only buyers named by an allow policy on the offer or seller. */
+  accessMode: OfferAccessMode;
+  /** Shared by every version of one product; the first version's id. */
+  familyId: string;
+  archivedAt?: string;
+  /** Served by ABI's own x402 resource route instead of the seller's server. */
+  hosted: boolean;
+  /** What a paid call to a hosted offer returns. */
+  hostedContent: string;
 }
 
 export interface OfferIntegrationRow {
@@ -147,6 +161,7 @@ export interface PartnerAccountRow {
   createdAt: string;
   emailVerifiedAt?: string;
   lastLoginAt?: string;
+  passwordChangedAt?: string;
 }
 
 export interface AgentRow {
@@ -1043,6 +1058,17 @@ for (const migration of [
   // Listed by default: sellers opt out to hide an offer from buyer directories.
   "ALTER TABLE offers ADD COLUMN directory_listed INTEGER NOT NULL DEFAULT 1",
   "ALTER TABLE offers ADD COLUMN sandbox_enabled INTEGER NOT NULL DEFAULT 1",
+  "ALTER TABLE offers ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE offers ADD COLUMN category TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE offers ADD COLUMN access_mode TEXT NOT NULL DEFAULT 'open'",
+  "ALTER TABLE offers ADD COLUMN family_id TEXT",
+  "ALTER TABLE offers ADD COLUMN archived_at TEXT",
+  "ALTER TABLE offers ADD COLUMN hosted INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE offers ADD COLUMN hosted_content TEXT",
+  "ALTER TABLE seller_profiles ADD COLUMN support_email TEXT",
+  "ALTER TABLE partner_sessions ADD COLUMN user_agent TEXT",
+  "ALTER TABLE partner_sessions ADD COLUMN ip TEXT",
+  "ALTER TABLE partner_accounts ADD COLUMN password_changed_at TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -1100,7 +1126,50 @@ CREATE TABLE IF NOT EXISTS seller_usage_alerts (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_seller_alerts_org ON seller_usage_alerts(seller_org_id);
+CREATE TABLE IF NOT EXISTS partner_mfa (
+  account_id TEXT PRIMARY KEY REFERENCES partner_accounts(id),
+  secret TEXT NOT NULL,
+  confirmed_at TEXT,
+  last_step INTEGER
+);
+CREATE TABLE IF NOT EXISTS partner_recovery_codes (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES partner_accounts(id),
+  code_hash TEXT NOT NULL,
+  used_at TEXT
+);
+CREATE TABLE IF NOT EXISTS partner_password_resets (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES partner_accounts(id),
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at TEXT
+);
+CREATE TABLE IF NOT EXISTS seller_payout_address_changes (
+  id TEXT PRIMARY KEY,
+  seller_org_id TEXT NOT NULL REFERENCES orgs(id),
+  old_address TEXT,
+  new_address TEXT,
+  changed_by TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_seller_payout_changes_org ON seller_payout_address_changes(seller_org_id, created_at);
 `);
+
+for (const migration of [
+  "ALTER TABLE seller_invoices ADD COLUMN number TEXT",
+  "ALTER TABLE seller_invoices ADD COLUMN lines_json TEXT",
+  "ALTER TABLE seller_invoices ADD COLUMN fee_micro TEXT NOT NULL DEFAULT '0'",
+  "ALTER TABLE seller_invoices ADD COLUMN network TEXT",
+  "ALTER TABLE seller_invoices ADD COLUMN emailed_at TEXT",
+]) {
+  try {
+    db.exec(migration);
+  } catch {
+    /* column already exists */
+  }
+}
 
 // Backfill the canonical one-shot memos written before schedule_kind existed.
 db.exec(`
@@ -1716,6 +1785,7 @@ function rowToSellerProfile(r: Row): SellerProfileRow {
     status,
     website: String(r.website ?? ""),
     description: String(r.description ?? ""),
+    supportEmail: String(r.support_email ?? ""),
     updatedAt: String(r.updated_at),
   };
 }
@@ -1749,6 +1819,13 @@ function rowToOffer(r: Row): OfferRow {
       r.sandbox_enabled === undefined || r.sandbox_enabled === null
         ? true
         : Number(r.sandbox_enabled) === 1,
+    description: String(r.description ?? ""),
+    category: String(r.category ?? ""),
+    accessMode: r.access_mode === "allowlist" ? "allowlist" : "open",
+    familyId: r.family_id ? String(r.family_id) : String(r.id),
+    archivedAt: r.archived_at ? String(r.archived_at) : undefined,
+    hosted: Number(r.hosted ?? 0) === 1,
+    hostedContent: String(r.hosted_content ?? ""),
   };
 }
 
@@ -1771,6 +1848,7 @@ function rowToPartnerAccount(r: Row): PartnerAccountRow {
     createdAt: String(r.created_at),
     emailVerifiedAt: r.email_verified_at ? String(r.email_verified_at) : undefined,
     lastLoginAt: r.last_login_at ? String(r.last_login_at) : undefined,
+    passwordChangedAt: r.password_changed_at ? String(r.password_changed_at) : undefined,
   };
 }
 
@@ -2276,16 +2354,30 @@ export const store = {
     );
   },
 
-  createPartnerSession(input: { accountId: string; token: string; ttlMs: number }): {
+  createPartnerSession(input: {
+    accountId: string;
+    token: string;
+    ttlMs: number;
+    userAgent?: string;
+    ip?: string;
+  }): {
     id: string;
     expiresAt: string;
   } {
     const sessionId = id("psess");
     const expiresAt = new Date(Date.now() + input.ttlMs).toISOString();
     db.prepare(
-      `INSERT INTO partner_sessions (id, account_id, token_hash, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).run(sessionId, input.accountId, hashSecret(input.token), nowIso(), expiresAt);
+      `INSERT INTO partner_sessions (id, account_id, token_hash, created_at, expires_at, user_agent, ip)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      sessionId,
+      input.accountId,
+      hashSecret(input.token),
+      nowIso(),
+      expiresAt,
+      input.userAgent?.slice(0, 300) ?? null,
+      input.ip?.slice(0, 64) ?? null,
+    );
     return { id: sessionId, expiresAt };
   },
 
@@ -2324,6 +2416,7 @@ export const store = {
       network?: string;
       website?: string;
       description?: string;
+      supportEmail?: string;
     },
   ): SellerProfileRow {
     const org = this.getOrg(orgId);
@@ -2342,11 +2435,13 @@ export const store = {
     const website = patch.website !== undefined ? patch.website : (existing?.website ?? "");
     const description =
       patch.description !== undefined ? patch.description : (existing?.description ?? "");
+    const supportEmail =
+      patch.supportEmail !== undefined ? patch.supportEmail : (existing?.supportEmail ?? "");
     const status: SellerProfileStatus = payoutAddress ? "ready" : "draft";
     const updatedAt = nowIso();
     db.prepare(
-      `INSERT INTO seller_profiles (org_id, display_name, payout_address, network, status, website, description, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO seller_profiles (org_id, display_name, payout_address, network, status, website, description, support_email, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(org_id) DO UPDATE SET
          display_name = excluded.display_name,
          payout_address = excluded.payout_address,
@@ -2354,6 +2449,7 @@ export const store = {
          status = excluded.status,
          website = excluded.website,
          description = excluded.description,
+         support_email = excluded.support_email,
          updated_at = excluded.updated_at`,
     ).run(
       orgId,
@@ -2363,6 +2459,7 @@ export const store = {
       status,
       website,
       description,
+      supportEmail,
       updatedAt,
     );
     if (displayName && displayName !== org.name) {
@@ -2376,7 +2473,9 @@ export const store = {
   listOffers(orgId: string): OfferRow[] {
     return (
       db
-        .prepare("SELECT * FROM offers WHERE org_id = ? ORDER BY created_at DESC")
+        .prepare(
+          "SELECT * FROM offers WHERE org_id = ? AND archived_at IS NULL ORDER BY created_at DESC",
+        )
         .all(orgId) as Row[]
     ).map(rowToOffer);
   },
@@ -2394,25 +2493,38 @@ export const store = {
     endpointUrl: string;
     priceUsdcMicro: string;
     network: string;
+    description?: string;
+    category?: string;
+    familyId?: string;
+    hosted?: boolean;
+    hostedContent?: string;
+    /** Builds the endpoint from the new id; used by hosted offers. */
+    endpointFor?: (offerId: string) => string;
   }): OfferRow {
     const org = this.getOrg(input.orgId);
     if (!org || org.kind !== "seller") throw new Error("SELLER_ORG_REQUIRED");
     const offerId = id("offer");
+    const endpointUrl = input.endpointFor ? input.endpointFor(offerId) : input.endpointUrl;
     const now = nowIso();
     try {
       db.prepare(
-        `INSERT INTO offers (id, org_id, slug, title, endpoint_url, price_usdc_micro, network, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)`,
+        `INSERT INTO offers (id, org_id, slug, title, endpoint_url, price_usdc_micro, network, status, created_at, updated_at, description, category, family_id, hosted, hosted_content)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         offerId,
         input.orgId,
         input.slug,
         input.title,
-        input.endpointUrl,
+        endpointUrl,
         input.priceUsdcMicro,
         input.network,
         now,
         now,
+        input.description ?? "",
+        input.category ?? "",
+        input.familyId ?? offerId,
+        input.hosted ? 1 : 0,
+        input.hostedContent ?? null,
       );
       db.prepare("INSERT INTO offer_integrations (offer_id) VALUES (?)").run(offerId);
     } catch (error) {
@@ -2438,10 +2550,31 @@ export const store = {
       status?: OfferStatus;
       directoryListed?: boolean;
       sandboxEnabled?: boolean;
+      description?: string;
+      category?: string;
+      accessMode?: OfferAccessMode;
+      hostedContent?: string;
     },
   ): OfferRow {
     const existing = this.getOffer(orgId, offerId);
     if (!existing) throw new Error("OFFER_NOT_FOUND");
+    if (
+      patch.description !== undefined ||
+      patch.category !== undefined ||
+      patch.accessMode !== undefined ||
+      patch.hostedContent !== undefined
+    ) {
+      db.prepare(
+        "UPDATE offers SET description = ?, category = ?, access_mode = ?, hosted_content = ? WHERE id = ? AND org_id = ?",
+      ).run(
+        patch.description ?? existing.description,
+        patch.category ?? existing.category,
+        patch.accessMode ?? existing.accessMode,
+        patch.hostedContent ?? existing.hostedContent,
+        offerId,
+        orgId,
+      );
+    }
     if (patch.directoryListed !== undefined || patch.sandboxEnabled !== undefined) {
       db.prepare(
         "UPDATE offers SET directory_listed = ?, sandbox_enabled = ? WHERE id = ? AND org_id = ?",
@@ -6366,15 +6499,42 @@ export interface SellerAccessPolicyRow {
   updatedAt: string;
 }
 
+export interface SellerInvoiceLine {
+  offerId: string;
+  slug: string;
+  title: string;
+  version: string;
+  calls: number;
+  unitPriceMicro: string;
+  amountMicro: string;
+}
+
 export interface SellerInvoiceRow {
   id: string;
   sellerOrgId: string;
+  /** Human-facing statement number, unique per seller. */
+  number: string;
   periodStart: string;
   periodEnd: string;
   totalMicro: string;
+  /** ABI's platform fee for the period. Zero while pre-beta. */
+  feeMicro: string;
   settlementCount: number;
   payoutAddress?: string;
+  network?: string;
+  lines: SellerInvoiceLine[];
   status: string;
+  createdAt: string;
+  emailedAt?: string;
+}
+
+export interface SellerSettlementRow {
+  id: string;
+  offerId?: string;
+  buyerOrgId?: string;
+  amountMicro: string;
+  txHash?: string;
+  state: string;
   createdAt: string;
 }
 
@@ -6426,15 +6586,38 @@ function rowToAccessPolicy(r: Row): SellerAccessPolicyRow {
 }
 
 function rowToSellerInvoice(r: Row): SellerInvoiceRow {
+  let lines: SellerInvoiceLine[] = [];
+  try {
+    lines = r.lines_json ? (JSON.parse(String(r.lines_json)) as SellerInvoiceLine[]) : [];
+  } catch {
+    lines = [];
+  }
   return {
     id: String(r.id),
     sellerOrgId: String(r.seller_org_id),
+    number: r.number ? String(r.number) : String(r.id),
     periodStart: String(r.period_start),
     periodEnd: String(r.period_end),
     totalMicro: String(r.total_micro),
+    feeMicro: String(r.fee_micro ?? "0"),
     settlementCount: Number(r.settlement_count),
     payoutAddress: optStr(r.payout_address),
+    network: optStr(r.network),
+    lines,
     status: String(r.status),
+    createdAt: String(r.created_at),
+    emailedAt: optStr(r.emailed_at),
+  };
+}
+
+function rowToSellerSettlement(r: Row): SellerSettlementRow {
+  return {
+    id: String(r.id),
+    offerId: optStr(r.offer_id),
+    buyerOrgId: optStr(r.buyer_org_id),
+    amountMicro: String(r.amount_micro),
+    txHash: optStr(r.tx_hash),
+    state: String(r.state),
     createdAt: String(r.created_at),
   };
 }
@@ -6475,18 +6658,22 @@ export const sellerStore = {
     return r ? rowToOffer(r) : undefined;
   },
 
-  listDirectoryOffers(
-    nowIsoStr = nowIso(),
-  ): (OfferRow & { sellerName: string; website: string })[] {
+  listDirectoryOffers(nowIsoStr = nowIso()): (OfferRow & {
+    sellerName: string;
+    website: string;
+    payoutAddress?: string;
+    supportEmail: string;
+  })[] {
     return (
       db
         .prepare(
-          `SELECT o.*, COALESCE(p.display_name, g.name) AS seller_name, COALESCE(p.website, '') AS seller_website
+          `SELECT o.*, COALESCE(p.display_name, g.name) AS seller_name, COALESCE(p.website, '') AS seller_website,
+                  p.payout_address AS seller_payout, COALESCE(p.support_email, '') AS seller_support
            FROM offers o
            JOIN orgs g ON g.id = o.org_id
            LEFT JOIN seller_profiles p ON p.org_id = o.org_id
            WHERE o.status = 'published' AND o.directory_listed = 1
-             AND (o.sunset_at IS NULL OR o.sunset_at > ?)
+             AND o.archived_at IS NULL AND (o.sunset_at IS NULL OR o.sunset_at > ?)
            ORDER BY o.updated_at DESC`,
         )
         .all(nowIsoStr) as Row[]
@@ -6494,7 +6681,19 @@ export const sellerStore = {
       ...rowToOffer(r),
       sellerName: String(r.seller_name),
       website: String(r.seller_website ?? ""),
+      payoutAddress: optStr(r.seller_payout),
+      supportEmail: String(r.seller_support ?? ""),
     }));
+  },
+
+  listArchivedOffers(sellerOrgId: string): OfferRow[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM offers WHERE org_id = ? AND archived_at IS NOT NULL ORDER BY archived_at DESC",
+        )
+        .all(sellerOrgId) as Row[]
+    ).map(rowToOffer);
   },
 
   recordUsage(input: {
@@ -6555,6 +6754,23 @@ export const sellerStore = {
       nowIso(),
     );
     return settlementId;
+  },
+
+  settlementIdByTx(offerId: string, txHash: string): string | undefined {
+    const r = db
+      .prepare("SELECT id FROM seller_settlements WHERE offer_id = ? AND tx_hash = ? LIMIT 1")
+      .get(offerId, txHash) as Row | undefined;
+    return r ? String(r.id) : undefined;
+  },
+
+  /** Fill in the buyer on a sale the resource server recorded before it knew who paid. */
+  attachBuyer(settlementId: string, buyerOrgId: string, agentId?: string): void {
+    db.prepare(
+      "UPDATE seller_settlements SET buyer_org_id = COALESCE(buyer_org_id, ?) WHERE id = ?",
+    ).run(buyerOrgId, settlementId);
+    db.prepare(
+      "UPDATE seller_usage_events SET buyer_org_id = COALESCE(buyer_org_id, ?), agent_id = COALESCE(agent_id, ?) WHERE settlement_id = ?",
+    ).run(buyerOrgId, agentId ?? null, settlementId);
   },
 
   listUsage(sellerOrgId: string, sinceIso: string): SellerUsageEventRow[] {
@@ -6650,6 +6866,7 @@ export const sellerStore = {
     periodStart: string;
     periodEnd: string;
     payoutAddress?: string;
+    network?: string;
   }): { invoice: SellerInvoiceRow; created: boolean } {
     return db.transaction(() => {
       const existing = db
@@ -6660,25 +6877,58 @@ export const sellerStore = {
       if (existing) return { invoice: rowToSellerInvoice(existing), created: false };
       const rows = db
         .prepare(
-          `SELECT amount_micro FROM seller_settlements
-           WHERE seller_org_id = ? AND state = 'settled' AND created_at >= ? AND created_at < ?`,
+          `SELECT s.offer_id, s.amount_micro, o.slug, o.title, o.version, o.price_usdc_micro
+           FROM seller_settlements s LEFT JOIN offers o ON o.id = s.offer_id
+           WHERE s.seller_org_id = ? AND s.state = 'settled' AND s.created_at >= ? AND s.created_at < ?`,
         )
         .all(input.sellerOrgId, input.periodStart, input.periodEnd) as Row[];
-      const total = rows.reduce((sum, r) => sum + BigInt(String(r.amount_micro)), 0n);
+      const byOffer = new Map<string, SellerInvoiceLine>();
+      let total = 0n;
+      for (const r of rows) {
+        const amount = BigInt(String(r.amount_micro));
+        total += amount;
+        const offerId = String(r.offer_id ?? "unknown");
+        const line = byOffer.get(offerId) ?? {
+          offerId,
+          slug: String(r.slug ?? offerId),
+          title: String(r.title ?? ""),
+          version: String(r.version ?? "v1"),
+          calls: 0,
+          unitPriceMicro: String(r.price_usdc_micro ?? "0"),
+          amountMicro: "0",
+        };
+        line.calls += 1;
+        line.amountMicro = (BigInt(line.amountMicro) + amount).toString();
+        byOffer.set(offerId, line);
+      }
+      const seq =
+        Number(
+          (
+            db
+              .prepare("SELECT COUNT(*) AS c FROM seller_invoices WHERE seller_org_id = ?")
+              .get(input.sellerOrgId) as Row
+          ).c,
+        ) + 1;
       const invoice: SellerInvoiceRow = {
         id: id("sinv"),
         sellerOrgId: input.sellerOrgId,
+        number: `ABI-${input.periodStart.slice(0, 7).replace("-", "")}-${input.sellerOrgId
+          .slice(-4)
+          .toUpperCase()}-${String(seq).padStart(3, "0")}`,
         periodStart: input.periodStart,
         periodEnd: input.periodEnd,
         totalMicro: total.toString(),
+        feeMicro: "0",
         settlementCount: rows.length,
         payoutAddress: input.payoutAddress,
+        network: input.network,
+        lines: [...byOffer.values()].sort((a, b) => a.slug.localeCompare(b.slug)),
         status: "issued",
         createdAt: nowIso(),
       };
       db.prepare(
-        `INSERT INTO seller_invoices (id, seller_org_id, period_start, period_end, total_micro, settlement_count, payout_address, status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO seller_invoices (id, seller_org_id, period_start, period_end, total_micro, settlement_count, payout_address, status, created_at, number, lines_json, fee_micro, network)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         invoice.id,
         invoice.sellerOrgId,
@@ -6689,9 +6939,49 @@ export const sellerStore = {
         invoice.payoutAddress ?? null,
         invoice.status,
         invoice.createdAt,
+        invoice.number,
+        JSON.stringify(invoice.lines),
+        invoice.feeMicro,
+        invoice.network ?? null,
       );
       return { invoice, created: true };
     })();
+  },
+
+  getInvoice(sellerOrgId: string, invoiceId: string): SellerInvoiceRow | undefined {
+    const r = db
+      .prepare("SELECT * FROM seller_invoices WHERE id = ? AND seller_org_id = ?")
+      .get(invoiceId, sellerOrgId) as Row | undefined;
+    return r ? rowToSellerInvoice(r) : undefined;
+  },
+
+  markInvoiceEmailed(invoiceId: string): void {
+    db.prepare("UPDATE seller_invoices SET emailed_at = ? WHERE id = ?").run(nowIso(), invoiceId);
+  },
+
+  listSettlements(
+    sellerOrgId: string,
+    opts: { sinceIso?: string; untilIso?: string; limit?: number } = {},
+  ): SellerSettlementRow[] {
+    return (
+      db
+        .prepare(
+          `SELECT * FROM seller_settlements WHERE seller_org_id = ? AND created_at >= ? AND created_at < ?
+           ORDER BY created_at DESC LIMIT ?`,
+        )
+        .all(
+          sellerOrgId,
+          opts.sinceIso ?? "0000",
+          opts.untilIso ?? "9999",
+          Math.min(opts.limit ?? 500, 5000),
+        ) as Row[]
+    ).map(rowToSellerSettlement);
+  },
+
+  listSellerOrgIds(): string[] {
+    return (db.prepare("SELECT id FROM orgs WHERE kind = 'seller'").all() as Row[]).map((r) =>
+      String(r.id),
+    );
   },
 
   listInvoices(sellerOrgId: string): SellerInvoiceRow[] {
@@ -6789,5 +7079,295 @@ export const sellerStore = {
         )
         .run(day, alertId, day).changes === 1
     );
+  },
+
+  /** Other sellers' live offers on the same endpoint — a URL can only pay one seller. */
+  endpointClaims(endpointUrl: string, exceptOrgId: string): OfferRow[] {
+    return this.findOffersByEndpoint(endpointUrl).filter(
+      (o) => o.orgId !== exceptOrgId && o.status !== "draft" && !o.archivedAt,
+    );
+  },
+
+  /**
+   * The one offer a buyer pay to `destination` is for. Several versions of a
+   * product may share a URL; the newest live, non-deprecated one wins.
+   */
+  resolveOfferForPay(destination: string): OfferRow | undefined {
+    const rank = (o: OfferRow) =>
+      (o.status === "published" ? 4 : o.status === "verified" ? 2 : 0) + (o.deprecatedAt ? 0 : 1);
+    return this.findOffersByEndpoint(destination)
+      .filter((o) => !o.archivedAt)
+      .sort((a, b) => rank(b) - rank(a) || b.createdAt.localeCompare(a.createdAt))[0];
+  },
+
+  archiveOffer(sellerOrgId: string, offerId: string): void {
+    db.prepare(
+      "UPDATE offers SET archived_at = ?, status = 'paused', directory_listed = 0, updated_at = ? WHERE id = ? AND org_id = ?",
+    ).run(nowIso(), nowIso(), offerId, sellerOrgId);
+  },
+
+  cancelDeprecation(sellerOrgId: string, offerId: string): void {
+    db.prepare(
+      "UPDATE offers SET deprecated_at = NULL, sunset_at = NULL, successor_offer_id = NULL, updated_at = ? WHERE id = ? AND org_id = ?",
+    ).run(nowIso(), offerId, sellerOrgId);
+  },
+
+  setOfferFamily(sellerOrgId: string, offerId: string, familyId: string): void {
+    db.prepare("UPDATE offers SET family_id = ? WHERE id = ? AND org_id = ?").run(
+      familyId,
+      offerId,
+      sellerOrgId,
+    );
+  },
+
+  /** Buyer orgs that paid or tried an offer since `sinceIso`. */
+  recentBuyerOrgs(offerId: string, sinceIso: string): string[] {
+    return (
+      db
+        .prepare(
+          "SELECT DISTINCT buyer_org_id FROM seller_usage_events WHERE offer_id = ? AND created_at >= ? AND buyer_org_id IS NOT NULL",
+        )
+        .all(offerId, sinceIso) as Row[]
+    ).map((r) => String(r.buyer_org_id));
+  },
+
+  recordPayoutAddressChange(input: {
+    sellerOrgId: string;
+    oldAddress?: string;
+    newAddress?: string;
+    changedBy: string;
+  }): void {
+    db.prepare(
+      "INSERT INTO seller_payout_address_changes (id, seller_org_id, old_address, new_address, changed_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(
+      id("spay"),
+      input.sellerOrgId,
+      input.oldAddress ?? null,
+      input.newAddress ?? null,
+      input.changedBy,
+      nowIso(),
+    );
+  },
+
+  listPayoutAddressChanges(sellerOrgId: string): {
+    id: string;
+    oldAddress: string | null;
+    newAddress: string | null;
+    changedBy: string;
+    createdAt: string;
+  }[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM seller_payout_address_changes WHERE seller_org_id = ? ORDER BY created_at DESC LIMIT 50",
+        )
+        .all(sellerOrgId) as Row[]
+    ).map((r) => ({
+      id: String(r.id),
+      oldAddress: optStr(r.old_address) ?? null,
+      newAddress: optStr(r.new_address) ?? null,
+      changedBy: String(r.changed_by ?? ""),
+      createdAt: String(r.created_at),
+    }));
+  },
+};
+
+// ------------------------------------------------------------ partner account security
+
+export const partnerStore = {
+  accountsForOrg(orgId: string): PartnerAccountRow[] {
+    return (
+      db
+        .prepare(
+          "SELECT * FROM partner_accounts WHERE org_id = ? AND disabled_at IS NULL AND email_verified_at IS NOT NULL",
+        )
+        .all(orgId) as Row[]
+    ).map(rowToPartnerAccount);
+  },
+
+  getAccount(accountId: string): PartnerAccountRow | undefined {
+    const r = db
+      .prepare("SELECT * FROM partner_accounts WHERE id = ? AND disabled_at IS NULL")
+      .get(accountId) as Row | undefined;
+    return r ? rowToPartnerAccount(r) : undefined;
+  },
+
+  passwordHash(accountId: string): string | undefined {
+    const r = db
+      .prepare("SELECT password_hash FROM partner_accounts WHERE id = ?")
+      .get(accountId) as Row | undefined;
+    return r ? String(r.password_hash) : undefined;
+  },
+
+  setName(accountId: string, name: string): void {
+    db.prepare("UPDATE partner_accounts SET name = ? WHERE id = ?").run(name, accountId);
+  },
+
+  /** Revokes every other session; `keepSessionId` survives when given. */
+  setPassword(accountId: string, passwordHash: string, keepSessionId?: string): void {
+    db.transaction(() => {
+      db.prepare(
+        "UPDATE partner_accounts SET password_hash = ?, password_changed_at = ? WHERE id = ?",
+      ).run(passwordHash, nowIso(), accountId);
+      db.prepare(
+        "UPDATE partner_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL AND id != ?",
+      ).run(nowIso(), accountId, keepSessionId ?? "");
+    })();
+  },
+
+  listSessions(accountId: string): {
+    id: string;
+    createdAt: string;
+    expiresAt: string;
+    userAgent?: string;
+    ip?: string;
+  }[] {
+    return (
+      db
+        .prepare(
+          "SELECT id, created_at, expires_at, user_agent, ip FROM partner_sessions WHERE account_id = ? AND revoked_at IS NULL AND expires_at > ? ORDER BY created_at DESC",
+        )
+        .all(accountId, nowIso()) as Row[]
+    ).map((r) => ({
+      id: String(r.id),
+      createdAt: String(r.created_at),
+      expiresAt: String(r.expires_at),
+      ...(r.user_agent ? { userAgent: String(r.user_agent) } : {}),
+      ...(r.ip ? { ip: String(r.ip) } : {}),
+    }));
+  },
+
+  revokeSession(accountId: string, sessionId: string): boolean {
+    return (
+      db
+        .prepare(
+          "UPDATE partner_sessions SET revoked_at = ? WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
+        )
+        .run(nowIso(), sessionId, accountId).changes === 1
+    );
+  },
+
+  revokeAllSessions(accountId: string): number {
+    return db
+      .prepare(
+        "UPDATE partner_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
+      )
+      .run(nowIso(), accountId).changes;
+  },
+
+  getMfa(accountId: string): { secret: string; confirmed: boolean; lastStep?: number } | undefined {
+    const r = db.prepare("SELECT * FROM partner_mfa WHERE account_id = ?").get(accountId) as
+      Row | undefined;
+    if (!r) return undefined;
+    return {
+      secret: String(r.secret),
+      confirmed: Boolean(r.confirmed_at),
+      lastStep: optNum(r.last_step),
+    };
+  },
+
+  startMfa(accountId: string, secret: string): void {
+    db.prepare(
+      `INSERT INTO partner_mfa (account_id, secret) VALUES (?, ?)
+       ON CONFLICT(account_id) DO UPDATE SET secret = excluded.secret, confirmed_at = NULL, last_step = NULL`,
+    ).run(accountId, secret);
+  },
+
+  confirmMfa(accountId: string, step: number, recoveryCodes: string[]): void {
+    db.transaction(() => {
+      db.prepare("UPDATE partner_mfa SET confirmed_at = ?, last_step = ? WHERE account_id = ?").run(
+        nowIso(),
+        step,
+        accountId,
+      );
+      db.prepare("DELETE FROM partner_recovery_codes WHERE account_id = ?").run(accountId);
+      const insert = db.prepare(
+        "INSERT INTO partner_recovery_codes (id, account_id, code_hash) VALUES (?, ?, ?)",
+      );
+      for (const code of recoveryCodes) {
+        insert.run(id("prcv"), accountId, hashSecret(code.trim().toLowerCase()));
+      }
+    })();
+  },
+
+  recordMfaStep(accountId: string, step: number): void {
+    db.prepare("UPDATE partner_mfa SET last_step = ? WHERE account_id = ?").run(step, accountId);
+  },
+
+  disableMfa(accountId: string): void {
+    db.transaction(() => {
+      db.prepare("DELETE FROM partner_mfa WHERE account_id = ?").run(accountId);
+      db.prepare("DELETE FROM partner_recovery_codes WHERE account_id = ?").run(accountId);
+    })();
+  },
+
+  useRecoveryCode(accountId: string, code: string): boolean {
+    return (
+      db
+        .prepare(
+          "UPDATE partner_recovery_codes SET used_at = ? WHERE account_id = ? AND code_hash = ? AND used_at IS NULL",
+        )
+        .run(nowIso(), accountId, hashSecret(code.trim().toLowerCase())).changes > 0
+    );
+  },
+
+  countRecoveryCodes(accountId: string): number {
+    return Number(
+      (
+        db
+          .prepare(
+            "SELECT COUNT(*) AS c FROM partner_recovery_codes WHERE account_id = ? AND used_at IS NULL",
+          )
+          .get(accountId) as Row
+      ).c,
+    );
+  },
+
+  createPasswordReset(accountId: string, token: string, ttlMs: number): void {
+    db.transaction(() => {
+      db.prepare(
+        "UPDATE partner_password_resets SET used_at = ? WHERE account_id = ? AND used_at IS NULL",
+      ).run(nowIso(), accountId);
+      db.prepare(
+        "INSERT INTO partner_password_resets (id, account_id, token_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+      ).run(
+        id("prst"),
+        accountId,
+        hashSecret(token),
+        nowIso(),
+        new Date(Date.now() + ttlMs).toISOString(),
+      );
+    })();
+  },
+
+  consumePasswordReset(token: string): string | undefined {
+    return db.transaction(() => {
+      const r = db
+        .prepare(
+          "SELECT id, account_id FROM partner_password_resets WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?",
+        )
+        .get(hashSecret(token), nowIso()) as Row | undefined;
+      if (!r) return undefined;
+      const claimed = db
+        .prepare("UPDATE partner_password_resets SET used_at = ? WHERE id = ? AND used_at IS NULL")
+        .run(nowIso(), r.id);
+      return claimed.changes === 1 ? String(r.account_id) : undefined;
+    })();
+  },
+
+  /** Close the account: sign out everywhere and stop every offer from selling. */
+  closeAccount(accountId: string, orgId: string): void {
+    db.transaction(() => {
+      db.prepare("UPDATE partner_accounts SET disabled_at = ? WHERE id = ?").run(
+        nowIso(),
+        accountId,
+      );
+      db.prepare(
+        "UPDATE partner_sessions SET revoked_at = ? WHERE account_id = ? AND revoked_at IS NULL",
+      ).run(nowIso(), accountId);
+      db.prepare(
+        "UPDATE offers SET status = 'paused', directory_listed = 0, updated_at = ? WHERE org_id = ? AND status != 'draft'",
+      ).run(nowIso(), orgId);
+    })();
   },
 };

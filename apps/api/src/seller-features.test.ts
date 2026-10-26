@@ -86,6 +86,7 @@ async function publishedOffer(s: Session, slug: string, endpointUrl: string): Pr
   assert.equal(res.status, 201, await res.clone().text());
   const { offer } = (await res.json()) as { offer: OfferJson };
   store.updateOffer(s.orgId, offer.id, { status: "verified" });
+  store.setOfferIntegration(offer.id, { lastVerifiedAt: new Date().toISOString() });
   const pub = await call(s, "POST", `/v1/seller/offers/${offer.id}/publish`);
   assert.equal(pub.status, 200, await pub.clone().text());
   return ((await pub.json()) as { offer: OfferJson }).offer;
@@ -138,16 +139,23 @@ describe("seller features", () => {
     });
     assert.equal(alert.status, 201);
 
-    for (const agentId of ["agent_a", "agent_a", "agent_b"]) {
+    for (const [i, agentId] of ["agent_a", "agent_a", "agent_b"].entries()) {
       const matched = ingestSellerPayment({
         destination: "https://usage.example/quotes/",
         amountMicro: 250_000n,
         buyerOrgId: "org_buyer_1",
         agentId,
-        txHash: "0xabc",
+        txHash: `0xabc${i}`,
       });
       assert.equal(matched, 1);
     }
+    ingestSellerPayment({
+      destination: "https://usage.example/quotes",
+      amountMicro: 250_000n,
+      buyerOrgId: "org_buyer_1",
+      agentId: "agent_b",
+      txHash: "0xabc2",
+    });
 
     const analytics = await call(s, "GET", "/v1/seller/analytics?days=7");
     assert.equal(analytics.status, 200);
@@ -217,43 +225,44 @@ describe("seller features", () => {
   it("enforces per-buyer deny and per-agent rate limits", async () => {
     const s = await signup("policy@example.com", "Policy Co");
     const offer = await publishedOffer(s, "pol-api", "https://policy.example/api");
+    const okOrg = store.createOrg("Policy Buyer OK", 0n);
+    const fast = store.createAgent(okOrg.id, "Fast agent");
+    const blockedOrg = store.createOrg("Policy Buyer Blocked", 0n);
+    const blockedAgent = store.createAgent(blockedOrg.id, "Blocked agent");
     const bad = await call(s, "POST", "/v1/seller/policies", { effect: "allow" });
-    assert.equal(bad.status, 400, "allow without a rate is rejected");
+    assert.equal(bad.status, 400, "allow without a rate or a named buyer is rejected");
     const deny = await call(s, "POST", "/v1/seller/policies", {
-      buyerOrgId: "org_blocked",
+      buyerOrgId: blockedOrg.id,
       effect: "deny",
     });
     assert.equal(deny.status, 201);
     await call(s, "POST", "/v1/seller/policies", {
       offerId: offer.id,
-      agentId: "agent_fast",
+      agentId: fast.agentId,
       ratePerMinute: 2,
     });
 
     const row = sellerStore.getOfferAnyOrg(offer.id)!;
-    assert.equal(evaluateSellerAccess(row, "org_blocked", "agent_x").allowed, false);
-    assert.equal(evaluateSellerAccess(row, "org_ok", "agent_fast").allowed, true);
+    assert.equal(evaluateSellerAccess(row, blockedOrg.id, "agent_x").allowed, false);
+    assert.equal(evaluateSellerAccess(row, okOrg.id, fast.agentId).allowed, true);
 
-    for (let i = 0; i < 2; i += 1) {
-      const t = await fetch(`${base}/v1/sandbox/offers/${offer.id}/try`, {
+    const tryAs = (key?: string, body?: unknown) =>
+      fetch(`${base}/v1/sandbox/offers/${offer.id}/try`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ buyerOrgId: "org_ok", agentId: "agent_fast" }),
+        headers: {
+          "content-type": "application/json",
+          ...(key ? { authorization: `Bearer ${key}` } : {}),
+        },
+        body: JSON.stringify(body ?? {}),
       });
-      assert.equal(t.status, 200);
-    }
-    const limited = await fetch(`${base}/v1/sandbox/offers/${offer.id}/try`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ buyerOrgId: "org_ok", agentId: "agent_fast" }),
-    });
-    assert.equal(limited.status, 429);
-    const blocked = await fetch(`${base}/v1/sandbox/offers/${offer.id}/try`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ buyerOrgId: "org_blocked" }),
-    });
-    assert.equal(blocked.status, 403);
+    for (let i = 0; i < 2; i += 1) assert.equal((await tryAs(fast.apiKey)).status, 200);
+    assert.equal((await tryAs(fast.apiKey)).status, 429);
+    assert.equal((await tryAs(blockedAgent.apiKey)).status, 403);
+    assert.equal(
+      (await tryAs(undefined, { buyerOrgId: blockedOrg.id })).status,
+      200,
+      "self-declared ids in the body are ignored",
+    );
 
     const policies = (await (await call(s, "GET", "/v1/seller/policies")).json()) as {
       policies: { id: string }[];
@@ -261,7 +270,7 @@ describe("seller features", () => {
     assert.equal(policies.policies.length, 2);
     const del = await call(s, "DELETE", `/v1/seller/policies/${policies.policies[0].id}`);
     assert.equal(del.status, 200);
-    assert.equal(evaluateSellerAccess(row, "org_blocked", "agent_x").allowed, true);
+    assert.equal(evaluateSellerAccess(row, blockedOrg.id, "agent_x").allowed, true);
   });
 
   it("serves a simulated sandbox that can be turned off", async () => {

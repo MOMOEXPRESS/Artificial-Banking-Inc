@@ -9,9 +9,18 @@ import { formatMicroToUsdc } from "@policyvault/common";
 import { webhookUrlProblem } from "../outbound-url.js";
 import { recordObs } from "../platform/observability.js";
 import { evaluateSellerAccess } from "../seller-ingest.js";
-import { sellerStore, store, type SellerAccessPolicyRow } from "../store.js";
+import { handleHostedOffer, hostedOfferUrl } from "../seller-x402.js";
+import {
+  sellerStore,
+  store,
+  type OfferRow,
+  type SellerAccessPolicyRow,
+  type SellerInvoiceRow,
+  type SellerSettlementRow,
+} from "../store.js";
 import { emitEvent } from "../webhooks.js";
-import { partnerRoute, route } from "./partner-auth-routes.js";
+import { currentPartner, partnerRoute, route } from "./partner-auth-routes.js";
+import { explorerTxUrl, offerView } from "./seller-routes.js";
 
 const MIN_DEPRECATION_NOTICE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -26,8 +35,13 @@ const policySchema = z
     note: z.string().trim().max(300).default(""),
   })
   .refine(
-    (p) => p.effect === "deny" || p.ratePerMinute !== undefined || p.ratePerDay !== undefined,
-    "An allow policy needs ratePerMinute or ratePerDay",
+    (p) =>
+      p.effect === "deny" ||
+      p.ratePerMinute !== undefined ||
+      p.ratePerDay !== undefined ||
+      Boolean(p.buyerOrgId) ||
+      Boolean(p.agentId),
+    "An allow policy needs a rate limit, or a buyer org or agent to admit",
   );
 
 const isoDate = z.string().refine((v) => !Number.isNaN(Date.parse(v)), "Must be an ISO date");
@@ -69,11 +83,6 @@ const alertSchema = z.object({
 
 const webhookSchema = z.object({ url: z.string().url() });
 
-const sandboxSchema = z.object({
-  buyerOrgId: z.string().trim().min(1).max(80).optional(),
-  agentId: z.string().trim().min(1).max(80).optional(),
-});
-
 function notFound(res: express.Response, what = "Offer") {
   return res.status(404).json({ error: { code: "NOT_FOUND", message: `${what} not found` } });
 }
@@ -97,6 +106,67 @@ function lastMonthWindow(now = new Date()): { periodStart: string; periodEnd: st
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth() - 1, 1));
   return { periodStart: start.toISOString(), periodEnd: end.toISOString() };
+}
+
+function monthToDateWindow(now = new Date()): { periodStart: string; periodEnd: string } {
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  return { periodStart: start.toISOString(), periodEnd: now.toISOString() };
+}
+
+function settlementView(r: SellerSettlementRow, offers: Map<string, OfferRow>) {
+  const offer = r.offerId ? offers.get(r.offerId) : undefined;
+  return {
+    id: r.id,
+    offerId: r.offerId ?? null,
+    offerSlug: offer?.slug ?? null,
+    buyerOrgId: r.buyerOrgId ?? null,
+    buyerName: (r.buyerOrgId && store.getOrg(r.buyerOrgId)?.name) || null,
+    amountUsdc: formatMicroToUsdc(BigInt(r.amountMicro)),
+    txHash: r.txHash ?? null,
+    explorerUrl: r.txHash ? explorerTxUrl(offer?.network ?? "base-sepolia", r.txHash) : null,
+    createdAt: r.createdAt,
+  };
+}
+
+function invoiceView(i: SellerInvoiceRow) {
+  const fee = BigInt(i.feeMicro);
+  return {
+    ...i,
+    totalUsdc: formatMicroToUsdc(BigInt(i.totalMicro)),
+    feeUsdc: formatMicroToUsdc(fee),
+    netUsdc: formatMicroToUsdc(BigInt(i.totalMicro) - fee),
+    lines: i.lines.map((l) => ({
+      ...l,
+      unitPriceUsdc: formatMicroToUsdc(BigInt(l.unitPriceMicro)),
+      amountUsdc: formatMicroToUsdc(BigInt(l.amountMicro)),
+    })),
+  };
+}
+
+function offersById(orgId: string): Map<string, OfferRow> {
+  const all = [...store.listOffers(orgId), ...sellerStore.listArchivedOffers(orgId)];
+  return new Map(all.map((o) => [o.id, o]));
+}
+
+function csvCell(v: unknown): string {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** Who is calling the sandbox: an ABI agent key or session, a seller testing their own offer, or nobody. */
+function sandboxCaller(
+  req: express.Request,
+  offer: OfferRow,
+): { buyerOrgId?: string; agentId?: string; sellerSelfTest: boolean } {
+  const auth = req.headers.authorization ?? "";
+  const bearer = /^Bearer\s+(.+)$/i.exec(auth)?.[1]?.trim();
+  if (bearer) {
+    const agent = store.getAgentByKey(bearer) ?? store.getSessionByToken(bearer)?.agent;
+    if (agent) return { buyerOrgId: agent.orgId, agentId: agent.id, sellerSelfTest: false };
+  }
+  const partner = currentPartner(req);
+  if (partner && partner.account.orgId === offer.orgId) return { sellerSelfTest: true };
+  return { sellerSelfTest: false };
 }
 
 function nextVersion(current: string): string {
@@ -236,11 +306,65 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
         sellerOrgId: org.id,
         ...window,
         payoutAddress: profile?.payoutAddress ?? undefined,
+        network: profile?.network,
       });
-      res.status(created ? 201 : 200).json({
-        created,
-        invoice: { ...invoice, totalUsdc: formatMicroToUsdc(BigInt(invoice.totalMicro)) },
+      res.status(created ? 201 : 200).json({ created, invoice: invoiceView(invoice) });
+    }),
+  );
+
+  app.get(
+    "/v1/seller/invoices/:invoiceId",
+    partnerRoute((org, req, res) => {
+      const invoice = sellerStore.getInvoice(org.id, req.params.invoiceId);
+      if (!invoice) return notFound(res, "Invoice");
+      const offers = offersById(org.id);
+      const settlements = sellerStore
+        .listSettlements(org.id, { sinceIso: invoice.periodStart, untilIso: invoice.periodEnd })
+        .map((r) => settlementView(r, offers));
+      const profile = store.getSellerProfile(org.id);
+      res.json({
+        invoice: invoiceView(invoice),
+        seller: {
+          name: profile?.displayName || org.name,
+          supportEmail: profile?.supportEmail || null,
+          website: profile?.website || null,
+        },
+        settlements,
       });
+    }),
+  );
+
+  app.get(
+    "/v1/seller/invoices/:invoiceId/csv",
+    partnerRoute((org, req, res) => {
+      const invoice = sellerStore.getInvoice(org.id, req.params.invoiceId);
+      if (!invoice) return notFound(res, "Invoice");
+      const offers = offersById(org.id);
+      const rows = [
+        ["settled_at", "offer", "version", "buyer_org", "amount_usdc", "tx_hash", "explorer_url"],
+        ...sellerStore
+          .listSettlements(org.id, {
+            sinceIso: invoice.periodStart,
+            untilIso: invoice.periodEnd,
+            limit: 5000,
+          })
+          .map((r) => {
+            const v = settlementView(r, offers);
+            const offer = r.offerId ? offers.get(r.offerId) : undefined;
+            return [
+              v.createdAt,
+              v.offerSlug ?? "",
+              offer?.version ?? "",
+              v.buyerOrgId ?? "",
+              v.amountUsdc,
+              v.txHash ?? "",
+              v.explorerUrl ?? "",
+            ];
+          }),
+      ];
+      res.setHeader("content-type", "text/csv; charset=utf-8");
+      res.setHeader("content-disposition", `attachment; filename="${invoice.number}.csv"`);
+      res.send(rows.map((r) => r.map(csvCell).join(",")).join("\n") + "\n");
     }),
   );
 
@@ -248,9 +372,7 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
     "/v1/seller/invoices",
     partnerRoute((org, _req, res) => {
       res.json({
-        invoices: sellerStore
-          .listInvoices(org.id)
-          .map((i) => ({ ...i, totalUsdc: formatMicroToUsdc(BigInt(i.totalMicro)) })),
+        invoices: sellerStore.listInvoices(org.id).map(invoiceView),
       });
     }),
   );
@@ -260,13 +382,30 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
     partnerRoute((org, _req, res) => {
       const profile = store.getSellerProfile(org.id);
       const summary = sellerStore.payoutSummary(org.id);
+      const offers = offersById(org.id);
+      const mtd = monthToDateWindow();
+      const current = sellerStore.listSettlements(org.id, {
+        sinceIso: mtd.periodStart,
+        untilIso: mtd.periodEnd,
+        limit: 5000,
+      });
+      const currentMicro = current.reduce((sum, r) => sum + BigInt(r.amountMicro), 0n);
       res.json({
         payoutAddress: profile?.payoutAddress ?? null,
         network: profile?.network ?? null,
         settledUsdc: formatMicroToUsdc(BigInt(summary.settledMicro)),
         settlementCount: summary.count,
         lastTxHash: summary.lastTxHash ?? null,
-        note: "x402 settles directly to your payout address on each paid call; invoices summarize those settlements per period.",
+        currentPeriod: {
+          ...mtd,
+          settledUsdc: formatMicroToUsdc(currentMicro),
+          settlementCount: current.length,
+        },
+        recent: sellerStore
+          .listSettlements(org.id, { limit: 25 })
+          .map((r) => settlementView(r, offers)),
+        payoutAddressChanges: sellerStore.listPayoutAddressChanges(org.id).slice(0, 5),
+        note: "Each paid call settles on-chain straight to your payout address; ABI never holds the USDC. Statements total those settlements per month.",
       });
     }),
   );
@@ -286,16 +425,23 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
           endpointUrl: body.endpointUrl ?? base.endpointUrl,
           priceUsdcMicro: base.priceUsdcMicro,
           network: base.network,
+          description: base.description,
+          category: base.category,
+          familyId: base.familyId,
+          hosted: base.hosted,
+          hostedContent: base.hostedContent,
+          endpointFor: base.hosted ? hostedOfferUrl : undefined,
         });
         const version = body.version ?? nextVersion(base.version);
         sellerStore.setOfferVersion(org.id, created.id, version);
         store.updateOffer(org.id, created.id, {
           directoryListed: base.directoryListed,
           sandboxEnabled: base.sandboxEnabled,
+          accessMode: base.accessMode,
         });
         recordObs({ name: "seller.offer_versioned", orgId: org.id });
         res.status(201).json({
-          offer: store.getOffer(org.id, created.id),
+          offer: offerView(store.getOffer(org.id, created.id)!),
           basedOn: base.id,
           note: "New versions start as drafts — verify and publish before deprecating the previous one.",
         });
@@ -336,14 +482,43 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
         successorOfferId: body.successorOfferId,
       });
       const updated = store.getOffer(org.id, offer.id)!;
-      emitEvent(org.id, "seller.offer.deprecated", {
+      const notice = {
         offerId: offer.id,
         slug: offer.slug,
+        title: offer.title,
         version: offer.version,
+        endpointUrl: offer.endpointUrl,
         sunsetAt: updated.sunsetAt,
         successorOfferId: updated.successorOfferId ?? null,
-      });
-      res.json({ offer: updated });
+        successorEndpointUrl: updated.successorOfferId
+          ? (store.getOffer(org.id, updated.successorOfferId)?.endpointUrl ?? null)
+          : null,
+      };
+      emitEvent(org.id, "seller.offer.deprecated", notice);
+      const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      const buyers = sellerStore.recentBuyerOrgs(offer.id, since);
+      for (const buyerOrgId of buyers) {
+        emitEvent(buyerOrgId, "offer.deprecated", { ...notice, seller: org.name });
+      }
+      res.json({ offer: offerView(updated), notifiedBuyers: buyers.length });
+    }),
+  );
+
+  app.post(
+    "/v1/seller/offers/:offerId/undeprecate",
+    partnerRoute((org, req, res) => {
+      const offer = store.getOffer(org.id, req.params.offerId);
+      if (!offer) return notFound(res);
+      if (offer.sunsetAt && offer.sunsetAt <= new Date().toISOString()) {
+        return res.status(409).json({
+          error: {
+            code: "ALREADY_SUNSET",
+            message: "This version is past its sunset date. Publish a new version instead.",
+          },
+        });
+      }
+      sellerStore.cancelDeprecation(org.id, offer.id);
+      res.json({ offer: offerView(store.getOffer(org.id, offer.id)!) });
     }),
   );
 
@@ -390,6 +565,7 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
           "seller.usage.threshold",
           "seller.policy.changed",
           "seller.offer.deprecated",
+          "seller.payout_address.changed",
         ],
       });
     }),
@@ -422,12 +598,20 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
   );
 
   // ------------------------------------------------------------ public sandbox
-  /** Simulated 402 + unlock so buyers can wire their agent before paying. No money moves. */
+  /**
+   * Dry run before paying: the real challenge for this offer, the seller's
+   * access decision for the caller, and a simulated unlock. No money moves.
+   * Identity comes from an ABI agent key or session, never from the body.
+   */
   app.post(
     "/v1/sandbox/offers/:offerId/try",
-    route((req, res) => {
+    route(async (req, res) => {
       const offer = sellerStore.getOfferAnyOrg(req.params.offerId);
-      if (!offer || (offer.status !== "published" && offer.status !== "verified")) {
+      if (
+        !offer ||
+        offer.archivedAt ||
+        (offer.status !== "published" && offer.status !== "verified")
+      ) {
         return notFound(res);
       }
       if (!offer.sandboxEnabled) {
@@ -438,30 +622,45 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
           },
         });
       }
-      const body = sandboxSchema.parse(req.body ?? {});
-      const access = evaluateSellerAccess(offer, body.buyerOrgId, body.agentId);
+      const caller = sandboxCaller(req, offer);
+      const access = evaluateSellerAccess(offer, caller.buyerOrgId, caller.agentId);
+      const record = !caller.sellerSelfTest;
       if (!access.allowed) {
+        if (record) {
+          sellerStore.recordUsage({
+            sellerOrgId: offer.orgId,
+            offerId: offer.id,
+            buyerOrgId: caller.buyerOrgId,
+            agentId: caller.agentId,
+            mode: "denied",
+          });
+        }
+        return res.status(access.code === "SELLER_RATE_LIMITED" ? 429 : 403).json({
+          error: { code: access.code, message: access.message, policyId: access.policyId },
+          caller: { buyerOrgId: caller.buyerOrgId ?? null, agentId: caller.agentId ?? null },
+        });
+      }
+      if (record) {
         sellerStore.recordUsage({
           sellerOrgId: offer.orgId,
           offerId: offer.id,
-          buyerOrgId: body.buyerOrgId,
-          agentId: body.agentId,
-          mode: "denied",
-        });
-        return res.status(access.code === "SELLER_RATE_LIMITED" ? 429 : 403).json({
-          error: { code: access.code, message: access.message },
+          buyerOrgId: caller.buyerOrgId,
+          agentId: caller.agentId,
+          mode: "sandbox",
         });
       }
-      sellerStore.recordUsage({
-        sellerOrgId: offer.orgId,
-        offerId: offer.id,
-        buyerOrgId: body.buyerOrgId,
-        agentId: body.agentId,
-        mode: "sandbox",
-      });
       const profile = store.getSellerProfile(offer.orgId);
+      const hostedChallenge = offer.hosted
+        ? await handleHostedOffer(offer.id, () => undefined)
+        : null;
       res.json({
         sandbox: true,
+        recorded: record,
+        caller: {
+          buyerOrgId: caller.buyerOrgId ?? null,
+          agentId: caller.agentId ?? null,
+          sellerSelfTest: caller.sellerSelfTest,
+        },
         offer: {
           id: offer.id,
           slug: offer.slug,
@@ -470,11 +669,12 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
           sunsetAt: offer.sunsetAt ?? null,
         },
         challenge: {
-          httpStatus: 402,
+          httpStatus: hostedChallenge?.status ?? 402,
           payTo: profile?.payoutAddress ?? null,
           network: offer.network,
           priceUsdc: formatMicroToUsdc(BigInt(offer.priceUsdcMicro)),
           resource: offer.endpointUrl,
+          paymentRequired: hostedChallenge?.headers["PAYMENT-REQUIRED"] ?? null,
         },
         unlock: {
           httpStatus: 200,
@@ -482,7 +682,9 @@ export function registerSellerFeatureRoutes(app: express.Express): void {
           receiptId: `sandbox_${offer.id}_${Date.now()}`,
           body: { ok: true, offer: offer.slug, unlocked: true, sandbox: true },
         },
-        note: "Sandbox only: no USDC moved. Pay through ABI with a buyer agent to call the real endpoint.",
+        note: caller.sellerSelfTest
+          ? "Seller self-test: not counted in your analytics or rate limits. No USDC moved."
+          : "Sandbox only: no USDC moved. Pay through ABI with a buyer agent to call the real endpoint.",
       });
     }),
   );

@@ -25,6 +25,7 @@ import { runOnchainBackingSweep } from "../treasury-backing.js";
 import { checkVaultGas } from "./gas-monitor.js";
 import { recoverStuckSettlements } from "./settlement-recovery.js";
 import { runDueSubscriptions } from "./subscriptions.js";
+import { runSellerStatements } from "./seller-statements.js";
 
 export interface JobDefinition {
   name: string;
@@ -113,6 +114,19 @@ export const JOBS: JobDefinition[] = [
       const { checked, failed, needsReview } = await recoverStuckSettlements();
       if (checked > 0) {
         recordObs({ name: "jobs.settlementRecovery", attrs: { checked, failed, needsReview } });
+      }
+    },
+  },
+  {
+    name: "seller-statements",
+    // Idempotent per period; hourly is enough to issue last month's statement
+    // early on the 1st and retry email delivery.
+    intervalMs: 60 * 60_000,
+    leaseMs: 300_000,
+    run: async () => {
+      const { generated, emailed } = await runSellerStatements();
+      if (generated || emailed) {
+        recordObs({ name: "jobs.sellerStatements", attrs: { generated, emailed } });
       }
     },
   },

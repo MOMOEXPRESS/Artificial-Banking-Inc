@@ -13,7 +13,7 @@ export type SellerAccessDecision =
   | { allowed: true }
   | {
       allowed: false;
-      code: "SELLER_DENIED" | "SELLER_RATE_LIMITED";
+      code: "SELLER_DENIED" | "SELLER_RATE_LIMITED" | "SELLER_ALLOWLIST";
       policyId: string;
       message: string;
     };
@@ -25,8 +25,10 @@ function startOfUtcDay(now: Date): string {
 }
 
 /**
- * Most specific matching policy wins (agent > buyer org > offer-wide > seller-wide).
- * A deny at any matched level blocks; rate limits apply from every matched policy.
+ * Every matching policy applies (agent, buyer org, offer-wide, seller-wide).
+ * A deny at any matched level blocks; rate limits apply from every matched
+ * policy. An offer in `allowlist` mode only admits a buyer org or agent named
+ * by an allow policy on that offer or seller-wide.
  */
 export function evaluateSellerAccess(
   offer: OfferRow,
@@ -49,6 +51,19 @@ export function evaluateSellerAccess(
         code: "SELLER_DENIED",
         policyId: p.id,
         message: p.note || "The seller does not accept calls from this buyer or agent.",
+      };
+    }
+  }
+  if (offer.accessMode === "allowlist") {
+    const named = policies.some(
+      (p) => p.effect === "allow" && (Boolean(p.buyerOrgId) || Boolean(p.agentId)),
+    );
+    if (!named) {
+      return {
+        allowed: false,
+        code: "SELLER_ALLOWLIST",
+        policyId: `allowlist:${offer.id}`,
+        message: "This offer is limited to approved customers. Ask the seller for access.",
       };
     }
   }
@@ -88,6 +103,85 @@ export function evaluateSellerAccess(
   return { allowed: true };
 }
 
+export type SellerOfferGate =
+  | { ok: true; offer?: OfferRow }
+  | {
+      ok: false;
+      status: 403 | 409 | 410 | 429;
+      offer: OfferRow;
+      error: {
+        code: string;
+        message: string;
+        policyId?: string;
+        successorOfferId?: string | null;
+      };
+    };
+
+/**
+ * Whether the seller behind `offer` will take this call right now: live,
+ * not past sunset, and the buyer passes the seller's access policies.
+ * A blocked call is recorded as `denied` usage so the seller sees it.
+ */
+export function gateOffer(
+  offer: OfferRow,
+  buyerOrgId: string | undefined,
+  agentId: string | undefined,
+  now = new Date(),
+): SellerOfferGate {
+  if (offer.archivedAt || offer.status === "paused") {
+    return {
+      ok: false,
+      status: 409,
+      offer,
+      error: { code: "OFFER_PAUSED", message: `${offer.title} is not taking calls right now.` },
+    };
+  }
+  if (offer.sunsetAt && offer.sunsetAt <= now.toISOString()) {
+    return {
+      ok: false,
+      status: 410,
+      offer,
+      error: {
+        code: "OFFER_SUNSET",
+        message: `${offer.title} ${offer.version} was retired on ${offer.sunsetAt.slice(0, 10)}.`,
+        successorOfferId: offer.successorOfferId ?? null,
+      },
+    };
+  }
+  const access = evaluateSellerAccess(offer, buyerOrgId, agentId, now);
+  if (!access.allowed) {
+    sellerStore.recordUsage({
+      sellerOrgId: offer.orgId,
+      offerId: offer.id,
+      buyerOrgId,
+      agentId,
+      mode: "denied",
+    });
+    return {
+      ok: false,
+      status: access.code === "SELLER_RATE_LIMITED" ? 429 : 403,
+      offer,
+      error: { code: access.code, message: access.message, policyId: access.policyId },
+    };
+  }
+  return { ok: true, offer };
+}
+
+/**
+ * Before a buyer pay to a URL that belongs to a listed offer, ask the seller's
+ * rules first so a refused call never holds money or signs anything.
+ */
+export function sellerPrePayCheck(
+  destination: string,
+  buyerOrgId: string,
+  agentId: string,
+  now = new Date(),
+): SellerOfferGate {
+  const offer = sellerStore.resolveOfferForPay(destination);
+  if (!offer || offer.orgId === buyerOrgId) return { ok: true };
+  return gateOffer(offer, buyerOrgId, agentId, now);
+}
+
 export function checkUsageAlerts(offer: OfferRow, now = new Date()): void {
   const day = startOfUtcDay(now);
   for (const alert of sellerStore.listAlerts(offer.orgId)) {
@@ -109,7 +203,60 @@ export function checkUsageAlerts(offer: OfferRow, now = new Date()): void {
   }
 }
 
-/** Called after a buyer pay settles. Never throws into the pay path. */
+/**
+ * Book one paid call against one offer. Idempotent on (offer, txHash): the
+ * hosted resource server and the buyer's engine may both report the same sale,
+ * and the second report only fills in the buyer if the first did not know it.
+ */
+export function recordSellerSale(input: {
+  offer: OfferRow;
+  amountMicro: bigint;
+  buyerOrgId?: string;
+  agentId?: string;
+  txHash?: string;
+}): { settlementId: string; created: boolean } {
+  const { offer } = input;
+  if (input.txHash) {
+    const existing = sellerStore.settlementIdByTx(offer.id, input.txHash);
+    if (existing) {
+      if (input.buyerOrgId) sellerStore.attachBuyer(existing, input.buyerOrgId, input.agentId);
+      return { settlementId: existing, created: false };
+    }
+  }
+  const settlementId = sellerStore.recordSettlement({
+    sellerOrgId: offer.orgId,
+    offerId: offer.id,
+    buyerOrgId: input.buyerOrgId,
+    amountMicro: input.amountMicro.toString(),
+    txHash: input.txHash,
+  });
+  sellerStore.recordUsage({
+    sellerOrgId: offer.orgId,
+    offerId: offer.id,
+    buyerOrgId: input.buyerOrgId,
+    agentId: input.agentId,
+    mode: "paid",
+    amountMicro: input.amountMicro.toString(),
+    settlementId,
+  });
+  emitEvent(offer.orgId, "seller.payment.received", {
+    settlementId,
+    offerId: offer.id,
+    offerSlug: offer.slug,
+    offerVersion: offer.version,
+    buyerOrgId: input.buyerOrgId ?? null,
+    agentId: input.agentId ?? null,
+    amountUsdc: formatMicroToUsdc(input.amountMicro),
+    txHash: input.txHash ?? null,
+  });
+  checkUsageAlerts(offer);
+  return { settlementId, created: true };
+}
+
+/**
+ * Called after a buyer pay settles. Credits the single offer the destination
+ * resolves to (a URL pays one seller, one version). Never throws into the pay path.
+ */
 export function ingestSellerPayment(input: {
   destination: string;
   amountMicro: bigint;
@@ -117,41 +264,13 @@ export function ingestSellerPayment(input: {
   agentId?: string;
   txHash?: string;
 }): number {
-  let matched = 0;
   try {
-    for (const offer of sellerStore.findOffersByEndpoint(input.destination)) {
-      if (offer.orgId === input.buyerOrgId) continue;
-      const settlementId = sellerStore.recordSettlement({
-        sellerOrgId: offer.orgId,
-        offerId: offer.id,
-        buyerOrgId: input.buyerOrgId,
-        amountMicro: input.amountMicro.toString(),
-        txHash: input.txHash,
-      });
-      sellerStore.recordUsage({
-        sellerOrgId: offer.orgId,
-        offerId: offer.id,
-        buyerOrgId: input.buyerOrgId,
-        agentId: input.agentId,
-        mode: "paid",
-        amountMicro: input.amountMicro.toString(),
-        settlementId,
-      });
-      emitEvent(offer.orgId, "seller.payment.received", {
-        settlementId,
-        offerId: offer.id,
-        offerSlug: offer.slug,
-        offerVersion: offer.version,
-        buyerOrgId: input.buyerOrgId,
-        agentId: input.agentId ?? null,
-        amountUsdc: formatMicroToUsdc(input.amountMicro),
-        txHash: input.txHash ?? null,
-      });
-      checkUsageAlerts(offer);
-      matched += 1;
-    }
+    const offer = sellerStore.resolveOfferForPay(input.destination);
+    if (!offer || offer.orgId === input.buyerOrgId) return 0;
+    recordSellerSale({ ...input, offer });
+    return 1;
   } catch (error) {
     console.error("seller ingest failed (pay unaffected):", error);
+    return 0;
   }
-  return matched;
 }

@@ -41,7 +41,10 @@ export type WebhookEvent =
   | "seller.payment.received"
   | "seller.usage.threshold"
   | "seller.policy.changed"
-  | "seller.offer.deprecated";
+  | "seller.offer.deprecated"
+  | "seller.payout_address.changed"
+  /** Sent to buyer orgs that recently used an offer the seller is retiring. */
+  | "offer.deprecated";
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [2_000, 10_000, 60_000];

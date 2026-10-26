@@ -16,6 +16,7 @@ import { activeChain, rpcUrl } from "../chain/network.js";
 import { createPublicClient, http } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import type { PaymentRail, PaymentRailContext, PaymentRailResult } from "./types.js";
+import { hostedFetch, hostedOfferIdFromUrl } from "../seller-x402.js";
 
 const ALL_NETWORKS = {
   "eip155:84532": { legacy: "base-sepolia", asset: "0x036cbd53842c5426634e7929541ec2318f3dcf7e" },
@@ -566,12 +567,16 @@ export class X402Rail implements PaymentRail {
     if (!/^https?:\/\//i.test(ctx.destination)) {
       throw new X402Error("RAIL_FAILED", "x402 rail requires an http(s) destination URL");
     }
+    const hosted = hostedOfferIdFromUrl(ctx.destination) !== undefined;
     const paid = await payViaX402({
       url: ctx.destination,
       authorizedMicro: ctx.authorizedMicro,
       orgId: ctx.orgId,
       blocklist: ctx.blocklist,
       expect: ctx.x402Expect,
+      // ABI-hosted offers are served by this process; a Worker fetching its own
+      // public hostname is not reliable, and the seller gets the buyer identity.
+      fetchImpl: hosted ? hostedFetch({ buyerOrgId: ctx.orgId, agentId: ctx.agentId }) : undefined,
       readBalance: presignCheckEnabled() ? readUsdcBalance : undefined,
       onAuthorizationSigned: (marker) => {
         // Persist before the seller sees the signature — this is the
