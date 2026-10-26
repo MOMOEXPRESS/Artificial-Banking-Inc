@@ -19,6 +19,7 @@ import {
 import { explainApiResponse, relatedConsoleViews } from "./scenario-result";
 import { browserApiBase, sellerUrl } from "./browser-api";
 import { agentClient, guardianClient } from "./flows/client";
+import { BusinessConnections } from "./connections-panel";
 import * as A from "./flows/agent";
 import * as G from "./flows/guardian";
 import {
@@ -630,6 +631,15 @@ export function Playground({
           </Button>
         </div>
       )}
+
+      <BusinessConnections
+        session={session}
+        actor={actor}
+        policy={policy}
+        gFetch={gFetch}
+        readOnly={readOnly}
+        setToast={setToast}
+      />
 
       <section className="lab-panel lab-library">
         <div className="lab-section-head">
