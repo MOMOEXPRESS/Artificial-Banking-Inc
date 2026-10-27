@@ -76,7 +76,7 @@ export function registerPlatformRoutes(
             error: {
               code: "SELLER_ORG_REQUIRED",
               message:
-                "Selling requires a separate seller organization. Create one with POST /v1/seller/orgs, then use the Buyer | Seller switcher.",
+                "Selling uses a separate partner account and seller organization. Start at /partnerships to create one.",
             },
           });
         }
