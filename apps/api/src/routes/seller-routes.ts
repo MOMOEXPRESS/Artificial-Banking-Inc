@@ -376,6 +376,9 @@ function checkChallenge(
   return check;
 }
 
+/** Sites behind bot rules often 403 requests without a User-Agent; sellers can allowlist this one. */
+const VERIFY_USER_AGENT = "ABI-Verify/1.0 (+https://artificial-banking-inc-web.vercel.app)";
+
 async function probeOffer(
   offer: OfferRow,
 ): Promise<{ status: number; header: string | null; body: string }> {
@@ -391,7 +394,11 @@ async function probeOffer(
   if (problem) throw new Error(problem);
   const response = await fetchNoRedirect(
     offer.endpointUrl,
-    { method: "GET", signal: AbortSignal.timeout(8_000), headers: { accept: "application/json" } },
+    {
+      method: "GET",
+      signal: AbortSignal.timeout(8_000),
+      headers: { accept: "application/json", "user-agent": VERIFY_USER_AGENT },
+    },
     "Offer endpoint",
   );
   let body = "";
