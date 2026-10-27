@@ -68,7 +68,10 @@ export function registerPlatformRoutes(
         const profile = profileSchema.parse(req.body);
         // Seller operations require a dedicated seller org — workspace is not a
         // security boundary and cannot flip a buyer float into a seller catalog.
-        if (org.kind !== "seller" && (profile.workspace === "seller" || profile.workspace === "both")) {
+        if (
+          org.kind !== "seller" &&
+          (profile.workspace === "seller" || profile.workspace === "both")
+        ) {
           return res.status(400).json({
             error: {
               code: "SELLER_ORG_REQUIRED",
