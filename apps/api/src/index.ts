@@ -354,6 +354,8 @@ const RATE_LIMIT_READ_PER_MIN = config.rateLimitReadPerMin;
 const SIGNUP_LIMIT_PER_HOUR = Number(
   process.env.ABI_SIGNUP_LIMIT_PER_HOUR ?? (config.isProduction ? 10 : 1000),
 );
+const SANDBOX_TRY_PATH = /^\/v1\/sandbox\/offers\/([^/]+)\/try$/;
+const SANDBOX_TRIES_PER_MIN = Number(process.env.ABI_SANDBOX_TRIES_PER_MIN ?? 20);
 /** Cap the window map so a key-rotating caller cannot exhaust memory. */
 const RATE_MAX_KEYS = 50_000;
 
@@ -449,6 +451,23 @@ app.use((req, res, next) => {
         error: {
           code: "RATE_LIMITED",
           message: `Over ${SIGNUP_LIMIT_PER_HOUR} organizations/hour from this address`,
+        },
+      });
+    }
+  }
+
+  // Sandbox tries never count toward a seller's paid rate limits; they get
+  // their own small per-address bucket per offer instead.
+  const sandboxTry = req.method === "POST" ? SANDBOX_TRY_PATH.exec(req.path) : null;
+  if (sandboxTry) {
+    if (
+      overLimit(`sandbox:${sandboxTry[1]}:${req.ip ?? "anon"}`, SANDBOX_TRIES_PER_MIN, 60_000)
+    ) {
+      res.setHeader("Retry-After", "60");
+      return res.status(429).json({
+        error: {
+          code: "RATE_LIMITED",
+          message: `Over ${SANDBOX_TRIES_PER_MIN} sandbox tries/minute for this offer from this address`,
         },
       });
     }

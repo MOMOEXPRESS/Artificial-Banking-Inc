@@ -7,7 +7,8 @@ import { formatMicroToUsdc } from "@policyvault/common";
 import { sellerStore, type OfferRow, type SellerUsageMode } from "./store.js";
 import { emitEvent } from "./webhooks.js";
 
-const RATE_LIMITED_MODES: SellerUsageMode[] = ["paid", "sandbox"];
+/** Only real purchases spend a buyer's seller rate limit; free sandbox tries cannot exhaust it. */
+const RATE_LIMITED_MODES: SellerUsageMode[] = ["paid"];
 
 export type SellerAccessDecision =
   | { allowed: true }

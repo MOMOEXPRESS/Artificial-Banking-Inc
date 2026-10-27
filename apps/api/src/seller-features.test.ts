@@ -255,8 +255,24 @@ describe("seller features", () => {
         },
         body: JSON.stringify(body ?? {}),
       });
-    for (let i = 0; i < 2; i += 1) assert.equal((await tryAs(fast.apiKey)).status, 200);
-    assert.equal((await tryAs(fast.apiKey)).status, 429);
+    for (let i = 0; i < 4; i += 1) {
+      assert.equal((await tryAs(fast.apiKey)).status, 200, "sandbox tries spend no paid budget");
+    }
+    assert.equal(evaluateSellerAccess(row, okOrg.id, fast.agentId).allowed, true);
+    for (let i = 0; i < 2; i += 1) {
+      sellerStore.recordUsage({
+        sellerOrgId: s.orgId,
+        offerId: offer.id,
+        buyerOrgId: okOrg.id,
+        agentId: fast.agentId,
+        mode: "paid",
+      });
+    }
+    assert.equal(
+      (await tryAs(fast.apiKey)).status,
+      429,
+      "the sandbox still shows a limit real purchases hit",
+    );
     assert.equal((await tryAs(blockedAgent.apiKey)).status, 403);
     assert.equal(
       (await tryAs(undefined, { buyerOrgId: blockedOrg.id })).status,
@@ -295,6 +311,19 @@ describe("seller features", () => {
     assert.equal(off.status, 403);
     const missing = await fetch(`${base}/v1/sandbox/offers/offer_nope/try`, { method: "POST" });
     assert.equal(missing.status, 404);
+  });
+
+  it("caps sandbox tries per address without touching paid limits", async () => {
+    const s = await signup("sandbox-flood@example.com", "Sandbox Flood Co");
+    const offer = await publishedOffer(s, "sbx-flood", "https://flood.example/api");
+    const statuses: number[] = [];
+    for (let i = 0; i < 21; i += 1) {
+      statuses.push(
+        (await fetch(`${base}/v1/sandbox/offers/${offer.id}/try`, { method: "POST" })).status,
+      );
+    }
+    assert.deepEqual(statuses.slice(0, 20), new Array(20).fill(200));
+    assert.equal(statuses[20], 429);
   });
 
   it("versions offers and deprecates with notice and a successor", async () => {
