@@ -1071,6 +1071,23 @@ CREATE TABLE IF NOT EXISTS seller_settlements (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_seller_settlements_org ON seller_settlements(seller_org_id, created_at);
+-- Hosted settles that threw after reaching the facilitator: the transfer may be
+-- on-chain. Reconcile by (payer, nonce) against the USDC authorization state.
+CREATE TABLE IF NOT EXISTS hosted_settle_unknown (
+  id TEXT PRIMARY KEY,
+  offer_id TEXT NOT NULL REFERENCES offers(id),
+  seller_org_id TEXT NOT NULL REFERENCES orgs(id),
+  buyer_org_id TEXT,
+  nonce TEXT NOT NULL,
+  payer TEXT,
+  amount_micro TEXT NOT NULL,
+  network TEXT NOT NULL,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT,
+  resolution TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_hosted_settle_unknown_open ON hosted_settle_unknown(resolved_at, created_at);
 -- Partner (seller) identities are deliberately separate from buyer users:
 -- the same email may hold an unrelated account in each, and neither session
 -- can read the other's organizations.
@@ -6831,6 +6848,50 @@ export const sellerStore = {
       .prepare("SELECT id FROM seller_settlements WHERE offer_id = ? AND tx_hash = ? LIMIT 1")
       .get(offerId, txHash) as Row | undefined;
     return r ? String(r.id) : undefined;
+  },
+
+  recordUnknownSettle(input: {
+    offerId: string;
+    sellerOrgId: string;
+    buyerOrgId?: string;
+    nonce: string;
+    payer?: string;
+    amountMicro: string;
+    network: string;
+    error: string;
+  }): string {
+    const rowId = id("hsu");
+    db.prepare(
+      `INSERT INTO hosted_settle_unknown (id, offer_id, seller_org_id, buyer_org_id, nonce, payer, amount_micro, network, error, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      rowId,
+      input.offerId,
+      input.sellerOrgId,
+      input.buyerOrgId ?? null,
+      input.nonce,
+      input.payer ?? null,
+      input.amountMicro,
+      input.network,
+      input.error,
+      nowIso(),
+    );
+    return rowId;
+  },
+
+  listUnresolvedSettles(): { id: string; offerId: string; nonce: string; payer?: string }[] {
+    return (
+      db
+        .prepare(
+          "SELECT id, offer_id, nonce, payer FROM hosted_settle_unknown WHERE resolved_at IS NULL ORDER BY created_at ASC",
+        )
+        .all() as Row[]
+    ).map((r) => ({
+      id: String(r.id),
+      offerId: String(r.offer_id),
+      nonce: String(r.nonce),
+      payer: r.payer ? String(r.payer) : undefined,
+    }));
   },
 
   /** Fill in the buyer on a sale the resource server recorded before it knew who paid. */

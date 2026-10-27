@@ -35,6 +35,7 @@ const PASSWORD = "Seller-Commerce-Pass-1!";
 
 const facilitatorCalls: { verify: number; settle: number } = { verify: 0, settle: 0 };
 let txCounter = 0;
+let settleThrows = false;
 setHostedFacilitator({
   async verify(payload: PaymentPayload, req: PaymentRequirements) {
     facilitatorCalls.verify += 1;
@@ -50,6 +51,7 @@ setHostedFacilitator({
   },
   async settle(_payload: PaymentPayload, req: PaymentRequirements) {
     facilitatorCalls.settle += 1;
+    if (settleThrows) throw new Error("facilitator settle timed out");
     txCounter += 1;
     return {
       success: true,
@@ -365,6 +367,24 @@ describe("buyer to seller through the hosted x402 route", () => {
     assert.equal(sellerStore.resolveOfferForPay(offer.endpointUrl)?.id, offer.id);
     assert.deepEqual(sellerStore.endpointClaims(offer.endpointUrl, victim.orgId), []);
     assert.equal((await payApi(agent.apiKey, offer.endpointUrl, "commerce-squat-1")).status, 200);
+  });
+
+  it("reports an unknown outcome, not 'nothing charged', when settle throws", async () => {
+    const s = await signup("settle-timeout@example.com", "Settle Timeout Co");
+    const offer = await hostedOffer(s, "timeout-brief", "timeout");
+    const { agent } = buyerFor(offer.endpointUrl, "Timeout Buyer");
+    settleThrows = true;
+    try {
+      const res = await payApi(agent.apiKey, offer.endpointUrl, "commerce-timeout-1");
+      const text = await res.text();
+      assert.notEqual(res.status, 200, text);
+      assert.doesNotMatch(text, /Nothing was charged/);
+    } finally {
+      settleThrows = false;
+    }
+    const open = sellerStore.listUnresolvedSettles().filter((r) => r.offerId === offer.id);
+    assert.equal(open.length, 1);
+    assert.match(open[0].nonce, /^0x[0-9a-f]{64}$/i);
   });
 
   it("itemizes statements per offer with a CSV of on-chain settlements", async () => {

@@ -117,6 +117,52 @@ function err(status: number, code: string, message: string, extra: object = {}):
   };
 }
 
+function authorizationOf(payload: PaymentPayload): { nonce?: string; from?: string } {
+  const auth = (payload.payload as { authorization?: { nonce?: unknown; from?: unknown } })
+    ?.authorization;
+  return {
+    nonce: typeof auth?.nonce === "string" ? auth.nonce : undefined,
+    from: typeof auth?.from === "string" ? auth.from : undefined,
+  };
+}
+
+/**
+ * Settle threw after the authorization reached the facilitator, so the
+ * transfer may or may not be on-chain. Record the nonce for reconciliation and
+ * never tell the buyer "nothing was charged".
+ */
+function outcomeUnknown(
+  offer: OfferRow,
+  payload: PaymentPayload,
+  requirement: PaymentRequirements,
+  caller: HostedCaller,
+  error: unknown,
+): HostedResult {
+  const { nonce, from } = authorizationOf(payload);
+  const reason = error instanceof Error ? error.message : String(error);
+  console.error("hosted x402 settle outcome unknown:", { offerId: offer.id, nonce, reason });
+  try {
+    sellerStore.recordUnknownSettle({
+      offerId: offer.id,
+      sellerOrgId: offer.orgId,
+      buyerOrgId: caller.buyerOrgId,
+      nonce: nonce ?? "",
+      payer: from,
+      amountMicro: requirement.amount,
+      network: requirement.network,
+      error: reason.slice(0, 500),
+    });
+  } catch (recordError) {
+    console.error("could not record unknown hosted settle:", recordError);
+  }
+  return err(
+    502,
+    "PAYMENT_OUTCOME_UNKNOWN",
+    "The payment may have settled on-chain; its outcome is not confirmed yet. Do not pay again — ABI is reconciling it by authorization nonce.",
+    { nonce: nonce ?? null },
+  );
+}
+
 function parseContent(raw: string): unknown {
   const text = raw.trim();
   if (!text) return null;
@@ -216,7 +262,18 @@ export async function handleHostedOffer(
   }
 
   const f = facilitator();
-  const verified = await f.verify(payload, requirement);
+  let verified: VerifyResponse;
+  try {
+    verified = await f.verify(payload, requirement);
+  } catch (error) {
+    console.error("hosted x402 verify failed:", error);
+    // Verify never moves funds, so this one really is nothing charged.
+    return err(
+      502,
+      "FACILITATOR_UNAVAILABLE",
+      "Payment could not be checked right now. Nothing was charged.",
+    );
+  }
   if (!verified.isValid) {
     return err(
       402,
@@ -224,7 +281,13 @@ export async function handleHostedOffer(
       verified.invalidMessage ?? verified.invalidReason ?? "Facilitator rejected the payment.",
     );
   }
-  const settled = await f.settle(payload, requirement);
+  let settled: SettleResponse;
+  try {
+    settled = await f.settle(payload, requirement);
+  } catch (error) {
+    // A settle that times out may already have broadcast the transfer.
+    return outcomeUnknown(offer, payload, requirement, caller, error);
+  }
   if (!settled.success || !/^0x[0-9a-fA-F]{64}$/.test(settled.transaction ?? "")) {
     return err(
       402,
@@ -311,11 +374,15 @@ export function registerHostedX402Routes(app: express.Express): void {
       res.status(result.status).json(result.body);
     } catch (error) {
       console.error("hosted x402 offer failed:", error);
+      const signed = Boolean(req.headers["payment-signature"] ?? req.headers["x-payment"]);
       res.status(502).json({
-        error: {
-          code: "FACILITATOR_UNAVAILABLE",
-          message: "Payment could not be settled right now. Nothing was charged.",
-        },
+        error: signed
+          ? {
+              code: "PAYMENT_OUTCOME_UNKNOWN",
+              message:
+                "The payment may have settled on-chain; its outcome is not confirmed yet. Do not pay again.",
+            }
+          : { code: "OFFER_UNAVAILABLE", message: "This offer could not be served right now." },
       });
     }
   });

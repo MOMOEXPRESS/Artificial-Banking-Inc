@@ -259,6 +259,23 @@ model Guardians {
   @@map("guardians")
 }
 
+model HostedSettleUnknown {
+  id String @id
+  offerId String @map("offer_id") // -> offers.id
+  sellerOrgId String @map("seller_org_id") // -> orgs.id
+  buyerOrgId String? @map("buyer_org_id")
+  nonce String
+  payer String?
+  amountMicro BigInt @map("amount_micro")
+  network String
+  error String?
+  createdAt String @map("created_at")
+  resolvedAt String? @map("resolved_at")
+  resolution String?
+  @@index([resolvedAt, createdAt])
+  @@map("hosted_settle_unknown")
+}
+
 model Idempotency {
   orgId String @map("org_id")
   key String
