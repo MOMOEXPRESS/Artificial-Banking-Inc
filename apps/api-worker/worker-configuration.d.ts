@@ -2,6 +2,7 @@ interface Env {
   ABI: DurableObjectNamespace;
   CHAIN: string;
   ABI_CONSOLE_URL: string;
+  ABI_PUBLIC_API_URL: string;
   ABI_CORS_ORIGINS: string;
   ABI_NOTIFY_EMAIL_FROM: string;
   ABI_RUNTIME: string;

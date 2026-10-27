@@ -659,7 +659,30 @@ export function reloadDbFromDisk(): void {
   migrateSecretsAtRest();
   migrateVaultKeysAtRest();
   migrateChallengeChecks();
+  migrateHostedOfferUrls();
   bumpRevision();
+}
+
+/**
+ * Hosted offers created while ABI_PUBLIC_API_URL was not reaching the runtime
+ * stored http://localhost:… endpoints. Point every hosted offer at the
+ * configured public base. Idempotent; a no-op when the base is unset.
+ */
+function migrateHostedOfferUrls(): void {
+  const base = process.env.ABI_PUBLIC_API_URL?.trim().replace(/\/+$/, "");
+  if (!base) return;
+  try {
+    const rows = db
+      .prepare("SELECT id, endpoint_url FROM offers WHERE hosted = 1")
+      .all() as { id: string; endpoint_url: string }[];
+    const upd = db.prepare("UPDATE offers SET endpoint_url = ? WHERE id = ?");
+    for (const row of rows) {
+      const want = `${base}/v1/x402/offers/${row.id}`;
+      if (row.endpoint_url !== want) upd.run(want, row.id);
+    }
+  } catch (e) {
+    console.error("hosted offer URL backfill skipped:", e);
+  }
 }
 
 /**
@@ -1721,6 +1744,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_policies_org ON agent_policies(org_id);
 // are covered. Idempotent, so it is safe on every boot.
 migrateVaultKeysAtRest();
 migrateChallengeChecks();
+migrateHostedOfferUrls();
 
 // Seed platform USDC asset once (legacy path kept for older DBs).
 {

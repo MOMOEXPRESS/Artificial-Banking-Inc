@@ -22,6 +22,7 @@ const envSchema = z.object({
   ABI_SIGNUP_TOKEN: z.string().optional(),
   ABI_CORS_ORIGINS: z.string().optional().default(""),
   ABI_CONSOLE_URL: z.string().optional(),
+  ABI_PUBLIC_API_URL: z.string().optional(),
   ABI_RUN_JOBS: z.enum(["0", "1"]).optional(),
   ABI_NO_LISTEN: bool01,
   RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().optional(),
@@ -68,6 +69,22 @@ export class ConfigError extends Error {
     super(message);
     this.name = "ConfigError";
   }
+}
+
+/** Hosted offer URLs are built from this, so a missing value would publish localhost links. */
+function publicApiUrlProblem(raw: string | undefined): string | undefined {
+  const value = raw?.trim();
+  if (!value) return "ABI_PUBLIC_API_URL is required in production (hosted offer URLs use it)";
+  try {
+    const u = new URL(value);
+    if (u.protocol !== "https:") return "ABI_PUBLIC_API_URL must be an https URL in production";
+    if (/^(localhost|127\.|0\.0\.0\.0|\[::1\])/.test(u.hostname)) {
+      return "ABI_PUBLIC_API_URL must not point at localhost in production";
+    }
+  } catch {
+    return "ABI_PUBLIC_API_URL is not a valid URL";
+  }
+  return undefined;
 }
 
 function parseEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -124,6 +141,8 @@ function parseEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
         "ABI_DEMO_DERIVE_FROM_SIGNUP_TOKEN=1 is refused in production (one token must not derive pepper+KEK)",
       );
     }
+    const publicApiProblem = publicApiUrlProblem(e.ABI_PUBLIC_API_URL);
+    if (publicApiProblem) problems.push(publicApiProblem);
     if (!e.ABI_SIGNUP_TOKEN?.trim() && allowPublicOrgCreate) {
       problems.push("ABI_SIGNUP_TOKEN is required when public org create is enabled");
     }

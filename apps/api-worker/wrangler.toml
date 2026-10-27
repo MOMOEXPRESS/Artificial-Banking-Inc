@@ -23,6 +23,7 @@ enabled = true
 [vars]
 CHAIN = "base-sepolia"
 ABI_CONSOLE_URL = "https://artificial-banking-inc-web.vercel.app"
+ABI_PUBLIC_API_URL = "https://abi-api.momomaurice20006.workers.dev"
 ABI_CORS_ORIGINS = "https://artificial-banking-inc-web.vercel.app"
 ABI_NOTIFY_EMAIL_FROM = "ABI <onboarding@resend.dev>"
 ABI_RUNTIME = "cloudflare-workers"

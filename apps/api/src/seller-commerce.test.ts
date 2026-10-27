@@ -569,6 +569,19 @@ describe("partner account security", () => {
     assert.equal(stored.expectedPayTo, PAYOUT, "the rest of the check is kept");
   });
 
+  it("repoints hosted offers saved with a localhost URL at the public API base", async () => {
+    const s = await signup("legacy-url@example.com", "Legacy Url Co");
+    const offer = await hostedOffer(s, "legacy-url-brief", "old url");
+    store.updateOffer(s.orgId, offer.id, {
+      endpointUrl: `http://localhost:4000/v1/x402/offers/${offer.id}`,
+    });
+    reloadDbFromDisk();
+    assert.equal(
+      sellerStore.getOfferAnyOrg(offer.id)?.endpointUrl,
+      `https://api.abi.test/v1/x402/offers/${offer.id}`,
+    );
+  });
+
   it("closes the account and takes every offer off sale", async () => {
     const s = await signup("close@example.com", "Close Co");
     const offer = await hostedOffer(s, "close-brief", "bye");
