@@ -4,7 +4,7 @@
  * per-buyer / per-agent access evaluator.
  */
 import { formatMicroToUsdc } from "@policyvault/common";
-import { sellerStore, type OfferRow, type SellerUsageMode } from "./store.js";
+import { sellerStore, store, type OfferRow, type SellerUsageMode } from "./store.js";
 import { emitEvent } from "./webhooks.js";
 
 /** Only real purchases spend a buyer's seller rate limit; free sandbox tries cannot exhaust it. */
@@ -181,6 +181,28 @@ export function sellerPrePayCheck(
   const offer = sellerStore.resolveOfferForPay(destination);
   if (!offer || offer.orgId === buyerOrgId) return { ok: true };
   return gateOffer(offer, buyerOrgId, agentId, now);
+}
+
+/**
+ * A buyer that connected from the directory pinned the seller's payee. When the
+ * seller's payout address no longer matches, refuse until a guardian reconnects,
+ * so a hijacked partner login cannot silently redirect future payments.
+ */
+export function payeePinProblem(
+  destination: string,
+  buyerOrgId: string,
+): { offerId: string; pinnedPayTo: string; currentPayTo: string | null } | undefined {
+  const key = destination.trim().toLowerCase();
+  const merchant = store.listMerchants(buyerOrgId).find((m) => m.key === key);
+  const gateway = merchant?.meta?.gateway as { payoutAddress?: unknown } | undefined;
+  if (merchant?.meta?.source !== "abi-directory" || typeof gateway?.payoutAddress !== "string") {
+    return undefined;
+  }
+  const offer = sellerStore.resolveOfferForPay(destination);
+  if (!offer || offer.orgId === buyerOrgId) return undefined;
+  const current = store.getSellerProfile(offer.orgId)?.payoutAddress ?? null;
+  if (current && current.toLowerCase() === gateway.payoutAddress.toLowerCase()) return undefined;
+  return { offerId: offer.id, pinnedPayTo: gateway.payoutAddress, currentPayTo: current };
 }
 
 export function checkUsageAlerts(offer: OfferRow, now = new Date()): void {

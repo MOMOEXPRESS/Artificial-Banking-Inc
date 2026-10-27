@@ -43,6 +43,8 @@ export type WebhookEvent =
   | "seller.policy.changed"
   | "seller.offer.deprecated"
   | "seller.payout_address.changed"
+  /** Sent to buyer orgs connected to a seller whose payout address changed. */
+  | "merchant.payee_changed"
   /** Sent to buyer orgs that recently used an offer the seller is retiring. */
   | "offer.deprecated";
 

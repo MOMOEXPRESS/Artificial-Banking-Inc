@@ -95,7 +95,13 @@ export function SellerSettingsView({
         ))}
       </div>
       {tab === "company" && profile && <CompanyTab profile={profile} onSaved={onProfileSaved} />}
-      {tab === "payout" && profile && <PayoutTab profile={profile} onSaved={onProfileSaved} />}
+      {tab === "payout" && profile && (
+        <PayoutTab
+          profile={profile}
+          mfaEnabled={Boolean(account?.security.mfaEnabled)}
+          onSaved={onProfileSaved}
+        />
+      )}
       {tab === "account" && account && <AccountTab account={account} onSaved={loadAccount} />}
       {tab === "security" && account && (
         <SecurityTab account={account} reload={loadAccount} onSignedOut={onSignedOut} />
@@ -193,16 +199,26 @@ function CompanyTab({
   );
 }
 
+/** One box takes either a 6-digit authenticator code or a recovery code. */
+function secondFactorBody(value: string): { code?: string; recoveryCode?: string } {
+  const v = value.trim();
+  if (!v) return {};
+  return /^\d{6}$/.test(v) ? { code: v } : { recoveryCode: v };
+}
+
 function PayoutTab({
   profile,
+  mfaEnabled,
   onSaved,
 }: {
   profile: SellerProfile;
+  mfaEnabled: boolean;
   onSaved: (p: SellerProfile) => void;
 }) {
   const [address, setAddress] = useState(profile.payoutAddress);
   const [network, setNetwork] = useState(profile.network);
   const [password, setPassword] = useState("");
+  const [factor, setFactor] = useState("");
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<PayoutChange[]>([]);
   const changingExisting =
@@ -223,7 +239,9 @@ function PayoutTab({
       <Card title="Payout wallet">
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
           Every paid call settles USDC on-chain straight to this address. ABI never holds seller
-          funds. Use a wallet you control; changing it asks for your password and emails you.
+          funds. Use a wallet you control; changing it asks for your password (and your
+          authenticator code when two-factor is on), emails you, and asks connected buyers to
+          confirm the new address before they pay again.
         </p>
         <div style={formGrid}>
           <label className="field" style={{ gridColumn: "1 / -1" }}>
@@ -253,21 +271,35 @@ function PayoutTab({
               />
             </label>
           )}
+          {changingExisting && mfaEnabled && (
+            <label className="field">
+              <span>Authenticator or recovery code</span>
+              <input
+                inputMode="text"
+                autoComplete="one-time-code"
+                value={factor}
+                onChange={(e) => setFactor(e.target.value)}
+              />
+            </label>
+          )}
         </div>
         <Button
           style={{ marginTop: 12 }}
-          disabled={busy || (changingExisting && !password)}
+          disabled={busy || (changingExisting && (!password || (mfaEnabled && !factor.trim())))}
           onClick={async () => {
             setBusy(true);
             try {
               const saved = await saveProfile({
                 payoutAddress: address.trim(),
                 network,
-                ...(changingExisting ? { currentPassword: password } : {}),
+                ...(changingExisting
+                  ? { currentPassword: password, ...secondFactorBody(factor) }
+                  : {}),
               });
               if (saved) {
                 onSaved(saved);
                 setPassword("");
+                setFactor("");
                 toast("Payout settings saved", "ok");
                 await loadHistory();
               }
@@ -360,6 +392,7 @@ function SecurityTab({
   const [code, setCode] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [disablePw, setDisablePw] = useState("");
+  const [disableCode, setDisableCode] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function run(fn: () => Promise<void>) {
@@ -528,21 +561,31 @@ function SecurityTab({
                   value={disablePw}
                   onChange={(e) => setDisablePw(e.target.value)}
                 />
+                <input
+                  placeholder="Authenticator or recovery code"
+                  autoComplete="one-time-code"
+                  value={disableCode}
+                  onChange={(e) => setDisableCode(e.target.value)}
+                />
                 <Button
                   size="sm"
                   variant="destructive"
-                  disabled={busy || !disablePw}
+                  disabled={busy || !disablePw || !disableCode.trim()}
                   onClick={() =>
                     run(async () => {
                       const res = await apiFetch("/v1/partner/auth/mfa/disable", {
                         method: "POST",
-                        body: JSON.stringify({ password: disablePw }),
+                        body: JSON.stringify({
+                          password: disablePw,
+                          ...secondFactorBody(disableCode),
+                        }),
                       });
                       if (!res.ok) {
-                        toast(await sellerApiError(res, "Password is incorrect"), "err");
+                        toast(await sellerApiError(res, "Password or code is incorrect"), "err");
                         return;
                       }
                       setDisablePw("");
+                      setDisableCode("");
                       toast("Two-factor authentication is off", "ok");
                       await reload();
                     })

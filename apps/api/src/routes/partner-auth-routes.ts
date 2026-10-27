@@ -132,6 +132,31 @@ async function passwordMatches(accountId: string, password: string | undefined):
   return Boolean(password && hash && (await verifyPassword(password, hash)));
 }
 
+/**
+ * When the account has MFA on, require a fresh authenticator code or an unused
+ * recovery code. Returns the error to send, or undefined when the factor passes
+ * (or MFA is off). A used code or recovery code is consumed.
+ */
+export function checkSecondFactor(
+  accountId: string,
+  input: { code?: string; recoveryCode?: string },
+): { code: "MFA_REQUIRED" | "MFA_INVALID"; message: string } | undefined {
+  const mfa = partnerStore.getMfa(accountId);
+  if (!mfa?.confirmed) return undefined;
+  if (input.recoveryCode) {
+    return partnerStore.useRecoveryCode(accountId, input.recoveryCode)
+      ? undefined
+      : { code: "MFA_INVALID", message: "That recovery code is not valid." };
+  }
+  if (input.code) {
+    const check = verifyCode(mfa.secret, input.code, { lastUsedStep: mfa.lastStep });
+    if (!check.ok) return { code: "MFA_INVALID", message: "That authenticator code is not valid." };
+    partnerStore.recordMfaStep(accountId, check.step);
+    return undefined;
+  }
+  return { code: "MFA_REQUIRED", message: "Enter the 6-digit code from your authenticator app." };
+}
+
 const WRONG_PASSWORD = {
   error: { code: "INVALID_PASSWORD", message: "Your current password is incorrect." },
 };
@@ -296,31 +321,8 @@ export function registerPartnerAuthRoutes(app: express.Express): void {
           },
         });
       }
-      const mfa = partnerStore.getMfa(found.account.id);
-      if (mfa?.confirmed) {
-        if (body.recoveryCode) {
-          if (!partnerStore.useRecoveryCode(found.account.id, body.recoveryCode)) {
-            return res.status(401).json({
-              error: { code: "MFA_INVALID", message: "That recovery code is not valid." },
-            });
-          }
-        } else if (body.code) {
-          const check = verifyCode(mfa.secret, body.code, { lastUsedStep: mfa.lastStep });
-          if (!check.ok) {
-            return res.status(401).json({
-              error: { code: "MFA_INVALID", message: "That authenticator code is not valid." },
-            });
-          }
-          partnerStore.recordMfaStep(found.account.id, check.step);
-        } else {
-          return res.status(401).json({
-            error: {
-              code: "MFA_REQUIRED",
-              message: "Enter the 6-digit code from your authenticator app.",
-            },
-          });
-        }
-      }
+      const factor = checkSecondFactor(found.account.id, body);
+      if (factor) return res.status(401).json({ error: factor });
       store.markPartnerLogin(found.account.id);
       issuePartnerSession(req, res, found.account);
       const org = store.getOrg(found.account.orgId);
@@ -530,10 +532,19 @@ export function registerPartnerAuthRoutes(app: express.Express): void {
   app.post(
     "/v1/partner/auth/mfa/disable",
     partnerRoute(async (_org, req, res, account) => {
-      const body = z.object({ password: z.string() }).parse(req.body ?? {});
+      const body = z
+        .object({
+          password: z.string(),
+          code: z.string().max(12).optional(),
+          recoveryCode: z.string().max(40).optional(),
+        })
+        .parse(req.body ?? {});
       if (!(await passwordMatches(account.id, body.password))) {
         return res.status(403).json(WRONG_PASSWORD);
       }
+      // A stolen password alone must not strip MFA (and with it the payout guard).
+      const factor = checkSecondFactor(account.id, body);
+      if (factor) return res.status(403).json({ error: factor });
       partnerStore.disableMfa(account.id);
       recordObs({ name: "seller.mfa_disabled", orgId: account.orgId });
       res.json({ ok: true });

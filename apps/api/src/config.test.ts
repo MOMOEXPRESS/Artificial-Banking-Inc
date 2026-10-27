@@ -110,24 +110,15 @@ describe("loadConfig", () => {
     assert.equal(dev.APPROVAL_TTL_MINUTES, 10);
     assert.equal(dev.allowBootstrap, true);
     resetConfigForTests();
-    const prod = loadConfig(
-      { ...PROD_BASE },
-      { reload: true },
-    );
+    const prod = loadConfig({ ...PROD_BASE }, { reload: true });
     assert.equal(prod.rateLimitPerMin, 120);
     // Reads get their own, larger budget so console polling cannot starve itself.
     assert.equal(prod.rateLimitReadPerMin, 600);
     resetConfigForTests();
-    const tuned = loadConfig(
-      { ...PROD_BASE, RATE_LIMIT_PER_MIN: "200" },
-      { reload: true },
-    );
+    const tuned = loadConfig({ ...PROD_BASE, RATE_LIMIT_PER_MIN: "200" }, { reload: true });
     assert.equal(tuned.rateLimitReadPerMin, 1000);
     resetConfigForTests();
-    const explicit = loadConfig(
-      { ...PROD_BASE, RATE_LIMIT_READ_PER_MIN: "300" },
-      { reload: true },
-    );
+    const explicit = loadConfig({ ...PROD_BASE, RATE_LIMIT_READ_PER_MIN: "300" }, { reload: true });
     assert.equal(explicit.rateLimitReadPerMin, 300);
   });
 });

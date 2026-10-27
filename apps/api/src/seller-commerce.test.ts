@@ -455,6 +455,76 @@ describe("buyer to seller through the hosted x402 route", () => {
     );
   });
 
+  it("pins the payee at connect and refuses pays after the seller redirects payouts", async () => {
+    const s = await signup("pinned@example.com", "Pinned Co");
+    const offer = await hostedOffer(s, "pinned-brief", "pinned");
+    const { org, agent } = buyerFor("https://unrelated.example/api", "Pinned Buyer");
+    const asGuardian = (method: string, path: string, body?: unknown) =>
+      fetch(`${base}${path}`, {
+        method,
+        headers: { authorization: `Bearer ${org.guardianKey}`, "content-type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+
+    // Two connects land without either one dropping the other's URL.
+    const [first, second] = await Promise.all([
+      asGuardian("POST", "/v1/guardian/connections", { offerId: offer.id }),
+      asGuardian("POST", "/v1/guardian/connections", { offerId: offer.id }),
+    ]);
+    assert.equal(first.status, 200, await first.clone().text());
+    assert.equal(second.status, 200);
+    const allow = store.getPolicyTemplate(org.id).vendorAllowlist;
+    assert.ok(allow.includes("https://unrelated.example/api"), "other entries survive");
+    assert.equal(allow.filter((u) => u === offer.endpointUrl).length, 1);
+    assert.equal(
+      ((await first.json()) as { connection: { payTo: string } }).connection.payTo,
+      PAYOUT,
+    );
+    assert.equal((await payApi(agent.apiKey, offer.endpointUrl, "commerce-pin-1")).status, 200);
+
+    const enroll = (await (await call(s, "POST", "/v1/partner/auth/mfa/enroll")).json()) as {
+      secret: string;
+    };
+    const confirm = await call(s, "POST", "/v1/partner/auth/mfa/confirm", {
+      code: currentCode(enroll.secret),
+    });
+    const { recoveryCodes } = (await confirm.json()) as { recoveryCodes: string[] };
+    const pwOnly = await call(s, "PATCH", "/v1/seller/profile", {
+      payoutAddress: PAYOUT_2,
+      currentPassword: PASSWORD,
+    });
+    assert.equal(pwOnly.status, 403);
+    assert.equal(((await pwOnly.json()) as { error: { code: string } }).error.code, "MFA_REQUIRED");
+    const disable = await call(s, "POST", "/v1/partner/auth/mfa/disable", { password: PASSWORD });
+    assert.equal(disable.status, 403, "a password alone cannot turn MFA off");
+    const moved = await call(s, "PATCH", "/v1/seller/profile", {
+      payoutAddress: PAYOUT_2,
+      currentPassword: PASSWORD,
+      recoveryCode: recoveryCodes[0],
+    });
+    assert.equal(moved.status, 200, await moved.clone().text());
+
+    const refused = await payApi(agent.apiKey, offer.endpointUrl, "commerce-pin-2");
+    assert.equal(refused.status, 409);
+    const err = ((await refused.json()) as { error: { code: string; pinnedPayTo: string } }).error;
+    assert.equal(err.code, "PAYEE_CHANGED");
+    assert.equal(err.pinnedPayTo, PAYOUT);
+    assert.equal(
+      sellerStore.listBuyerConnections(s.orgId).find((c) => c.buyerOrgId === org.id)?.pinnedPayTo,
+      PAYOUT,
+    );
+
+    const reconfirm = await asGuardian("POST", "/v1/guardian/connections", { offerId: offer.id });
+    assert.equal(reconfirm.status, 200);
+    assert.equal((await payApi(agent.apiKey, offer.endpointUrl, "commerce-pin-3")).status, 200);
+
+    const gone = await asGuardian("DELETE", `/v1/guardian/connections/${offer.id}`);
+    assert.equal(gone.status, 200);
+    assert.deepEqual(store.getPolicyTemplate(org.id).vendorAllowlist, [
+      "https://unrelated.example/api",
+    ]);
+  });
+
   it("runs a sandbox dry run with the caller's real identity", async () => {
     const s = await signup("sandbox2@example.com", "Sandbox Two");
     const offer = await hostedOffer(s, "sandbox-brief", "sbx");

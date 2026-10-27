@@ -92,6 +92,7 @@ import { registerSellerFeatureRoutes } from "./routes/seller-feature-routes.js";
 import { registerPartnerAuthRoutes } from "./routes/partner-auth-routes.js";
 import { registerHostedX402Routes } from "./seller-x402.js";
 import { registerPolicyRoutes } from "./routes/policy-routes.js";
+import { registerConnectionRoutes } from "./routes/connection-routes.js";
 import { registerTreasuryRoutes } from "./routes/treasury-routes.js";
 import { registerRemoteMcp } from "./remote-mcp.js";
 import { unrefTimer } from "./platform/timers.js";
@@ -460,9 +461,7 @@ app.use((req, res, next) => {
   // their own small per-address bucket per offer instead.
   const sandboxTry = req.method === "POST" ? SANDBOX_TRY_PATH.exec(req.path) : null;
   if (sandboxTry) {
-    if (
-      overLimit(`sandbox:${sandboxTry[1]}:${req.ip ?? "anon"}`, SANDBOX_TRIES_PER_MIN, 60_000)
-    ) {
+    if (overLimit(`sandbox:${sandboxTry[1]}:${req.ip ?? "anon"}`, SANDBOX_TRIES_PER_MIN, 60_000)) {
       res.setHeader("Retry-After", "60");
       return res.status(429).json({
         error: {
@@ -667,6 +666,7 @@ registerMfaRoutes(app);
 registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
 registerAgentRoutes(app, { guardianRoute });
 registerPolicyRoutes(app, { guardianRoute });
+registerConnectionRoutes(app, { guardianRoute });
 registerPaymentRoutes(app, { guardianRoute });
 registerPlatformRoutes(app, { guardianRoute });
 registerPartnerAuthRoutes(app);

@@ -672,9 +672,10 @@ function migrateHostedOfferUrls(): void {
   const base = process.env.ABI_PUBLIC_API_URL?.trim().replace(/\/+$/, "");
   if (!base) return;
   try {
-    const rows = db
-      .prepare("SELECT id, endpoint_url FROM offers WHERE hosted = 1")
-      .all() as { id: string; endpoint_url: string }[];
+    const rows = db.prepare("SELECT id, endpoint_url FROM offers WHERE hosted = 1").all() as {
+      id: string;
+      endpoint_url: string;
+    }[];
     const upd = db.prepare("UPDATE offers SET endpoint_url = ? WHERE id = ?");
     for (const row of rows) {
       const want = `${base}/v1/x402/offers/${row.id}`;
@@ -6848,6 +6849,33 @@ export const sellerStore = {
       .prepare("SELECT id FROM seller_settlements WHERE offer_id = ? AND tx_hash = ? LIMIT 1")
       .get(offerId, txHash) as Row | undefined;
     return r ? String(r.id) : undefined;
+  },
+
+  /** Buyer merchant records created by connecting to this seller from the directory. */
+  listBuyerConnections(
+    sellerOrgId: string,
+  ): { buyerOrgId: string; key: string; offerId?: string; pinnedPayTo?: string }[] {
+    const rows = db
+      .prepare("SELECT org_id, key, meta_json FROM merchants WHERE meta_json LIKE ?")
+      .all(`%${sellerOrgId}%`) as Row[];
+    const out: { buyerOrgId: string; key: string; offerId?: string; pinnedPayTo?: string }[] = [];
+    for (const r of rows) {
+      let meta: Record<string, unknown>;
+      try {
+        meta = JSON.parse(String(r.meta_json)) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (meta.sellerOrgId !== sellerOrgId || meta.source !== "abi-directory") continue;
+      const gateway = meta.gateway as { payoutAddress?: unknown } | undefined;
+      out.push({
+        buyerOrgId: String(r.org_id),
+        key: String(r.key),
+        offerId: typeof meta.offerId === "string" ? meta.offerId : undefined,
+        pinnedPayTo: typeof gateway?.payoutAddress === "string" ? gateway.payoutAddress : undefined,
+      });
+    }
+    return out;
   },
 
   recordUnknownSettle(input: {

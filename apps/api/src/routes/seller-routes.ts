@@ -32,7 +32,7 @@ import {
   hostedOfferUrl,
   requirementFor,
 } from "../seller-x402.js";
-import { partnerRoute } from "./partner-auth-routes.js";
+import { checkSecondFactor, partnerRoute } from "./partner-auth-routes.js";
 
 const payoutSchema = z
   .union([
@@ -62,6 +62,9 @@ const sellerProfileSchema = z.object({
   supportEmail: z.union([z.literal(""), z.string().trim().email().max(200)]).optional(),
   /** Required to change an existing payout address. */
   currentPassword: z.string().max(200).optional(),
+  /** Also required for a payout change when the account has MFA on. */
+  code: z.string().max(12).optional(),
+  recoveryCode: z.string().max(40).optional(),
 });
 
 const slugSchema = z
@@ -410,6 +413,27 @@ async function probeOffer(
   return { status: response.status, header: response.headers.get("payment-required"), body };
 }
 
+function notifyConnectedBuyers(
+  sellerOrgId: string,
+  sellerName: string,
+  oldAddress: string | undefined,
+  newAddress: string | undefined,
+): void {
+  for (const c of sellerStore.listBuyerConnections(sellerOrgId)) {
+    emitEvent(c.buyerOrgId, "merchant.payee_changed", {
+      sellerOrgId,
+      sellerName,
+      offerId: c.offerId ?? null,
+      endpointUrl: c.key,
+      pinnedPayTo: c.pinnedPayTo ?? null,
+      oldAddress: oldAddress ?? null,
+      newAddress: newAddress ?? null,
+      action:
+        "Pays to this seller are paused until a guardian reconnects to confirm the new payee.",
+    });
+  }
+}
+
 async function notifyPayoutChange(
   account: PartnerAccountRow,
   orgName: string,
@@ -462,6 +486,18 @@ export function registerSellerRoutes(app: express.Express): void {
             },
           });
         }
+        const factor = checkSecondFactor(account.id, body);
+        if (factor) {
+          return res.status(403).json({
+            error: {
+              ...factor,
+              message:
+                factor.code === "MFA_REQUIRED"
+                  ? "Enter your authenticator code to change where payouts go."
+                  : factor.message,
+            },
+          });
+        }
       }
       try {
         const profile = store.upsertSellerProfile(org.id, {
@@ -487,6 +523,7 @@ export function registerSellerRoutes(app: express.Express): void {
           if (before?.payoutAddress) {
             void notifyPayoutChange(account, org.name, before.payoutAddress, profile.payoutAddress);
           }
+          notifyConnectedBuyers(org.id, org.name, before?.payoutAddress, profile.payoutAddress);
         }
         recordObs({ name: "seller.profile_updated", orgId: org.id });
         res.json({ ok: true, orgId: org.id, profile: sellerProfileView(profile) });

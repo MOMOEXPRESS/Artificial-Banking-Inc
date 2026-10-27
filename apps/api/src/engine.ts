@@ -45,7 +45,7 @@ import { notify } from "./platform/notifier.js";
 import { recordObs } from "./platform/observability.js";
 import { scopedStore, sellerStore, store, type ApprovalRow, type EscrowRow } from "./store.js";
 import { emitEvent } from "./webhooks.js";
-import { ingestSellerPayment, sellerPrePayCheck } from "./seller-ingest.js";
+import { ingestSellerPayment, payeePinProblem, sellerPrePayCheck } from "./seller-ingest.js";
 import { X402_NETWORKS } from "./seller-x402.js";
 
 export const APPROVAL_TTL_MINUTES = Number(process.env.APPROVAL_TTL_MINUTES ?? 10);
@@ -503,6 +503,27 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
             message: `The seller refused this call: ${seller.error.message}`,
             offerId: seller.offer.id,
           },
+        },
+      };
+    }
+    const payee = payeePinProblem(input.destination, input.orgId);
+    if (payee) {
+      const message =
+        "The seller changed where payments go since your org connected. A guardian must reconnect to confirm the new payee before agents pay again.";
+      emitEvent(input.orgId, "payment.failed", {
+        intentId: input.intentId,
+        tool: input.tool,
+        agentId: input.agentId,
+        amountUsdc: input.amountUsdc,
+        destination: input.destination,
+        reason: message,
+      });
+      return {
+        ok: false,
+        status: 409,
+        payload: {
+          intentId: input.intentId,
+          error: { code: "PAYEE_CHANGED", message, ...payee },
         },
       };
     }

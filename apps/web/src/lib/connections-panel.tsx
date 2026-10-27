@@ -86,6 +86,8 @@ export function BusinessConnections({
   const [allowlist, setAllowlist] = useState<string[]>(policy?.vendorAllowlist ?? []);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [purchases, setPurchases] = useState<Record<string, Purchase>>({});
+  /** Payee each connected offer was pinned to, by normalized endpoint URL. */
+  const [pinned, setPinned] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (policy) setAllowlist(policy.vendorAllowlist ?? []);
@@ -100,9 +102,35 @@ export function BusinessConnections({
     }
   }, []);
 
+  const loadPins = useCallback(async () => {
+    const res = await guardian.call("GET", "/v1/guardian/merchants").catch(() => null);
+    if (!res || res.status >= 400) return;
+    const merchants = ((res.data as { merchants?: unknown }).merchants ?? []) as {
+      key: string;
+      meta?: { source?: string; gateway?: { payoutAddress?: unknown } };
+    }[];
+    const next: Record<string, string> = {};
+    for (const m of merchants) {
+      const payTo = m.meta?.gateway?.payoutAddress;
+      if (m.meta?.source === "abi-directory" && typeof payTo === "string") {
+        next[normUrl(m.key)] = payTo;
+      }
+    }
+    setPinned(next);
+  }, [guardian]);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadPins();
+  }, [load, loadPins]);
+
+  const payeeChanged = useCallback(
+    (offer: DirectoryOffer) => {
+      const pin = pinned[normUrl(offer.endpointUrl)];
+      return Boolean(pin && offer.payTo && pin.toLowerCase() !== offer.payTo.toLowerCase());
+    },
+    [pinned],
+  );
 
   const connected = useCallback(
     (offer: DirectoryOffer) => allowlist.map(normUrl).includes(normUrl(offer.endpointUrl)),
@@ -129,43 +157,26 @@ export function BusinessConnections({
     setPurchases((all) => ({ ...all, [offerId]: { ...all[offerId], offerId, ...p } as Purchase }));
 
   async function connect(offer: DirectoryOffer) {
-    if (
-      !window.confirm(
-        `Connect to ${offer.seller.name}?\n\nThis adds ${offer.endpointUrl} to your vendor allowlist so your agents may pay it (${offer.priceUsdc} USDC per call). Your spending caps and approval threshold still apply.`,
-      )
-    )
-      return;
+    const reconfirm = payeeChanged(offer);
+    const prompt = reconfirm
+      ? `${offer.seller.name} changed where payments go.\n\nNew payee: ${offer.payTo}\n\nConfirm only if you trust this change. Your agents pay this address from now on.`
+      : `Connect to ${offer.seller.name}?\n\nThis adds ${offer.endpointUrl} to your vendor allowlist so your agents may pay it (${offer.priceUsdc} USDC per call), always to ${offer.payTo ?? "the seller's wallet"}. Your spending caps and approval threshold still apply.`;
+    if (!window.confirm(prompt)) return;
     setBusyId(offer.id);
     try {
-      const next = [
-        ...allowlist.filter((u) => normUrl(u) !== normUrl(offer.endpointUrl)),
-        offer.endpointUrl,
-      ];
-      const pol = await G.updatePolicy(guardian, { vendorAllowlist: next });
-      if (pol.status >= 400)
-        throw new Error(errMsg(pol.data) || errCode(pol.data) || "Policy update failed");
-      const merchant = await guardian.call("POST", "/v1/guardian/merchants", {
-        key: offer.endpointUrl,
-        label: `${offer.seller.name} · ${offer.title}`,
-        category: offer.category,
-        meta: {
-          source: "abi-directory",
-          offerId: offer.id,
-          sellerOrgId: offer.seller.orgId,
-          payTo: offer.payTo,
-          network: offer.network,
-          priceUsdc: offer.priceUsdc,
-        },
-      });
-      if (merchant.status >= 400) {
-        setToast(
-          `Allowlisted, but the merchant record needs an owner: ${errMsg(merchant.data) || merchant.status}`,
-          "info",
-        );
-      } else {
-        setToast(`Connected to ${offer.seller.name}`, "ok");
+      const res = await guardian.call("POST", "/v1/guardian/connections", { offerId: offer.id });
+      if (res.status >= 400) {
+        throw new Error(errMsg(res.data) || errCode(res.data) || "Could not connect");
       }
-      setAllowlist(next);
+      const data = res.data as { policy?: { vendorAllowlist?: string[] } };
+      if (data.policy?.vendorAllowlist) setAllowlist(data.policy.vendorAllowlist);
+      setToast(
+        reconfirm
+          ? `Confirmed the new payee for ${offer.seller.name}`
+          : `Connected to ${offer.seller.name}`,
+        "ok",
+      );
+      await loadPins();
       onPolicyChanged?.();
     } catch (e) {
       setToast(e instanceof Error ? e.message : String(e), "err");
@@ -177,11 +188,12 @@ export function BusinessConnections({
   async function disconnect(offer: DirectoryOffer) {
     setBusyId(offer.id);
     try {
-      const next = allowlist.filter((u) => normUrl(u) !== normUrl(offer.endpointUrl));
-      const pol = await G.updatePolicy(guardian, { vendorAllowlist: next });
-      if (pol.status >= 400) throw new Error(errMsg(pol.data) || "Policy update failed");
-      setAllowlist(next);
+      const res = await guardian.call("DELETE", `/v1/guardian/connections/${offer.id}`);
+      if (res.status >= 400) throw new Error(errMsg(res.data) || "Could not disconnect");
+      const data = res.data as { policy?: { vendorAllowlist?: string[] } };
+      if (data.policy?.vendorAllowlist) setAllowlist(data.policy.vendorAllowlist);
       setToast(`Disconnected from ${offer.seller.name}`, "ok");
+      await loadPins();
       onPolicyChanged?.();
     } catch (e) {
       setToast(e instanceof Error ? e.message : String(e), "err");
@@ -379,7 +391,28 @@ export function BusinessConnections({
                           flexWrap: "wrap",
                         }}
                       >
-                        {isConnected ? (
+                        {isConnected && payeeChanged(o) ? (
+                          <>
+                            <span className="pill warn" title={`Now ${o.payTo}`}>
+                              <i /> payee changed
+                            </span>
+                            <Button
+                              size="sm"
+                              disabled={readOnly || busyId === o.id}
+                              onClick={() => void connect(o)}
+                            >
+                              {busyId === o.id ? "Confirming…" : "Review new payee"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={readOnly || busyId === o.id}
+                              onClick={() => void disconnect(o)}
+                            >
+                              Disconnect
+                            </Button>
+                          </>
+                        ) : isConnected ? (
                           <>
                             <span className="pill ok">
                               <i /> connected
