@@ -6679,10 +6679,22 @@ function normalizeEndpointUrl(url: string): string {
 }
 
 export const sellerStore = {
-  /** Offers whose endpoint matches a buyer pay destination (exact URL, normalized). */
+  /**
+   * Offers that own a buyer pay destination (exact URL, normalized). Only an
+   * offer whose endpoint passed verify at its current terms counts: an unverified
+   * listing must never pause, gate or redirect payments to someone else's URL.
+   */
   findOffersByEndpoint(endpointUrl: string): OfferRow[] {
     const target = normalizeEndpointUrl(endpointUrl);
-    return (db.prepare("SELECT * FROM offers WHERE status != 'draft'").all() as Row[])
+    return (
+      db
+        .prepare(
+          `SELECT o.* FROM offers o
+           JOIN offer_integrations i ON i.offer_id = o.id
+           WHERE o.status IN ('verified', 'published', 'paused') AND i.last_verified_at IS NOT NULL`,
+        )
+        .all() as Row[]
+    )
       .map(rowToOffer)
       .filter((o) => normalizeEndpointUrl(o.endpointUrl) === target);
   },
@@ -7118,7 +7130,7 @@ export const sellerStore = {
   /** Other sellers' live offers on the same endpoint — a URL can only pay one seller. */
   endpointClaims(endpointUrl: string, exceptOrgId: string): OfferRow[] {
     return this.findOffersByEndpoint(endpointUrl).filter(
-      (o) => o.orgId !== exceptOrgId && o.status !== "draft" && !o.archivedAt,
+      (o) => o.orgId !== exceptOrgId && !o.archivedAt,
     );
   },
 

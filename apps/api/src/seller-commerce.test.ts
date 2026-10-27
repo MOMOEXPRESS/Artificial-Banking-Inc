@@ -339,6 +339,34 @@ describe("buyer to seller through the hosted x402 route", () => {
     }
   });
 
+  it("never lets an unverified listing pause or take over someone else's URL", async () => {
+    const victim = await signup("victim@example.com", "Victim Co");
+    const offer = await hostedOffer(victim, "victim-brief", "victim content");
+    const { agent } = buyerFor(offer.endpointUrl, "Victim Buyer");
+
+    const attacker = await signup("squatter@example.com", "Squatter Co");
+    await call(attacker, "PATCH", "/v1/seller/profile", { payoutAddress: PAYOUT_2 });
+    const created = await call(attacker, "POST", "/v1/seller/offers", {
+      slug: "squat",
+      title: "Squat",
+      endpointUrl: offer.endpointUrl,
+      priceUsdc: "0.05",
+    });
+    assert.equal(created.status, 201, await created.clone().text());
+    const { offer: squat } = (await created.json()) as { offer: OfferJson };
+    const pause = await call(attacker, "PATCH", `/v1/seller/offers/${squat.id}`, {
+      status: "paused",
+    });
+    assert.equal(pause.status, 400);
+    assert.equal(((await pause.json()) as { error: { code: string } }).error.code, "NOT_VERIFIED");
+
+    // Even a paused row without a passing verify (an older build allowed it) owns nothing.
+    store.updateOffer(attacker.orgId, squat.id, { status: "paused" });
+    assert.equal(sellerStore.resolveOfferForPay(offer.endpointUrl)?.id, offer.id);
+    assert.deepEqual(sellerStore.endpointClaims(offer.endpointUrl, victim.orgId), []);
+    assert.equal((await payApi(agent.apiKey, offer.endpointUrl, "commerce-squat-1")).status, 200);
+  });
+
   it("itemizes statements per offer with a CSV of on-chain settlements", async () => {
     const s = await signup("statement@example.com", "Statement Co");
     const offer = await hostedOffer(s, "statement-brief", "statement");

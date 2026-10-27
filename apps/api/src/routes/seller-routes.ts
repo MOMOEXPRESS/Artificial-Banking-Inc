@@ -587,6 +587,19 @@ export function registerSellerRoutes(app: express.Express): void {
         }
         priceUsdcMicro = price;
       }
+      if (
+        body.status === "paused" &&
+        existing.status !== "verified" &&
+        existing.status !== "published" &&
+        existing.status !== "paused"
+      ) {
+        return res.status(400).json({
+          error: {
+            code: "NOT_VERIFIED",
+            message: "Only a verified or published offer can be paused. Verify it first.",
+          },
+        });
+      }
       if (existing.hosted && body.endpointUrl !== undefined) {
         return res.status(400).json({
           error: {
