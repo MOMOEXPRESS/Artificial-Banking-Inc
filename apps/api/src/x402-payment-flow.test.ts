@@ -129,6 +129,7 @@ it("replays one x402 settlement without a second seller request or ledger postin
     priceUsdcMicro: "10000",
     network: "base-sepolia",
   });
+  store.setOfferIntegration(offer.id, { lastVerifiedAt: new Date().toISOString() });
   store.updateOffer(sellerOrg.id, offer.id, { status: "published" });
   const policy = store.getPolicyTemplate(org.id);
   store.setPolicyTemplate(org.id, {
