@@ -1,0 +1,167 @@
+/*
+ * Refinement layer — loaded last so it wins over the historical sections in
+ * globals.css without !important. Keep rules token-driven and scoped; when a
+ * rule here fully replaces an older one, delete the older one instead.
+ */
+
+/* ------------------------------------------------------------ links */
+
+/* Inline links in running text were browser-default blue. */
+p a:not([class]),
+td a:not([class]),
+.marketing-footer-legal a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.12s ease;
+}
+p a:not([class]):hover,
+td a:not([class]):hover,
+.marketing-footer-legal a:hover {
+  text-decoration-color: currentColor;
+}
+
+/* ------------------------------------------------------------ buttons */
+
+/* Disabled controls read as unavailable, not as a washed-out primary. */
+button:disabled:not(.bare):not([role="tab"]) {
+  opacity: 1;
+  background: var(--color-surface-3);
+  color: var(--color-fg-faint);
+  border-color: var(--color-border-soft);
+  box-shadow: none;
+}
+
+/* Marketing CTAs: flat, no lift. Depth comes from contrast, not shadow. */
+.btn-primary,
+.btn-primary:hover,
+.btn-ghost,
+.btn-ghost:hover {
+  box-shadow: none;
+  transform: none;
+}
+
+/* ------------------------------------------------------------ figures */
+
+/*
+ * Money is set in the sans face with tabular figures so columns align,
+ * matching how ledgers and bank statements render amounts. The mono face
+ * stays for identifiers (addresses, IDs, code).
+ */
+.kpi .value,
+.console-page .kpi .value,
+.approval-workspace .kpi .value,
+.ops-primary-balance strong,
+.ops-balance-metric b,
+.metric-value,
+.ops-spending-total b,
+.vault-total-value {
+  font-family: var(--font-sans-stack);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------ console header */
+
+/* One compact, left-aligned section header across every console view. */
+.console-section-intro {
+  max-width: none;
+  margin: 0 0 20px;
+  padding: 24px 0 16px;
+  align-items: center;
+}
+.console-section-intro::after {
+  content: none;
+}
+.console-section-copy p {
+  font-size: 13.5px;
+  color: var(--color-fg-muted);
+}
+.console-section-context span {
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: 0;
+}
+
+.ops-page-intro {
+  align-items: center;
+  padding-bottom: 20px;
+}
+.ops-page-intro p {
+  margin-top: 0;
+}
+
+/* Command palette trigger: the icon is absolutely positioned at 13px. */
+.search-btn {
+  padding-left: 36px;
+}
+
+/* Decorative blob behind the vault balance. */
+.vault-balance-panel::before {
+  content: none;
+}
+
+/* ------------------------------------------------------------ marketing */
+
+/*
+ * The footer is always a dark band, but inherited light-theme tokens made its
+ * copy #3d414b on #0c0c0e (~1.9:1). Re-scope the tokens to the band.
+ */
+.marketing-footer {
+  --color-fg: #f4f4f6;
+  --color-fg-secondary: #b4b4be;
+  --color-fg-muted: #9a9aa5;
+  --color-fg-faint: #8a8a95;
+}
+.marketing-footer-legal a {
+  color: var(--color-fg-secondary);
+}
+.marketing-footer-legal a:hover {
+  color: var(--color-fg);
+}
+
+/* Row headers are data, not column labels. */
+tbody th[scope="row"] {
+  padding: 11px 12px;
+  border-top: 1px solid var(--color-border-soft);
+  color: var(--color-ink, var(--color-fg));
+  font-size: 13px;
+  font-weight: 550;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: normal;
+}
+
+.mkt-prose .btn-primary {
+  margin-top: 8px;
+}
+.mkt-prose section + h3,
+.mkt-prose section + section {
+  margin-top: 44px;
+}
+.mkt-card-row {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+/* ------------------------------------------------------------ auth */
+
+/* The drop shadow on the transparent lockup rendered as a dark box. */
+.login-brand-beat {
+  filter: none;
+}
+button.login-forgot-link {
+  align-self: flex-start;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.mkt-compare {
+  margin-top: 56px;
+}

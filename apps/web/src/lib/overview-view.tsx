@@ -140,8 +140,6 @@ export function Overview({
     <div className={`ops-overview ${attentionItems.length ? "has-priority" : "is-clear"}`}>
       <section className="ops-page-intro">
         <div>
-          <div className="ops-eyebrow">Financial control center</div>
-          <h2>Keep every agent inside policy.</h2>
           <p>
             Monitor balances, resolve exceptions, and review every financial decision from one
             place.

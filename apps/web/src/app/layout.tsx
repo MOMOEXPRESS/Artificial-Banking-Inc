@@ -3,6 +3,7 @@ import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import { AppProviders } from "../lib/providers";
 import "./globals.css";
 import "./controls.css";
+import "./refinements.css";
 
 const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
@@ -13,7 +14,7 @@ const plexSans = IBM_Plex_Sans({
 
 const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
-  weight: ["400", "500"],
+  weight: ["400", "500", "600"],
   variable: "--font-mono",
   display: "swap",
 });

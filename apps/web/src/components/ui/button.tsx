@@ -11,7 +11,7 @@ const buttonVariants = cva(
         default:
           "rounded-[var(--radius-sm)] bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] border border-transparent",
         secondary:
-          "rounded-[var(--radius-sm)] bg-[var(--color-seg-active-bg)] text-[var(--color-seg-active-fg)] border border-transparent hover:brightness-95",
+          "rounded-[var(--radius-sm)] bg-[var(--color-surface-solid)] text-[var(--color-fg)] border border-solid border-[var(--color-border-strong)] hover:bg-[var(--color-surface-hover)]",
         ghost:
           "rounded-[var(--radius-sm)] bg-[var(--color-surface-3)] text-[var(--color-fg)] border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]",
         outline:
