@@ -425,7 +425,7 @@ export default function PartnerLoginPage() {
                 {mode === "signin" && (
                   <button
                     type="button"
-                    className="bare"
+                    className="bare login-forgot-link"
                     style={{ fontSize: 12, marginTop: 6 }}
                     disabled={busy}
                     onClick={() => {
