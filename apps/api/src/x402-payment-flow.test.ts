@@ -37,6 +37,7 @@ let buyerBase = "";
 let sellerBase = "";
 
 let redirectTargetHits = 0;
+let failAfterSignPaidRequests = 0;
 const seller = createServer((req, res) => {
   // Redirect fixtures: the Location must never be requested.
   if (req.url === "/redirect-target") {
@@ -53,7 +54,14 @@ const seller = createServer((req, res) => {
     res.writeHead(307, { location: `${sellerBase}/redirect-target` }).end();
     return;
   }
-  if (req.url !== "/report" && req.url !== "/wrong-token" && !paidRedirect) {
+  const failAfterSign = req.url === "/fail-after-sign";
+  if (failAfterSign && req.headers["payment-signature"]) {
+    // The seller holds a valid signed authorization it may still settle.
+    failAfterSignPaidRequests++;
+    res.writeHead(500).end("internal error after signing");
+    return;
+  }
+  if (req.url !== "/report" && req.url !== "/wrong-token" && !paidRedirect && !failAfterSign) {
     res.writeHead(404).end();
     return;
   }
@@ -376,4 +384,55 @@ it("merchant verification refuses a redirecting endpoint", async () => {
   });
   assert.notEqual(verify.status, 200);
   assert.equal(redirectTargetHits, 0);
+});
+
+it("keeps the idempotency key once an authorization is signed, even if the seller returns 500", async () => {
+  const destination = `${sellerBase}/fail-after-sign`;
+  const { org, agent } = fundedOrgFor([destination], "Fail After Sign Co");
+  failAfterSignPaidRequests = 0;
+  const request = () =>
+    fetch(`${buyerBase}/v1/agent/pay_api`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${agent.apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ amountUsdc: "0.01", destination, idempotencyKey: "fail-after-sign" }),
+    });
+
+  const first = await request();
+  assert.notEqual(first.status, 200);
+  const firstBody = (await first.json()) as { intentId: string; error: { code: string } };
+  assert.equal(firstBody.error.code, "SELLER_REJECTED");
+  assert.equal(store.getSettlement(firstBody.intentId)?.state, "needs_review");
+
+  const retry = await request();
+  assert.equal(retry.status, first.status, "the retry replays the original failure");
+  const retryBody = (await retry.json()) as { replayed?: boolean; intentId: string };
+  assert.equal(retryBody.replayed, true);
+  assert.equal(retryBody.intentId, firstBody.intentId);
+  assert.equal(failAfterSignPaidRequests, 1, "one key must never sign a second payment");
+
+  const budgetId = store.getAgentAnyOrg(agent.agentId)?.budgetId;
+  const balances = store.getAccountMap(org.id);
+  assert.equal(balances.get(`dept:${budgetId}:held`)?.balanceMicro, 10_000n);
+  assert.equal(store.reconcileOrgUncached(org.id).ok, true);
+});
+
+it("frees the idempotency key when the payment fails before anything is signed", async () => {
+  const destination = `${sellerBase}/wrong-token`;
+  const { agent } = fundedOrgFor([destination], "Refused Before Sign Co");
+  const request = () =>
+    fetch(`${buyerBase}/v1/agent/pay_api`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${agent.apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ amountUsdc: "0.01", destination, idempotencyKey: "refused-pre-sign" }),
+    });
+
+  const first = await request();
+  assert.notEqual(first.status, 200);
+  const firstBody = (await first.json()) as { intentId: string };
+  assert.equal(store.getSettlement(firstBody.intentId)?.state, "failed");
+
+  const retry = await request();
+  const retryBody = (await retry.json()) as { replayed?: boolean; intentId: string };
+  assert.notEqual(retryBody.replayed, true, "a clean failure may be genuinely retried");
+  assert.notEqual(retryBody.intentId, firstBody.intentId);
 });

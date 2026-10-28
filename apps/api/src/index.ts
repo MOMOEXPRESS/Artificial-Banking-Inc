@@ -977,8 +977,16 @@ async function handleIntent(
     store.setIdempotent(input.orgId, idemKey, { ...payload, httpStatus: 200 });
     return res.json(payload);
   }
-  // A rail failure is transient — free the key so the caller may genuinely retry.
-  store.releaseIdempotent(input.orgId, idemKey);
+  // Free the key only when nothing irreversible happened. Once an x402
+  // authorization is signed (or a rail moved money the ledger could not book),
+  // the seller can still settle it, so a retry under the same key would sign a
+  // second payment. Keep the key and replay this failure instead.
+  const attempt = store.getSettlement(intentId);
+  if (!attempt || attempt.state === "failed") {
+    store.releaseIdempotent(input.orgId, idemKey);
+  } else {
+    store.setIdempotent(input.orgId, idemKey, { ...result.payload, httpStatus: result.status });
+  }
   return res.status(result.status).json(result.payload);
 }
 
