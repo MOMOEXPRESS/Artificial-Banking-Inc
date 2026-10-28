@@ -13,7 +13,22 @@ import { randomBytes } from "node:crypto";
 import type express from "express";
 
 export const SESSION_COOKIE = "abi_session";
-export const SESSION_TTL_MS = Number(process.env.ABI_SESSION_TTL_HOURS ?? 12) * 3600_000;
+/**
+ * Console session lifetime, parsed once at import.
+ *
+ * Falls back to 12h on anything that is not a positive finite number. An empty
+ * or mistyped dashboard value must never silently produce 0 (every session
+ * instantly expired — login 200s then every call 401s) or NaN (login 500s when
+ * the expiry date is serialised).
+ */
+function resolveSessionTtlMs(): number {
+  const raw = process.env.ABI_SESSION_TTL_HOURS ?? "12";
+  const hours = Number(raw);
+  if (!Number.isFinite(hours) || hours <= 0) return 12 * 3600_000;
+  return hours * 3600_000;
+}
+export { resolveSessionTtlMs };
+export const SESSION_TTL_MS = resolveSessionTtlMs();
 
 /** CSRF companion: readable by JS so the client can echo it in a header. */
 export const CSRF_COOKIE = "abi_csrf";
