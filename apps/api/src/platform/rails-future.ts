@@ -40,7 +40,6 @@ export function ap2MandateToPolicyHints(mandate: Ap2Mandate): {
   };
 }
 
-
 /**
  * AP2 mandate verification is not implemented, so every mandate is refused
  * (fail closed). A real implementation must verify the mandate's signature

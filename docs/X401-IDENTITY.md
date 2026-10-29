@@ -7,16 +7,16 @@ payment.
 
 ## Sources (pinned)
 
-| What | Version | Link |
-| --- | --- | --- |
-| x401 specification | 0.2.0 (Draft) | https://x401.proof.com/spec/latest/ · https://github.com/proof/x401/blob/7e864af/spec.md (main @ 7e864af, 2026-09-30) |
-| Proof developer docs | n/a | https://dev.proof.com/docs/x401 |
-| `@proof.com/x401-node` | 0.3.3 | https://www.npmjs.com/package/@proof.com/x401-node |
-| `@proof.com/proof-vc-server` | 0.7.0 | https://www.npmjs.com/package/@proof.com/proof-vc-server |
-| `@proof.com/proof-vc-common` | 0.7.0 | https://www.npmjs.com/package/@proof.com/proof-vc-common |
-| `@proof.com/x401-workers` | 0.2.0 | https://www.npmjs.com/package/@proof.com/x401-workers |
-| SD-JWT | RFC 9901 | https://www.rfc-editor.org/rfc/rfc9901 |
-| OpenID4VP | 1.0 | https://openid.net/specs/openid-4-verifiable-presentations-1_0.html |
+| What                         | Version       | Link                                                                                                                  |
+| ---------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------- |
+| x401 specification           | 0.2.0 (Draft) | https://x401.proof.com/spec/latest/ · https://github.com/proof/x401/blob/7e864af/spec.md (main @ 7e864af, 2026-09-30) |
+| Proof developer docs         | n/a           | https://dev.proof.com/docs/x401                                                                                       |
+| `@proof.com/x401-node`       | 0.3.3         | https://www.npmjs.com/package/@proof.com/x401-node                                                                    |
+| `@proof.com/proof-vc-server` | 0.7.0         | https://www.npmjs.com/package/@proof.com/proof-vc-server                                                              |
+| `@proof.com/proof-vc-common` | 0.7.0         | https://www.npmjs.com/package/@proof.com/proof-vc-common                                                              |
+| `@proof.com/x401-workers`    | 0.2.0         | https://www.npmjs.com/package/@proof.com/x401-workers                                                                 |
+| SD-JWT                       | RFC 9901      | https://www.rfc-editor.org/rfc/rfc9901                                                                                |
+| OpenID4VP                    | 1.0           | https://openid.net/specs/openid-4-verifiable-presentations-1_0.html                                                   |
 
 The Proof SDKs were read, not installed: ABI adds **no new dependencies**. The
 verifier is written against the standards above with `node:crypto` and WebCrypto.
@@ -38,7 +38,7 @@ verifier is written against the standards above with `node:crypto` and WebCrypto
    replayed proof returns 401/400 with a `PROOF-RESULT` Error Object, and
    nothing is verified, settled or served.
 4. The 200 body gains `identity: { verified, protocol: "x401", issuer,
-   credentialType, proves }` where `proves` is always
+credentialType, proves }` where `proves` is always
    `{ issuerAttestedClaims: true, humanDelegation: false, paymentAuthorization: false }`.
    Disclosed claims are not returned, logged or stored. The audit table holds
    outcome, error code, issuer, vct and a hash of the holder key thumbprint.
@@ -63,18 +63,18 @@ from origins not in `X401_RESULT_URI_ORIGINS` (SSRF guard), and missing config.
 
 ## Configuration (Worker vars / secrets)
 
-| Var | Required | Notes |
-| --- | --- | --- |
-| `X401_ENABLED` | yes | `1` to turn on |
-| `X401_ENVIRONMENT` | no | `sandbox` (default) or `production` |
-| `X401_CLIENT_ID` | yes | https URL of ABI's CIMD, e.g. `https://<api-host>/.well-known/abi-x401-client.json` (served by ABI when the path matches) |
-| `X401_CLIENT_NAME` | no | default `ABI` |
-| `X401_SIGNING_JWK` | yes, **secret** | P-256 private JWK for request objects. Set with `wrangler secret put`; never commit |
-| `X401_SCOPE` | no | default `urn:proof:params:scope:verifiable-credentials:basic` |
-| `X401_TRUSTED_ISSUERS` | yes | JSON `[{"id","issuer","anchorsPem":[...],"vcts":[...]}]`. For Proof: `issuer` `https://api.fairfax.proof.com` (sandbox) or `https://api.proof.com`, `vcts` `["https://credentials.notarize.com/ProofCredentialV1"]`, anchors = Proof's root CA PEM (Development root for sandbox, Proof Root CA R1 for production) obtained from Proof and checked out-of-band |
-| `X401_EXPECTED_ORIGINS`, `X401_REQUEST_AUDIENCE` | no | default to Proof's values for the environment |
-| `X401_RESULT_URI_ORIGINS` | no | empty = by-reference results refused |
-| `X401_CHALLENGE_TTL_SECONDS` / `X401_KB_MAX_AGE_SECONDS` / `X401_CLOCK_SKEW_SECONDS` | no | 300 / 300 / 60 |
+| Var                                                                                  | Required        | Notes                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `X401_ENABLED`                                                                       | yes             | `1` to turn on                                                                                                                                                                                                                                                                                                                                                 |
+| `X401_ENVIRONMENT`                                                                   | no              | `sandbox` (default) or `production`                                                                                                                                                                                                                                                                                                                            |
+| `X401_CLIENT_ID`                                                                     | yes             | https URL of ABI's CIMD, e.g. `https://<api-host>/.well-known/abi-x401-client.json` (served by ABI when the path matches)                                                                                                                                                                                                                                      |
+| `X401_CLIENT_NAME`                                                                   | no              | default `ABI`                                                                                                                                                                                                                                                                                                                                                  |
+| `X401_SIGNING_JWK`                                                                   | yes, **secret** | P-256 private JWK for request objects. Set with `wrangler secret put`; never commit                                                                                                                                                                                                                                                                            |
+| `X401_SCOPE`                                                                         | no              | default `urn:proof:params:scope:verifiable-credentials:basic`                                                                                                                                                                                                                                                                                                  |
+| `X401_TRUSTED_ISSUERS`                                                               | yes             | JSON `[{"id","issuer","anchorsPem":[...],"vcts":[...]}]`. For Proof: `issuer` `https://api.fairfax.proof.com` (sandbox) or `https://api.proof.com`, `vcts` `["https://credentials.notarize.com/ProofCredentialV1"]`, anchors = Proof's root CA PEM (Development root for sandbox, Proof Root CA R1 for production) obtained from Proof and checked out-of-band |
+| `X401_EXPECTED_ORIGINS`, `X401_REQUEST_AUDIENCE`                                     | no              | default to Proof's values for the environment                                                                                                                                                                                                                                                                                                                  |
+| `X401_RESULT_URI_ORIGINS`                                                            | no              | empty = by-reference results refused                                                                                                                                                                                                                                                                                                                           |
+| `X401_CHALLENGE_TTL_SECONDS` / `X401_KB_MAX_AGE_SECONDS` / `X401_CLOCK_SKEW_SECONDS` | no              | 300 / 300 / 60                                                                                                                                                                                                                                                                                                                                                 |
 
 Migration: automatic and additive on start (`store.ts` `migrate()`):
 `offers.identity_requirement TEXT NOT NULL DEFAULT 'none'`, new tables
