@@ -20,7 +20,12 @@ import { okJson } from "./api-response";
 import { deriveVaultStatus, stripChips } from "./vault-status";
 import { VaultStatusStrip } from "./vault-status-strip";
 import { VaultBankCard } from "./vault-bank-card";
-import { assetDepositAddress } from "./vault-card-format";
+import {
+  assetInputDecimals,
+  gasStatusLine,
+  receiveAddressFor,
+  type WalletProfile,
+} from "./wallet-profile";
 import { holdingNetwork, networkLabel } from "./network-names";
 import { AmountStepper } from "@/components/ui/amount-stepper";
 
@@ -227,6 +232,11 @@ export function TreasuryView({
    * is not permission to invent numbers where coverage exists.
    */
   const usdcLive = ledgerMode === "live" && assetIsChainBacked;
+  /** Source of truth for address, network, gas and send support (GET /v1/guardian/wallet). */
+  const [walletProfile, setWalletProfile] = useState<WalletProfile | null>(null);
+  const sendSupport = walletProfile?.assets.find((a) => a.assetId === assetId)?.send;
+  const sendDisabledReason = sendSupport?.mode === "unsupported" ? sendSupport.reason : null;
+  const amountDecimals = assetInputDecimals(walletProfile, assetId);
   const [onchain, setOnchain] = useState<{
     ok: boolean;
     error?: string;
@@ -326,10 +336,12 @@ export function TreasuryView({
   const refreshOnchain = useCallback(async () => {
     setOnchainBusy(true);
     try {
-      const [d, act] = await Promise.all([
+      const [d, act, wp] = await Promise.all([
         gFetch("/v1/guardian/treasury/onchain").then(okJson),
         gFetch("/v1/guardian/treasury/vault-activity").then(okJson),
+        gFetch("/v1/guardian/wallet").then(okJson),
       ]);
+      if (wp?.network) setWalletProfile(wp as WalletProfile);
       if (!d) {
         setOnchain({ ok: false, error: "Chain read unavailable (API busy) — retry shortly" });
         return null;
@@ -470,7 +482,9 @@ export function TreasuryView({
       : holdingBalance(activeHolding);
   const activeBalanceNumber = Number(activeBalance);
   /** Card number: the selected asset's deposit address (null → "No address for this asset"). */
-  const cardAddress = assetDepositAddress(activeHolding, vault);
+  // Only a verified receiving address is ever offered for copy.
+  const cardAddress = receiveAddressFor(walletProfile, activeHolding?.id ?? assetId);
+  const gasLine = gasStatusLine(walletProfile);
   useEffect(() => setCopied(false), [assetId]);
   const vaultStatus = deriveVaultStatus({
     assetId: activeHolding?.id ?? assetId,
@@ -607,6 +621,9 @@ export function TreasuryView({
                 address={cardAddress}
                 assetSymbol={activeHolding?.symbol ?? "USDC"}
                 networkLabel={holdingNetwork(activeHolding)}
+                chainId={walletProfile?.network.chainId}
+                gasLine={gasLine}
+                simulated={walletProfile?.balancesSimulated ?? ledgerMode === "sandbox"}
                 orgName={wallets?.org?.name}
                 copied={copied}
                 onCopy={() => void copyAddress(cardAddress)}
@@ -757,9 +774,9 @@ export function TreasuryView({
               if (list.length === 0) {
                 return (
                   <p className="faint" style={{ fontSize: 12.5, lineHeight: 1.55 }}>
-                    No history yet for this asset. For USDC: send Base Sepolia USDC to the vault
-                    address, then Sync deposits. For BTC/ETH/others: use Receive below to record a
-                    holding.
+                    No history yet for this asset. For USDC, EURC or ETH: send it on Base Sepolia
+                    (chain 84532) to the receiving address above, then Sync deposits. BTC/SOL have
+                    no chain adapter and are recorded by hand.
                   </p>
                 );
               }
@@ -848,8 +865,8 @@ export function TreasuryView({
                           await refreshOnchain();
                           depositForm.reset({ amountUsdc: "100" });
                           return j.simulated
-                            ? `Recorded a simulated ${j.amountUsdc} ${j.symbol ?? "USDC"} deposit — not backed by vault funds.`
-                            : `Received ${j.amountUsdc} ${j.symbol ?? "USDC"} into the vault.`;
+                            ? `Added a simulated ${j.amountUsdc} ${j.symbol ?? "USDC"} sandbox balance — nothing was deposited on-chain.`
+                            : `Recorded ${j.amountUsdc} ${j.symbol ?? "USDC"} by hand — not an on-chain deposit.`;
                         }),
                     )}
                   >
@@ -859,7 +876,8 @@ export function TreasuryView({
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>
-                            Receive ({holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
+                            {ledgerMode === "sandbox" ? "Add simulated balance" : "Record by hand"}{" "}
+                            ({holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
                           </FormLabel>
                           <FormControl>
                             <AmountStepper
@@ -874,7 +892,7 @@ export function TreasuryView({
                               placeholder="100"
                               unit={holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"}
                               dollar={false}
-                              decimals={6}
+                              decimals={amountDecimals}
                             />
                           </FormControl>
                           <FormMessage />
@@ -882,8 +900,13 @@ export function TreasuryView({
                       )}
                     />
                     <Button type="submit" size="sm" disabled={locked}>
-                      <Icon name="plus" size={13} /> Receive
+                      <Icon name="plus" size={13} />{" "}
+                      {ledgerMode === "sandbox" ? "Add simulated balance" : "Record"}
                     </Button>
+                    <p className="faint" style={{ fontSize: 11.5, margin: 0 }}>
+                      Not an on-chain deposit. Real funds arrive only by sending to the receiving
+                      address above.
+                    </p>
                   </form>
                 </Form>
               )}
@@ -938,7 +961,7 @@ export function TreasuryView({
                             placeholder="10"
                             unit={holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"}
                             dollar={false}
-                            decimals={6}
+                            decimals={amountDecimals}
                           />
                         </FormControl>
                         <FormMessage />
@@ -963,8 +986,19 @@ export function TreasuryView({
                       </FormItem>
                     )}
                   />
-                  <Button type="submit" size="sm" variant="ghost" disabled={locked}>
-                    <Icon name="send" size={13} /> Send
+                  {sendDisabledReason ? (
+                    <p className="faint" role="note" style={{ fontSize: 12, margin: 0 }}>
+                      {sendDisabledReason}
+                    </p>
+                  ) : null}
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="ghost"
+                    disabled={locked || Boolean(sendDisabledReason)}
+                  >
+                    <Icon name="send" size={13} />{" "}
+                    {sendSupport?.mode === "simulated" ? "Send (simulated)" : "Send"}
                   </Button>
                 </form>
               </Form>

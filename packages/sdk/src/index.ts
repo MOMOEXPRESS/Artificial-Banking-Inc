@@ -12,7 +12,11 @@ export type AgentErrorCode =
   | "UNAUTHORIZED"
   | "VALIDATION_ERROR"
   | "COMPLIANCE_BLOCKED"
-  | "CUSTODY_UNAVAILABLE";
+  | "CUSTODY_UNAVAILABLE"
+  | "INSUFFICIENT_ONCHAIN_USDC"
+  | "INSUFFICIENT_GAS"
+  /** Funds may have moved; the outcome is being reconciled. Do not resubmit. */
+  | "SETTLEMENT_UNCERTAIN";
 
 export interface PolicyVaultClientOptions {
   baseUrl: string;

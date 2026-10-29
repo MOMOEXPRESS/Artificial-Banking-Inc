@@ -13,6 +13,7 @@ import {
   type WalletScope,
 } from "@policyvault/common";
 import { transferAvailable, type LedgerAccountKind } from "@policyvault/ledger";
+import { getCustodyProvider } from "@policyvault/custody";
 import type express from "express";
 import { z } from "zod";
 import { id } from "../engine.js";
@@ -31,6 +32,8 @@ import { readVaultOnchain } from "../chain/deposits.js";
 import { reconcileOrgOnchain } from "../treasury-backing.js";
 import { assetBacking, readAssetsOnchain } from "../chain/asset-adapters.js";
 import { transferUsdcFromVault, VaultTransferError } from "../chain/transfer.js";
+import { withVaultLock } from "../chain/vault-queue.js";
+import { assetSendSupport, buildWalletProfile } from "../chain/wallet-profile.js";
 import { guardTreasuryWithdraw, type TreasuryGuardDenial } from "../treasury-guard.js";
 import { treasuryApprovalThresholdMicro, treasuryThresholdOutcome } from "../treasury-threshold.js";
 
@@ -124,14 +127,26 @@ type WithdrawResult = { status: number; body: Record<string, unknown> };
  * immediate withdrawal and by a parked one that guardians just approved, so
  * both go through exactly the same checks.
  */
-async function performUsdcWithdraw(input: {
+type UsdcWithdrawInput = {
   org: OrgRow;
   actor: string;
   amount: bigint;
   amountUsdc: string;
   destination?: string;
   memo?: string;
-}): Promise<WithdrawResult> {
+};
+
+/**
+ * One withdrawal per org at a time. The balance check, the broadcast and the
+ * booking span several awaits; two concurrent requests could both pass the
+ * check and both broadcast while only one could be booked. Serialising keeps
+ * check-then-send atomic per org.
+ */
+async function performUsdcWithdraw(input: UsdcWithdrawInput): Promise<WithdrawResult> {
+  return withVaultLock(`withdraw:${input.org.id}`, () => performUsdcWithdrawLocked(input));
+}
+
+async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<WithdrawResult> {
   const { org, actor, amount, destination } = input;
   const assetId = USDC_ASSET_ID;
   const orgAvail = accountId("org", org.id);
@@ -166,6 +181,8 @@ async function performUsdcWithdraw(input: {
   }
   let transfer: Awaited<ReturnType<typeof transferUsdcFromVault>> | undefined;
   if (live && destination) {
+    const intentId = guard.intentId;
+    let broadcastHash: string | undefined;
     try {
       // Broadcast first. Booking the outflow before the chain accepts it
       // is how a ledger ends up claiming a payment that never happened.
@@ -173,9 +190,54 @@ async function performUsdcWithdraw(input: {
         orgId: org.id,
         to: destination,
         amountMicro: amount,
+        onBroadcast: (txHash) => {
+          broadcastHash = txHash;
+          // Durable before the receipt wait, so the recovery sweep can find it.
+          store.beginSettlement({
+            intentId,
+            orgId: org.id,
+            agentId: `guardian:${actor}`,
+            tool: "treasury_withdraw",
+            destination,
+            amountMicro: amount,
+          });
+          store.markSettlementBroadcast(intentId, "evm-usdc-transfer", txHash);
+        },
       });
     } catch (e) {
       const code = e instanceof VaultTransferError ? e.code : "TRANSFER_FAILED";
+      const message = e instanceof Error ? e.message : String(e);
+      if (broadcastHash) {
+        // A transaction exists. It may confirm later (timeout) or may have
+        // reverted; either way a clean "failed" would invite a second send.
+        // Count it against the caps and leave it for reconciliation.
+        guard.commit();
+        store.finishSettlement(intentId, {
+          state: "needs_review",
+          error: message,
+          rail: "evm-usdc-transfer",
+          txHash: broadcastHash,
+        });
+        recordObs({
+          name: "treasury.withdraw.uncertain",
+          orgId: org.id,
+          attrs: { code, amountUsdc: input.amountUsdc, txHash: broadcastHash },
+        });
+        return {
+          status: 409,
+          body: {
+            outcome: "pending_reconciliation",
+            intentId,
+            txHash: broadcastHash,
+            explorerUrl: activeChain().explorerTx(broadcastHash),
+            error: {
+              code: "SETTLEMENT_UNCERTAIN",
+              cause: code,
+              message: `${message} The ledger was not changed; this withdrawal is held for reconciliation. Do not resubmit it.`,
+            },
+          },
+        };
+      }
       guard.fail(e instanceof Error ? e.message : String(e), code);
       recordObs({
         name: "treasury.withdraw.failed",
@@ -900,6 +962,8 @@ export function registerTreasuryRoutes(
           return res.json({
             ok: true,
             simulated: true,
+            onchain: false,
+            note: "Simulated sandbox credit. Nothing was deposited on-chain and the vault balance did not change.",
             amountUsdc: body.amountUsdc,
             assetId,
             symbol: asset.symbol,
@@ -942,6 +1006,10 @@ export function registerTreasuryRoutes(
           assetId,
           symbol: asset.symbol,
           balance: formatAssetAmount(bal, asset.decimals),
+          // A typed-in amount is never an on-chain deposit.
+          simulated: store.getOrgLedgerMode(org.id) === "sandbox",
+          recordedOnly: true,
+          onchain: false,
         });
       },
       { ownerOnly: true },
@@ -1073,6 +1141,19 @@ export function registerTreasuryRoutes(
           return res.status(result.status).json(result.body);
         }
 
+        // No bookkeeping in place of settlement: a live org cannot "send" an
+        // asset that is read from the chain unless a real send rail exists.
+        const sendSupport = assetSendSupport(asset, store.getOrgLedgerMode(org.id));
+        if (sendSupport.mode === "unsupported") {
+          return res.status(409).json({
+            error: {
+              code: "ASSET_SEND_UNSUPPORTED",
+              message: sendSupport.reason,
+              assetId,
+              symbol: asset.symbol,
+            },
+          });
+        }
         let amount: bigint;
         try {
           amount = parseAssetAmount(body.amountUsdc, asset.decimals);
@@ -1118,6 +1199,10 @@ export function registerTreasuryRoutes(
           assetId,
           symbol: asset.symbol,
           balance: formatAssetAmount(bal, asset.decimals),
+          // Nothing was broadcast. Say exactly what happened.
+          sendMode: sendSupport.mode,
+          simulated: sendSupport.mode === "simulated",
+          recordedOnly: true,
         });
       },
       { ownerOnly: true },
@@ -1193,6 +1278,43 @@ export function registerTreasuryRoutes(
           openInvoicesMicro: openInvoices,
         }),
       });
+    }),
+  );
+
+  /**
+   * Wallet source of truth: the verified receiving address, its network and
+   * chain id, native gas (separate from USDC), simulated vs on-chain balances,
+   * and what "send" really does for each asset. See chain/wallet-profile.ts.
+   */
+  app.get(
+    "/v1/guardian/wallet",
+    guardianRoute(async (org, _req, res) => {
+      const address = store.getVaultAddress(org.id);
+      let snap = null;
+      try {
+        snap = await readVaultOnchain(address, { balancesOnly: true });
+      } catch {
+        snap = null;
+      }
+      let custodyProvider: string | null = null;
+      try {
+        custodyProvider = getCustodyProvider().name;
+      } catch {
+        custodyProvider = null;
+      }
+      const profile = buildWalletProfile({
+        orgId: org.id,
+        ledgerMode: store.getOrgLedgerMode(org.id),
+        vaultAddress: address,
+        vaultPrivateKey: store.getVaultPrivateKey(org.id),
+        custodyProvider,
+        assets: store.listAssets(org.id),
+        ledgerAvailableMicro:
+          store.getAccountMap(org.id).get(accountId("org", org.id))?.balanceMicro ?? 0n,
+        unbackedMicro: store.getUnbackedMicro(org.id),
+        snap,
+      });
+      res.json(profile);
     }),
   );
 
