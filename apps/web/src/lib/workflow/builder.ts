@@ -79,7 +79,7 @@ export const CUSTOM_STEP_CATALOG: StepCatalogEntry[] = [
     needsDestination: true,
     spends: true,
     detail:
-      "USDC.transfer from the vault to a 0x address already on your Policy allowlist. Dry run unless real spend is on.",
+      "USDC.transfer from the vault to a 0x address on your Policy allowlist — any wallet, or another ABI account's vault address (not your own). With real spend on it is a real on-chain transfer (Base Sepolia testnet USDC in sandbox too). Dry run unless real spend is on.",
   },
   {
     kind: "x402",

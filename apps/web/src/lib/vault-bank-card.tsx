@@ -109,8 +109,9 @@ export function VaultBankCard({
         ) : null}
         {simulated ? (
           <small className="faint">
-            Sandbox: balances shown above are simulated. Only funds sent to this address on{" "}
-            {networkLabel} are real testnet money.
+            Sandbox: simulated top-ups are counted in the balance but are not on-chain. Funds sent
+            to this address on {networkLabel} are real testnet money, and agent payments to a wallet
+            address spend real testnet USDC from it.
           </small>
         ) : null}
       </div>

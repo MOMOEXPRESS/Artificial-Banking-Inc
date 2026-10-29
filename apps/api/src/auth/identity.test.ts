@@ -738,3 +738,96 @@ describe("password recovery end to end", () => {
     assert.equal((await call("/v1/auth/me", { jar: fresh })).status, 401);
   });
 });
+
+describe("ledger mode switch (testnet)", () => {
+  it("lets an owner move a sandbox signup to live and back; refuses others and outstanding simulated balance", async () => {
+    const { store } = await import("../store.js");
+    const ownerJar = new Jar();
+    const signupRes = await signup(ownerJar, uniqueEmail(), "Mode Co");
+    const orgId = ((await signupRes.res.json()) as { org: { id: string } }).org.id;
+    assert.equal(store.getOrgLedgerMode(orgId), "sandbox", "testnet signups start in sandbox");
+
+    // Anonymous and wrong-org callers are refused.
+    const anon = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
+      method: "POST",
+      body: { mode: "live" },
+    });
+    assert.ok(anon.status === 401 || anon.status === 403);
+    const otherJar = new Jar();
+    await signup(otherJar, uniqueEmail(), "Other Co");
+    const foreign = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
+      method: "POST",
+      jar: otherJar,
+      body: { mode: "live" },
+    });
+    assert.equal(foreign.status, 403);
+
+    const bad = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
+      method: "POST",
+      jar: ownerJar,
+      body: { mode: "mainnet" },
+    });
+    assert.equal(bad.status, 400);
+
+    // Simulated money on the books blocks going live.
+    store.addUnbackedMicro(orgId, 5_000_000n);
+    const blocked = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
+      method: "POST",
+      jar: ownerJar,
+      body: { mode: "live" },
+    });
+    assert.equal(blocked.status, 409);
+    assert.equal(
+      ((await blocked.json()) as { error: { code: string } }).error.code,
+      "SIMULATED_BALANCE_OUTSTANDING",
+    );
+    assert.equal(store.getOrgLedgerMode(orgId), "sandbox");
+    store.addUnbackedMicro(orgId, -5_000_000n);
+
+    const live = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
+      method: "POST",
+      jar: ownerJar,
+      body: { mode: "live" },
+    });
+    assert.equal(live.status, 200);
+    assert.deepEqual(await live.json(), { ok: true, ledgerMode: "live", changed: true });
+    assert.equal(store.getOrgLedgerMode(orgId), "live");
+
+    const back = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
+      method: "POST",
+      jar: ownerJar,
+      body: { mode: "sandbox" },
+    });
+    assert.equal(back.status, 200);
+    assert.equal(store.getOrgLedgerMode(orgId), "sandbox");
+  });
+
+  it("an approver cannot switch the mode", async () => {
+    const { store } = await import("../store.js");
+    const ownerJar = new Jar();
+    const signupRes = await signup(ownerJar, uniqueEmail(), "Mode Roles Co");
+    const orgId = ((await signupRes.res.json()) as { org: { id: string } }).org.id;
+    const email = uniqueEmail();
+    const invite = await call(`/v1/auth/orgs/${orgId}/invitations`, {
+      method: "POST",
+      jar: ownerJar,
+      body: { email, role: "approver" },
+    });
+    const token = ((await invite.json()) as { invitationToken: string }).invitationToken;
+    const jar = new Jar();
+    const joined = await call("/v1/auth/signup", {
+      method: "POST",
+      jar,
+      body: { email, name: "Approver", password: PASSWORD, invitationToken: token },
+    });
+    const dev = ((await joined.json()) as { devVerificationToken?: string }).devVerificationToken;
+    if (dev) await call("/v1/auth/email/verify", { method: "POST", jar, body: { token: dev } });
+    const res = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
+      method: "POST",
+      jar,
+      body: { mode: "live" },
+    });
+    assert.equal(res.status, 403);
+    assert.equal(store.getOrgLedgerMode(orgId), "sandbox");
+  });
+});

@@ -270,11 +270,29 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
     // Live: the transfer already went out, so count it against the cap
     // even though the books could not record it — a human must
     // reconcile. Sandbox: nothing moved.
-    if (live && transfer) guard.commit();
-    else guard.fail(e instanceof Error ? e.message : String(e), "LEDGER_WRITE_FAILED");
+    if (live && transfer) {
+      guard.commit();
+      store.finishSettlement(guard.intentId, {
+        state: "needs_review",
+        error: `Withdrawal confirmed on-chain but the ledger write failed: ${e instanceof Error ? e.message : String(e)}`,
+        rail: "evm-usdc-transfer",
+        txHash: transfer.txHash,
+      });
+    } else guard.fail(e instanceof Error ? e.message : String(e), "LEDGER_WRITE_FAILED");
     throw e;
   }
   guard.commit();
+  // Close the settlement row opened at broadcast. Without this a confirmed,
+  // booked withdrawal stays `broadcast` and the recovery sweep flags it as
+  // "confirmed on-chain but the ledger has no matching entry" ten minutes on.
+  if (live && transfer) {
+    store.finishSettlement(guard.intentId, {
+      state: "settled",
+      rail: "evm-usdc-transfer",
+      chargedMicro: amount,
+      txHash: transfer.txHash,
+    });
+  }
   // A simulated outflow reduces the unbacked total: the books shed money
   // the vault never held.
   if (!live) store.addUnbackedMicro(org.id, -amount);

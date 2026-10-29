@@ -95,3 +95,25 @@ real money.
    - The receipt should show the same intentId and txHash.
 9. Repeat step 7 with the same idempotency key. It must replay the response
    without a second transfer: check the explorer for a single tx.
+
+## Follow-up fixes (review of PR #94)
+
+- **Sandbox agent payments are real testnet transfers (kept on purpose).** An agent
+  payment to a `0x` address uses the EVM USDC rail in every ledger mode, so on
+  Base Sepolia it broadcasts real testnet USDC from the vault. The wallet profile
+  now exposes `agentPayments` (`mode: "onchain"`, `realFunds: true`) and every
+  label says so. Only "Add simulated balance" top-ups and guardian Treasury sends
+  from a sandbox org remain book-only, and they stay labelled simulated.
+- **Ledger mode switch.** `POST /v1/auth/orgs/:orgId/ledger-mode` (`{ mode }`),
+  owner-only session route, with a toggle under Settings → Organization profile.
+  Mainnet orgs cannot switch to sandbox; switching to live is refused while
+  simulated (unbacked) balance is still on the books.
+- **Live withdrawals close their settlement row** (`settled` + tx hash), so the
+  10-minute recovery sweep no longer flags a successful withdrawal.
+- **Playground pasted agent keys** are checked with
+  `POST /v1/guardian/agent-keys/verify` before they are stored.
+- **Playground custom "On-chain wallet pay"**: can pay any allowlisted wallet or
+  another ABI account's vault; a transfer to the org's own vault is refused before
+  broadcast; an uncertain (timed-out) settlement is shown as held with its tx
+  hash instead of "failed"; sandbox runs with real spend confirm first that real
+  testnet USDC will move.

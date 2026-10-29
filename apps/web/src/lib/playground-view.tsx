@@ -294,9 +294,17 @@ export function Playground({
       setToast("Drills and policy-editing scenarios only run on sandbox orgs.", "err");
       return;
     }
-    if (src === "custom" && realSpend && live) {
+    if (
+      src === "custom" &&
+      realSpend &&
+      (live || customSteps.some((st) => st.kind === "pay_wallet"))
+    ) {
+      // Sandbox does not make wallet payments simulated: "On-chain wallet pay"
+      // broadcasts real Base Sepolia testnet USDC from the vault.
       const ok = window.confirm(
-        `This run moves real money from ${actor.name}'s budget (up to ${fmtUsd(String(maxSpend(customSteps)))}). Continue?`,
+        live
+          ? `This run moves real money from ${actor.name}'s budget (up to ${fmtUsd(String(maxSpend(customSteps)))}). Continue?`
+          : `This run sends real Base Sepolia testnet USDC on-chain from your vault for each "On-chain wallet pay" step (up to ${fmtUsd(String(maxSpend(customSteps)))} in total). Testnet USDC has no cash value, but the transfers are real and cannot be undone. Continue?`,
       );
       if (!ok) return;
     }
@@ -360,6 +368,9 @@ export function Playground({
       const { status, data: d } = await A.getBudget(agentClient(API, key));
       if (status >= 400) throw new Error("That agent key was rejected by the API");
       if (!d.agentId) throw new Error("API did not return agentId — redeploy API and retry");
+      // Ownership check: the key must belong to this org, and not be revoked or expired.
+      const refusal = G.agentKeyRefusal(await G.verifyAgentKey(guardian, key), d.agentId);
+      if (refusal) throw new Error(refusal);
       updateSession({
         agentKeys: [
           ...session.agentKeys.filter((k) => k.agentId !== d.agentId && k.key !== key),
@@ -782,7 +793,11 @@ export function Playground({
                   <b>Allow real spend</b>
                   <small>
                     {realSpend
-                      ? `Spend steps move money from the agent's budget (up to ${fmtUsd(String(maxSpend(customSteps)))}).`
+                      ? `Spend steps move money from the agent's budget (up to ${fmtUsd(String(maxSpend(customSteps)))}).${
+                          live
+                            ? ""
+                            : " On-chain wallet pay sends real Base Sepolia testnet USDC, even in sandbox."
+                        }`
                       : "Off: every spend step is a dry run — the policy engine answers, no money moves."}
                   </small>
                 </span>

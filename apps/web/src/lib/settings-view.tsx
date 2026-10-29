@@ -9,6 +9,12 @@ import { Button } from "@/components/ui/button";
 import { AmountStepper } from "@/components/ui/amount-stepper";
 import { okJson } from "./api-response";
 import { networkLabel } from "./network-names";
+import {
+  ledgerModeSwitchRequest,
+  ledgerModeToggleHelp,
+  ledgerModeToggleLabel,
+  nextLedgerMode,
+} from "./ledger-mode";
 
 export type Setup = {
   custody: string;
@@ -428,6 +434,22 @@ export function SettingsView({
         : `Email delivery is unavailable. Share the token with ${data.invitation.email} securely.`;
     });
 
+  const switchLedgerMode = () =>
+    act("Environment", async () => {
+      const mode = nextLedgerMode(profileMeta.environment);
+      const { path, init } = ledgerModeSwitchRequest(profileMeta.orgId, mode);
+      const res = await gFetch(path, init);
+      const data = (await res.json().catch(() => ({}))) as {
+        ledgerMode?: string;
+        error?: { message?: string };
+      };
+      if (!res.ok) throw new Error(data.error?.message ?? "Could not switch environment");
+      await loadProfile();
+      // The console header and Treasury read the mode from the org snapshot.
+      if (typeof window !== "undefined") window.setTimeout(() => window.location.reload(), 800);
+      return `Environment switched to ${data.ledgerMode ?? mode}.`;
+    });
+
   const setQuorumTo = (n: number) =>
     act("Quorum", async () => {
       const res = await gFetch("/v1/guardian/quorum", {
@@ -599,6 +621,24 @@ export function SettingsView({
               <div>
                 <span>Environment</span>
                 <strong>{profileMeta.environment || "—"}</strong>
+                {session.mode === "session" &&
+                actorRole === "owner" &&
+                profileMeta.orgId &&
+                profileMeta.environment ? (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => void switchLedgerMode()}
+                      title={ledgerModeToggleHelp(profileMeta.environment)}
+                    >
+                      {ledgerModeToggleLabel(profileMeta.environment)}
+                    </Button>
+                    <small className="faint">{ledgerModeToggleHelp(profileMeta.environment)}</small>
+                  </>
+                ) : null}
               </div>
               <div>
                 <span>Organization status</span>

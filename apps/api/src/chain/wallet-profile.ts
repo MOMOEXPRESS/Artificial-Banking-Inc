@@ -17,8 +17,12 @@
  *    on testnet that is Base Sepolia ETH (chain 84532), not Ethereum Sepolia
  *    (chain 11155111). No paymaster/sponsorship is configured in this
  *    codebase (custody is a self-custodied EOA), so none is claimed.
- *  - Sandbox ledger balances are simulated and say so; they never imply an
- *    on-chain deposit.
+ *  - Sandbox top-ups ("Add simulated balance") are simulated and say so; they
+ *    never imply an on-chain deposit.
+ *  - Sandbox does NOT mean agent payments are simulated. An agent payment to a
+ *    0x wallet address goes through the EVM USDC rail in every ledger mode, so
+ *    on testnet it broadcasts a real Base Sepolia USDC transfer from the vault.
+ *    Only guardian Treasury sends from a sandbox org are book-only.
  */
 import type { AssetRecord } from "@policyvault/common";
 import { formatMicroToUsdc } from "@policyvault/common";
@@ -33,7 +37,7 @@ export type LedgerMode = "sandbox" | "live";
 export type SendMode =
   /** A real transaction is broadcast; the ledger books it only after it confirms. */
   | "onchain"
-  /** Sandbox: the books move, nothing is broadcast. Labelled simulated everywhere. */
+  /** Sandbox Treasury send: the books move, nothing is broadcast. (Agent payments still go on-chain.) */
   | "simulated"
   /** Asset with no chain adapter: a hand-kept record, never a settlement. */
   | "recorded"
@@ -60,7 +64,7 @@ export function assetSendSupport(asset: AssetRecord, ledgerMode: LedgerMode): Se
         }
       : {
           mode: "simulated",
-          reason: "Sandbox organization: the books move, nothing is broadcast on-chain.",
+          reason: `Sandbox organization: a Treasury send only moves the books — nothing is broadcast. Agent payments to a wallet address are different: they send real ${networkName(activeChain().id)} testnet USDC from this vault on-chain.`,
         };
   }
   if (backing.kind === "chain") {
@@ -163,8 +167,22 @@ export function buildWalletProfile(input: {
       explorerAddress: address && addressVerified ? cfg.explorerAddress(address) : null,
     },
     ledgerMode: input.ledgerMode,
-    /** Sandbox balances are bookkeeping only; they are never an on-chain deposit. */
+    /** Sandbox top-ups are bookkeeping only; they are never an on-chain deposit. */
     balancesSimulated: input.ledgerMode === "sandbox",
+    /**
+     * What an agent payment to a 0x address actually does. Independent of the
+     * ledger mode: the EVM USDC rail broadcasts in sandbox too.
+     */
+    agentPayments: {
+      mode: "onchain" as const,
+      realFunds: true,
+      testnet,
+      networkName: cfg.name,
+      chainId: cfg.chainId,
+      note: testnet
+        ? `Agent payments to a wallet address send real ${cfg.name} testnet USDC (chain ${cfg.chainId}) from this vault, in sandbox and live mode alike. Each one has a transaction hash on the block explorer. Testnet USDC has no cash value.`
+        : `Agent payments to a wallet address send real ${cfg.name} USDC (chain ${cfg.chainId}) from this vault.`,
+    },
     usdc: {
       ledgerAvailableUsdc: formatMicroToUsdc(input.ledgerAvailableMicro),
       simulatedUsdc: formatMicroToUsdc(input.unbackedMicro > 0n ? input.unbackedMicro : 0n),

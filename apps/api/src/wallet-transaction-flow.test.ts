@@ -171,6 +171,78 @@ describe("wallet source of truth", () => {
     assert.equal(by("USDC").send.mode, "simulated");
   });
 
+  it("sandbox profile says agent wallet payments use real testnet USDC, not simulated", async () => {
+    const org = store.createOrg("Honest Sandbox Co", 0n, { ledgerMode: "sandbox" });
+    const res = await asGuardian(org.guardianKey, "/v1/guardian/wallet");
+    const p = (await res.json()) as {
+      agentPayments: {
+        mode: string;
+        realFunds: boolean;
+        testnet: boolean;
+        chainId: number;
+        note: string;
+      };
+      assets: { symbol: string; send: { mode: string; reason: string } }[];
+    };
+    assert.equal(p.agentPayments.mode, "onchain");
+    assert.equal(p.agentPayments.realFunds, true);
+    assert.equal(p.agentPayments.testnet, true);
+    assert.equal(p.agentPayments.chainId, 84532);
+    assert.match(p.agentPayments.note, /real Base Sepolia testnet USDC/);
+    const usdc = p.assets.find((a) => a.symbol === "USDC")!;
+    assert.match(usdc.send.reason, /Agent payments to a wallet address/);
+    assert.match(usdc.send.reason, /real Base Sepolia testnet USDC/);
+    assert.doesNotMatch(
+      usdc.send.reason,
+      /^Sandbox organization: the books move, nothing is broadcast on-chain\.$/,
+    );
+  });
+
+  it("sandbox agent payment to a 0x address really broadcasts on the USDC rail (kept on purpose)", async () => {
+    const org = store.createOrg("Sandbox Rail Co", 0n, { ledgerMode: "sandbox" });
+    const agent = store.createAgent(org.id, "Sandbox payer");
+    const budget = store.createDepartment(org.id, "Ops");
+    assert.equal(store.assignAgentBudget(org.id, agent.agentId, budget.id), "ok");
+    const t = store.getPolicyTemplate(org.id);
+    store.setPolicyTemplate(org.id, {
+      ...t,
+      addressAllowlist: [DEST],
+      perTxMaxMicro: 100_000_000n,
+      dailyMaxMicro: 500_000_000n,
+      hitlAboveMicro: 1_000_000_000n,
+      newCounterpartyCooldownHours: 0,
+    });
+    store.addKnownCounterparty(org.id, DEST);
+    store.applyEntries(org.id, [
+      {
+        id: id("j"),
+        orgId: org.id,
+        memo: "seed",
+        createdAt: new Date().toISOString(),
+        lines: [
+          { accountId: `org:${org.id}:external`, deltaMicro: -10_000_000n },
+          { accountId: `dept:${budget.id}:available`, deltaMicro: 10_000_000n },
+        ],
+      },
+    ]);
+    const res = await fetch(`${base}/v1/agent/pay`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${agent.apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        amountUsdc: "1",
+        destination: DEST,
+        idempotencyKey: "sandbox-rail-1",
+      }),
+    });
+    const body = (await res.json()) as { intentId: string; outcome: string };
+    assert.equal(res.status, 200, JSON.stringify(body));
+    assert.equal(chain.writes, 1, "sandbox agent payments broadcast a real transfer");
+    const row = store.getSettlement(body.intentId);
+    assert.equal(row?.state, "settled");
+    assert.equal(row?.rail, "evm-usdc-transfer");
+    assert.equal(row?.txHash, FIXTURE_HASH);
+  });
+
   it("hides the address (no copy/QR target) when the stored key does not derive to it", () => {
     const other = generatePrivateKey();
     assert.equal(verifyVaultAddress(DEST, other), "key-mismatch");
@@ -331,6 +403,56 @@ describe("chain transfer preflight and uncertain settlement", () => {
     assert.equal(chain.writes, 0);
   });
 
+  it("refuses to transfer to the org's own vault before broadcasting", async () => {
+    const org = store.createOrg("Self Pay Co", 0n, { ledgerMode: "live" });
+    const self = store.getVaultAddress(org.id)!;
+    await assert.rejects(
+      transfer.transferUsdcFromVault({ orgId: org.id, to: self, amountMicro: 1_000_000n }),
+      (e: Error & { code?: string }) => e.code === "INVALID_DESTINATION",
+    );
+    assert.equal(chain.writes, 0);
+  });
+
+  it("an agent can pay another ABI account's vault on-chain (org A -> org B)", async () => {
+    const b = store.createOrg("Receiver B", 0n, { ledgerMode: "sandbox" });
+    const vaultB = store.getVaultAddress(b.id)!;
+    const a = store.createOrg("Payer A", 0n, { ledgerMode: "sandbox" });
+    const agent = store.createAgent(a.id, "A payer");
+    const budget = store.createDepartment(a.id, "Ops");
+    assert.equal(store.assignAgentBudget(a.id, agent.agentId, budget.id), "ok");
+    store.setPolicyTemplate(a.id, {
+      ...store.getPolicyTemplate(a.id),
+      addressAllowlist: [vaultB],
+      perTxMaxMicro: 100_000_000n,
+      dailyMaxMicro: 500_000_000n,
+      hitlAboveMicro: 1_000_000_000n,
+      newCounterpartyCooldownHours: 0,
+    });
+    store.addKnownCounterparty(a.id, vaultB);
+    store.applyEntries(a.id, [
+      {
+        id: id("j"),
+        orgId: a.id,
+        memo: "seed",
+        createdAt: new Date().toISOString(),
+        lines: [
+          { accountId: `org:${a.id}:external`, deltaMicro: -5_000_000n },
+          { accountId: `dept:${budget.id}:available`, deltaMicro: 5_000_000n },
+        ],
+      },
+    ]);
+    const res = await fetch(`${base}/v1/agent/pay`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${agent.apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ amountUsdc: "0.10", destination: vaultB, idempotencyKey: "a-to-b-1" }),
+    });
+    const body = (await res.json()) as { txHash: string; rail: string; resource: { to: string } };
+    assert.equal(res.status, 200, JSON.stringify(body));
+    assert.equal(body.rail, "evm-usdc-transfer");
+    assert.equal(body.txHash, FIXTURE_HASH);
+    assert.equal(chain.writes, 1);
+  });
+
   it("gas shortfall math uses estimate x fee x 1.2 headroom", () => {
     const r = transfer.gasShortfallWei({
       nativeBalanceWei: 0n,
@@ -450,6 +572,27 @@ describe("chain transfer preflight and uncertain settlement", () => {
       store.getAccountMap(org.id).get(`org:${org.id}:available`)?.balanceMicro,
       10_000_000n,
     );
+  });
+
+  it("treasury withdraw: a confirmed live withdrawal marks its settlement settled with the hash", async () => {
+    const org = store.createOrg("Settled Co", 0n, { ledgerMode: "live" });
+    creditOrg(org.id, 10_000_000n);
+    const res = await asGuardian(org.guardianKey, "/v1/guardian/treasury/withdraw", {
+      amountUsdc: "1",
+      destination: DEST,
+    });
+    const body = (await res.json()) as { intentId: string; txHash: string };
+    assert.equal(res.status, 200);
+    assert.equal(body.txHash, FIXTURE_HASH);
+    const row = store.getSettlement(body.intentId);
+    assert.equal(row?.state, "settled");
+    assert.equal(row?.txHash, FIXTURE_HASH);
+    // The recovery sweep only looks at pending/broadcast rows, so it can never
+    // flag this withdrawal as "confirmed on-chain but not in the ledger".
+    const { recoverStuckSettlements } = await import("./jobs/settlement-recovery.js");
+    const before_ = store.getSettlement(body.intentId)?.state;
+    await recoverStuckSettlements();
+    assert.equal(store.getSettlement(body.intentId)?.state, before_);
   });
 
   it("concurrent treasury withdraws cannot both broadcast past the ledger balance", async () => {

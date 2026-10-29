@@ -167,6 +167,15 @@ async function broadcastUsdcTransfer(input: {
     throw new VaultTransferError("CUSTODY_UNAVAILABLE", "No vault key for this org");
   }
 
+  if (input.to.toLowerCase() === vaultAddress.toLowerCase()) {
+    // A self-transfer burns gas, moves nothing, and the ledger would book an
+    // outflow the vault never lost. Pay another account's vault, not your own.
+    throw new VaultTransferError(
+      "INVALID_DESTINATION",
+      "Destination is this organization's own vault — choose another wallet or another ABI account's vault address",
+    );
+  }
+
   const cfg = activeChain();
   const to = input.to as Address;
   const { account, publicClient, walletClient } = clientFactory(cfg, privateKey);

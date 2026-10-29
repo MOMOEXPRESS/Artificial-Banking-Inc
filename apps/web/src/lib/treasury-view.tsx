@@ -25,6 +25,7 @@ import {
   gasStatusLine,
   receiveAddressFor,
   type WalletProfile,
+  agentPaymentLine,
 } from "./wallet-profile";
 import { holdingNetwork, networkLabel } from "./network-names";
 import { AmountStepper } from "@/components/ui/amount-stepper";
@@ -628,6 +629,9 @@ export function TreasuryView({
                 copied={copied}
                 onCopy={() => void copyAddress(cardAddress)}
               />
+              <p className="vault-total-note" role="note">
+                {agentPaymentLine(walletProfile)}
+              </p>
 
               <div className="vault-selected-asset">
                 <span
@@ -822,7 +826,7 @@ export function TreasuryView({
                   {assetId === "asset_usdc"
                     ? usdcLive
                       ? "This organization holds real money. Send broadcasts a USDC transfer from the vault on-chain — the ledger only records it once the transfer succeeds. To add funds, send USDC to the vault address above."
-                      : "Simulated money — books only, nothing moves on-chain. This organization is in sandbox mode, so these balances are not backed by vault funds."
+                      : 'Sandbox mode: "Add simulated balance" and Treasury sends here only move the books — nothing is broadcast. Agent payments to a wallet address are different: they send real Base Sepolia testnet USDC from the vault on-chain, with a transaction hash.'
                     : (selectedAsset?.backing?.reason ??
                       selectedAsset?.backing?.note ??
                       `Record ${selectedAsset?.symbol ?? "asset"} into vault holdings.`)}
@@ -832,7 +836,7 @@ export function TreasuryView({
                 {usdcLive
                   ? "Live · real funds"
                   : assetIsChainBacked
-                    ? "Sandbox · simulated"
+                    ? "Sandbox · simulated top-ups"
                     : "Recorded by hand"}
               </span>
             </div>

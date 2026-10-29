@@ -16,7 +16,17 @@ export type WalletProfile = {
     explorerAddress: string | null;
   };
   ledgerMode: "sandbox" | "live";
+  /** Sandbox top-ups are simulated bookkeeping. */
   balancesSimulated: boolean;
+  /** Agent payments to a 0x address go on-chain in every ledger mode. Optional for older APIs. */
+  agentPayments?: {
+    mode: "onchain";
+    realFunds: boolean;
+    testnet: boolean;
+    networkName: string;
+    chainId: number;
+    note: string;
+  };
   usdc: {
     ledgerAvailableUsdc: string;
     simulatedUsdc: string;
@@ -86,4 +96,16 @@ export function assetInputDecimals(
   assetId: string,
 ): number {
   return profile?.assets.find((a) => a.assetId === assetId)?.decimals ?? 6;
+}
+
+/**
+ * What an agent payment does in this org. Sandbox does not make agent payments
+ * simulated: a wallet payment broadcasts real (testnet) USDC from the vault.
+ */
+export function agentPaymentLine(profile: WalletProfile | null | undefined): string {
+  if (profile?.agentPayments) return profile.agentPayments.note;
+  const net = profile?.network.name ?? "Base Sepolia";
+  return profile?.network.testnet === false
+    ? `Agent payments to a wallet address send real ${net} USDC from this vault.`
+    : `Agent payments to a wallet address send real ${net} testnet USDC from this vault, in sandbox and live mode alike.`;
 }

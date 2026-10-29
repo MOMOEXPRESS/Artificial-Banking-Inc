@@ -17,6 +17,8 @@ import {
   parseCookies,
   setSessionCookies,
 } from "../auth/session.js";
+import { formatMicroToUsdc } from "@policyvault/common";
+import { recordObs } from "../platform/observability.js";
 import { store, type UserRow } from "../store.js";
 import { signupTokenProblem } from "../auth/signup-token.js";
 import { assertAuthRuntimeReady } from "../auth/key-encryption.js";
@@ -175,7 +177,8 @@ export function registerAuthRoutes(app: express.Express) {
         verificationToken,
         verificationTtlMs: VERIFY_EMAIL_TTL_MS,
         // Self-serve orgs on testnet start in sandbox so simulated deposits and
-        // remote MCP work for first-time users. Mainnet stays live-only.
+        // remote MCP work for first-time users; an owner can switch to live via
+        // POST /v1/auth/orgs/:orgId/ledger-mode. Mainnet stays live-only.
         ledgerMode: process.env.CHAIN === "base" ? "live" : "sandbox",
         markEmailVerified: skipVerify,
       });
@@ -562,6 +565,59 @@ export function registerAuthRoutes(app: express.Express) {
     }
     store.revokeMembership(req.params.userId, gate.orgId);
     res.json({ ok: true });
+  });
+
+  // -------------------------------------------------------------- ledger mode
+
+  /**
+   * Owner-only: switch this org between sandbox and live on testnet.
+   *
+   * Self-serve signups on testnet start in sandbox and nothing else ever
+   * changed it, so a testnet org could never run treasury sends for real.
+   * Mainnet stays live-only. Moving to live is refused while simulated
+   * (unbacked) balance is still on the books: a live org may only hold money
+   * that arrived on-chain.
+   */
+  app.post("/v1/auth/orgs/:orgId/ledger-mode", (req, res) => {
+    const gate = requireOwner(req, res);
+    if (!gate) return;
+    const parsed = z.object({ mode: z.enum(["sandbox", "live"]) }).safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: { code: "INVALID_MODE", message: 'mode must be "sandbox" or "live".' },
+      });
+    }
+    const mode = parsed.data.mode;
+    const current = store.getOrgLedgerMode(gate.orgId);
+    if (process.env.CHAIN === "base" && mode === "sandbox") {
+      return res.status(409).json({
+        error: {
+          code: "MAINNET_LIVE_ONLY",
+          message: "Organizations on Base mainnet are live-only and cannot switch to sandbox.",
+        },
+      });
+    }
+    if (mode === current) {
+      return res.json({ ok: true, ledgerMode: current, changed: false });
+    }
+    if (mode === "live") {
+      const unbacked = store.getUnbackedMicro(gate.orgId);
+      if (unbacked > 0n) {
+        return res.status(409).json({
+          error: {
+            code: "SIMULATED_BALANCE_OUTSTANDING",
+            message: `This organization still holds ${formatMicroToUsdc(unbacked)} USDC of simulated sandbox balance. Remove it (Treasury → Send (simulated), no destination) before switching to live, so the live books only hold money that arrived on-chain.`,
+          },
+        });
+      }
+    }
+    store.setOrgLedgerMode(gate.orgId, mode);
+    recordObs({
+      name: "org.ledger_mode.changed",
+      orgId: gate.orgId,
+      attrs: { from: current, to: mode, by: gate.user.id },
+    });
+    res.json({ ok: true, ledgerMode: mode, changed: true });
   });
 
   // ------------------------------------------------------------------ helpers
