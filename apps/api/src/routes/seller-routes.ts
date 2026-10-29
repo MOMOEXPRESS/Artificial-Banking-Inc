@@ -121,6 +121,8 @@ const offerPatchSchema = z.object({
   category: z.enum(OFFER_CATEGORIES).optional(),
   accessMode: z.enum(["open", "allowlist"]).optional(),
   hostedContent: z.string().max(20_000).optional(),
+  /** Hosted offers only: require an x401 identity proof before payment. */
+  identityRequirement: z.enum(["none", "x401"]).optional(),
 });
 
 function sellerProfileView(profile: SellerProfileRow) {
@@ -154,6 +156,7 @@ export function offerView(offer: OfferRow) {
     status: offer.status,
     accessMode: offer.accessMode,
     version: offer.version,
+    identityRequirement: offer.identityRequirement,
     familyId: offer.familyId,
     deprecatedAt: offer.deprecatedAt ?? null,
     sunsetAt: offer.sunsetAt ?? null,
@@ -386,7 +389,7 @@ async function probeOffer(
   offer: OfferRow,
 ): Promise<{ status: number; header: string | null; body: string }> {
   if (offer.hosted) {
-    const r = await handleHostedOffer(offer.id, () => undefined);
+    const r = await handleHostedOffer(offer.id, () => undefined, {}, undefined, { sellerProbe: true });
     return {
       status: r.status,
       header: r.headers["PAYMENT-REQUIRED"] ?? null,
@@ -653,6 +656,14 @@ export function registerSellerRoutes(app: express.Express): void {
           },
         });
       }
+      if (body.identityRequirement === "x401" && !existing.hosted) {
+        return res.status(400).json({
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "x401 identity checks run at ABI-hosted checkouts only; your own server must verify x401 itself.",
+          },
+        });
+      }
       // What a buyer pays and where must be re-verified before it is sold again.
       const termsChanged =
         (body.endpointUrl !== undefined && body.endpointUrl !== existing.endpointUrl) ||
@@ -672,6 +683,7 @@ export function registerSellerRoutes(app: express.Express): void {
           category: body.category,
           accessMode: body.accessMode,
           hostedContent: body.hostedContent,
+          identityRequirement: body.identityRequirement,
         });
         if (termsChanged) {
           store.setOfferIntegration(offer.id, { lastVerifiedAt: null, error: null });

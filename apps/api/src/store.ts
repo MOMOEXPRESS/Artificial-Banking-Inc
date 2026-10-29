@@ -143,7 +143,15 @@ export interface OfferRow {
   hosted: boolean;
   /** What a paid call to a hosted offer returns. */
   hostedContent: string;
+  /**
+   * Identity proof a hosted offer demands before it will take payment.
+   * `x401` = an x401 (HTTP Proof Requirement) presentation verified by ABI.
+   * Identity never replaces payment or buyer policy; it is an extra gate.
+   */
+  identityRequirement: OfferIdentityRequirement;
 }
+
+export type OfferIdentityRequirement = "none" | "x401";
 
 export interface OfferIntegrationRow {
   offerId: string;
@@ -1139,6 +1147,7 @@ for (const migration of [
   "ALTER TABLE offers ADD COLUMN archived_at TEXT",
   "ALTER TABLE offers ADD COLUMN hosted INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE offers ADD COLUMN hosted_content TEXT",
+  "ALTER TABLE offers ADD COLUMN identity_requirement TEXT NOT NULL DEFAULT 'none'",
   "ALTER TABLE seller_profiles ADD COLUMN support_email TEXT",
   "ALTER TABLE partner_sessions ADD COLUMN user_agent TEXT",
   "ALTER TABLE partner_sessions ADD COLUMN ip TEXT",
@@ -1150,6 +1159,39 @@ for (const migration of [
     /* column already exists */
   }
 }
+
+// x401 identity verification (apps/api/src/identity/x401). Only hashes of the
+// challenge nonce and holder key are stored: never credentials or claims.
+db.exec(`
+CREATE TABLE IF NOT EXISTS x401_challenges (
+  nonce_sha256 TEXT PRIMARY KEY,
+  offer_id TEXT NOT NULL,
+  method TEXT NOT NULL,
+  resource TEXT NOT NULL,
+  caller_org_id TEXT,
+  caller_agent_id TEXT,
+  client_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  consumed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_x401_challenges_expires ON x401_challenges(expires_at);
+CREATE TABLE IF NOT EXISTS x401_audit_events (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  offer_id TEXT NOT NULL,
+  seller_org_id TEXT NOT NULL,
+  caller_org_id TEXT,
+  caller_agent_id TEXT,
+  stage TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  error_code TEXT,
+  issuer TEXT,
+  vct TEXT,
+  holder_key_sha256 TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_x401_audit_offer ON x401_audit_events(offer_id, created_at);
+`);
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS seller_usage_events (
@@ -1902,6 +1944,7 @@ function rowToOffer(r: Row): OfferRow {
     archivedAt: r.archived_at ? String(r.archived_at) : undefined,
     hosted: Number(r.hosted ?? 0) === 1,
     hostedContent: String(r.hosted_content ?? ""),
+    identityRequirement: r.identity_requirement === "x401" ? "x401" : "none",
   };
 }
 
@@ -2630,6 +2673,7 @@ export const store = {
       category?: string;
       accessMode?: OfferAccessMode;
       hostedContent?: string;
+      identityRequirement?: OfferIdentityRequirement;
     },
   ): OfferRow {
     const existing = this.getOffer(orgId, offerId);
@@ -2647,6 +2691,13 @@ export const store = {
         patch.category ?? existing.category,
         patch.accessMode ?? existing.accessMode,
         patch.hostedContent ?? existing.hostedContent,
+        offerId,
+        orgId,
+      );
+    }
+    if (patch.identityRequirement !== undefined) {
+      db.prepare("UPDATE offers SET identity_requirement = ? WHERE id = ? AND org_id = ?").run(
+        patch.identityRequirement,
         offerId,
         orgId,
       );
@@ -7528,5 +7579,116 @@ export const partnerStore = {
         "UPDATE offers SET status = 'paused', directory_listed = 0, updated_at = ? WHERE org_id = ? AND status != 'draft'",
       ).run(nowIso(), orgId);
     })();
+  },
+};
+
+export interface X401ChallengeRow {
+  nonceSha256: string;
+  offerId: string;
+  method: string;
+  resource: string;
+  callerOrgId?: string;
+  callerAgentId?: string;
+  clientId: string;
+  createdAt: string;
+  expiresAt: string;
+  consumedAt?: string;
+}
+
+function rowToX401Challenge(r: Row): X401ChallengeRow {
+  return {
+    nonceSha256: String(r.nonce_sha256),
+    offerId: String(r.offer_id),
+    method: String(r.method),
+    resource: String(r.resource),
+    callerOrgId: r.caller_org_id ? String(r.caller_org_id) : undefined,
+    callerAgentId: r.caller_agent_id ? String(r.caller_agent_id) : undefined,
+    clientId: String(r.client_id),
+    createdAt: String(r.created_at),
+    expiresAt: String(r.expires_at),
+    consumedAt: r.consumed_at ? String(r.consumed_at) : undefined,
+  };
+}
+
+export interface X401AuditEvent {
+  offerId: string;
+  sellerOrgId: string;
+  callerOrgId?: string;
+  callerAgentId?: string;
+  stage: "challenge" | "precheck" | "checkout";
+  outcome: "issued" | "verified" | "rejected" | "unavailable";
+  errorCode?: string;
+  issuer?: string;
+  vct?: string;
+  holderKeySha256?: string;
+}
+
+const X401_INSERT_CHALLENGE = `INSERT INTO x401_challenges
+  (nonce_sha256, offer_id, method, resource, caller_org_id, caller_agent_id, client_id, created_at, expires_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+const X401_SELECT_CHALLENGE = "SELECT * FROM x401_challenges WHERE nonce_sha256 = ?";
+const X401_CONSUME_CHALLENGE = `UPDATE x401_challenges SET consumed_at = ?
+  WHERE nonce_sha256 = ? AND consumed_at IS NULL AND expires_at > ?`;
+const X401_SWEEP_CHALLENGES = "DELETE FROM x401_challenges WHERE expires_at < ?";
+const X401_INSERT_AUDIT = `INSERT INTO x401_audit_events
+  (id, created_at, offer_id, seller_org_id, caller_org_id, caller_agent_id, stage, outcome, error_code, issuer, vct, holder_key_sha256)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+const X401_LIST_AUDIT =
+  "SELECT * FROM x401_audit_events WHERE offer_id = ? ORDER BY created_at DESC LIMIT ?";
+
+/** Persistence for x401 challenges (replay protection) and its audit trail. */
+export const x401Store = {
+  createChallenge(row: Omit<X401ChallengeRow, "consumedAt">): void {
+    db.prepare(X401_INSERT_CHALLENGE).run(
+      row.nonceSha256,
+      row.offerId,
+      row.method,
+      row.resource,
+      row.callerOrgId ?? null,
+      row.callerAgentId ?? null,
+      row.clientId,
+      row.createdAt,
+      row.expiresAt,
+    );
+  },
+
+  getChallenge(nonceSha256: string): X401ChallengeRow | undefined {
+    const r = db.prepare(X401_SELECT_CHALLENGE).get(nonceSha256) as Row | undefined;
+    return r ? rowToX401Challenge(r) : undefined;
+  },
+
+  /**
+   * Single use: marks the challenge consumed only while it is unconsumed and
+   * unexpired. False when another request already used it (replay) or it lapsed.
+   */
+  consumeChallenge(nonceSha256: string, at: string): boolean {
+    return db.prepare(X401_CONSUME_CHALLENGE).run(at, nonceSha256, at).changes === 1;
+  },
+
+  /** Forget challenges that expired more than a day ago. */
+  sweepChallenges(at: string): number {
+    const cutoff = new Date(Date.parse(at) - 24 * 3600_000).toISOString();
+    return db.prepare(X401_SWEEP_CHALLENGES).run(cutoff).changes;
+  },
+
+  recordAudit(event: X401AuditEvent): void {
+    db.prepare(X401_INSERT_AUDIT).run(
+      `x401a_${crypto.randomUUID().replace(/-/g, "")}`,
+      nowIso(),
+      event.offerId,
+      event.sellerOrgId,
+      event.callerOrgId ?? null,
+      event.callerAgentId ?? null,
+      event.stage,
+      event.outcome,
+      event.errorCode ?? null,
+      event.issuer ?? null,
+      event.vct ?? null,
+      event.holderKeySha256 ?? null,
+    );
+  },
+
+  listAudit(offerId: string, limit = 50): Record<string, unknown>[] {
+    return db.prepare(X401_LIST_AUDIT).all(offerId, limit) as Record<string, unknown>[];
   },
 };

@@ -5,16 +5,18 @@ import {
   CircleNanopaymentsRailStub,
   L402RailStub,
   StripeSptRailStub,
+  verifyAp2Mandate,
   verifyTrustedAgentSignature,
 } from "./rails-future.js";
 
 describe("future rail stubs (free seams)", () => {
-  it("maps AP2 mandate credentials into policy hints", () => {
+  it("reads AP2 mandate fields only as unverified hints", () => {
     const hints = ap2MandateToPolicyHints({
       kind: "intent",
       credential: { amountUsdc: "1.50", destination: "https://seller.example", agentId: "ag_1" },
     });
     assert.deepEqual(hints, {
+      verified: false,
       amountUsdc: "1.50",
       destination: "https://seller.example",
       agentId: "ag_1",
@@ -26,5 +28,7 @@ describe("future rail stubs (free seams)", () => {
     await assert.rejects(() => new CircleNanopaymentsRailStub().settle({} as never), /Circle/);
     await assert.rejects(() => new L402RailStub().settle({} as never), /L402/);
     assert.equal(verifyTrustedAgentSignature({ signature: "", body: "", headers: {} }).ok, false);
+    // Parsing is not verification: AP2 mandates are refused until a real verifier exists.
+    assert.equal(verifyAp2Mandate({ kind: "payment", credential: { amountUsdc: "1" } }).ok, false);
   });
 });
