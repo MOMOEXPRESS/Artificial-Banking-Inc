@@ -5,6 +5,9 @@
  * Circle nanopayments, L402, Visa Trusted Agent) have an in-repo seam without
  * pulling paid SDKs or requiring API keys. Implementations should replace the
  * throw paths when a free test environment is available.
+ *
+ * None of these is x401. ABI's x401 identity verifier lives in
+ * ../identity/x401 and is wired into the hosted checkout explicitly.
  */
 import type { PaymentRail, PaymentRailContext, PaymentRailResult } from "../rails/types.js";
 
@@ -16,20 +19,38 @@ export interface Ap2Mandate {
   credential: Record<string, unknown>;
 }
 
-/** Map an AP2 mandate onto ABI policy inputs (amount / destination / agent). */
+/**
+ * Read AP2 mandate fields as UNVERIFIED hints (e.g. to prefill a form).
+ * This parses fields only; it does not verify any signature, so the result is
+ * marked `verified: false` and must never authorize spending, identify an
+ * agent, or feed a policy decision. See verifyAp2Mandate.
+ */
 export function ap2MandateToPolicyHints(mandate: Ap2Mandate): {
+  verified: false;
   amountUsdc?: string;
   destination?: string;
   agentId?: string;
 } {
   const c = mandate.credential;
   return {
+    verified: false,
     amountUsdc: typeof c.amountUsdc === "string" ? c.amountUsdc : undefined,
     destination: typeof c.destination === "string" ? c.destination : undefined,
     agentId: typeof c.agentId === "string" ? c.agentId : undefined,
   };
 }
 
+/**
+ * AP2 mandate verification is not implemented, so every mandate is refused
+ * (fail closed). A real implementation must verify the mandate's signature
+ * chain per the AP2 specification before any field is trusted.
+ */
+export function verifyAp2Mandate(_mandate: Ap2Mandate): { ok: false; reason: string } {
+  return {
+    ok: false,
+    reason: "AP2 mandate signature verification is not implemented; mandates are not accepted.",
+  };
+}
 export class StripeSptRailStub implements PaymentRail {
   readonly name = "stripe-spt-stub";
   async settle(_ctx: PaymentRailContext): Promise<PaymentRailResult> {
@@ -60,7 +81,10 @@ export class L402RailStub implements PaymentRail {
   }
 }
 
-/** Visa Trusted Agent / Web Bot Auth style signature verification — stub. */
+/**
+ * Visa Trusted Agent / Web Bot Auth signature verification: NOT implemented.
+ * Always fails closed; callers must treat the request as unauthenticated.
+ */
 export function verifyTrustedAgentSignature(_args: {
   signature: string;
   body: string;

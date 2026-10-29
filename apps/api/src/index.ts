@@ -91,6 +91,7 @@ import { registerSellerRoutes } from "./routes/seller-routes.js";
 import { registerSellerFeatureRoutes } from "./routes/seller-feature-routes.js";
 import { registerPartnerAuthRoutes } from "./routes/partner-auth-routes.js";
 import { registerHostedX402Routes } from "./seller-x402.js";
+import { registerX401Routes } from "./identity/x401/routes.js";
 import { registerPolicyRoutes } from "./routes/policy-routes.js";
 import { registerConnectionRoutes } from "./routes/connection-routes.js";
 import { registerTreasuryRoutes } from "./routes/treasury-routes.js";
@@ -673,6 +674,7 @@ registerPartnerAuthRoutes(app);
 registerSellerRoutes(app);
 registerSellerFeatureRoutes(app);
 registerHostedX402Routes(app);
+registerX401Routes(app);
 registerRemoteMcp(app);
 registerTelegramWebhookRoute(app);
 

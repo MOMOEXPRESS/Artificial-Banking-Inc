@@ -24,6 +24,8 @@ import type {
 } from "@x402/core/types";
 import { sellerStore, store, type OfferRow } from "./store.js";
 import { gateOffer, recordSellerSale } from "./seller-ingest.js";
+import { currentX401Verifier, x401CheckoutGate } from "./identity/x401/gate.js";
+import type { VerifiedIdentity, X401Context } from "./identity/x401/verifier.js";
 
 export const X402_NETWORKS: Record<string, { caip2: string; asset: string; tokenName: string }> = {
   "base-sepolia": {
@@ -189,6 +191,8 @@ export async function handleHostedOffer(
   getHeader: (name: string) => string | undefined,
   caller: HostedCaller = {},
   requestUrl = hostedOfferUrl(offerId),
+  /** The seller's own verify probe: reads the 402 terms only, never pays or serves content. */
+  opts: { sellerProbe?: boolean } = {},
 ): Promise<HostedResult> {
   const offer = sellerStore.getOfferAnyOrg(offerId);
   if (!offer || !offer.hosted || offer.archivedAt) {
@@ -208,6 +212,34 @@ export async function handleHostedOffer(
   if (offer.status === "paused" || (offer.sunsetAt && offer.sunsetAt <= new Date().toISOString())) {
     const gate = gateOffer(offer, caller.buyerOrgId, caller.agentId);
     if (!gate.ok) return err(gate.status, gate.error.code, gate.error.message, gate.error);
+  }
+
+  // x401 identity gate: proof first, then 402 (x401 v0.2.0 "Primary Flow").
+  // Caller ids come only from ABI's in-process auth.
+  const x401Ctx: X401Context = {
+    offerId: offer.id,
+    sellerOrgId: offer.orgId,
+    method: "GET",
+    resource: requestUrl,
+    callerOrgId: caller.buyerOrgId,
+    callerAgentId: caller.agentId,
+  };
+  let identity: VerifiedIdentity | undefined;
+  if (offer.identityRequirement === "x401" && !signature) {
+    if (opts.sellerProbe) {
+      // The seller's verify step reads the 402 terms behind the gate, and only
+      // while the verifier is configured. Nothing is paid or served here.
+      if (!currentX401Verifier().verifier) {
+        return err(
+          503,
+          "IDENTITY_VERIFIER_UNAVAILABLE",
+          "This offer requires x401 identity verification, which is not configured on this ABI deployment.",
+        );
+      }
+    } else {
+      const proof = await x401CheckoutGate(x401Ctx, getHeader, false);
+      if (!proof.ok) return proof.response;
+    }
   }
 
   if (!signature) {
@@ -259,6 +291,14 @@ export async function handleHostedOffer(
       "PAYMENT_MISMATCH",
       "The signed payment does not match this offer's price, network or payee. Request a fresh challenge.",
     );
+  }
+
+  // Identity is checked, and its single-use challenge spent, before the
+  // facilitator sees the payment: a failed proof never verifies or settles.
+  if (offer.identityRequirement === "x401") {
+    const proof = await x401CheckoutGate(x401Ctx, getHeader, true);
+    if (!proof.ok) return proof.response;
+    identity = proof.identity;
   }
 
   const f = facilitator();
@@ -320,6 +360,15 @@ export async function handleHostedOffer(
       offer: { id: offer.id, slug: offer.slug, title: offer.title, version: offer.version },
       seller: { orgId: offer.orgId, name: sellerName },
       content: parseContent(offer.hostedContent),
+      ...(identity && {
+        identity: {
+          verified: true,
+          protocol: "x401",
+          issuer: identity.issuer,
+          credentialType: identity.vct,
+          proves: identity.proves,
+        },
+      }),
       paid: {
         amountMicro: amountMicro.toString(),
         network: requirement.network,

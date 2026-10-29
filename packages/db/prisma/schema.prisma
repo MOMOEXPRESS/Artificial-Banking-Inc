@@ -411,6 +411,7 @@ model Offers {
   archivedAt String? @map("archived_at")
   hosted Int @default(0)
   hostedContent String? @map("hosted_content")
+  identityRequirement String @default("none") @map("identity_requirement")
   @@index([orgId])
   @@unique([orgId, slug])
   @@map("offers")
@@ -911,4 +912,36 @@ model Webhooks {
   createdAt String @map("created_at")
   @@index([orgId])
   @@map("webhooks")
+}
+
+model X401AuditEvents {
+  id String @id
+  createdAt String @map("created_at")
+  offerId String @map("offer_id")
+  sellerOrgId String @map("seller_org_id")
+  callerOrgId String? @map("caller_org_id")
+  callerAgentId String? @map("caller_agent_id")
+  stage String
+  outcome String
+  errorCode String? @map("error_code")
+  issuer String?
+  vct String?
+  holderKeySha256 String? @map("holder_key_sha256")
+  @@index([offerId, createdAt])
+  @@map("x401_audit_events")
+}
+
+model X401Challenges {
+  nonceSha256 String @id @map("nonce_sha256")
+  offerId String @map("offer_id")
+  method String
+  resource String
+  callerOrgId String? @map("caller_org_id")
+  callerAgentId String? @map("caller_agent_id")
+  clientId String @map("client_id")
+  createdAt String @map("created_at")
+  expiresAt String @map("expires_at")
+  consumedAt String? @map("consumed_at")
+  @@index([expiresAt])
+  @@map("x401_challenges")
 }
