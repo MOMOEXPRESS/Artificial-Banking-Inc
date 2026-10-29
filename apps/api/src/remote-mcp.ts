@@ -211,7 +211,7 @@ function createServer(input: {
       {
         title: "Propose an ABI payment",
         description:
-          "Submit a genuine payment request to ABI Sandbox. ABI will allow, deny, or route it to human approval under the authenticated agent's policies. This changes the sandbox ledger when allowed. Use data.example for the bundled approved demo research merchant.",
+          "Submit a genuine payment request to ABI Sandbox. ABI will allow, deny, or route it to human approval under the authenticated agent's policies. When allowed it changes the sandbox ledger, and a wallet (0x address) payment also sends real Base Sepolia testnet USDC on-chain from the org vault. Use data.example for the bundled approved demo research merchant.",
         inputSchema: {
           amountUsdc: z.string().min(1).describe("Decimal USDC amount, for example 0.01"),
           destination: z.string().min(1).describe("Approved merchant/domain or 0x wallet address"),

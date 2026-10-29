@@ -8,6 +8,9 @@ import * as A from "../flows/agent";
 import { errCode, errMsg } from "../flows/client";
 import type { RunState, StepDef } from "./types";
 
+/** Fallback explorer link when the API omits one (the playground runs on Base Sepolia). */
+export const baseSepoliaTxUrl = (hash: string) => `https://sepolia.basescan.org/tx/${hash}`;
+
 export const idem = (tag: string) => `mis_${tag}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 export const pretty = (o: unknown) => JSON.stringify(o, null, 2);
 
@@ -194,6 +197,25 @@ export const payToWallet = (amount: string, address: string): StepDef => ({
         approvalId: String(data.approvalId),
       };
     }
+    if (
+      status === 409 &&
+      (data.outcome === "pending_reconciliation" || errCode(data) === "SETTLEMENT_UNCERTAIN")
+    ) {
+      // A transaction may already be on-chain. This is NOT a failure and must
+      // not be retried: the hold stays until the payment is reconciled.
+      const settlement = (data.settlement ?? {}) as { txHash?: string };
+      const hash = typeof settlement.txHash === "string" ? settlement.txHash : undefined;
+      state.blocks.push({ amount, destination: dest, outcome: "pending" });
+      ctx.log(`on-chain $${amount} → ${dest} unconfirmed${hash ? ` tx ${hash}` : ""}`);
+      return {
+        summary: `Sent but not yet confirmed — held for reconciliation. Do not re-run this payment.${
+          hash ? ` Check the transaction: ${baseSepoliaTxUrl(hash)}` : ""
+        }`,
+        output: pretty(data),
+        softFail: true,
+        abort: true,
+      };
+    }
     if (status >= 400) {
       state.denials.push({ amount, destination: dest, code: errCode(data), reason: errMsg(data) });
       return {
@@ -211,7 +233,7 @@ export const payToWallet = (amount: string, address: string): StepDef => ({
     });
     const explorer =
       (data.resource as { explorerUrl?: string } | undefined)?.explorerUrl ??
-      (data.txHash ? `https://sepolia.basescan.org/tx/${data.txHash}` : undefined);
+      (typeof data.txHash === "string" ? baseSepoliaTxUrl(data.txHash) : undefined);
     ctx.log(`on-chain $${data.amountUsdc} → ${dest}${data.txHash ? ` tx ${data.txHash}` : ""}`);
     return {
       summary: explorer

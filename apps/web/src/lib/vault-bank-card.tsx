@@ -2,19 +2,26 @@
 
 import { ABMark } from "./brand";
 import { Icon } from "./ui";
-import { cardholderName, cardNumberRows, groupVaultAddress } from "./vault-card-format";
+import { cardholderName } from "./vault-card-format";
+import { cardIdentifier } from "./wallet-profile";
 
 /**
  * Bank-card-style visual for the organization vault (Treasury → Vault).
  * Black/charcoal card with gray/silver text and the official ABI mark
  * (brand.tsx ABMark → /public/abi-mark-light.png, desaturated).
- * The "card number" is the deposit address of the asset selected in the
- * vault asset picker; assets without one show an explicit empty state.
+ * The card face carries a decorative identifier, NOT a blockchain address:
+ * rendering the address in card-number groups made it unclear what to send
+ * to (and copying it picked up spaces). The real receiving address is shown
+ * in full, un-grouped, below the card with its network and chain id, and is
+ * only present (and copyable) when the API verified it.
  */
 export function VaultBankCard({
   address,
   assetSymbol,
   networkLabel,
+  chainId,
+  gasLine,
+  simulated,
   orgName,
   copied,
   onCopy,
@@ -23,72 +30,91 @@ export function VaultBankCard({
   address: string | null;
   assetSymbol: string;
   networkLabel: string;
+  chainId?: number;
+  gasLine?: { tone: "ok" | "warn" | "unknown"; text: string };
+  simulated?: boolean;
   orgName?: string | null;
   copied: boolean;
   onCopy: () => void;
 }) {
-  const rows = address ? cardNumberRows(groupVaultAddress(address)) : [];
   const holder = cardholderName(orgName);
   const assetLine = `${assetSymbol} on ${networkLabel}`;
   return (
-    <div
-      className="vault-bank-card"
-      role="group"
-      aria-label={
-        address
-          ? `Organization vault card. ${assetLine} deposit address ${address}.`
-          : `Organization vault card. No address for ${assetLine}.`
-      }
-    >
-      <div className="vbc-top">
-        <span className="vbc-brand">
-          <span className="vbc-logo" aria-hidden>
-            <ABMark size={22} tone="#fff" />
+    <>
+      <div
+        className="vault-bank-card"
+        role="group"
+        aria-label={
+          address
+            ? `Organization vault card. ${assetLine} deposit address ${address}.`
+            : `Organization vault card. No address for ${assetLine}.`
+        }
+      >
+        <div className="vbc-top">
+          <span className="vbc-brand">
+            <span className="vbc-logo" aria-hidden>
+              <ABMark size={22} tone="#fff" />
+            </span>
+            <span className="vbc-brand-name">ABI Vault</span>
           </span>
-          <span className="vbc-brand-name">ABI Vault</span>
-        </span>
-        <span className="vbc-asset" aria-hidden>
-          {assetSymbol}
-        </span>
-      </div>
+          <span className="vbc-asset" aria-hidden>
+            {assetSymbol}
+          </span>
+        </div>
 
-      <div className="vbc-number-row">
-        {address ? (
-          <code className="vbc-number mono" title={address}>
-            {rows.map((row, r) => (
-              <span className="vbc-number-line" key={r}>
-                {row.map((g, i) => (
-                  <span key={i}>{g}</span>
-                ))}
-              </span>
-            ))}
+        <div className="vbc-number-row">
+          <code className="vbc-number mono" title="Card identifier — not an address">
+            {cardIdentifier(address)}
           </code>
-        ) : (
-          <code className="vbc-number mono is-empty">No address for this asset</code>
-        )}
-        <button
-          type="button"
-          className="vbc-copy"
-          disabled={!address}
-          onClick={onCopy}
-          aria-label={address ? `Copy ${assetSymbol} deposit address` : "No address to copy"}
-          title={copied ? "Copied" : address ? "Copy address" : "No address for this asset"}
-        >
-          <Icon name="copy" size={13} />
-          <span>{copied ? "Copied" : "Copy"}</span>
-        </button>
-      </div>
+        </div>
 
-      <div className="vbc-bottom">
-        <span className="vbc-field vbc-holder">
-          <small>Cardholder</small>
-          <b>{holder}</b>
-        </span>
-        <span className="vbc-field vbc-network-field">
-          <small>Network</small>
-          <b>{networkLabel}</b>
-        </span>
+        <div className="vbc-bottom">
+          <span className="vbc-field vbc-holder">
+            <small>Cardholder</small>
+            <b>{holder}</b>
+          </span>
+          <span className="vbc-field vbc-network-field">
+            <small>Network</small>
+            <b>{networkLabel}</b>
+          </span>
+        </div>
       </div>
-    </div>
+      <div className="vault-receive" aria-label={`Receiving address for ${assetLine}`}>
+        <small>
+          Receiving address · {assetLine}
+          {chainId ? ` (chain ${chainId})` : ""}
+        </small>
+        {address ? (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <code className="mono" style={{ wordBreak: "break-all", userSelect: "all" }}>
+              {address}
+            </code>
+            <button
+              type="button"
+              className="vbc-copy"
+              onClick={onCopy}
+              aria-label={`Copy ${assetSymbol} receiving address`}
+            >
+              <Icon name="copy" size={13} />
+              <span>{copied ? "Copied" : "Copy"}</span>
+            </button>
+          </div>
+        ) : (
+          <code className="mono is-empty">
+            No verified receiving address for this asset — do not send funds.
+          </code>
+        )}
+        {gasLine ? (
+          <small className={gasLine.tone === "warn" ? "warn" : "faint"}>Gas: {gasLine.text}</small>
+        ) : null}
+        {simulated ? (
+          <small className="faint">
+            Sandbox: simulated top-ups are counted in the balance but are not on-chain. Funds sent
+            to this address on {networkLabel} are real testnet money, and agent payments to a wallet
+            address spend real testnet USDC from it.
+          </small>
+        ) : null}
+      </div>
+    </>
   );
 }

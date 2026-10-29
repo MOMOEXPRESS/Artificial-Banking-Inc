@@ -88,6 +88,8 @@ export type RailErrorCode =
   | "INVALID_DESTINATION"
   | "INSUFFICIENT_ONCHAIN_USDC"
   | "INSUFFICIENT_GAS"
+  /** Broadcast on-chain but no receipt yet — outcome unknown until reconciled. */
+  | "SETTLEMENT_UNCONFIRMED"
   /** Seller's payTo differs from the payee the org registered/approved. */
   | "PAYEE_MISMATCH"
   /** Seller asked for a network other than the one the payee was approved on. */

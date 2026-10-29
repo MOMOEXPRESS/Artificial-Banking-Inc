@@ -2,9 +2,15 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { AgentClient, FlowResult, GuardianClient } from "../flows/client";
-import { CUSTOM_STEP_CATALOG, compileCustomMission, maxSpend, newCustomStep } from "./builder";
+import {
+  CUSTOM_STEP_CATALOG,
+  compileCustomMission,
+  maxSpend,
+  newCustomStep,
+  stepFromDraft,
+} from "./builder";
 import { approvalIdOf, planRun, runMission } from "./engine";
-import type { Mission, RunStep, WorkflowCtx } from "./types";
+import { newRunState, type Mission, type RunStep, type WorkflowCtx } from "./types";
 
 type Call = { who: "agent" | "guardian"; method: string; path: string; body?: unknown };
 
@@ -177,5 +183,85 @@ describe("workflow engine", () => {
     const m = { id: "a", chain: undefined } as unknown as Mission;
     assert.equal(planRun(m, "once", () => undefined).length, 1);
     assert.equal(planRun(m, "repeat3", () => undefined).length, 3);
+  });
+});
+
+describe("custom on-chain wallet pay (pay_wallet)", () => {
+  const VAULT_B = `0x${"bb".repeat(20)}`;
+  const HASH = `0x${"cd".repeat(32)}`;
+
+  it("real spend sends to another account's vault via /v1/agent/pay and reports the tx link", async () => {
+    const f = fakes((path) =>
+      path === "/v1/agent/pay"
+        ? {
+            status: 200,
+            data: {
+              outcome: "allow",
+              amountUsdc: "0.10",
+              rail: "evm-usdc-transfer",
+              txHash: HASH,
+              resource: { explorerUrl: `https://sepolia.basescan.org/tx/${HASH}` },
+            },
+          }
+        : { status: 200, data: { availableUsdc: "40", dailyRemainingUsdc: "40" } },
+    );
+    const step = { ...newCustomStep("pay_wallet"), destination: VAULT_B, amount: "0.10" };
+    const def = stepFromDraft(step, { realSpend: true });
+    const state = newRunState();
+    const res = await def.run(ctxFor(f.agent, f.guardian, { steps: [] }), state);
+    const pay = f.calls.find((c) => c.path === "/v1/agent/pay");
+    assert.ok(pay, "calls the real agent pay endpoint");
+    assert.equal((pay!.body as { destination: string }).destination, VAULT_B);
+    assert.equal((pay!.body as { amountUsdc: string }).amountUsdc, "0.10");
+    assert.equal(state.purchases[0]?.txHash, HASH);
+    assert.equal(state.purchases[0]?.rail, "evm-usdc-transfer");
+    assert.match(res.summary, /basescan\.org\/tx\/0xcd/);
+  });
+
+  it("dry run never calls the pay endpoint", async () => {
+    const f = fakes(() => ({ status: 200, data: { outcome: "allow", ruleIds: [] } }));
+    const step = { ...newCustomStep("pay_wallet"), destination: VAULT_B };
+    const mission = compileCustomMission({ title: "dry", steps: [step] });
+    await runMission(mission, ctxFor(f.agent, f.guardian, { steps: [] }));
+    assert.equal(
+      f.calls.some((c) => c.path === "/v1/agent/pay"),
+      false,
+    );
+  });
+
+  it("an uncertain settlement is held, not reported as a failure, and links the hash", async () => {
+    const f = fakes((path) =>
+      path === "/v1/agent/pay"
+        ? {
+            status: 409,
+            data: {
+              outcome: "pending_reconciliation",
+              settlement: { state: "needs_review", txHash: HASH },
+              error: { code: "SETTLEMENT_UNCERTAIN", message: "timed out" },
+            },
+          }
+        : { status: 200, data: {} },
+    );
+    const step = { ...newCustomStep("pay_wallet"), destination: VAULT_B };
+    const def = stepFromDraft(step, { realSpend: true });
+    const state = newRunState();
+    const res = await def.run(ctxFor(f.agent, f.guardian, { steps: [] }), state);
+    assert.equal(state.denials.length, 0, "not counted as a refusal");
+    assert.equal(state.blocks.length, 1);
+    assert.equal(res.abort, true, "stops the run instead of continuing as if it failed");
+    const summary = res.summary;
+    assert.match(summary, /Do not re-run/);
+    assert.match(summary, new RegExp(HASH));
+  });
+
+  it("refuses a non-0x destination without calling the API", async () => {
+    const f = fakes(() => ({ status: 200, data: {} }));
+    const step = { ...newCustomStep("pay_wallet"), destination: "not-an-address" };
+    const mission = compileCustomMission({ title: "bad", steps: [step] }, { realSpend: true });
+    await runMission(mission, ctxFor(f.agent, f.guardian, { steps: [] }));
+    assert.equal(
+      f.calls.some((c) => c.path === "/v1/agent/pay"),
+      false,
+    );
   });
 });

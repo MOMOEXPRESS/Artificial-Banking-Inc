@@ -23,6 +23,27 @@ export const resolveApproval = (
     resolvedBy,
   });
 
+/**
+ * Server check that a pasted agent / session key belongs to THIS org and is
+ * not revoked or expired. The playground must call this before it stores a
+ * pasted key: a successful budget read only proves the key is valid somewhere.
+ */
+export const verifyAgentKey = (g: GuardianClient, key: string) =>
+  g.call("POST", "/v1/guardian/agent-keys/verify", { key });
+
+/** Refusal message for a verify result, or null when the key may be used. */
+export function agentKeyRefusal(verify: FlowResult, budgetAgentId: unknown): string | null {
+  if (verify.status >= 400) {
+    const err = (verify.data as { error?: { message?: string } }).error;
+    return err?.message ?? "That key does not belong to this organization";
+  }
+  const verifiedId = (verify.data as { agentId?: unknown }).agentId;
+  if (!verifiedId || String(verifiedId) !== String(budgetAgentId)) {
+    return "That key resolved to a different agent than this organization verified — not added";
+  }
+  return null;
+}
+
 export type RunRecord = {
   missionId: string;
   title: string;

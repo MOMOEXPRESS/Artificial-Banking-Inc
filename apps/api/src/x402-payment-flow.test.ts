@@ -399,8 +399,14 @@ it("keeps the idempotency key once an authorization is signed, even if the selle
 
   const first = await request();
   assert.notEqual(first.status, 200);
-  const firstBody = (await first.json()) as { intentId: string; error: { code: string } };
-  assert.equal(firstBody.error.code, "SELLER_REJECTED");
+  const firstBody = (await first.json()) as {
+    intentId: string;
+    error: { code: string; cause?: string };
+  };
+  // Funds may still move (the seller holds a signed authorization), so the
+  // API reports uncertainty instead of a clean failure the caller would retry.
+  assert.equal(firstBody.error.code, "SETTLEMENT_UNCERTAIN");
+  assert.equal(firstBody.error.cause, "SELLER_REJECTED");
   assert.equal(store.getSettlement(firstBody.intentId)?.state, "needs_review");
 
   const retry = await request();

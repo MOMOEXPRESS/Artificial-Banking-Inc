@@ -782,6 +782,31 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
             ? 400
             : 402;
     const guardRule = e instanceof X402Error ? X402_GUARD_RULE_IDS[e.code] : undefined;
+    if (maybeMoved && !guardRule) {
+      // Funds may have left (a broadcast hash or a signed authorization
+      // exists). Saying "failed" here invites the caller to retry and pay
+      // twice. Report the uncertainty; the hold stays until reconciliation.
+      return {
+        ok: false,
+        status: 409,
+        payload: {
+          intentId: input.intentId,
+          outcome: "pending_reconciliation",
+          settlement: {
+            state: "needs_review",
+            ...(attempt?.txHash && { txHash: attempt.txHash }),
+            ...(attempt?.rail && { rail: attempt.rail }),
+          },
+          error: {
+            code: "SETTLEMENT_UNCERTAIN",
+            cause: code,
+            message:
+              (e instanceof Error ? e.message : String(e)) +
+              " — the authorized amount stays on hold until the outcome is reconciled. Do not resubmit this payment.",
+          },
+        },
+      };
+    }
     const guardDecision = guardRule
       ? recordDecision({
           intentId: input.intentId,

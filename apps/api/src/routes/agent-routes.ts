@@ -18,6 +18,7 @@ import { notify } from "../platform/notifier.js";
 import { recordObs } from "../platform/observability.js";
 import { scopedStore, store, type OrgRow } from "../store.js";
 import { emitEvent } from "../webhooks.js";
+import { checkAgentKeyForOrg } from "../auth/agent-key-check.js";
 
 type GuardianRoute = (
   handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
@@ -89,6 +90,26 @@ export function registerAgentRoutes(
   deps: { guardianRoute: GuardianRoute },
 ): void {
   const { guardianRoute } = deps;
+
+  /**
+   * Validate a pasted agent/session key against the authenticated org before
+   * the console uses it for anything (balances, runs, approvals). The org
+   * comes from the guardian credential, never from the request body.
+   */
+  app.post(
+    "/v1/guardian/agent-keys/verify",
+    guardianRoute((org, req, res) => {
+      const body = z.object({ key: z.string().min(1).max(200) }).parse(req.body);
+      const check = checkAgentKeyForOrg(org.id, body.key);
+      if (!check.ok) {
+        recordObs({ name: "agent_key.verify_refused", orgId: org.id, attrs: { code: check.code } });
+        return res
+          .status(check.status)
+          .json({ error: { code: check.code, message: check.message } });
+      }
+      res.json(check);
+    }),
+  );
 
   /** Roster — dedicated list (also embedded in GET /org). */
   app.get(
