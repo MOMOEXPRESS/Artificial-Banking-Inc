@@ -110,7 +110,7 @@ export async function signEs256(
   }
   const key = await crypto.subtle.importKey(
     "jwk",
-    { ...privateJwk, ext: false, key_ops: ["sign"] } as webcrypto.JsonWebKey,
+    { ...privateJwk, ext: false, key_ops: ["sign"] } as webcrypto.JsonWebKey & { kty: string },
     { name: "ECDSA", namedCurve: "P-256" },
     false,
     ["sign"],

@@ -389,7 +389,9 @@ async function probeOffer(
   offer: OfferRow,
 ): Promise<{ status: number; header: string | null; body: string }> {
   if (offer.hosted) {
-    const r = await handleHostedOffer(offer.id, () => undefined, {}, undefined, { sellerProbe: true });
+    const r = await handleHostedOffer(offer.id, () => undefined, {}, undefined, {
+      sellerProbe: true,
+    });
     return {
       status: r.status,
       header: r.headers["PAYMENT-REQUIRED"] ?? null,
@@ -660,7 +662,8 @@ export function registerSellerRoutes(app: express.Express): void {
         return res.status(400).json({
           error: {
             code: "VALIDATION_ERROR",
-            message: "x401 identity checks run at ABI-hosted checkouts only; your own server must verify x401 itself.",
+            message:
+              "x401 identity checks run at ABI-hosted checkouts only; your own server must verify x401 itself.",
           },
         });
       }
