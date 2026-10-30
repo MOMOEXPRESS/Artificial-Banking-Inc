@@ -10,6 +10,14 @@ records provide an audit trail for decisions and settlements.
 - Local vault keys are encrypted at rest (`ABI_KEK`). Managed custody (CDP/MPC)
   is not built — see [FREE-STACK.md](./FREE-STACK.md). Never derive the pepper
   or KEK from `ABI_SIGNUP_TOKEN`.
+- The policy engine is separate from the agent, not from custody: agents hold
+  only an ABI API or session key, while ABI's API server holds each org's
+  encrypted vault key and signs after the policy check. No HSM or MPC sits in
+  between yet.
+- Agent credentials cannot vote on approvals (`self_approval_forbidden` /
+  `agent_cannot_approve`). Approvals expire after `APPROVAL_TTL_MINUTES` as
+  "expired, not sent". Policy read failures refuse (`policy_unavailable`).
+  Details: [REFUSALS-AND-APPROVALS.md](./REFUSALS-AND-APPROVALS.md).
 - Telegram approvals require a per-org chat (or documented single-tenant
   fallback), an allowlist or linked `conditions.telegramUserId`, and the same
   role / max-approve gates as the console. Amounts at/above the step-up

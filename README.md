@@ -77,6 +77,13 @@ The policy engine is separate from the agent: an agent's credential can only
 propose payments and read its own budget and decisions — it cannot read or
 change its own policy. Every policy-writing route is guardian-only
 (`apps/api/src/policy-isolation.test.ts` enforces this).
+An agent credential can never approve a payment either — least of all its own
+request (`self_approval_forbidden`).
+
+Custody is **not** separate from ABI's server yet: each organization's vault
+key is stored encrypted in ABI's database, and ABI's API server decrypts it and
+signs only after the policy check passes. The agent never holds the key. See
+[Refusals, approvals and session budgets](docs/REFUSALS-AND-APPROVALS.md).
 
 ### Who it is for
 
