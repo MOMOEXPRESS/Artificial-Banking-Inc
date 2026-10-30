@@ -20,6 +20,12 @@ const HEADROOM = 2;
 const MAX_GAP = 50;
 /** Absolute USDC ceiling for any band — stops feedback explosions. */
 export const MAX_BAND = 100_000;
+
+/** Monthly (rolling 30-day) cap is always 30 × the daily cap — mirrors the API. */
+export const MONTHLY_DAILY_MULTIPLE = 30;
+export function monthlyFromDaily(daily: number): number {
+  return Number.isFinite(daily) && daily > 0 ? daily * MONTHLY_DAILY_MULTIPLE : 0;
+}
 /** Chart scale soft ceiling — bars stay usable without runaway. */
 const MAX_SCALE = 25_000;
 

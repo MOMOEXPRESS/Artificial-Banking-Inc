@@ -4,6 +4,7 @@
  */
 import { formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/common";
 import {
+  deriveMonthlyMaxMicro,
   listPolicyTemplateCatalog,
   policyTemplateById,
   type PolicyTemplateId,
@@ -52,9 +53,8 @@ export function policyView(template: ReturnType<typeof store.getPolicyTemplate>)
     orgDailyMaxUsdc:
       template.orgDailyMaxMicro === undefined ? null : formatMicroToUsdc(template.orgDailyMaxMicro),
     approvalQuorum: template.approvalQuorum ?? 1,
-    /** Per-agent rolling 30-day cap (null = none). */
-    monthlyMaxUsdc:
-      template.monthlyMaxMicro === undefined ? null : formatMicroToUsdc(template.monthlyMaxMicro),
+    /** Per-agent rolling 30-day cap — always 30 × dailyMaxUsdc (read-only, derived). */
+    monthlyMaxUsdc: formatMicroToUsdc(deriveMonthlyMaxMicro(template.dailyMaxMicro)),
     /** Per-agent payments per rolling hour (null = none). */
     maxPaysPerHour: template.maxPaysPerHour ?? null,
     /** Guardian treasury withdrawal guard (null = API default applies). */
@@ -533,7 +533,10 @@ export function registerPolicyRoutes(
             dailyMaxUsdc: z.string().optional(),
             /** Ceiling for the whole org in 24h. null removes it. */
             orgDailyMaxUsdc: z.string().nullable().optional(),
-            /** Per-agent rolling 30-day cap. null removes it. */
+            /**
+             * Deprecated: the rolling 30-day cap is derived as 30 × dailyMaxUsdc.
+             * Accepted for old clients; a value below the daily max is refused.
+             */
             monthlyMaxUsdc: z.string().nullable().optional(),
             /** Per-agent payments per rolling hour. null removes it. */
             maxPaysPerHour: z.number().int().positive().nullable().optional(),
@@ -657,10 +660,6 @@ export function registerPolicyRoutes(
             orgDailyMaxMicro:
               body.orgDailyMaxUsdc === null ? undefined : parseUsdcToMicro(body.orgDailyMaxUsdc),
           }),
-          ...(body.monthlyMaxUsdc !== undefined && {
-            monthlyMaxMicro:
-              body.monthlyMaxUsdc === null ? undefined : parseUsdcToMicro(body.monthlyMaxUsdc),
-          }),
           ...(body.maxPaysPerHour !== undefined && {
             maxPaysPerHour: body.maxPaysPerHour ?? undefined,
           }),
@@ -721,7 +720,24 @@ export function registerPolicyRoutes(
             },
           });
         }
-        if (next.monthlyMaxMicro !== undefined && next.monthlyMaxMicro < next.dailyMaxMicro) {
+        // The monthly cap is derived from the daily cap (30 × daily) and is never
+        // set by hand, so raising the daily max can't trip a stale template
+        // monthly default. A legacy client that still sends monthlyMaxUsdc below
+        // the daily max is refused; any other value is superseded by the derived one.
+        if (
+          typeof body.monthlyMaxUsdc === "string" &&
+          parseUsdcToMicro(body.monthlyMaxUsdc) < next.dailyMaxMicro
+        ) {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "monthlyMaxUsdc must be at least dailyMaxUsdc",
+            },
+          });
+        }
+        next.monthlyMaxMicro = deriveMonthlyMaxMicro(next.dailyMaxMicro);
+        // Safety net: the derived monthly cap must always cover the daily cap.
+        if (next.monthlyMaxMicro < next.dailyMaxMicro) {
           return res.status(400).json({
             error: {
               code: "VALIDATION_ERROR",

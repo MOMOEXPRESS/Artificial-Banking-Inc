@@ -181,10 +181,8 @@ export function rulesFor(agentId: string, orgId: string, destination?: string): 
         : store.counterpartyStats(orgId, destination),
     paysLastMinute: store.paysLastMinute(agentId),
     // Cumulative and hourly velocity caps — only scanned when configured.
-    spentLast30dMicro:
-      effective.monthlyMaxMicro === undefined
-        ? undefined
-        : store.spentSince(agentId, Date.now() - 30 * 24 * 60 * 60 * 1000),
+    // Monthly cap is always on (derived as 30 × the effective daily max).
+    spentLast30dMicro: store.spentSince(agentId, Date.now() - 30 * 24 * 60 * 60 * 1000),
     paysLastHour:
       effective.maxPaysPerHour === undefined
         ? undefined
