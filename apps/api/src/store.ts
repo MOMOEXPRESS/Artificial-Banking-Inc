@@ -234,6 +234,14 @@ export interface OfferIntegrationRow {
   snippetVersion?: string;
   lastVerifiedAt?: string;
   error?: string;
+  /**
+   * When the seller last proved control of the endpoint's origin (a token at
+   * /.well-known/abi-seller-verification). Only set for offers on the seller's
+   * own server; ABI-hosted offers are owned by construction.
+   */
+  ownershipVerifiedAt?: string;
+  /** The origin that proof covered; a moved endpoint needs a new proof. */
+  ownershipOrigin?: string;
 }
 
 export interface PartnerAccountRow {
@@ -1264,6 +1272,9 @@ for (const migration of [
   "ALTER TABLE partner_sessions ADD COLUMN user_agent TEXT",
   "ALTER TABLE partner_sessions ADD COLUMN ip TEXT",
   "ALTER TABLE partner_accounts ADD COLUMN password_changed_at TEXT",
+  // Proof of control of a seller's own endpoint origin (well-known token).
+  "ALTER TABLE offer_integrations ADD COLUMN ownership_verified_at TEXT",
+  "ALTER TABLE offer_integrations ADD COLUMN ownership_origin TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -2144,6 +2155,8 @@ function rowToOfferIntegration(r: Row): OfferIntegrationRow {
     snippetVersion: r.snippet_version ? String(r.snippet_version) : undefined,
     lastVerifiedAt: r.last_verified_at ? String(r.last_verified_at) : undefined,
     error: r.error ? String(r.error) : undefined,
+    ownershipVerifiedAt: r.ownership_verified_at ? String(r.ownership_verified_at) : undefined,
+    ownershipOrigin: r.ownership_origin ? String(r.ownership_origin) : undefined,
   };
 }
 
@@ -3022,6 +3035,8 @@ export const store = {
       snippetVersion?: string | null;
       lastVerifiedAt?: string | null;
       error?: string | null;
+      ownershipVerifiedAt?: string | null;
+      ownershipOrigin?: string | null;
     },
   ): OfferIntegrationRow {
     if (!this.getOfferIntegration(offerId)) {
@@ -3042,11 +3057,28 @@ export const store = {
           ? (current.lastVerifiedAt ?? null)
           : patch.lastVerifiedAt,
       error: patch.error === undefined ? (current.error ?? null) : patch.error,
+      ownershipVerifiedAt:
+        patch.ownershipVerifiedAt === undefined
+          ? (current.ownershipVerifiedAt ?? null)
+          : patch.ownershipVerifiedAt,
+      ownershipOrigin:
+        patch.ownershipOrigin === undefined
+          ? (current.ownershipOrigin ?? null)
+          : patch.ownershipOrigin,
     };
     db.prepare(
-      `UPDATE offer_integrations SET last_challenge_json = ?, snippet_version = ?, last_verified_at = ?, error = ?
+      `UPDATE offer_integrations SET last_challenge_json = ?, snippet_version = ?, last_verified_at = ?, error = ?,
+         ownership_verified_at = ?, ownership_origin = ?
        WHERE offer_id = ?`,
-    ).run(next.lastChallengeJson, next.snippetVersion, next.lastVerifiedAt, next.error, offerId);
+    ).run(
+      next.lastChallengeJson,
+      next.snippetVersion,
+      next.lastVerifiedAt,
+      next.error,
+      next.ownershipVerifiedAt,
+      next.ownershipOrigin,
+      offerId,
+    );
     const row = this.getOfferIntegration(offerId);
     if (!row) throw new Error("OFFER_INTEGRATION_MISSING");
     return row;
@@ -7823,25 +7855,50 @@ function normalizeEndpointUrl(url: string): string {
   }
 }
 
+/** `https://host:port` of a URL, lower-cased; "" when it does not parse. */
+export function endpointOrigin(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host.toLowerCase()}`;
+  } catch {
+    return "";
+  }
+}
+
 export const sellerStore = {
   /**
    * Offers that own a buyer pay destination (exact URL, normalized). Only an
-   * offer whose endpoint passed verify at its current terms counts: an unverified
-   * listing must never pause, gate or redirect payments to someone else's URL.
+   * offer from a verified owner counts: its endpoint passed verify at its
+   * current terms AND the seller proved control of the URL's origin (or ABI
+   * hosts it). The 402's payTo is public, so matching it proves nothing; an
+   * unproven listing must never pause, gate, price or redirect payments to
+   * someone else's URL.
    */
   findOffersByEndpoint(endpointUrl: string): OfferRow[] {
     const target = normalizeEndpointUrl(endpointUrl);
     return (
       db
         .prepare(
-          `SELECT o.* FROM offers o
+          `SELECT o.*, i.ownership_origin AS proof_origin FROM offers o
            JOIN offer_integrations i ON i.offer_id = o.id
-           WHERE o.status IN ('verified', 'published', 'paused') AND i.last_verified_at IS NOT NULL`,
+           WHERE o.status IN ('verified', 'published', 'paused') AND i.last_verified_at IS NOT NULL
+             AND (o.hosted = 1 OR i.ownership_verified_at IS NOT NULL)`,
         )
         .all() as Row[]
     )
+      .filter(
+        (r) =>
+          Number(r.hosted) === 1 ||
+          (typeof r.proof_origin === "string" &&
+            r.proof_origin === endpointOrigin(String(r.endpoint_url))),
+      )
       .map(rowToOffer)
       .filter((o) => normalizeEndpointUrl(o.endpointUrl) === target);
+  },
+
+  /** True when this offer is a verified owner of its endpoint (see findOffersByEndpoint). */
+  isVerifiedOwnerOffer(offer: Pick<OfferRow, "id" | "endpointUrl">): boolean {
+    return this.findOffersByEndpoint(offer.endpointUrl).some((o) => o.id === offer.id);
   },
 
   getOfferAnyOrg(offerId: string): OfferRow | undefined {

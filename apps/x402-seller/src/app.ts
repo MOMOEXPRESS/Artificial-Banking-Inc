@@ -33,6 +33,16 @@ export interface SellerConfig {
   price: string;
   payTo: `0x${string}`;
   facilitatorUrl: string;
+  /** Lines served at /.well-known/abi-seller-verification (ABI ownership proof). */
+  abiVerification?: string[];
+}
+
+/** Split ABI_SELLER_VERIFICATION (comma or newline separated) into record lines. */
+export function parseVerificationRecords(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter((s) => /^abi-seller-verification=[a-f0-9]{16,64}$/.test(s));
 }
 
 export function paidRoutes(cfg: SellerConfig) {
@@ -138,6 +148,13 @@ export function createSellerApp(
       payTo: cfg.payTo,
     });
   });
+
+  if (cfg.abiVerification?.length) {
+    const body = `${cfg.abiVerification.join("\n")}\n`;
+    app.get("/.well-known/abi-seller-verification", (_req, res) => {
+      res.type("text/plain").set("cache-control", "no-store").send(body);
+    });
+  }
 
   app.use(paidMethodGuard(Object.keys(paidRoutes(cfg))));
   app.use(paywall);

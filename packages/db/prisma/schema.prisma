@@ -416,6 +416,8 @@ model OfferIntegrations {
   snippetVersion String? @map("snippet_version")
   lastVerifiedAt String? @map("last_verified_at")
   error String?
+  ownershipVerifiedAt String? @map("ownership_verified_at")
+  ownershipOrigin String? @map("ownership_origin")
   @@map("offer_integrations")
 }
 

@@ -137,7 +137,12 @@ it("replays one x402 settlement without a second seller request or ledger postin
     priceUsdcMicro: "10000",
     network: "base-sepolia",
   });
-  store.setOfferIntegration(offer.id, { lastVerifiedAt: new Date().toISOString() });
+  // As the verify route leaves it: challenge checked and the origin proven.
+  store.setOfferIntegration(offer.id, {
+    lastVerifiedAt: new Date().toISOString(),
+    ownershipVerifiedAt: new Date().toISOString(),
+    ownershipOrigin: sellerBase,
+  });
   store.updateOffer(sellerOrg.id, offer.id, { status: "published" });
   const policy = store.getPolicyTemplate(org.id);
   store.setPolicyTemplate(org.id, {

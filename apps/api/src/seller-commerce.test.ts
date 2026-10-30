@@ -335,7 +335,12 @@ describe("buyer to seller through the hosted x402 route", () => {
       });
       const { offer: o } = (await created.json()) as { offer: OfferJson };
       store.updateOffer(seller.orgId, o.id, { status: "verified" });
-      store.setOfferIntegration(o.id, { lastVerifiedAt: new Date().toISOString() });
+      // Both proved the origin (e.g. a shared host serving both tokens).
+      store.setOfferIntegration(o.id, {
+        lastVerifiedAt: new Date().toISOString(),
+        ownershipVerifiedAt: new Date().toISOString(),
+        ownershipOrigin: "https://claimed.example",
+      });
       const pub = await call(seller, "POST", `/v1/seller/offers/${o.id}/publish`);
       assert.equal(pub.status, seller === a ? 200 : 409);
     }
