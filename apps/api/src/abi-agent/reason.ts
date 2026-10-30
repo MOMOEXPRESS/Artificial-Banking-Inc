@@ -29,6 +29,10 @@ export function synthesizeAdvice(
     );
   }
 
+  if (ctx.latestAlert && !results.some((r) => r.tool === "notifications_digest")) {
+    bullets.push(`Unread warning under the bell: ${ctx.latestAlert}`);
+  }
+
   const rec = results.find((r) => r.tool === "recommend_next");
   if (rec?.data && Array.isArray(rec.data.bullets)) {
     for (const b of rec.data.bullets) {

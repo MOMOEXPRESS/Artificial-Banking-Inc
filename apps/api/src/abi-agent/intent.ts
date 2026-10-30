@@ -25,6 +25,11 @@ export type AbiIntent =
   | "forget"
   | "compare"
   | "help"
+  | "payments"
+  | "notifications"
+  | "recap"
+  | "action_request"
+  | "out_of_scope"
   | "unknown";
 
 export function classifyIntent(message: string): AbiIntent {
@@ -32,6 +37,16 @@ export function classifyIntent(message: string): AbiIntent {
 
   const memory = parseMemoryCommand(message);
   if (memory) return memory.kind;
+  if (/\bconversation recap\b|\blast time\b.*\b(talk|chat|ask|discuss)/.test(q)) return "recap";
+  if (/\bnotifications?\b/.test(q)) return "notifications";
+  if (
+    /\b(recent|latest|last|newest|history|list|show)\b.{0,30}\bpayments?\b|\bpayments? (history|log|list)\b/.test(
+      q,
+    ) &&
+    !/\bwhy\b/.test(q)
+  ) {
+    return "payments";
+  }
   if (
     /\b(what should i|recommend|next step|priorit|urgent|attention|focus)\b/.test(q) ||
     /^(what now|help me decide)\??$/.test(q)

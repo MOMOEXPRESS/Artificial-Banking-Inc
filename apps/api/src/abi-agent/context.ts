@@ -28,6 +28,9 @@ export type OrgContext = {
   last24h?: { allow: number; deny: number; review: number };
   /** Most recent decisions, newest first (max 3). */
   recentDecisions?: string[];
+  /** Unread notifications under the bell, and the newest unread warning (if any). */
+  unreadNotifications?: number;
+  latestAlert?: string;
 };
 
 export function buildOrgContext(orgId: string): OrgContext {
@@ -114,7 +117,20 @@ export function buildOrgContext(orgId: string): OrgContext {
   } catch {
     recentDecisions = [];
   }
+  let unreadNotifications = 0;
+  let latestAlert: string | undefined;
+  try {
+    unreadNotifications = store.countUnreadNotifications(orgId);
+    const alert = store
+      .listNotifications(orgId, { limit: 20, unreadOnly: true })
+      .find((n) => n.severity === "bad" || n.severity === "warn");
+    if (alert) latestAlert = `${alert.title}${alert.body ? ` — ${alert.body.slice(0, 100)}` : ""}`;
+  } catch {
+    unreadNotifications = 0;
+  }
   return {
+    unreadNotifications,
+    latestAlert,
     agents: roster.slice(0, 8),
     budgets,
     holdings,
@@ -168,6 +184,11 @@ export function formatOrgBrief(ctx: OrgContext): string {
     lines.push(`Last 24h decisions: ${allow} allowed · ${deny} denied · ${review} sent for review`);
   }
   if (ctx.recentDecisions?.length) lines.push(`Latest: ${ctx.recentDecisions.join("; ")}`);
+  if (ctx.unreadNotifications) {
+    lines.push(
+      `Unread notifications: ${ctx.unreadNotifications}${ctx.latestAlert ? ` · newest warning: ${ctx.latestAlert}` : ""}`,
+    );
+  }
   return lines.join("\n");
 }
 
