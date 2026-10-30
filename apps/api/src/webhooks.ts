@@ -21,6 +21,10 @@ import { fetchNoRedirect, webhookUrlProblem } from "./outbound-url.js";
 export type WebhookEvent =
   | "payment.succeeded"
   | "payment.failed"
+  /** A payment's outcome is unknown; the amount stays held and is rechecked. */
+  | "payment.outcome_unknown"
+  /** An unknown outcome was resolved from evidence (or handed to a named human). */
+  | "payment.outcome_resolved"
   | "policy.denied"
   | "approval.pending"
   | "approval.resolved"

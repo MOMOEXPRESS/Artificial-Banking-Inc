@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -306,6 +306,10 @@ export function TreasuryView({
     resolver: zodResolver(depositSchema),
     defaultValues: { amountUsdc: "100" },
   });
+  // Safe retry: the same withdrawal (amount, destination, asset) re-sent after
+  // an error or an unknown outcome reuses its idempotency key, so the API
+  // replays the first result instead of sending twice.
+  const withdrawKey = useRef<{ sig: string; key: string } | null>(null);
   const withdrawForm = useForm<z.infer<typeof withdrawSchema>>({
     resolver: zodResolver(withdrawSchema),
     defaultValues: { amountUsdc: "", destination: "" },
@@ -908,16 +912,34 @@ export function TreasuryView({
                   onSubmit={withdrawForm.handleSubmit(
                     (values) =>
                       void act("Send", async () => {
+                        const sig = JSON.stringify([
+                          values.amountUsdc.trim(),
+                          values.destination?.trim().toLowerCase() ?? "",
+                          assetId,
+                        ]);
+                        if (withdrawKey.current?.sig !== sig) {
+                          withdrawKey.current = {
+                            sig,
+                            key: `wd_${crypto.randomUUID().replace(/-/g, "")}`,
+                          };
+                        }
                         const res = await gFetch("/v1/guardian/treasury/withdraw", {
                           method: "POST",
                           body: JSON.stringify({
                             amountUsdc: values.amountUsdc.trim(),
                             destination: values.destination?.trim() || undefined,
                             assetId,
+                            idempotencyKey: withdrawKey.current.key,
                           }),
                         });
                         const j = await res.json();
-                        if (!res.ok) throw new Error(j.error?.message ?? "Withdraw failed");
+                        if (!res.ok) {
+                          // A refusal or a clean failure: a fresh attempt gets a new key.
+                          // An unknown outcome keeps it, so a resend replays instead.
+                          if (j.state !== "outcome_unknown") withdrawKey.current = null;
+                          throw new Error(j.error?.message ?? "Withdraw failed");
+                        }
+                        withdrawKey.current = null;
                         withdrawForm.reset({ amountUsdc: "", destination: "" });
                         await refresh();
                         if (j.outcome === "review") {

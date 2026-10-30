@@ -23,6 +23,23 @@ export interface PaymentRailContext {
    * Implementations must call this before any long await.
    */
   onBroadcast?: (rail: string, txHash?: string) => void;
+  /**
+   * Called with exactly what was signed, BEFORE it leaves the process
+   * (reserve the signed maximum). Throwing here aborts the payment while
+   * nothing has been sent. `authorization` is set for EIP-3009 (x402).
+   */
+  onSigned?: (signedMaxMicro: MicroUsdc, authorization?: SignedAuthorizationDetails) => void;
+}
+
+/** What an EIP-3009 authorization commits the vault to, for later recheck. */
+export interface SignedAuthorizationDetails {
+  nonce: string;
+  /** Unix seconds; after this the authorization can never be claimed. */
+  validBefore?: string;
+  payer?: string;
+  payTo?: string;
+  asset?: string;
+  network?: string;
 }
 
 export interface PaymentRailResult {

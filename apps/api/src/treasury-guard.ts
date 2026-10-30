@@ -15,6 +15,14 @@
  *   4. treasury_withdraw_max       — per-withdrawal ceiling (USDC only).
  *   5. treasury_withdraw_daily_max — rolling 24h ceiling (USDC only), counting
  *                                    settled withdrawals AND ones in flight.
+ *   6. treasury_withdraw_reserved  — the org balance left after every other
+ *                                    in-flight withdrawal must cover this one.
+ *
+ * In-flight withdrawals are reserved in the shared database (a `pending`
+ * `settlement_attempts` row, tool `treasury_withdraw`) inside one IMMEDIATE
+ * transaction with the cap check, so the reservation holds across processes
+ * and survives a restart. It used to be an in-memory map, which a second API
+ * instance could not see.
  *
  * Every outcome is written to the decisions table (tool `treasury_withdraw`,
  * agentId `guardian:<identity>`) so a refused or allowed withdrawal is
@@ -48,19 +56,9 @@ export function treasuryWithdrawLimits(orgId: string): TreasuryWithdrawLimits {
   };
 }
 
-/**
- * Withdrawals authorized but not yet booked, per org. Reserved synchronously
- * (no await between check and reserve) so two concurrent withdrawals cannot
- * both fit under the same daily headroom. Single-process only — the same
- * caveat as the rest of the in-memory rate state; a multi-instance deployment
- * needs this in the shared store.
- */
-const inFlight = new Map<string, Map<string, bigint>>();
-
+/** Withdrawals reserved but not yet booked, read from the shared database. */
 function inFlightMicro(orgId: string): bigint {
-  let sum = 0n;
-  for (const v of inFlight.get(orgId)?.values() ?? []) sum += v;
-  return sum;
+  return store.treasuryWithdrawInFlightMicro(orgId);
 }
 
 /** Settled (allowed + booked) guardian withdrawals in the last 24h, in micro-USDC. */
@@ -117,6 +115,11 @@ export function guardTreasuryWithdraw(input: {
   amountDisplay: string;
   destination?: string;
   nowMs?: number;
+  /**
+   * The org's booked available balance. When given, the balance left after
+   * every other in-flight withdrawal must cover this one (rule 6).
+   */
+  availableMicro?: bigint;
   /**
    * Evaluate only: refusals are still recorded, but an allow reserves no
    * headroom and records nothing. Used before parking a withdrawal for
@@ -205,43 +208,71 @@ export function guardTreasuryWithdraw(input: {
         },
       );
     }
-    const used = treasuryWithdrawnLast24h(org.id, input.nowMs) + inFlightMicro(org.id);
-    if (used + input.amountMicro > limits.dailyMaxMicro) {
-      const remaining = limits.dailyMaxMicro > used ? limits.dailyMaxMicro - used : 0n;
-      return deny(
-        "treasury_withdraw_daily_max",
-        `Exceeds the 24h treasury withdrawal cap of ${formatMicroToUsdc(limits.dailyMaxMicro)} USDC`,
-        "POLICY_DENIED",
-        {
-          ruleId: "treasury_withdraw_daily_max",
-          unit: "usdc",
-          attempted: input.amountMicro,
-          cap: limits.dailyMaxMicro,
-          used,
-          remaining,
-          window: "24h",
-        },
-      );
-    }
   }
 
+  // Rules 5 and 6 depend on what other withdrawals have reserved. Evaluated
+  // inside the reservation transaction (or read-only for a dry run).
+  const settled24h = isUsdc ? treasuryWithdrawnLast24h(org.id, input.nowMs) : 0n;
+  type CapRefusal = { rule: string; used: bigint };
+  const capCheck = (inFlight: bigint, open: bigint): CapRefusal | null => {
+    if (!isUsdc) return null;
+    const used = settled24h + inFlight;
+    if (used + input.amountMicro > limits.dailyMaxMicro) {
+      return { rule: "treasury_withdraw_daily_max", used };
+    }
+    if (input.availableMicro !== undefined && input.availableMicro - open < input.amountMicro) {
+      return { rule: "treasury_withdraw_reserved", used: open };
+    }
+    return null;
+  };
+  const refuseCap = (r: CapRefusal): TreasuryGuardDenial => {
+    if (r.rule === "treasury_withdraw_reserved") {
+      const free = (input.availableMicro ?? 0n) - r.used;
+      return deny(
+        "treasury_withdraw_reserved",
+        `Only ${formatMicroToUsdc(free > 0n ? free : 0n)} USDC is free: ${formatMicroToUsdc(r.used)} USDC is reserved by withdrawals in flight or with an unknown outcome`,
+      );
+    }
+    const remaining = limits.dailyMaxMicro > r.used ? limits.dailyMaxMicro - r.used : 0n;
+    return deny(
+      "treasury_withdraw_daily_max",
+      `Exceeds the 24h treasury withdrawal cap of ${formatMicroToUsdc(limits.dailyMaxMicro)} USDC`,
+      "POLICY_DENIED",
+      {
+        ruleId: "treasury_withdraw_daily_max",
+        unit: "usdc",
+        attempted: input.amountMicro,
+        cap: limits.dailyMaxMicro,
+        used: r.used,
+        remaining,
+        window: "24h",
+      },
+    );
+  };
+
   if (input.dryRun) {
+    const refused = capCheck(inFlightMicro(org.id), store.treasuryWithdrawOpenMicro(org.id));
+    if (refused) return refuseCap(refused);
     return { ok: true, intentId, commit: () => {}, fail: () => {} };
   }
 
-  // Reserve before the caller awaits anything.
-  let orgMap = inFlight.get(org.id);
-  if (!orgMap) {
-    orgMap = new Map();
-    inFlight.set(org.id, orgMap);
+  // Check and reserve in one IMMEDIATE transaction in the shared database.
+  if (isUsdc) {
+    let refused: CapRefusal | null = null;
+    const reserved = store.reserveTreasuryWithdraw({
+      intentId,
+      orgId: org.id,
+      agentId: `guardian:${input.actor}`,
+      destination: destination || "external",
+      amountMicro: input.amountMicro,
+      check: (inFlight, open) => {
+        refused = capCheck(inFlight, open);
+        return refused ? refused.rule : null;
+      },
+    });
+    if (!reserved.ok) return refuseCap(refused!);
   }
-  orgMap.set(intentId, isUsdc ? input.amountMicro : 0n);
   let settled = false;
-  const release = () => {
-    const m = inFlight.get(org.id);
-    m?.delete(intentId);
-    if (m && m.size === 0) inFlight.delete(org.id);
-  };
 
   return {
     ok: true,
@@ -255,7 +286,6 @@ export function guardTreasuryWithdraw(input: {
         ruleIds: ["treasury_withdraw_allowed"],
         reasons: [`Treasury withdrawal by ${input.actor} passed guardian policy`],
       });
-      release();
     },
     fail: (reason, code) => {
       if (settled) return;
@@ -266,12 +296,18 @@ export function guardTreasuryWithdraw(input: {
         ruleIds: ["execution_failed"],
         reasons: [`Treasury withdrawal did not complete${code ? ` (${code})` : ""}: ${reason}`],
       });
-      release();
+      // Free the reservation: nothing was broadcast.
+      if (isUsdc) {
+        store.finishSettlement(intentId, {
+          state: "failed",
+          error: `${code ? `${code}: ` : ""}${reason}`,
+        });
+      }
     },
   };
 }
 
 /** Test hook: clear in-flight reservations. */
 export function __resetTreasuryGuardForTests(): void {
-  inFlight.clear();
+  /* reservations live in the database now; tests reset it with the DB */
 }

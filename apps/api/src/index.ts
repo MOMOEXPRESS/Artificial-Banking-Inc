@@ -40,6 +40,7 @@ import {
   type ExecInput,
 } from "./engine.js";
 import { buildDenial } from "./denial.js";
+import { approvalRecord, intentStatus, outflowReconciliation, rulesHash } from "./outcomes.js";
 import { anomalies, burnForecast, jobEconomics, vendorLedger } from "./analytics.js";
 import { answerQuestion, buildSummary } from "./insights.js";
 import { runAbiAgent, runMemoryCommand } from "./abi-agent/index.js";
@@ -816,13 +817,50 @@ async function handleIntent(
     }
   }
   const idemKey = scopedIdempotencyKey(input.agentId, input.idempotencyKey);
+  const requestHash = sha256Hex(
+    canonicalJson({
+      agentId: input.agentId,
+      tool: input.tool,
+      amountUsdc: input.amountUsdc,
+      destination: input.destination,
+      idempotencyKey: input.idempotencyKey,
+      jobId: input.jobId ?? null,
+      memo: input.memo ?? null,
+      payeeAgentId: input.payeeAgentId ?? null,
+    }),
+  );
   // Claim the key first. Anything already recorded — settled, denied, parked
   // or in flight — replays instead of executing a second time.
-  if (!store.reserveIdempotent(input.orgId, idemKey)) {
+  if (!store.reserveIdempotent(input.orgId, idemKey, { requestHash })) {
     const existing = store.getIdempotent(input.orgId, idemKey) as
-      { status?: string; httpStatus?: number } | undefined;
+      { status?: string; httpStatus?: number; intentId?: string } | undefined;
+    const meta = store.getIdempotentMeta(input.orgId, idemKey);
+    // Same key, different request: the caller cannot know which one ran.
+    // That is an unknown outcome to read, never a failure to retry around.
+    if (meta?.requestHash && meta.requestHash !== requestHash) {
+      return res.status(409).json({
+        outcome: "unknown",
+        state: "outcome_unknown",
+        ...(existing?.intentId && {
+          intentId: existing.intentId,
+          status_url: `/v1/agent/intents/${existing.intentId}/status`,
+        }),
+        error: {
+          code: "IDEMPOTENCY_MISMATCH",
+          message:
+            "This idempotency key was already used for a different request. Read that request's status; do not resend it under a new key.",
+        },
+      });
+    }
     if (existing?.status === "in_flight") {
       return res.status(409).json({
+        outcome: "unknown",
+        state: "outcome_unknown",
+        recheck_after: new Date(Date.now() + 5_000).toISOString(),
+        ...(existing.intentId && {
+          intentId: existing.intentId,
+          status_url: `/v1/agent/intents/${existing.intentId}/status`,
+        }),
         error: {
           code: "IDEMPOTENCY_REPLAY",
           message: "An identical request is still in flight — poll rather than retry.",
@@ -871,9 +909,29 @@ async function handleIntent(
     store.releaseIdempotent(input.orgId, idemKey);
     const intentId = id("int");
     const denial = buildDenial({ ruleIds: ["policy_unavailable"] });
+    // Record it as "not assessed" so the status read can say so. Best effort:
+    // the store may be what failed.
+    try {
+      recordDecision({
+        intentId,
+        orgId: input.orgId,
+        agentId: input.agentId,
+        outcome: "deny",
+        ruleIds: ["policy_unavailable"],
+        reasons: ["Not assessed: the policy could not be read or evaluated"],
+        tool: input.tool,
+        amountUsdc: input.amountUsdc,
+        destination: input.destination,
+        requestHash,
+      });
+    } catch {
+      /* the refusal below stands on its own */
+    }
     return res.status(503).json({
       intentId,
       outcome: "deny" as const,
+      state: "not_assessed" as const,
+      recheck_after: new Date(Date.now() + 30_000).toISOString(),
       ruleIds: ["policy_unavailable"],
       error: {
         code: "POLICY_UNAVAILABLE",
@@ -884,6 +942,8 @@ async function handleIntent(
     });
   }
   const intentId = id("int");
+  // Let a concurrent retry under the same key find this intent's status.
+  store.setIdempotent(input.orgId, idemKey, { status: "in_flight", intentId });
   const recorded = recordDecision({
     intentId,
     orgId: input.orgId,
@@ -897,18 +957,7 @@ async function handleIntent(
     limits: decision.limits,
     supersedes: input.supersedes,
     policyVersion: decision.policyVersion,
-    requestHash: sha256Hex(
-      canonicalJson({
-        agentId: input.agentId,
-        tool: input.tool,
-        amountUsdc: input.amountUsdc,
-        destination: input.destination,
-        idempotencyKey: input.idempotencyKey,
-        jobId: input.jobId ?? null,
-        memo: input.memo ?? null,
-        payeeAgentId: input.payeeAgentId ?? null,
-      }),
-    ),
+    requestHash,
   });
 
   // Automation side-effects (notify / freeze) — money outcome already decided.
@@ -992,6 +1041,11 @@ async function handleIntent(
       status: "pending",
       createdAt: new Date().toISOString(),
       expiresAt: approvalExpiresAt(),
+      // The approval record binds the exact rules it was checked against.
+      rulesHash: rulesHash(
+        rulesFor(input.agentId, input.orgId, input.destination, { sessionId: input.sessionId }),
+      ),
+      policyRevision: decision.policyVersion ?? store.getPolicyVersion(input.orgId),
     };
     store.createApproval(approval);
     const reviewDenial = buildDenial({
@@ -1012,6 +1066,9 @@ async function handleIntent(
         rule_code: reviewDenial.rule_code,
       },
       ruleIds: decision.ruleIds,
+      state: "awaiting_approval" as const,
+      recheck_after: approvalRecord(approval).recheck_after,
+      status_url: `/v1/agent/intents/${intentId}/status`,
       hint: "Poll GET /v1/agent/approvals/:id until approved/denied/expired.",
       receipt: recorded.receipt,
       denial: reviewDenial,
@@ -1028,6 +1085,11 @@ async function handleIntent(
 
   const { supersedes: _supersedes, ...execInput } = input;
   const result = await executeIntent({ ...execInput, intentId });
+  // Store the key and its retention expiry next to the operation.
+  store.annotateSettlement(intentId, {
+    idempotencyKey: input.idempotencyKey,
+    idempotencyExpiresAt: store.getIdempotentMeta(input.orgId, idemKey)?.expiresAt,
+  });
   if (result.ok) {
     const payload = { ...result.payload, receipt: recorded.receipt };
     store.setIdempotent(input.orgId, idemKey, { ...payload, httpStatus: 200 });
@@ -2762,8 +2824,90 @@ app.get("/v1/agent/approvals/:id", (req, res) => {
   if (!approval || approval.agentId !== auth.agentId) {
     return res.status(404).json({ error: { code: "NOT_FOUND" } });
   }
-  res.json({ approval: approvalView(approval) });
+  // The approval record: who approved and when, the rules hash and policy
+  // revision it was checked against, and what would make it stale.
+  res.json({ approval: approvalRecord(approval) });
 });
+
+/**
+ * Cheap, idempotent status read for one intent (Oct 30 reliability). Returns
+ * one of: in_flight, settled, failed, outcome_unknown, unresolved_closed,
+ * claimed_unbooked, expired_unclaimed, awaiting_approval, expired_not_sent,
+ * rejected_by_policy, not_assessed, allowed — plus `recheck_after` while the
+ * answer can still change, so a well-behaved agent polls on a schedule.
+ */
+app.get("/v1/agent/intents/:intentId/status", (req, res) => {
+  const auth = authAgent(req);
+  if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+  if (!requireAgentScope(auth, "read", res)) return;
+  sweepApprovalExpiry();
+  const status = intentStatus(auth.orgId, req.params.intentId, auth.agentId);
+  if (!status) return res.status(404).json({ error: { code: "NOT_FOUND" } });
+  res.json(status);
+});
+
+/** Guardian status read: any intent or treasury withdrawal in the org. */
+app.get(
+  "/v1/guardian/settlements/:intentId",
+  guardianRoute((org, req, res) => {
+    const status = intentStatus(org.id, String(req.params.intentId));
+    if (!status) return res.status(404).json({ error: { code: "NOT_FOUND" } });
+    res.json(status);
+  }),
+);
+
+/**
+ * A named human closes an unknown outcome: recorded as "unresolved, closed by
+ * <name> at <time>", never "failed". The amount stays held and counted, and
+ * the recheck job keeps reading it.
+ */
+app.post(
+  "/v1/guardian/settlements/:intentId/close",
+  guardianRoute((org, req, res) => {
+    const intentId = String(req.params.intentId);
+    const row = store.getSettlementForOrg(org.id, intentId);
+    if (!row) return res.status(404).json({ error: { code: "NOT_FOUND" } });
+    const isOpen =
+      row.outcome === "outcome_unknown" || (!row.outcome && row.state === "needs_review");
+    if (!isOpen) {
+      return res.status(409).json({
+        error: {
+          code: "NOT_UNKNOWN",
+          message: "Only an outcome that is still unknown can be closed as unresolved.",
+        },
+        status: intentStatus(org.id, intentId),
+      });
+    }
+    if (!row.outcome) {
+      // Legacy needs_review row from before the recheck plan existed.
+      store.markOutcomeUnknown(intentId, {
+        recheckAfter: new Date().toISOString(),
+        escalateAt: new Date().toISOString(),
+      });
+    }
+    store.closeUnknownSettlement(org.id, intentId, guardianIdentity(req));
+    res.json(intentStatus(org.id, intentId));
+  }),
+);
+
+/**
+ * Outflow reconciliation: every send that left (or may have left) the vault,
+ * with transfer id, policy revision, staleness fields, and where released or
+ * cancelled money went. `?onchain=1` cross-checks against the chain (vault
+ * nonce for direct sends; Transfer logs + authorization state for x402).
+ */
+app.get(
+  "/v1/guardian/reconciliation/outflows",
+  guardianRoute(async (org, req, res) => {
+    const limitRaw = Number(req.query.limit ?? 100);
+    res.json(
+      await outflowReconciliation(org.id, {
+        limit: Number.isFinite(limitRaw) ? limitRaw : 100,
+        onchain: req.query.onchain === "1" || req.query.onchain === "true",
+      }),
+    );
+  }),
+);
 
 app.post(
   "/v1/agent/escrow/lock",

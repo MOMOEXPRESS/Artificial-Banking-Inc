@@ -35,6 +35,7 @@ import { accountId, agentApiKeyIsLive, formatMicroToUsdc } from "@policyvault/co
 import { hashSecret, isHashedSecret, lookupHash } from "./secrets.js";
 import { localSellersAllowed } from "./outbound-url.js";
 import { decryptSecret, encryptSecret, isEncrypted } from "./auth/key-encryption.js";
+import { registerLeaseBackend } from "./chain/vault-queue.js";
 
 /** Role a user holds within one organization. */
 export type GuardianRoleName = "owner" | "approver" | "viewer";
@@ -84,6 +85,69 @@ export interface SettlementRow {
   error?: string;
   createdAt: string;
   updatedAt: string;
+  sessionId?: string;
+  /**
+   * Named resolver: who/what decides the outcome if the response is lost.
+   * `x402:authorization_state` (EIP-3009 nonce used on-chain?),
+   * `chain:tx_receipt` (transaction mined?), or `human` (nothing to read).
+   */
+  resolver?: string;
+  /** Named person an unknown outcome is handed to at the second deadline. */
+  escalateTo?: string;
+  /** End state, independent of the legacy `state` column. See OUTCOMES. */
+  outcome?: SettlementOutcome;
+  /** First deadline: when the recheck job may next read the outcome. */
+  recheckAfter?: string;
+  /** Second deadline: when an unknown outcome is handed to `escalateTo`. */
+  escalateAt?: string;
+  escalatedAt?: string;
+  resolvedBy?: string;
+  resolvedAt?: string;
+  /** Exactly what was signed (EIP-3009 value or transfer amount), micro-USDC. */
+  signedMaxMicro?: bigint;
+  /** EIP-3009 authorization details, when the rail signed one. */
+  authorization?: SignedAuthorization;
+  /** Policy revision the send was approved under (staleness check). */
+  policyRevision?: string;
+  /** Ledger accounts the hold sits in, so a later job can release it. */
+  heldAccountId?: string;
+  availableAccountId?: string;
+  /** Money returned from the hold after the fact, and the account it went to. */
+  releasedMicro?: bigint;
+  releasedTo?: string;
+  releaseReason?: string;
+  /** Last time the recheck job read the outcome (store clock). */
+  checkedAt?: string;
+  /** Idempotency key that produced this send, and when that key expires. */
+  idempotencyKey?: string;
+  idempotencyExpiresAt?: string;
+}
+
+/**
+ * Settlement end states readable by the agent and the guardian.
+ *   settled            — money moved and is booked.
+ *   failed             — never sent (or reverted); nothing moved.
+ *   outcome_unknown    — something may have moved; amount stays held; rechecked.
+ *   unresolved_closed  — a named human closed an unknown; amount STAYS counted.
+ *   claimed_unbooked   — chain shows it moved but the ledger has no entry; human books it.
+ *   expired_unclaimed  — the signed authorization expired unused; hold released.
+ */
+export type SettlementOutcome =
+  | "settled"
+  | "failed"
+  | "outcome_unknown"
+  | "unresolved_closed"
+  | "claimed_unbooked"
+  | "expired_unclaimed";
+
+export interface SignedAuthorization {
+  nonce: string;
+  /** Unix seconds; after this the authorization can never be used. */
+  validBefore?: string;
+  payer?: string;
+  payTo?: string;
+  asset?: string;
+  network?: string;
 }
 
 export type OrgStatus = "active" | "frozen" | "archived";
@@ -294,6 +358,10 @@ export interface ApprovalRow {
   resolvedAt?: string;
   resolvedBy?: string;
   result?: unknown;
+  /** sha256 of the canonical rules JSON the request was checked against. */
+  rulesHash?: string;
+  /** Policy revision in force when the request was parked. */
+  policyRevision?: string;
 }
 
 export type GuardianRole = "owner" | "approver" | "viewer";
@@ -1823,6 +1891,36 @@ for (const migration of [
   "ALTER TABLE session_keys ADD COLUMN x402_budget_micro TEXT",
   // Which session key a settlement attempt was made through (budget accounting).
   "ALTER TABLE settlement_attempts ADD COLUMN session_id TEXT",
+  // Oct 30 reliability: recheck uncertain payments with a named resolver and
+  // two deadlines, reserve the signed maximum, and reconcile outflows. All
+  // nullable and additive — older rows read as "no recheck plan yet".
+  "ALTER TABLE settlement_attempts ADD COLUMN resolver TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN escalate_to TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN outcome TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN recheck_after TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN escalate_at TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN escalated_at TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN resolved_by TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN resolved_at TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN signed_max_micro TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN auth_json TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN policy_revision TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN held_account_id TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN available_account_id TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN released_micro TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN released_to TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN release_reason TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN checked_at TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN idempotency_key TEXT",
+  "ALTER TABLE settlement_attempts ADD COLUMN idempotency_expires_at TEXT",
+  "CREATE INDEX IF NOT EXISTS idx_settlement_recheck ON settlement_attempts(outcome, recheck_after)",
+  // Approval record: the exact rules it was checked against, and their revision.
+  "ALTER TABLE approvals ADD COLUMN rules_hash TEXT",
+  "ALTER TABLE approvals ADD COLUMN policy_revision TEXT",
+  // Idempotency: what the key was used for, and when it stops being honoured.
+  "ALTER TABLE idempotency ADD COLUMN request_hash TEXT",
+  "ALTER TABLE idempotency ADD COLUMN created_at TEXT",
+  "ALTER TABLE idempotency ADD COLUMN expires_at TEXT",
 ]) {
   try {
     db.exec(migration);
@@ -1854,8 +1952,34 @@ migrateHostedOfferUrls();
   }
 }
 
+/**
+ * The store's clock. Deadlines (recheck_after, escalate_at, key expiry) are
+ * stamped and compared with this one clock, never a worker's own, so a
+ * restarted or skewed worker cannot move a deadline. Tests shift it to
+ * simulate "the process died and came back after the deadline".
+ */
+let storeClockOffsetMs = 0;
+export function storeNowMs(): number {
+  return Date.now() + storeClockOffsetMs;
+}
+export function __setStoreClockOffsetForTests(ms: number): void {
+  storeClockOffsetMs = ms;
+}
+
 function nowIso(): string {
-  return new Date().toISOString();
+  return new Date(storeNowMs()).toISOString();
+}
+
+/**
+ * How long an idempotency key is guaranteed to be honoured (default 7 days,
+ * ABI_IDEMPOTENCY_TTL_HOURS, 1h..90d). Stored next to the key. The
+ * unknown-outcome escalation deadline is always set well before it, so an
+ * unresolved payment reaches a human while its key still replays.
+ */
+export function idempotencyTtlMs(): number {
+  const h = Number(process.env.ABI_IDEMPOTENCY_TTL_HOURS ?? 168);
+  const hours = Number.isFinite(h) ? Math.min(Math.max(h, 1), 90 * 24) : 168;
+  return Math.round(hours * 3_600_000);
 }
 
 /**
@@ -2115,6 +2239,8 @@ function rowToApproval(r: Row): ApprovalRow {
     resolvedAt: r.resolved_at ?? undefined,
     resolvedBy: r.resolved_by ?? undefined,
     result: r.result_json ? JSON.parse(r.result_json) : undefined,
+    ...(r.rules_hash && { rulesHash: String(r.rules_hash) }),
+    ...(r.policy_revision && { policyRevision: String(r.policy_revision) }),
   };
 }
 
@@ -2168,7 +2294,35 @@ function rowToSettlement(r: Row): SettlementRow {
     error: r.error ? String(r.error) : undefined,
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
+    ...(r.session_id && { sessionId: String(r.session_id) }),
+    ...(r.resolver && { resolver: String(r.resolver) }),
+    ...(r.escalate_to && { escalateTo: String(r.escalate_to) }),
+    ...(r.outcome && { outcome: String(r.outcome) as SettlementOutcome }),
+    ...(r.recheck_after && { recheckAfter: String(r.recheck_after) }),
+    ...(r.escalate_at && { escalateAt: String(r.escalate_at) }),
+    ...(r.escalated_at && { escalatedAt: String(r.escalated_at) }),
+    ...(r.resolved_by && { resolvedBy: String(r.resolved_by) }),
+    ...(r.resolved_at && { resolvedAt: String(r.resolved_at) }),
+    ...(r.signed_max_micro != null && { signedMaxMicro: parseMicroColumn(r.signed_max_micro) }),
+    ...(r.auth_json && { authorization: safeJson(r.auth_json) as SignedAuthorization }),
+    ...(r.policy_revision && { policyRevision: String(r.policy_revision) }),
+    ...(r.held_account_id && { heldAccountId: String(r.held_account_id) }),
+    ...(r.available_account_id && { availableAccountId: String(r.available_account_id) }),
+    ...(r.released_micro != null && { releasedMicro: parseMicroColumn(r.released_micro) }),
+    ...(r.released_to && { releasedTo: String(r.released_to) }),
+    ...(r.release_reason && { releaseReason: String(r.release_reason) }),
+    ...(r.checked_at && { checkedAt: String(r.checked_at) }),
+    ...(r.idempotency_key && { idempotencyKey: String(r.idempotency_key) }),
+    ...(r.idempotency_expires_at && { idempotencyExpiresAt: String(r.idempotency_expires_at) }),
   };
+}
+
+function safeJson(v: unknown): unknown {
+  try {
+    return JSON.parse(String(v));
+  } catch {
+    return undefined;
+  }
 }
 
 function rowToUser(r: Row): UserRow {
@@ -2988,7 +3142,7 @@ export const store = {
   sessionX402SpentMicro(sessionId: string): MicroUsdc {
     const rows = db
       .prepare(
-        "SELECT state, amount_micro, charged_micro FROM settlement_attempts WHERE session_id = ? AND tool = 'pay_api' AND state != 'failed'",
+        "SELECT state, COALESCE(signed_max_micro, amount_micro) AS amount_micro, charged_micro FROM settlement_attempts WHERE session_id = ? AND tool = 'pay_api' AND state != 'failed'",
       )
       .all(sessionId) as Row[];
     return rows.reduce(
@@ -4434,7 +4588,7 @@ export const store = {
   merchantReservedMicro(orgId: string, destination: string): MicroUsdc {
     const pending = db
       .prepare(
-        `SELECT amount_micro FROM settlement_attempts
+        `SELECT COALESCE(signed_max_micro, amount_micro) AS amount_micro FROM settlement_attempts
          WHERE org_id = ? AND LOWER(destination) = ? AND tool = 'pay_api'
            AND state IN ('pending', 'broadcast', 'needs_review')`,
       )
@@ -4711,7 +4865,7 @@ export const store = {
    * short of reconciliation drift.
    */
   listStuckSettlements(olderThanMs: number): SettlementRow[] {
-    const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+    const cutoff = new Date(storeNowMs() - olderThanMs).toISOString();
     return (
       db
         .prepare(
@@ -4739,6 +4893,277 @@ export const store = {
         )
         .all(orgId, endpoint, Math.min(Math.max(1, limit), 100)) as Row[]
     ).map(rowToSettlement);
+  },
+
+  // ------------------------------------------- recheck / reconciliation
+
+  /** Extra facts about a send, written as soon as they are known. */
+  annotateSettlement(
+    intentId: string,
+    fields: {
+      resolver?: string;
+      escalateTo?: string;
+      policyRevision?: string;
+      heldAccountId?: string;
+      availableAccountId?: string;
+      idempotencyKey?: string;
+      idempotencyExpiresAt?: string;
+    },
+  ): void {
+    db.prepare(
+      `UPDATE settlement_attempts SET
+         resolver = COALESCE(?, resolver),
+         escalate_to = COALESCE(?, escalate_to),
+         policy_revision = COALESCE(?, policy_revision),
+         held_account_id = COALESCE(?, held_account_id),
+         available_account_id = COALESCE(?, available_account_id),
+         idempotency_key = COALESCE(?, idempotency_key),
+         idempotency_expires_at = COALESCE(?, idempotency_expires_at)
+       WHERE intent_id = ?`,
+    ).run(
+      fields.resolver ?? null,
+      fields.escalateTo ?? null,
+      fields.policyRevision ?? null,
+      fields.heldAccountId ?? null,
+      fields.availableAccountId ?? null,
+      fields.idempotencyKey ?? null,
+      fields.idempotencyExpiresAt ?? null,
+      intentId,
+    );
+  },
+
+  /**
+   * Record exactly what was signed, before it leaves the process. The hold
+   * and every cap count this amount while the outcome is open.
+   */
+  recordSignedMax(
+    intentId: string,
+    signedMaxMicro: bigint,
+    authorization?: SignedAuthorization,
+  ): void {
+    db.prepare(
+      `UPDATE settlement_attempts SET signed_max_micro = ?, auth_json = COALESCE(?, auth_json),
+         resolver = COALESCE(?, resolver), updated_at = ? WHERE intent_id = ?`,
+    ).run(
+      signedMaxMicro.toString(),
+      authorization ? JSON.stringify(authorization) : null,
+      authorization ? "x402:authorization_state" : null,
+      nowIso(),
+      intentId,
+    );
+  },
+
+  /**
+   * The outcome is not known. The amount stays held and counted; the recheck
+   * job reads it again at `recheckAfter`; at `escalateAt` it goes to a named
+   * human. The second deadline is set once and never moved by a later mark.
+   */
+  markOutcomeUnknown(
+    intentId: string,
+    input: { recheckAfter: string; escalateAt: string; error?: string },
+  ): void {
+    db.prepare(
+      `UPDATE settlement_attempts SET state = 'needs_review', outcome = 'outcome_unknown',
+         recheck_after = ?, escalate_at = COALESCE(escalate_at, ?),
+         error = COALESCE(?, error), updated_at = ?
+       WHERE intent_id = ? AND (outcome IS NULL OR outcome = 'outcome_unknown')`,
+    ).run(
+      input.recheckAfter,
+      input.escalateAt,
+      input.error?.slice(0, 500) ?? null,
+      nowIso(),
+      intentId,
+    );
+  },
+
+  /** The recheck job read the outcome and it is still open. */
+  scheduleRecheck(intentId: string, recheckAfter: string): void {
+    db.prepare(
+      "UPDATE settlement_attempts SET recheck_after = ?, checked_at = ? WHERE intent_id = ?",
+    ).run(recheckAfter, nowIso(), intentId);
+  },
+
+  /** Second deadline passed: hand the unknown to a named person. */
+  markEscalated(intentId: string, escalateTo: string): boolean {
+    const r = db
+      .prepare(
+        `UPDATE settlement_attempts SET escalated_at = ?, escalate_to = ?, checked_at = ?
+         WHERE intent_id = ? AND escalated_at IS NULL`,
+      )
+      .run(nowIso(), escalateTo, nowIso(), intentId);
+    return r.changes > 0;
+  },
+
+  /**
+   * Close an open outcome with evidence. Compare-and-set on the outcome still
+   * being open, so two recheck workers cannot both release the same hold.
+   */
+  resolveSettlementOutcome(
+    intentId: string,
+    input: {
+      outcome: SettlementOutcome;
+      state: SettlementState;
+      resolvedBy: string;
+      error?: string;
+    },
+  ): boolean {
+    const r = db
+      .prepare(
+        `UPDATE settlement_attempts SET outcome = ?, state = ?, resolved_by = ?, resolved_at = ?,
+           checked_at = ?, error = COALESCE(?, error), updated_at = ?
+         WHERE intent_id = ? AND (outcome IS NULL OR outcome IN ('outcome_unknown', 'unresolved_closed'))`,
+      )
+      .run(
+        input.outcome,
+        input.state,
+        input.resolvedBy,
+        nowIso(),
+        nowIso(),
+        input.error?.slice(0, 500) ?? null,
+        nowIso(),
+        intentId,
+      );
+    return r.changes > 0;
+  },
+
+  /** Where held money went back to. Adds to any earlier partial release. */
+  recordHoldRelease(
+    intentId: string,
+    input: { amountMicro: bigint; to: string; reason: string },
+  ): void {
+    const prev = db
+      .prepare("SELECT released_micro FROM settlement_attempts WHERE intent_id = ?")
+      .get(intentId) as Row | undefined;
+    const before = prev?.released_micro != null ? parseMicroColumn(prev.released_micro) : 0n;
+    db.prepare(
+      `UPDATE settlement_attempts SET released_micro = ?, released_to = ?,
+         release_reason = CASE WHEN release_reason IS NULL THEN ? ELSE release_reason || '; ' || ? END
+       WHERE intent_id = ?`,
+    ).run((before + input.amountMicro).toString(), input.to, input.reason, input.reason, intentId);
+  },
+
+  /** Open outcomes whose first deadline has passed (store clock). */
+  listDueRechecks(limit = 50): SettlementRow[] {
+    return (
+      db
+        .prepare(
+          `SELECT * FROM settlement_attempts
+           WHERE outcome IN ('outcome_unknown', 'unresolved_closed')
+             AND (recheck_after IS NULL OR recheck_after <= ?)
+           ORDER BY recheck_after LIMIT ?`,
+        )
+        .all(nowIso(), limit) as Row[]
+    ).map(rowToSettlement);
+  },
+
+  /**
+   * A named human closes an unknown as "unresolved, closed by <name> at
+   * <time>". Never "failed": the amount stays held and counted, and the
+   * recheck job keeps watching.
+   */
+  closeUnknownSettlement(
+    orgId: string,
+    intentId: string,
+    closedBy: string,
+  ): SettlementRow | undefined {
+    db.prepare(
+      `UPDATE settlement_attempts SET outcome = 'unresolved_closed', resolved_by = ?, resolved_at = ?
+       WHERE intent_id = ? AND org_id = ? AND outcome = 'outcome_unknown'`,
+    ).run(closedBy, nowIso(), intentId, orgId);
+    return this.getSettlementForOrg(orgId, intentId);
+  },
+
+  getSettlementForOrg(orgId: string, intentId: string): SettlementRow | undefined {
+    const r = db
+      .prepare("SELECT * FROM settlement_attempts WHERE intent_id = ? AND org_id = ?")
+      .get(intentId, orgId) as Row | undefined;
+    return r ? rowToSettlement(r) : undefined;
+  },
+
+  /** Every send that left (or may have left) the org, newest first. */
+  listOutflows(orgId: string, limit = 100): SettlementRow[] {
+    return (
+      db
+        .prepare(
+          `SELECT * FROM settlement_attempts WHERE org_id = ?
+             AND (tx_hash IS NOT NULL OR state IN ('broadcast', 'needs_review', 'settled'))
+           ORDER BY created_at DESC LIMIT ?`,
+        )
+        .all(orgId, Math.min(Math.max(1, limit), 500)) as Row[]
+    ).map(rowToSettlement);
+  },
+
+  /** Direct vault sends ABI recorded with a real tx hash (they move the vault nonce). */
+  countDirectVaultSends(orgId: string): number {
+    const r = db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM settlement_attempts
+         WHERE org_id = ? AND rail = 'evm-usdc-transfer' AND auth_json IS NULL
+           AND tx_hash LIKE '0x%' AND LENGTH(tx_hash) = 66`,
+      )
+      .get(orgId) as Row | undefined;
+    return Number(r?.n ?? 0);
+  },
+
+  /** Treasury withdrawals reserved but not yet booked (shared across processes). */
+  treasuryWithdrawInFlightMicro(orgId: string, excludeIntentId?: string): bigint {
+    const rows = db
+      .prepare(
+        `SELECT amount_micro FROM settlement_attempts
+         WHERE org_id = ? AND tool = 'treasury_withdraw' AND state IN ('pending', 'broadcast')
+           AND intent_id != ?`,
+      )
+      .all(orgId, excludeIntentId ?? "") as Row[];
+    return rows.reduce((sum, r) => sum + parseMicroColumn(r.amount_micro), 0n);
+  },
+
+  /**
+   * Withdrawal money that may already have left but is not booked: in flight,
+   * plus withdrawals whose outcome is still open (unknown, closed-unresolved,
+   * or claimed-but-unbooked). The org's booked balance does not reflect these,
+   * so a new withdrawal must not spend them again.
+   */
+  treasuryWithdrawOpenMicro(orgId: string): bigint {
+    const rows = db
+      .prepare(
+        `SELECT amount_micro FROM settlement_attempts
+         WHERE org_id = ? AND tool = 'treasury_withdraw'
+           AND (state IN ('pending', 'broadcast')
+                OR (state = 'needs_review' AND (outcome IS NULL OR outcome IN ('outcome_unknown', 'unresolved_closed', 'claimed_unbooked'))))`,
+      )
+      .all(orgId) as Row[];
+    return rows.reduce((sum, r) => sum + parseMicroColumn(r.amount_micro), 0n);
+  },
+
+  /**
+   * Check-and-reserve a treasury withdrawal in one IMMEDIATE transaction, so
+   * two processes cannot both fit under the same headroom. `check` sees the
+   * amount already reserved by other in-flight withdrawals; returning a
+   * string refuses with that rule id.
+   */
+  reserveTreasuryWithdraw(input: {
+    intentId: string;
+    orgId: string;
+    agentId: string;
+    destination: string;
+    amountMicro: bigint;
+    check: (inFlightMicro: bigint, openMicro: bigint) => string | null;
+  }): { ok: true } | { ok: false; rule: string; inFlightMicro: bigint } {
+    const claim = db.transaction(() => {
+      const inFlight = this.treasuryWithdrawInFlightMicro(input.orgId);
+      const rule = input.check(inFlight, this.treasuryWithdrawOpenMicro(input.orgId));
+      if (rule) return { ok: false as const, rule, inFlightMicro: inFlight };
+      this.beginSettlement({
+        intentId: input.intentId,
+        orgId: input.orgId,
+        agentId: input.agentId,
+        tool: "treasury_withdraw",
+        destination: input.destination,
+        amountMicro: input.amountMicro,
+      });
+      return { ok: true as const };
+    });
+    return claim.immediate();
   },
 
   // ---------------------------------------------------------------- MFA
@@ -5382,8 +5807,8 @@ export const store = {
     db.prepare(
       `INSERT INTO approvals (id, org_id, agent_id, intent_id, tool, amount_micro, amount_usdc, destination, job_id, memo,
         idempotency_key, payee_agent_id, timeout_minutes, subscription_id, rule_ids_json, reasons_json, status, created_at, expires_at,
-        requested_by, session_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        requested_by, session_id, rules_hash, policy_revision)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       a.id,
       a.orgId,
@@ -5406,7 +5831,19 @@ export const store = {
       a.expiresAt,
       a.requestedBy ?? (a.agentId ? `agent:${a.agentId}` : null),
       a.sessionId ?? null,
+      a.rulesHash ?? null,
+      a.policyRevision ?? null,
     );
+  },
+
+  /** The approval (if any) a parked intent created. */
+  getApprovalByIntent(orgId: string, intentId: string): ApprovalRow | undefined {
+    const r = db
+      .prepare(
+        "SELECT * FROM approvals WHERE org_id = ? AND intent_id = ? ORDER BY created_at DESC LIMIT 1",
+      )
+      .get(orgId, intentId) as Row | undefined;
+    return r ? rowToApproval(r) : undefined;
   },
 
   getApproval(approvalId: string, orgId: string): ApprovalRow | undefined {
@@ -5524,12 +5961,23 @@ export const store = {
    * payment both passed the cache check and both spent — the x402 rail awaits
    * network I/O for up to 25s, so that window was wide open.
    */
-  reserveIdempotent(orgId: string, key: string): boolean {
+  reserveIdempotent(
+    orgId: string,
+    key: string,
+    opts: { requestHash?: string; ttlMs?: number } = {},
+  ): boolean {
     try {
-      db.prepare("INSERT INTO idempotency (org_id, key, response_json) VALUES (?, ?, ?)").run(
+      const now = storeNowMs();
+      db.prepare(
+        `INSERT INTO idempotency (org_id, key, response_json, request_hash, created_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
         orgId,
         key,
         JSON.stringify({ status: "in_flight", at: nowIso() }),
+        opts.requestHash ?? null,
+        new Date(now).toISOString(),
+        new Date(now + (opts.ttlMs ?? idempotencyTtlMs())).toISOString(),
       );
       return true;
     } catch {
@@ -5543,9 +5991,37 @@ export const store = {
   },
 
   setIdempotent(orgId: string, key: string, response: unknown): void {
+    // Upsert the response only: the request hash and retention expiry stamped
+    // at reservation must survive the final write.
+    const now = storeNowMs();
     db.prepare(
-      "INSERT OR REPLACE INTO idempotency (org_id, key, response_json) VALUES (?, ?, ?)",
-    ).run(orgId, key, JSON.stringify(response));
+      `INSERT INTO idempotency (org_id, key, response_json, created_at, expires_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(org_id, key) DO UPDATE SET response_json = excluded.response_json`,
+    ).run(
+      orgId,
+      key,
+      JSON.stringify(response),
+      new Date(now).toISOString(),
+      new Date(now + idempotencyTtlMs()).toISOString(),
+    );
+  },
+
+  /** Request hash and retention expiry stored with an idempotency key. */
+  getIdempotentMeta(
+    orgId: string,
+    key: string,
+  ): { requestHash?: string; createdAt?: string; expiresAt?: string } | undefined {
+    const r = db
+      .prepare(
+        "SELECT request_hash, created_at, expires_at FROM idempotency WHERE org_id = ? AND key = ?",
+      )
+      .get(orgId, key) as Row | undefined;
+    if (!r) return undefined;
+    return {
+      ...(r.request_hash && { requestHash: String(r.request_hash) }),
+      ...(r.created_at && { createdAt: String(r.created_at) }),
+      ...(r.expires_at && { expiresAt: String(r.expires_at) }),
+    };
   },
 
   // --------------------------------------------------------------- freezes
@@ -8022,3 +8498,11 @@ export function migrateSandboxOrgsToLive(): {
 }
 
 migrateSandboxOrgsToLive();
+
+// Cross-process money locks (Oct 30 reliability): every withVaultLock caller
+// also takes a lease in this database, so two processes sharing it can never
+// send from the same vault, or run the same org's withdrawal, at once.
+registerLeaseBackend({
+  acquire: (name, holder, ttlMs) => store.acquireJobLock(name, holder, ttlMs),
+  release: (name, holder) => store.releaseJobLock(name, holder),
+});

@@ -85,6 +85,12 @@ key is stored encrypted in ABI's database, and ABI's API server decrypts it and
 signs only after the policy check passes. The agent never holds the key. See
 [Refusals, approvals and session budgets](docs/REFUSALS-AND-APPROVALS.md).
 
+When ABI cannot tell whether a payment moved, it says so (`outcome_unknown`),
+reserves the signed maximum, and rechecks on a schedule until it is settled,
+failed, expired unclaimed, or handed to a named human — it never guesses
+"failed" and never retries on its own. Withdrawals take idempotency keys. See
+[Reliability and reconciliation](docs/RELIABILITY-AND-RECONCILIATION.md).
+
 ### Who it is for
 
 - Teams running agents that pay for APIs, data, compute, or other agents
@@ -346,6 +352,10 @@ Copy `.env.example` and adjust. Every variable, with what happens if it is unset
 | `ABI_COMPLIANCE_FAIL_CLOSED`                                | off                              | **yes**                      | Block rather than allow when a screener errors                                                                                                                      |
 | `RATE_LIMIT_PER_MIN`                                        | `5000`                           | no                           | Abuse protection, not throttling                                                                                                                                    |
 | `APPROVAL_TTL_MINUTES`                                      | `10`                             | no                           | How long a parked payment waits                                                                                                                                     |
+| `ABI_RECHECK_MINUTES`                                       | `2`                              | no                           | First deadline: how often an unknown payment outcome is read again                                                                                                  |
+| `ABI_UNKNOWN_ESCALATE_MINUTES`                              | `60`                             | no                           | Second deadline: an outcome still unknown is escalated to a named owner                                                                                             |
+| `ABI_IDEMPOTENCY_TTL_HOURS`                                 | `168`                            | no                           | How long an idempotency key replays (intents and withdrawals)                                                                                                       |
+| `ABI_VAULT_LOCK_WAIT_MS`                                    | `90000`                          | no                           | How long a send waits for another process's vault lease before `LOCK_TIMEOUT`                                                                                       |
 
 ---
 
@@ -421,17 +431,18 @@ Full plan with dependencies, complexity and priority:
 
 ## Documentation
 
-| Document                                         | Purpose                                                               |
-| ------------------------------------------------ | --------------------------------------------------------------------- |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)   | System design and extension points                                    |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md)             | Phased plan, dependencies, beta/launch gates                          |
-| [`docs/SECURITY.md`](docs/SECURITY.md)           | Actual posture, enforced guarantees, disclosure                       |
-| [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md)   | Setup, conventions, money-path review rules                           |
-| [`docs/DEPLOY.md`](docs/DEPLOY.md)               | Deployment and go-live                                                |
-| [`docs/OWNER-ACTIONS.md`](docs/OWNER-ACTIONS.md) | Work blocked on the repo owner: secrets, funding, legal, verification |
-| [`docs/adr/`](docs/adr/)                         | Decision records                                                      |
-| [`docs/strategy/`](docs/strategy/)               | Positioning, GTM, fundraising                                         |
-| [`docs/archive/`](docs/archive/)                 | Dated, point-in-time documents — not maintained                       |
+| Document                                                                           | Purpose                                                                 |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)                                     | System design and extension points                                      |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md)                                               | Phased plan, dependencies, beta/launch gates                            |
+| [`docs/SECURITY.md`](docs/SECURITY.md)                                             | Actual posture, enforced guarantees, disclosure                         |
+| [`docs/RELIABILITY-AND-RECONCILIATION.md`](docs/RELIABILITY-AND-RECONCILIATION.md) | Unknown outcomes, safe retries, signed maximums, outflow reconciliation |
+| [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md)                                     | Setup, conventions, money-path review rules                             |
+| [`docs/DEPLOY.md`](docs/DEPLOY.md)                                                 | Deployment and go-live                                                  |
+| [`docs/OWNER-ACTIONS.md`](docs/OWNER-ACTIONS.md)                                   | Work blocked on the repo owner: secrets, funding, legal, verification   |
+| [`docs/adr/`](docs/adr/)                                                           | Decision records                                                        |
+| [`docs/strategy/`](docs/strategy/)                                                 | Positioning, GTM, fundraising                                           |
+| [`docs/archive/`](docs/archive/)                                                   | Dated, point-in-time documents — not maintained                         |
 
 ---
 
