@@ -94,7 +94,7 @@ function downloadKeysFile(session: Session, kind: "real" | "demo") {
 }
 
 type Phase = "ready" | "keys";
-type LoginMode = "signin" | "signup" | "key" | "demo" | "forgot" | "reset" | "verify";
+type LoginMode = "signin" | "signup" | "key" | "forgot" | "reset" | "verify";
 type ApiStatus =
   | { state: "checking" | "ready" }
   | {
@@ -113,7 +113,6 @@ export function Login({
 }) {
   const [key, setKey] = useState("");
   const [apiStatus, setApiStatus] = useState<ApiStatus>({ state: "checking" });
-  const [demoAvailable, setDemoAvailable] = useState(false);
   const [orgName, setOrgName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -164,9 +163,9 @@ export function Login({
     }
   }, []);
   const [busy, setBusy] = useState(false);
-  const [phase, setPhase] = useState<Phase>("ready");
-  const [pending, setPending] = useState<Session | null>(null);
-  const [pendingKind, setPendingKind] = useState<"real" | "demo">("real");
+  const [phase] = useState<Phase>("ready");
+  const [pending] = useState<Session | null>(null);
+  const [pendingKind] = useState<"real" | "demo">("real");
   const [savedAck, setSavedAck] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -259,21 +258,6 @@ export function Login({
   useEffect(() => {
     void checkApi();
   }, [checkApi]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetch(`${API}/v1/demo/status`, { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : { enabled: false }))
-      .then((data: { enabled?: boolean }) => {
-        if (!cancelled) setDemoAvailable(data.enabled === true);
-      })
-      .catch(() => {
-        if (!cancelled) setDemoAvailable(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   async function connect() {
     setBusy(true);
@@ -523,36 +507,6 @@ export function Login({
     }
   }
 
-  async function bootstrap() {
-    setBusy(true);
-    try {
-      const res = await fetch(`${API}/v1/demo/bootstrap`, { method: "POST" });
-      const d = await res.json();
-      if (!res.ok) {
-        throw new Error(d.error?.message ?? d.error?.code ?? `HTTP ${res.status}`);
-      }
-      const session: Session = {
-        mode: "key",
-        guardianKey: d.guardianKey,
-        orgId: d.orgId,
-        agentKeys: [
-          { agentId: d.researcherAgentId, name: "Researcher", key: d.agentApiKey },
-          { agentId: d.writerAgentId, name: "Writer", key: d.writerApiKey },
-        ],
-      };
-      setPending(session);
-      setPendingKind("demo");
-      setSavedAck(false);
-      setCopied(null);
-      setPhase("keys");
-      setToast("Demo org created — save your keys before entering the console.", "ok");
-    } catch (e) {
-      setToast(`Bootstrap failed: ${String(e)}`, "err");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function onCopy(label: string, text: string) {
     const ok = await copyText(text);
     if (ok) {
@@ -647,7 +601,6 @@ export function Login({
                   ["signin", "Sign in"],
                   ["signup", "Create account"],
                   ["key", "Use a key"],
-                  ["demo", "Demo"],
                 ] as const
               ).map(([id, label]) => (
                 <button
@@ -939,26 +892,6 @@ export function Login({
                 >
                   Open console
                 </button>
-              </>
-            )}
-
-            {mode === "demo" && (
-              <>
-                <Button
-                  variant="ghost"
-                  style={{ width: "100%" }}
-                  disabled={busy || !demoAvailable}
-                  onClick={() => void bootstrap()}
-                >
-                  {demoAvailable
-                    ? "Launch isolated demo org with $100 sample balance"
-                    : "Demo unavailable on this deployment"}
-                </Button>
-                <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.55 }}>
-                  Creates a separate demo organization with sample ledger funds. It does not reset
-                  or modify existing organizations. Demo access may be disabled by the deployment
-                  operator.
-                </p>
               </>
             )}
 

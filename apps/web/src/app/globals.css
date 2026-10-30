@@ -5817,7 +5817,7 @@ input[type="range"].slider::-moz-range-thumb {
 
 .login-mode-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   margin: 0 0 16px;
   padding: 4px;
@@ -5846,6 +5846,9 @@ input[type="range"].slider::-moz-range-thumb {
 @media (max-width: 420px) {
   .login-mode-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .login-mode-btn:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
   .login-mode-btn {
     font-size: 12px;
