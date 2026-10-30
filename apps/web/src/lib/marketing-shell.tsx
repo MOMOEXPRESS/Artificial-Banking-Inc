@@ -7,12 +7,18 @@ import { Icon } from "./ui";
 
 /** Shared marketing chrome for Home / Docs / Pricing / About. */
 
+export type MarketingNavKey =
+  "home" | "landing" | "docs" | "pricing" | "about" | "console" | "partnerships" | "waitlist";
+
+/** Public waitlist signup page. No account needed. */
+export const WAITLIST_HREF = "/waitlist";
+
 export function MarketingShell({
   children,
   active,
 }: {
   children: ReactNode;
-  active?: "home" | "landing" | "docs" | "pricing" | "about" | "console" | "partnerships";
+  active?: MarketingNavKey;
 }) {
   const navActive = active === "landing" ? "home" : active;
   return (
@@ -24,11 +30,7 @@ export function MarketingShell({
   );
 }
 
-export function MarketingNav({
-  active,
-}: {
-  active?: "home" | "landing" | "docs" | "pricing" | "about" | "console" | "partnerships";
-}) {
+export function MarketingNav({ active }: { active?: MarketingNavKey }) {
   const current = active === "landing" ? "home" : active;
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -94,6 +96,14 @@ export function MarketingNav({
           >
             About
           </Link>
+          {/* Mobile menu only: on desktop the same link sits beside "Open console". */}
+          <Link
+            href={WAITLIST_HREF}
+            className={`marketing-links-waitlist${current === "waitlist" ? " is-active" : ""}`}
+            onClick={close}
+          >
+            Join waitlist
+          </Link>
           <a
             href="https://github.com/MOMOEXPRESS/Artificial-Banking-Inc"
             target="_blank"
@@ -103,6 +113,14 @@ export function MarketingNav({
           </a>
         </nav>
         <div className="marketing-nav-cta">
+          <Link
+            className="btn-ghost-line marketing-nav-waitlist"
+            href={WAITLIST_HREF}
+            aria-current={current === "waitlist" ? "page" : undefined}
+            onClick={close}
+          >
+            Join waitlist
+          </Link>
           <Link className="btn-primary-line" href="/console" onClick={close}>
             Open console
           </Link>

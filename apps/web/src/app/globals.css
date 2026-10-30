@@ -6296,9 +6296,42 @@ input[type="range"].slider::-moz-range-thumb {
   cursor: pointer;
 }
 
+/* "Join waitlist": a ghost button beside "Open console" on desktop,
+   an item in the burger menu on small screens. */
+.marketing-links a.marketing-links-waitlist {
+  display: none;
+}
+
+.marketing-nav-waitlist {
+  border: 1px solid rgba(10, 10, 12, 0.14);
+}
+
+@media (min-width: 901px) and (max-width: 1080px) {
+  .marketing-nav-cta > a {
+    white-space: nowrap;
+  }
+  .marketing-nav-inner {
+    gap: 16px;
+  }
+  .marketing-links {
+    gap: 16px;
+  }
+}
+
+.marketing-nav-waitlist[aria-current="page"] {
+  color: var(--ink);
+  border-color: rgba(10, 10, 12, 0.32);
+}
+
 @media (max-width: 900px) {
   .marketing-burger {
     display: grid;
+  }
+  .marketing-nav-waitlist {
+    display: none;
+  }
+  .marketing-links a.marketing-links-waitlist {
+    display: block;
   }
   .marketing-links {
     display: none;
