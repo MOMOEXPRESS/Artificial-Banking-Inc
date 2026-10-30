@@ -6,6 +6,7 @@ import {
   assertPaymentHeaderBudget,
   createSellerApp,
   paidRoutes,
+  parseVerificationRecords,
   type SellerConfig,
 } from "./app.js";
 
@@ -24,6 +25,7 @@ const cfg: SellerConfig = {
   price: PRICE_USDC,
   payTo: SELLER_ADDRESS as `0x${string}`,
   facilitatorUrl: FACILITATOR_URL,
+  abiVerification: parseVerificationRecords(process.env.ABI_SELLER_VERIFICATION),
 };
 
 // Refuse to boot if the challenge header would blow the proxy header budget.

@@ -45,7 +45,14 @@ export function registerConnectionRoutes(
       (org, req, res) => {
         const body = z.object({ offerId: z.string().min(1).max(64) }).parse(req.body ?? {});
         const offer = sellerStore.getOfferAnyOrg(body.offerId);
-        if (!offer || offer.archivedAt || offer.status !== "published") return notFound(res);
+        if (
+          !offer ||
+          offer.archivedAt ||
+          offer.status !== "published" ||
+          !sellerStore.isVerifiedOwnerOffer(offer)
+        ) {
+          return notFound(res);
+        }
         if (offer.orgId === org.id) {
           return res.status(400).json({
             error: { code: "OWN_OFFER", message: "This offer belongs to your own organization." },

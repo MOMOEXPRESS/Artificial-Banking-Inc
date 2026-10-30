@@ -11,6 +11,7 @@ import {
   configFromEnv,
   createSellerHandler,
   paidRoutes,
+  parseVerificationRecords,
   paymentRequiredHeaderBytes,
   type SellerConfig,
 } from "./app.js";
@@ -94,6 +95,25 @@ function paymentFor(required: ReturnType<typeof decodePaymentRequiredHeader>) {
 }
 
 describe("x402 seller worker", () => {
+  it("serves the ABI ownership record only when configured", async () => {
+    const record = `abi-seller-verification=${"ab".repeat(20)}`;
+    assert.deepEqual(parseVerificationRecords(` ${record} ,junk,\n`), [record]);
+    const fac = fakeFacilitator();
+    const rs = new x402ResourceServer(fac.client).register(cfg.network, new ExactEvmScheme());
+    const routes = paidRoutes(cfg);
+    const off = createSellerHandler(cfg, new x402HTTPResourceServer(rs, routes));
+    const none = await off(new Request(`${BASE}/.well-known/abi-seller-verification`));
+    assert.equal(none.status, 404);
+    const on = createSellerHandler(
+      { ...cfg, abiVerification: [record] },
+      new x402HTTPResourceServer(rs, routes),
+    );
+    const res = await on(new Request(`${BASE}/.well-known/abi-seller-verification`));
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /text\/plain/);
+    assert.equal((await res.text()).trim(), record);
+  });
+
   it("serves /health with the seller config (same shape as the old host)", async () => {
     const { handle } = realSeller();
     const res = await handle(new Request(`${BASE}/health`));

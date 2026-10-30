@@ -38,10 +38,26 @@ export interface SellerConfig {
   price: string;
   payTo: `0x${string}`;
   facilitatorUrl: string;
+  /**
+   * Lines served at /.well-known/abi-seller-verification so the seller's ABI
+   * org can prove it controls this origin (ABI shows the exact line to serve).
+   */
+  abiVerification?: string[];
 }
+
+/** Split ABI_SELLER_VERIFICATION (comma or newline separated) into record lines. */
+export function parseVerificationRecords(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter((s) => /^abi-seller-verification=[a-f0-9]{16,64}$/.test(s));
+}
+
+export const ABI_VERIFICATION_PATH = "/.well-known/abi-seller-verification";
 
 export interface SellerEnv {
   X402_SELLER_ADDRESS?: string;
+  ABI_SELLER_VERIFICATION?: string;
   X402_FACILITATOR_URL?: string;
   X402_PRICE_USDC?: string;
   CHAIN?: string;
@@ -60,6 +76,7 @@ export function configFromEnv(env: SellerEnv): SellerConfig {
     price: env.X402_PRICE_USDC?.trim() || "$0.01",
     payTo: payTo as `0x${string}`,
     facilitatorUrl: env.X402_FACILITATOR_URL?.trim() || "https://x402.org/facilitator",
+    abiVerification: parseVerificationRecords(env.ABI_SELLER_VERIFICATION),
   };
 }
 
@@ -314,6 +331,13 @@ export function createSellerHandler(
           payTo: cfg.payTo,
         });
         return method === "HEAD" ? new Response(null, { status: 200, headers: res.headers }) : res;
+      }
+      if (path === ABI_VERIFICATION_PATH && cfg.abiVerification?.length) {
+        if (method !== "GET" && method !== "HEAD") return json(404, { error: "not_found" });
+        return new Response(method === "HEAD" ? null : `${cfg.abiVerification.join("\n")}\n`, {
+          status: 200,
+          headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
+        });
       }
       if (path === PAID_PATH) {
         if (method !== "GET") {

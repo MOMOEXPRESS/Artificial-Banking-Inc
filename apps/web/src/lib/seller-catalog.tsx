@@ -598,7 +598,12 @@ export function IntegrationsView({
       if (!res.ok || body?.ok === false) {
         toast(body?.error?.message ?? "Verify failed", "err");
       } else {
-        toast("402 challenge matches your payee, network and price", "ok");
+        toast(
+          offer.hosted
+            ? "402 challenge matches your payee, network and price"
+            : "Endpoint ownership proven and the 402 matches your payee, network and price",
+          "ok",
+        );
       }
       await onOffersChanged();
     } finally {
@@ -626,8 +631,10 @@ export function IntegrationsView({
   }
 
   const code = snippet?.snippets[stack];
+  const ownership = offer.ownership;
   const canPublish =
     Boolean(offer.integration.lastVerifiedAt) &&
+    (!ownership?.required || ownership.verified) &&
     (offer.status === "verified" || offer.status === "paused") &&
     hasPayoutAddress;
 
@@ -663,6 +670,24 @@ export function IntegrationsView({
               ? "ABI serves the paid URL. Nothing to deploy."
               : "Deploy the snippet on your server."}
           </li>
+          {ownership?.required && (
+            <li data-testid="ownership-step">
+              Prove you control {ownership.origin ?? "this origin"}{" "}
+              {ownership.verified ? (
+                <Pill tone="ok">proven</Pill>
+              ) : (
+                <Pill tone="muted">not proven</Pill>
+              )}
+              {!ownership.verified && ownership.record && (
+                <div style={{ marginTop: 6 }}>
+                  Serve this line as text at{" "}
+                  <code style={{ wordBreak: "break-all" }}>{ownership.wellKnownUrl}</code>, then
+                  verify:
+                  <pre style={{ ...preStyle, marginTop: 6 }}>{ownership.record}</pre>
+                </div>
+              )}
+            </li>
+          )}
           <li>
             Verify the unpaid GET returns a matching 402{" "}
             {offer.integration.lastVerifiedAt ? (

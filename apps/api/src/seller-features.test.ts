@@ -86,7 +86,12 @@ async function publishedOffer(s: Session, slug: string, endpointUrl: string): Pr
   assert.equal(res.status, 201, await res.clone().text());
   const { offer } = (await res.json()) as { offer: OfferJson };
   store.updateOffer(s.orgId, offer.id, { status: "verified" });
-  store.setOfferIntegration(offer.id, { lastVerifiedAt: new Date().toISOString() });
+  // What a passing verify leaves behind: challenge checked, origin proven.
+  store.setOfferIntegration(offer.id, {
+    lastVerifiedAt: new Date().toISOString(),
+    ownershipVerifiedAt: new Date().toISOString(),
+    ownershipOrigin: new URL(endpointUrl).origin,
+  });
   const pub = await call(s, "POST", `/v1/seller/offers/${offer.id}/publish`);
   assert.equal(pub.status, 200, await pub.clone().text());
   return ((await pub.json()) as { offer: OfferJson }).offer;

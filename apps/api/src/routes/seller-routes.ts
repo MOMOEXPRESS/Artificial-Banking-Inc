@@ -33,6 +33,7 @@ import {
   requirementFor,
 } from "../seller-x402.js";
 import { checkSecondFactor, partnerRoute } from "./partner-auth-routes.js";
+import { ownershipInstructions, proveOriginControl } from "../seller-ownership.js";
 
 const payoutSchema = z
   .union([
@@ -139,6 +140,22 @@ function sellerProfileView(profile: SellerProfileRow) {
   };
 }
 
+/** Proof-of-control status for an offer on the seller's own server. */
+function ownershipView(offer: OfferRow) {
+  if (offer.hosted) return { required: false, verified: true, verifiedAt: null };
+  const integration = store.getOfferIntegration(offer.id);
+  const instructions = ownershipInstructions(offer.orgId, offer.endpointUrl);
+  const verified = sellerStore.isVerifiedOwnerOffer(offer);
+  return {
+    required: true,
+    verified,
+    verifiedAt: verified ? (integration?.ownershipVerifiedAt ?? null) : null,
+    origin: instructions?.origin ?? null,
+    wellKnownUrl: instructions?.wellKnownUrl ?? null,
+    record: instructions?.record ?? null,
+  };
+}
+
 export function offerView(offer: OfferRow) {
   const integration = store.getOfferIntegration(offer.id);
   return {
@@ -166,6 +183,7 @@ export function offerView(offer: OfferRow) {
     sandboxEnabled: offer.sandboxEnabled,
     createdAt: offer.createdAt,
     updatedAt: offer.updatedAt,
+    ownership: ownershipView(offer),
     integration: {
       lastVerifiedAt: integration?.lastVerifiedAt ?? null,
       snippetVersion: integration?.snippetVersion ?? null,
@@ -222,6 +240,8 @@ export function buildSnippet(
   const network = X402_NETWORKS[offer.network]?.caip2 ?? "eip155:84532";
   const path = safePath(offer.endpointUrl);
   const description = offer.title.replace(/"/g, '\\"');
+  // Proof you control this origin: ABI reads it before the offer can go live.
+  const record = ownershipInstructions(offer.orgId, offer.endpointUrl)?.record ?? "";
   const route = `{
   "GET ${path}": {
     accepts: { scheme: "exact", price: "${price}", network: "${network}", payTo: "${payTo}", maxTimeoutSeconds: 120 },
@@ -241,6 +261,7 @@ import { ExactEvmScheme } from "@x402/evm/exact/server";
 ${server}
 
 const app = new Hono();
+app.get("/.well-known/abi-seller-verification", (c) => c.text("${record}\\n"));
 app.use(paymentMiddleware(${route}, resourceServer));
 app.get("${path}", (c) => c.json({ ok: true, offer: "${offer.slug}" }));
 
@@ -249,6 +270,8 @@ export default app;
   }
   if (stack === "next") {
     return `// ${offer.slug} ${offer.version}: npm i @x402/next @x402/core @x402/evm
+// Also serve "${record}" as text/plain at
+// app/.well-known/abi-seller-verification/route.ts on this origin (proof you control it).
 // app${path}/route.ts (settles only after the handler answers < 400)
 import { NextResponse } from "next/server";
 import { withX402, x402ResourceServer } from "@x402/next";
@@ -276,6 +299,7 @@ import { ExactEvmScheme } from "@x402/evm/exact/server";
 ${server}
 
 const app = express();
+app.get("/.well-known/abi-seller-verification", (_req, res) => res.type("text/plain").send("${record}\\n"));
 // Answer only GET on the paid path: HEAD would otherwise run the handler unpaid.
 app.all("${path}", (req, res, next) => (req.method === "GET" ? next() : res.status(405).set("allow", "GET").end()));
 app.use(paymentMiddleware(${route}, resourceServer));
@@ -642,6 +666,19 @@ export function registerSellerRoutes(app: express.Express): void {
           },
         });
       }
+      if (
+        body.status === "paused" &&
+        existing.status !== "paused" &&
+        !sellerStore.isVerifiedOwnerOffer(existing)
+      ) {
+        return res.status(403).json({
+          error: {
+            code: "OWNERSHIP_UNPROVEN",
+            message:
+              "Only a seller that proved control of this endpoint can pause it. Verify the offer first.",
+          },
+        });
+      }
       if (existing.hosted && body.endpointUrl !== undefined) {
         return res.status(400).json({
           error: {
@@ -689,7 +726,15 @@ export function registerSellerRoutes(app: express.Express): void {
           identityRequirement: body.identityRequirement,
         });
         if (termsChanged) {
-          store.setOfferIntegration(offer.id, { lastVerifiedAt: null, error: null });
+          store.setOfferIntegration(offer.id, {
+            lastVerifiedAt: null,
+            error: null,
+            ...(body.endpointUrl !== undefined &&
+              body.endpointUrl !== existing.endpointUrl && {
+                ownershipVerifiedAt: null,
+                ownershipOrigin: null,
+              }),
+          });
         }
         res.json({
           offer: offerView(offer),
@@ -783,11 +828,40 @@ export function registerSellerRoutes(app: express.Express): void {
             offer: offerView(store.getOffer(org.id, offer.id)!),
           });
         }
+        // The payTo in a 402 is public, so a matching challenge is not proof of
+        // control. Sellers on their own server also prove the origin.
+        let ownershipOrigin: string | null = null;
+        if (!offer.hosted) {
+          const proof = await proveOriginControl(org.id, offer.endpointUrl);
+          if (!proof.ok) {
+            store.setOfferIntegration(offer.id, {
+              lastChallengeJson: JSON.stringify(challenge),
+              lastVerifiedAt: null,
+              ownershipVerifiedAt: null,
+              ownershipOrigin: null,
+              error: proof.problem,
+            });
+            if (offer.status === "verified" || offer.status === "published") {
+              store.updateOffer(org.id, offer.id, { status: "draft" });
+            }
+            return res.status(422).json({
+              ok: false,
+              error: { code: "OWNERSHIP_UNPROVEN", message: proof.problem },
+              challenge,
+              ownership: proof.instructions,
+              offer: offerView(store.getOffer(org.id, offer.id)!),
+            });
+          }
+          ownershipOrigin = proof.origin;
+        }
+        const verifiedAt = new Date().toISOString();
         store.setOfferIntegration(offer.id, {
           lastChallengeJson: JSON.stringify(challenge),
-          lastVerifiedAt: new Date().toISOString(),
+          lastVerifiedAt: verifiedAt,
           error: null,
           snippetVersion: offer.hosted ? "hosted" : "v2",
+          ownershipVerifiedAt: offer.hosted ? null : verifiedAt,
+          ownershipOrigin,
         });
         const updated =
           offer.status === "published" || offer.status === "paused"
@@ -798,7 +872,9 @@ export function registerSellerRoutes(app: express.Express): void {
           ok: true,
           challenge,
           offer: offerView(updated),
-          note: "The unpaid GET asks for the right payee, network and price. Publish when ready.",
+          note: offer.hosted
+            ? "The unpaid GET asks for the right payee, network and price. Publish when ready."
+            : "You control this endpoint and its unpaid GET asks for the right payee, network and price. Publish when ready.",
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not reach offer endpoint";
@@ -829,6 +905,15 @@ export function registerSellerRoutes(app: express.Express): void {
           error: {
             code: "NOT_VERIFIED",
             message: "Verify the unpaid 402 challenge before publishing.",
+          },
+        });
+      }
+      if (!sellerStore.isVerifiedOwnerOffer(offer)) {
+        return res.status(400).json({
+          error: {
+            code: "OWNERSHIP_UNPROVEN",
+            message:
+              "Prove you control this endpoint's origin (see ownership on the offer), then verify again before publishing.",
           },
         });
       }

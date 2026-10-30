@@ -26,6 +26,15 @@ export type SellerOffer = {
   archivedAt?: string | null;
   directoryListed?: boolean;
   sandboxEnabled?: boolean;
+  /** Proof the seller controls the endpoint's origin (own-server offers only). */
+  ownership?: {
+    required: boolean;
+    verified: boolean;
+    verifiedAt: string | null;
+    origin?: string | null;
+    wellKnownUrl?: string | null;
+    record?: string | null;
+  };
   integration: {
     lastVerifiedAt: string | null;
     snippetVersion: string | null;

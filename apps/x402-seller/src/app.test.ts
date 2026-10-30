@@ -6,6 +6,7 @@ import {
   MAX_PAYMENT_HEADER_BYTES,
   assertPaymentHeaderBudget,
   createSellerApp,
+  parseVerificationRecords,
   paymentRequiredHeaderBytes,
   type SellerConfig,
 } from "./app.js";
@@ -99,5 +100,23 @@ describe("x402 seller hardening", () => {
       () => assertPaymentHeaderBudget(cfg, `https://seller.example/${"x".repeat(6000)}`),
       /budget/,
     );
+  });
+});
+
+describe("ABI ownership record", () => {
+  it("serves the configured record at the well-known path, outside the paywall", async () => {
+    const record = `abi-seller-verification=${"cd".repeat(20)}`;
+    assert.deepEqual(parseVerificationRecords(`${record}\nnot-a-record`), [record]);
+    const app = createSellerApp({ ...cfg, abiVerification: [record] }, exactVerbPaywall);
+    const srv = app.listen(0);
+    await new Promise((r) => srv.once("listening", r));
+    try {
+      const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+      const res = await fetch(`${url}/.well-known/abi-seller-verification`);
+      assert.equal(res.status, 200);
+      assert.equal((await res.text()).trim(), record);
+    } finally {
+      srv.close();
+    }
   });
 });
