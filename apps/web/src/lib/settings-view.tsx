@@ -5,6 +5,7 @@ import { Icon } from "./ui";
 import { AiEgressPanel } from "./ai-egress-panel";
 import { MfaPanel } from "./mfa-panel";
 import { AccountAccessPanel } from "./account-access-panel";
+import { NotificationEmailPanel } from "./notification-email-panel";
 import { Button } from "@/components/ui/button";
 import { AmountStepper } from "@/components/ui/amount-stepper";
 import { okJson } from "./api-response";
@@ -112,7 +113,7 @@ const SECTIONS = [
     label: "Webhooks",
     icon: "zap",
     group: "Connections",
-    description: "Delivery health and operational event routing.",
+    description: "Developer endpoints and their delivery log (not your notifications).",
   },
   {
     key: "console",
@@ -1635,8 +1636,8 @@ export function SettingsView({
               <div>
                 <h2>Webhooks</h2>
                 <div className="sub">
-                  Delivery endpoints live with the rest of org config. Open the dedicated surface to
-                  add URLs and inspect the delivery log.
+                  Signed endpoints for your integrations live under Developers → Webhooks, with
+                  their delivery log. Your notification history is under the bell.
                 </div>
               </div>
             </div>
@@ -1801,6 +1802,15 @@ ${agents || "_None saved in this browser session._"}
 
         {section === "ai" && (
           <AiEgressPanel gFetch={gFetch} act={act} locked={busy || actorRole === "viewer"} />
+        )}
+
+        {section === "console" && (
+          <NotificationEmailPanel
+            gFetch={gFetch}
+            act={act}
+            busy={busy}
+            canEdit={actorRole === "owner"}
+          />
         )}
 
         {section === "console" && (

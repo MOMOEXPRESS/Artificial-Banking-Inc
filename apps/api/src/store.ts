@@ -1026,6 +1026,30 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   delivered_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_deliveries_org ON webhook_deliveries(org_id, id);
+-- In-app notification history (console bell). Written for every emitted
+-- event, whether or not the org has a webhook endpoint. Additive only.
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  link TEXT,
+  severity TEXT NOT NULL DEFAULT 'info',
+  -- Subject id (approval / run / agent) so the UI can collapse pending -> resolved.
+  ref TEXT,
+  created_at TEXT NOT NULL,
+  read_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_org ON notifications(org_id, id);
+CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(org_id, read_at);
+-- Per-org notification email recipient. No row = send to the org owner.
+CREATE TABLE IF NOT EXISTS notification_settings (
+  org_id TEXT PRIMARY KEY,
+  email TEXT,
+  email_enabled INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS policy_versions (
   id TEXT PRIMARY KEY,
   org_id TEXT NOT NULL REFERENCES orgs(id),
@@ -2457,6 +2481,34 @@ function normalizeFact(fact: string): string {
     .replace(/[\s"“”'‘’]+/g, " ")
     .replace(/[.!;,\s]+$/g, "")
     .trim();
+}
+
+export type NotificationSeverity = "info" | "ok" | "warn" | "bad";
+export type NotificationRow = {
+  id: number;
+  orgId: string;
+  kind: string;
+  title: string;
+  body: string;
+  link: string | null;
+  severity: NotificationSeverity;
+  ref: string | null;
+  createdAt: string;
+  readAt: string | null;
+};
+function rowToNotification(r: Row): NotificationRow {
+  return {
+    id: Number(r.id),
+    orgId: String(r.org_id),
+    kind: String(r.kind),
+    title: String(r.title),
+    body: String(r.body ?? ""),
+    link: (r.link as string | null) ?? null,
+    severity: String(r.severity) as NotificationSeverity,
+    ref: (r.ref as string | null) ?? null,
+    createdAt: String(r.created_at),
+    readAt: (r.read_at as string | null) ?? null,
+  };
 }
 
 export const store = {
@@ -6503,6 +6555,141 @@ export const store = {
     ).map(rowToDelivery);
   },
 
+  createNotification(args: {
+    orgId: string;
+    kind: string;
+    title: string;
+    body: string;
+    link?: string | null;
+    severity: NotificationSeverity;
+    ref?: string | null;
+  }): NotificationRow {
+    const createdAt = nowIso();
+    const info = db
+      .prepare(
+        `INSERT INTO notifications (org_id, kind, title, body, link, severity, ref, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        args.orgId,
+        args.kind,
+        args.title,
+        args.body,
+        args.link ?? null,
+        args.severity,
+        args.ref ?? null,
+        createdAt,
+      );
+    return {
+      id: Number(info.lastInsertRowid),
+      orgId: args.orgId,
+      kind: args.kind,
+      title: args.title,
+      body: args.body,
+      link: args.link ?? null,
+      severity: args.severity,
+      ref: args.ref ?? null,
+      createdAt,
+      readAt: null,
+    };
+  },
+
+  /** True when the same org/kind/title/body was recorded within `windowMs` (fan-out dedupe). */
+  hasRecentNotification(
+    args: { orgId: string; kind: string; title: string; body: string },
+    windowMs = 10_000,
+  ): boolean {
+    const cutoff = new Date(Date.now() - windowMs).toISOString();
+    const row = db
+      .prepare(
+        `SELECT 1 FROM notifications
+         WHERE org_id = ? AND kind = ? AND title = ? AND body = ? AND created_at >= ? LIMIT 1`,
+      )
+      .get(args.orgId, args.kind, args.title, args.body, cutoff);
+    return Boolean(row);
+  },
+
+  /** Newest first. `before` is an id cursor for the next page. */
+  listNotifications(
+    orgId: string,
+    opts: { limit?: number; before?: number; unreadOnly?: boolean } = {},
+  ): NotificationRow[] {
+    const limit = Math.max(1, Math.min(opts.limit ?? 30, 100));
+    const clauses = ["org_id = ?"];
+    const params: unknown[] = [orgId];
+    if (opts.before) {
+      clauses.push("id < ?");
+      params.push(opts.before);
+    }
+    if (opts.unreadOnly) clauses.push("read_at IS NULL");
+    params.push(limit);
+    return (
+      db
+        .prepare(
+          `SELECT * FROM notifications WHERE ${clauses.join(" AND ")} ORDER BY id DESC LIMIT ?`,
+        )
+        .all(...params) as Row[]
+    ).map(rowToNotification);
+  },
+
+  countUnreadNotifications(orgId: string): number {
+    const row = db
+      .prepare("SELECT COUNT(*) AS n FROM notifications WHERE org_id = ? AND read_at IS NULL")
+      .get(orgId) as { n: number };
+    return Number(row.n);
+  },
+
+  markNotificationRead(orgId: string, notificationId: number): boolean {
+    const info = db
+      .prepare(
+        "UPDATE notifications SET read_at = COALESCE(read_at, ?) WHERE id = ? AND org_id = ?",
+      )
+      .run(nowIso(), notificationId, orgId);
+    return info.changes > 0;
+  },
+
+  markAllNotificationsRead(orgId: string): number {
+    const info = db
+      .prepare("UPDATE notifications SET read_at = ? WHERE org_id = ? AND read_at IS NULL")
+      .run(nowIso(), orgId);
+    return info.changes;
+  },
+
+  getNotificationSettings(orgId: string): { email: string | null; emailEnabled: boolean } {
+    const row = db
+      .prepare("SELECT email, email_enabled FROM notification_settings WHERE org_id = ?")
+      .get(orgId) as { email: string | null; email_enabled: number } | undefined;
+    return { email: row?.email ?? null, emailEnabled: row ? row.email_enabled === 1 : true };
+  },
+
+  setNotificationSettings(
+    orgId: string,
+    fields: { email?: string | null; emailEnabled?: boolean },
+  ): { email: string | null; emailEnabled: boolean } {
+    const cur = this.getNotificationSettings(orgId);
+    const email = fields.email === undefined ? cur.email : fields.email;
+    const enabled = fields.emailEnabled ?? cur.emailEnabled;
+    db.prepare(
+      `INSERT INTO notification_settings (org_id, email, email_enabled, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(org_id) DO UPDATE SET email = excluded.email,
+         email_enabled = excluded.email_enabled, updated_at = excluded.updated_at`,
+    ).run(orgId, email, enabled ? 1 : 0, nowIso());
+    return { email, emailEnabled: enabled };
+  },
+
+  /** Email of the org's first active owner membership, if any. */
+  getOrgOwnerEmail(orgId: string): string | null {
+    const row = db
+      .prepare(
+        `SELECT u.email AS email FROM memberships m JOIN users u ON u.id = m.user_id
+         WHERE m.org_id = ? AND m.role = 'owner' AND m.revoked_at IS NULL AND u.disabled_at IS NULL
+         ORDER BY m.created_at ASC LIMIT 1`,
+      )
+      .get(orgId) as { email: string } | undefined;
+    return row?.email ?? null;
+  },
+
   /** Pending deliveries whose next_attempt_at is due (or null = immediately retryable). */
   listDueWebhookDeliveries(limit = 50): WebhookDeliveryRow[] {
     const now = nowIso();
@@ -6897,6 +7084,13 @@ export const store = {
         .prepare("SELECT * FROM runs WHERE org_id = ? ORDER BY started_at DESC LIMIT ?")
         .all(orgId, limit) as Row[]
     ).map(rowToRun);
+  },
+
+  /** Status + org of a run by id (ids are global primary keys). */
+  getRunStatusAnyOrg(id: string): { orgId: string; status: string } | null {
+    const row = db.prepare("SELECT org_id, status FROM runs WHERE id = ?").get(id) as
+      { org_id: string; status: string } | undefined;
+    return row ? { orgId: row.org_id, status: row.status } : null;
   },
 
   getRun(id: string, orgId: string): RunRow | undefined {

@@ -16,6 +16,7 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { store } from "./store.js";
+import { recordNotification } from "./notifications.js";
 import { fetchNoRedirect, webhookUrlProblem } from "./outbound-url.js";
 
 export type WebhookEvent =
@@ -52,7 +53,15 @@ export type WebhookEvent =
   /** Sent to buyer orgs connected to a seller whose payout address changed. */
   | "merchant.payee_changed"
   /** Sent to buyer orgs that recently used an offer the seller is retiring. */
-  | "offer.deprecated";
+  | "offer.deprecated"
+  /** Console / identity actions — recorded in the notification history too. */
+  | "auth.signin"
+  | "agent.created"
+  | "api_key.created"
+  | "api_key.revoked"
+  | "policy.changed"
+  | "member.invited"
+  | "playground.run.finished";
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAYS_MS = [2_000, 10_000, 60_000];
@@ -170,8 +179,13 @@ export async function attemptDelivery(args: {
   }
 }
 
-/** Fire an event to every webhook endpoint registered for the org. Non-blocking. */
+/**
+ * Record an event in the org's notification history, then fire it to every
+ * webhook endpoint registered for the org. Non-blocking.
+ */
 export function emitEvent(orgId: string, event: WebhookEvent, payload: unknown): void {
+  // Notification history first, for every event, endpoint or not.
+  recordNotification(orgId, event, payload);
   const endpoints = store.listWebhooks(orgId);
   if (endpoints.length === 0) return;
   const envelope = {

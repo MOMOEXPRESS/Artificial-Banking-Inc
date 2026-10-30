@@ -89,6 +89,8 @@ import { assertAuthRuntimeReady } from "./auth/key-encryption.js";
 import { currentUser, registerAuthRoutes } from "./routes/auth-routes.js";
 import { registerMfaRoutes, stepUpThresholdMicro } from "./routes/mfa-routes.js";
 import { registerAgentRoutes } from "./routes/agent-routes.js";
+import { registerNotificationRoutes } from "./routes/notification-routes.js";
+import { actionEventsMiddleware } from "./action-events.js";
 import { startScheduler } from "./jobs/scheduler.js";
 import { registerPaymentRoutes } from "./routes/payment-routes.js";
 import { registerPlatformRoutes } from "./routes/platform-routes.js";
@@ -157,6 +159,7 @@ app.use(
 );
 app.use(express.json({ limit: "1mb" }));
 app.use(requestLogMiddleware);
+app.use(actionEventsMiddleware());
 
 const PORT = config.PORT;
 const STARTED_AT = Date.now();
@@ -184,30 +187,13 @@ function formatNotifyText(payload: Parameters<Parameters<typeof registerNotifier
   return `ABI ${payload.kind}`;
 }
 
-/** Email — Resend API when RESEND_API_KEY + ABI_NOTIFY_EMAIL_TO set; else log stub. */
-registerNotifier("email", (payload) => {
-  const orgId = notifyOrgId(payload);
-  const to = process.env.ABI_NOTIFY_EMAIL_TO?.trim();
-  const resendKey = process.env.RESEND_API_KEY?.trim();
-  const text = formatNotifyText(payload);
-  if (resendKey && to) {
-    void fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        from: process.env.ABI_NOTIFY_EMAIL_FROM ?? "ABI <onboarding@resend.dev>",
-        to: [to],
-        subject: `[ABI] ${payload.kind}`,
-        text,
-      }),
-    }).catch((e) => console.error("email notify failed:", e));
-    return;
-  }
-  console.log(JSON.stringify({ type: "abi.notify.email", kind: payload.kind, orgId, stub: true }));
-});
+/**
+ * Email is sent from the notification history (notifications.ts), through
+ * Brevo, to the per-org recipient — once per recorded notification. This
+ * channel stays registered so callers' fan-out is unchanged, but it no longer
+ * sends on its own (that would double-send every approval email).
+ */
+registerNotifier("email", () => undefined);
 
 /** Slack — incoming webhook when SLACK_WEBHOOK_URL set; else log stub. */
 registerNotifier("slack", (payload) => {
@@ -678,6 +664,7 @@ registerAuthRoutes(app);
 registerMfaRoutes(app);
 registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
 registerAgentRoutes(app, { guardianRoute });
+registerNotificationRoutes(app, { guardianRoute });
 registerPolicyRoutes(app, { guardianRoute });
 registerConnectionRoutes(app, { guardianRoute });
 registerPaymentRoutes(app, { guardianRoute });

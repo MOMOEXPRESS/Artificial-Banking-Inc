@@ -80,6 +80,18 @@ import { Overview } from "../../lib/overview-view";
 import { Playground } from "../../lib/playground-view";
 import { Ledger } from "../../lib/ledger-view";
 import { Webhooks } from "../../lib/webhooks-view";
+import {
+  EMPTY_FEED,
+  collapseApprovals,
+  freshSince,
+  linkView,
+  maxId,
+  parseFeed,
+  resolvedApprovalAlerts,
+  toastFor,
+  type NotificationFeed,
+  type NotificationItem,
+} from "../../lib/notifications-feed";
 import { browserApiBase, sellerUrl } from "../../lib/browser-api";
 import { Button } from "@/components/ui/button";
 
@@ -179,7 +191,7 @@ const VIEW_META: Partial<Record<View, { eyebrow: string; description: string; ic
   webhooks: {
     eyebrow: "Developers · Webhooks",
     description:
-      "Manage signed endpoints, delivery health, retries, and the event history your applications depend on.",
+      "Developer tools: signed endpoints and the delivery log for your integrations. Your own notifications live under the bell.",
     icon: "zap",
   },
   activity: {
@@ -340,6 +352,10 @@ export default function Console() {
   const [connected, setConnected] = useState(true);
   const [notifOpen, setNotifOpen] = useState(false);
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(() => new Set());
+  /** Notification history (GET /v1/guardian/notifications) — below the live alerts. */
+  const [feed, setFeed] = useState<NotificationFeed>(EMPTY_FEED);
+  /** Highest notification id already seen; null until the first load. */
+  const lastNotifId = useRef<number | null>(null);
   const [banner, setBanner] = useState<ConsoleAlert | null>(null);
   const [query, setQuery] = useState("");
   const [activitySeed, setActivitySeed] = useState<{
@@ -666,6 +682,7 @@ export default function Console() {
           "/v1/guardian/escrows",
           "/v1/guardian/budgets",
           "/v1/guardian/agent-groups",
+          "/v1/guardian/notifications?limit=20",
         ].map((p) => gFetch(p)),
       );
       if (res[0].status === 401) {
@@ -684,7 +701,18 @@ export default function Console() {
       // Non-2xx bodies (429 rate limit, 5xx, proxy errors) become null and are
       // never stored: an `{ error }` body saved as `org` crashed the header
       // (`org.org.name`) and took the whole console into the error boundary.
-      const [o, ap, a, es, bu, gr] = await Promise.all(res.map((r) => okJson(r)));
+      const [o, ap, a, es, bu, gr, nf] = await Promise.all(res.map((r) => okJson(r)));
+      if (nf) {
+        const next = parseFeed(nf);
+        setIfChanged("notifications", next, setFeed);
+        // Toasts for new failed payments, refusals and approvals. The first
+        // load only records the high-water mark so refreshes don't replay.
+        for (const n of freshSince(next.notifications, lastNotifId.current)) {
+          const t = toastFor(n);
+          if (t) setToast(t.message, t.kind);
+        }
+        lastNotifId.current = maxId(next.notifications, lastNotifId.current ?? 0);
+      }
       if (!o?.org?.id) {
         const failure = await describeFailure("/v1/guardian/org", res[0]);
         logLoadFailure("shell", failure);
@@ -817,6 +845,11 @@ export default function Console() {
         });
       }
     }
+    // A pending approval that resolves while you watch turns into its outcome
+    // here instead of silently vanishing from the list.
+    for (const r of resolvedApprovalAlerts(approvals, seenApprovals.current)) {
+      out.push({ ...r, kind: "approval", goto: "approvals" });
+    }
     const failed = deliveries.filter((d) => d.status === "failed");
     if (failed.length) {
       out.push({
@@ -853,7 +886,28 @@ export default function Console() {
       });
     }
     return out;
-  }, [pending, escrows, deliveries, recon, org, agentName]);
+  }, [pending, approvals, escrows, deliveries, recon, org, agentName]);
+
+  const history = useMemo(() => collapseApprovals(feed.notifications), [feed]);
+  const markRead = useCallback(
+    async (n?: NotificationItem) => {
+      const path = n
+        ? `/v1/guardian/notifications/${n.id}/read`
+        : "/v1/guardian/notifications/read-all";
+      setFeed((f) => ({
+        notifications: f.notifications.map((x) =>
+          !n || x.id === n.id ? { ...x, readAt: x.readAt ?? new Date().toISOString() } : x,
+        ),
+        unreadCount: n ? Math.max(0, f.unreadCount - (n.readAt ? 0 : 1)) : 0,
+      }));
+      try {
+        await gFetch(path, { method: "POST", body: "{}" });
+      } catch {
+        /* next fast refresh reconciles */
+      }
+    },
+    [gFetch],
+  );
 
   const visibleAlerts = useMemo(
     () => alerts.filter((a) => !dismissedAlerts.has(a.id)),
@@ -1141,9 +1195,13 @@ export default function Console() {
             </DropdownMenu>
             <Popover open={notifOpen} onOpenChange={setNotifOpen}>
               <PopoverTrigger asChild>
-                <button className="icon-btn" aria-label="Alerts">
+                <button
+                  className="icon-btn"
+                  aria-label={`Notifications${feed.unreadCount ? ` (${feed.unreadCount} unread)` : ""}`}
+                  data-testid="notifications-bell"
+                >
                   <Icon name="bell" />
-                  {visibleAlerts.length > 0 && <span className="ping" />}
+                  {(visibleAlerts.length > 0 || feed.unreadCount > 0) && <span className="ping" />}
                 </button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-[min(360px,calc(100vw-24px))] p-0">
@@ -1167,7 +1225,7 @@ export default function Console() {
                     </Button>
                   )}
                 </div>
-                <ScrollArea className="max-h-80">
+                <ScrollArea className="max-h-[70vh]">
                   {visibleAlerts.length === 0 ? (
                     <div
                       style={{ padding: 26, textAlign: "center", fontSize: 12.5 }}
@@ -1220,6 +1278,82 @@ export default function Console() {
                         </span>
                       </button>
                     ))
+                  )}
+                  <div
+                    className="notif-head notif-history-head"
+                    data-testid="notifications-history"
+                  >
+                    <span>Recent{feed.unreadCount > 0 ? ` · ${feed.unreadCount} unread` : ""}</span>
+                    {feed.unreadCount > 0 && (
+                      <Button
+                        type="button"
+                        variant="bare"
+                        size="sm"
+                        onClick={() => void markRead()}
+                      >
+                        Mark all read
+                      </Button>
+                    )}
+                  </div>
+                  {history.length === 0 ? (
+                    <div
+                      style={{ padding: 18, textAlign: "center", fontSize: 12.5 }}
+                      className="muted"
+                    >
+                      No notifications yet. Payments, refusals, approvals, keys, policy changes and
+                      runs show up here.
+                    </div>
+                  ) : (
+                    history.slice(0, 15).map((n) => {
+                      const target = linkView(n.link);
+                      return (
+                        <button
+                          key={`n_${n.id}`}
+                          className={`notif-item${n.readAt ? " is-read" : " is-unread"}`}
+                          onClick={() => {
+                            void markRead(n);
+                            if (target) setView(target as View);
+                            setNotifOpen(false);
+                          }}
+                        >
+                          <span
+                            className="ico"
+                            style={{
+                              background:
+                                n.severity === "bad"
+                                  ? "var(--red-soft)"
+                                  : n.severity === "warn"
+                                    ? "var(--orange-soft)"
+                                    : "var(--accent-soft)",
+                              color:
+                                n.severity === "bad"
+                                  ? "var(--red)"
+                                  : n.severity === "warn"
+                                    ? "var(--orange)"
+                                    : "var(--accent)",
+                            }}
+                          >
+                            <Icon
+                              name={
+                                n.kind.startsWith("approval")
+                                  ? "check"
+                                  : n.severity === "bad"
+                                    ? "alert"
+                                    : "bell"
+                              }
+                              size={15}
+                            />
+                          </span>
+                          <span className="body">
+                            <b>{n.title}</b>
+                            <span>
+                              {n.body ? `${n.body} · ` : ""}
+                              {relTime(n.createdAt)}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })
                   )}
                 </ScrollArea>
               </PopoverContent>
