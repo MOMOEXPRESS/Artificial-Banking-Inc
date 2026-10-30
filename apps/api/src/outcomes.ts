@@ -16,6 +16,7 @@
 import { formatMicroToUsdc } from "@policyvault/common";
 import { getCustodyProvider } from "@policyvault/custody";
 import { canonicalJson, sha256Hex } from "./decision-receipts.js";
+import { approvalStaleReasons } from "./engine.js";
 import { outcomeReaders, recheckIntervalMs } from "./jobs/settlement-recovery.js";
 import { store, storeNowMs, type ApprovalRow, type SettlementRow } from "./store.js";
 
@@ -30,6 +31,7 @@ export type IntentState =
   | "expired_unclaimed"
   | "awaiting_approval"
   | "expired_not_sent"
+  | "cancelled_stale"
   | "rejected_by_policy"
   | "not_assessed"
   | "allowed";
@@ -39,6 +41,7 @@ const TERMINAL: ReadonlySet<IntentState> = new Set([
   "failed",
   "expired_unclaimed",
   "expired_not_sent",
+  "cancelled_stale",
   "rejected_by_policy",
   "not_assessed",
 ]);
@@ -132,11 +135,15 @@ export function settlementView(row: SettlementRow) {
 export function approvalRecord(a: ApprovalRow) {
   const { amountMicro: _m, ...rest } = a;
   const nowRevision = store.getPolicyVersion(a.orgId);
-  const stale: string[] = [];
-  if (a.status === "pending") {
-    if (a.policyRevision && a.policyRevision !== nowRevision) stale.push("policy_revision_changed");
-    if (Date.parse(a.expiresAt) <= storeNowMs()) stale.push("expired");
-  }
+  const stale: string[] =
+    a.status === "cancelled_stale"
+      ? (a.staleReasons ?? [])
+      : a.status === "pending"
+        ? [
+            ...approvalStaleReasons(a),
+            ...(Date.parse(a.expiresAt) <= storeNowMs() ? ["expired"] : []),
+          ]
+        : [];
   return {
     ...rest,
     approver:
@@ -153,8 +160,20 @@ export function approvalRecord(a: ApprovalRow) {
     policyRevision: a.policyRevision ?? null,
     policyRevisionNow: nowRevision,
     // An approval binds (amount, payee, rules, expiry). Any change kills it.
-    staleIf: ["amount_changed", "payee_changed", "policy_revision_changed", "expired"],
+    // Amount and payee are immutable on an approval; a change to either is a
+    // new request. A rules change cancels it automatically ("dead, not old").
+    staleIf: ["policy_revision_changed", "rules_hash_changed", "expired"],
     stale,
+    ...(a.status === "cancelled_stale" && {
+      cancelled: {
+        reason: "stale",
+        staleReasons: a.staleReasons ?? [],
+        by: a.resolvedBy ?? null,
+        at: a.resolvedAt ?? null,
+        rule_code: "approval_stale",
+        next_step: "re_request",
+      },
+    }),
     ...(a.status === "pending" && {
       recheck_after: new Date(
         Math.min(Date.parse(a.expiresAt), storeNowMs() + Math.max(recheckIntervalMs(), 30_000)),
@@ -175,6 +194,7 @@ export function intentStatus(orgId: string, intentId: string, agentId?: string) 
   if (row) state = settlementState(row);
   else if (approval?.status === "pending") state = "awaiting_approval";
   else if (approval?.status === "expired") state = "expired_not_sent";
+  else if (approval?.status === "cancelled_stale") state = "cancelled_stale";
   else if (decision?.ruleIds.includes("policy_unavailable")) state = "not_assessed";
   else if (decision?.outcome === "deny") state = "rejected_by_policy";
   else state = "allowed";

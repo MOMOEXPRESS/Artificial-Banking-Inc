@@ -269,7 +269,7 @@ export function BusinessConnections({
         }
         return;
       }
-      if (st === "denied" || st === "expired") {
+      if (st === "denied" || st === "expired" || st === "cancelled_stale") {
         patchPurchase(offer.id, { phase: "refused", error: `Approval ${st}.` });
         return;
       }

@@ -155,7 +155,13 @@ export type OrgStatus = "active" | "frozen" | "archived";
 export type OrgKind = "buyer" | "seller";
 export type AgentStatus = "active" | "frozen" | "archived";
 export type EscrowState = "locked" | "settling" | "released" | "refunded" | "timeout_refunded";
-export type ApprovalStatus = "pending" | "approved" | "denied" | "expired";
+export type ApprovalStatus =
+  | "pending"
+  | "approved"
+  | "denied"
+  | "expired"
+  /** The rules it was parked under changed: cancelled, nothing sent. */
+  | "cancelled_stale";
 export type SellerProfileStatus = "draft" | "ready";
 export type OfferStatus = "draft" | "verified" | "published" | "paused";
 
@@ -362,6 +368,8 @@ export interface ApprovalRow {
   rulesHash?: string;
   /** Policy revision in force when the request was parked. */
   policyRevision?: string;
+  /** Why it was cancelled as stale (`cancelled_stale` only). */
+  staleReasons?: string[];
 }
 
 export type GuardianRole = "owner" | "approver" | "viewer";
@@ -1941,6 +1949,8 @@ for (const migration of [
   // Approval record: the exact rules it was checked against, and their revision.
   "ALTER TABLE approvals ADD COLUMN rules_hash TEXT",
   "ALTER TABLE approvals ADD COLUMN policy_revision TEXT",
+  // Stale approvals are cancelled; record why.
+  "ALTER TABLE approvals ADD COLUMN stale_reasons_json TEXT",
   // Idempotency: what the key was used for, and when it stops being honoured.
   "ALTER TABLE idempotency ADD COLUMN request_hash TEXT",
   "ALTER TABLE idempotency ADD COLUMN created_at TEXT",
@@ -2237,6 +2247,30 @@ function rowToEscrow(r: Row): EscrowRow {
   };
 }
 
+// ------------------------------------------------- policy-change listeners
+//
+// The store cannot import the engine (cycle), so the engine registers what to
+// do when an org's rules change: cancel every pending approval they made
+// stale, at the moment of the change.
+type PolicyChangeListener = (orgId: string) => void;
+const policyChangeListeners: PolicyChangeListener[] = [];
+
+export function onPolicyChange(fn: PolicyChangeListener): void {
+  policyChangeListeners.push(fn);
+}
+
+function notifyPolicyChange(orgId: string): void {
+  for (const fn of policyChangeListeners) {
+    try {
+      fn(orgId);
+    } catch (e) {
+      // The policy write already committed; the sweep and the vote-time check
+      // still catch anything a failed listener missed.
+      console.error("policy-change listener failed:", e);
+    }
+  }
+}
+
 function rowToApproval(r: Row): ApprovalRow {
   return {
     id: r.id,
@@ -2265,6 +2299,7 @@ function rowToApproval(r: Row): ApprovalRow {
     result: r.result_json ? JSON.parse(r.result_json) : undefined,
     ...(r.rules_hash && { rulesHash: String(r.rules_hash) }),
     ...(r.policy_revision && { policyRevision: String(r.policy_revision) }),
+    ...(r.stale_reasons_json && { staleReasons: JSON.parse(String(r.stale_reasons_json)) }),
   };
 }
 
@@ -3370,6 +3405,7 @@ export const store = {
       ).run(id("polver"), orgId, version, rulesJson, note ?? null, nowIso());
     });
     tx();
+    notifyPolicyChange(orgId);
     return version;
   },
 
@@ -4591,11 +4627,16 @@ export const store = {
                                            updated_by = excluded.updated_by`,
     ).run(agentId, orgId, json, nowIso(), updatedBy ?? null);
     bumpRevision();
+    notifyPolicyChange(orgId);
   },
 
   clearAgentPolicyOverride(agentId: string): boolean {
+    const owner = db
+      .prepare("SELECT org_id FROM agent_policies WHERE agent_id = ?")
+      .get(agentId) as Row | undefined;
     const info = db.prepare("DELETE FROM agent_policies WHERE agent_id = ?").run(agentId);
     if (info.changes > 0) bumpRevision();
+    if (info.changes > 0 && owner?.org_id) notifyPolicyChange(String(owner.org_id));
     return info.changes > 0;
   },
 
@@ -5964,9 +6005,53 @@ export const store = {
     return info.changes > 0;
   },
 
+  /** Pending approvals, optionally for one org (stale-approval sweep). */
+  listPendingApprovals(orgId?: string): ApprovalRow[] {
+    return (
+      (orgId
+        ? db.prepare("SELECT * FROM approvals WHERE status = 'pending' AND org_id = ?").all(orgId)
+        : db.prepare("SELECT * FROM approvals WHERE status = 'pending'").all()) as Row[]
+    ).map(rowToApproval);
+  },
+
+  /**
+   * Atomically cancel an approval whose rules changed under it. A
+   * compare-and-set on `from` (`pending`, or `resolving` when a guardian's
+   * claim found it stale at execution), so it can never overwrite an approval
+   * that already resolved, and a cancelled approval can never be claimed.
+   */
+  cancelStaleApproval(
+    approvalId: string,
+    from: "pending" | "resolving",
+    fields: { resolvedAt: string; resolvedBy: string; result: unknown; staleReasons: string[] },
+  ): boolean {
+    const info = db
+      .prepare(
+        "UPDATE approvals SET status = 'cancelled_stale', resolved_at = ?, resolved_by = ?, result_json = ?, stale_reasons_json = ? WHERE id = ? AND status = ?",
+      )
+      .run(
+        fields.resolvedAt,
+        fields.resolvedBy,
+        JSON.stringify(fields.result),
+        JSON.stringify(fields.staleReasons),
+        approvalId,
+        from,
+      );
+    return info.changes > 0;
+  },
+
   /** Test-only: write a raw x402 budget value so fail-closed parsing can be exercised. */
   setSessionBudgetRawForTests(sessionId: string, raw: string): void {
     db.prepare("UPDATE session_keys SET x402_budget_micro = ? WHERE id = ?").run(raw, sessionId);
+  },
+
+  /**
+   * Test-only: pretend an approval was parked under another revision (as if a
+   * policy write slipped past the change hook), to exercise the sweep and the
+   * vote-time check on their own.
+   */
+  setApprovalPolicyRevisionForTests(approvalId: string, revision: string): void {
+    db.prepare("UPDATE approvals SET policy_revision = ? WHERE id = ?").run(revision, approvalId);
   },
 
   /** Test-only: move an approval's deadline (to simulate time passing). */

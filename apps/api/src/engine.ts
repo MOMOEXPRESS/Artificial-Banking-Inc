@@ -43,7 +43,14 @@ import type { PaymentRail } from "./rails/types.js";
 import { screenDestination } from "./platform/compliance.js";
 import { notify } from "./platform/notifier.js";
 import { recordObs } from "./platform/observability.js";
-import { scopedStore, sellerStore, store, type ApprovalRow, type EscrowRow } from "./store.js";
+import {
+  onPolicyChange,
+  scopedStore,
+  sellerStore,
+  store,
+  type ApprovalRow,
+  type EscrowRow,
+} from "./store.js";
 import { emitEvent } from "./webhooks.js";
 import { ingestSellerPayment, payeePinProblem, sellerPrePayCheck } from "./seller-ingest.js";
 import { X402_NETWORKS } from "./seller-x402.js";
@@ -1093,6 +1100,7 @@ export type ApprovalResolution =
   | { kind: "not_found" }
   | { kind: "conflict"; approval: ApprovalRow }
   | { kind: "expired"; approval: ApprovalRow }
+  | { kind: "stale"; staleReasons: string[]; approval: ApprovalRow }
   | { kind: "frozen"; approval: ApprovalRow }
   | { kind: "forbidden"; message: string; approval: ApprovalRow }
   /** The voter may never decide this approval (e.g. it is the requester). */
@@ -1280,12 +1288,32 @@ export async function resolveApproval(
 ): Promise<ApprovalResolution> {
   const approval = store.getApproval(approvalId, orgId);
   if (!approval) return { kind: "not_found" };
+  if (approval.status === "cancelled_stale") {
+    // A vote on an approval already cancelled as stale gets the same clear
+    // refusal, never an execution.
+    return { kind: "stale", staleReasons: approval.staleReasons ?? [], approval };
+  }
   if (approval.status !== "pending") return { kind: "conflict", approval };
   // At or past the deadline is expired. Never an automatic yes: the sweep
   // marks it "expired, not sent" and nothing is broadcast.
   if (new Date(approval.expiresAt).getTime() <= Date.now()) {
     sweepApprovalExpiry();
     return { kind: "expired", approval: store.getApproval(approvalId, orgId)! };
+  }
+
+  // Dead, not old: if the rules it was parked under changed, the approval is
+  // cancelled before the vote is even recorded. A guardian vote can never
+  // execute a payment checked against rules that no longer exist.
+  const staleBeforeVote = approvalStaleReasons(approval);
+  if (staleBeforeVote.length > 0) {
+    if (!cancelStaleApproval(approval, staleBeforeVote, "pending")) {
+      return { kind: "conflict", approval: store.getApproval(approvalId, orgId)! };
+    }
+    return {
+      kind: "stale",
+      staleReasons: staleBeforeVote,
+      approval: store.getApproval(approvalId, orgId)!,
+    };
   }
 
   // Checked before the vote is recorded, so a refused self-vote never counts
@@ -1333,6 +1361,18 @@ export async function resolveApproval(
   // payment executes twice.
   if (!store.claimApproval(approval.id)) {
     return { kind: "conflict", approval: store.getApproval(approvalId, orgId)! };
+  }
+
+  // Execution-time check, under the claim: the rules may have changed between
+  // the vote and the claim. Cancel instead of executing.
+  const staleAtClaim = approvalStaleReasons(approval);
+  if (staleAtClaim.length > 0) {
+    cancelStaleApproval(approval, staleAtClaim, "resolving");
+    return {
+      kind: "stale",
+      staleReasons: staleAtClaim,
+      approval: store.getApproval(approvalId, orgId)!,
+    };
   }
 
   const resolvedAt = new Date().toISOString();
@@ -1659,6 +1699,141 @@ export function sweepEscrowTimeouts() {
     settleEscrow(escrow, "timeout_refund", "system:timeout");
   }
 }
+
+/** Who cancels stale approvals — named in the record and in the event. */
+export const STALE_CANCEL_RESOLVER = "system:stale_cancel";
+
+/** Marks a rules hash computed by {@link approvalBindingHash}. */
+const BINDING_HASH_PREFIX = "r2:";
+
+/**
+ * Hash of the rules an approval binds to: the agent's effective policy (org
+ * template + agent override: caps, budgets, allowlists, windows) and the
+ * session key's x402 budget. Spend counters and balances are deliberately
+ * left out — other payments settling do not make an approval stale; the
+ * vote-time policy re-check still enforces every cap.
+ */
+export function approvalBindingHash(agentId: string, orgId: string, sessionId?: string): string {
+  const { effective } = resolvedPolicyFor(agentId, orgId);
+  const sessionBudgetMicro = sessionId ? store.sessionX402BudgetMicro(sessionId) : undefined;
+  return (
+    BINDING_HASH_PREFIX +
+    sha256Hex(canonicalJson({ rules: effective, sessionBudgetMicro: sessionBudgetMicro ?? null }))
+  );
+}
+
+/**
+ * Why a pending approval no longer matches the rules it was parked under.
+ * Empty when it is still current. Approvals parked before rules hashes were
+ * recorded (or with an older hash format) are judged on revision alone.
+ */
+export function approvalStaleReasons(a: ApprovalRow): string[] {
+  const reasons: string[] = [];
+  if (a.policyRevision && a.policyRevision !== store.getPolicyVersion(a.orgId)) {
+    reasons.push("policy_revision_changed");
+  }
+  if (a.rulesHash?.startsWith(BINDING_HASH_PREFIX)) {
+    try {
+      if (approvalBindingHash(a.agentId, a.orgId, a.sessionId) !== a.rulesHash) {
+        reasons.push("rules_hash_changed");
+      }
+    } catch {
+      // Policy unreadable: do not cancel on a read error. Execution fails
+      // closed on the same read, so nothing can be sent meanwhile.
+    }
+  }
+  return reasons;
+}
+
+/**
+ * Cancel one stale approval: "cancelled, stale" with the reasons recorded,
+ * nothing sent. Parked approvals hold no funds (nothing is reserved until a
+ * guardian's yes executes), so there is no hold to release. Compare-and-set:
+ * returns false when it already resolved, which makes repeat calls no-ops.
+ */
+export function cancelStaleApproval(
+  approval: ApprovalRow,
+  staleReasons: string[],
+  from: "pending" | "resolving" = "pending",
+): boolean {
+  const resolvedAt = new Date().toISOString();
+  const denial = buildDenial({ ruleIds: ["approval_stale"], paymentState: "cancelled_not_sent" });
+  const result = {
+    outcome: "deny",
+    intentId: approval.intentId,
+    approvalId: approval.id,
+    ruleIds: ["approval_stale"],
+    staleReasons,
+    error: {
+      code: "APPROVAL_STALE",
+      message: `The rules changed after this payment was parked (${staleReasons.join(", ")}). The approval was cancelled. Nothing was sent.`,
+      rule_code: "approval_stale",
+    },
+    denial,
+  };
+  if (
+    !store.cancelStaleApproval(approval.id, from, {
+      resolvedAt,
+      resolvedBy: STALE_CANCEL_RESOLVER,
+      result,
+      staleReasons,
+    })
+  ) {
+    return false;
+  }
+  const decision = recordDecision({
+    intentId: approval.intentId,
+    orgId: approval.orgId,
+    agentId: approval.agentId,
+    outcome: "deny",
+    ruleIds: ["approval_stale"],
+    reasons: [`Approval cancelled: rules changed (${staleReasons.join(", ")})`],
+    tool: approval.tool,
+    amountUsdc: approval.amountUsdc,
+    destination: approval.destination,
+  });
+  if (!approval.subscriptionId) {
+    // A retry under the same key replays "cancelled, stale" — never a stale
+    // "awaiting approval" and never a fresh park under old rules.
+    store.setIdempotent(
+      approval.orgId,
+      scopedIdempotencyKey(approval.agentId, approval.idempotencyKey),
+      { ...result, receipt: decision.receipt, httpStatus: 409 },
+    );
+  }
+  finishScheduledApproval(approval, false, "Approval cancelled: the rules changed");
+  emitEvent(approval.orgId, "approval.resolved", {
+    approvalId: approval.id,
+    intentId: approval.intentId,
+    agentId: approval.agentId,
+    status: "cancelled_stale",
+    resolvedBy: STALE_CANCEL_RESOLVER,
+    staleReasons,
+    ruleIds: ["approval_stale"],
+    receipt: decision.receipt,
+    denial,
+  });
+  return true;
+}
+
+/**
+ * Cancel every pending approval whose rules changed (one org, or all).
+ * Runs on every policy write, in the approval sweep job, and on approval
+ * reads. Idempotent: each approval is cancelled at most once.
+ */
+export function sweepStaleApprovals(orgId?: string): number {
+  let cancelled = 0;
+  for (const approval of store.listPendingApprovals(orgId)) {
+    const reasons = approvalStaleReasons(approval);
+    if (reasons.length > 0 && cancelStaleApproval(approval, reasons)) cancelled += 1;
+  }
+  return cancelled;
+}
+
+// At the moment of the change: a policy write cancels what it made stale.
+onPolicyChange((orgId) => {
+  sweepStaleApprovals(orgId);
+});
 
 /** Who expires approvals — named in the record and in the event. */
 export const APPROVAL_EXPIRY_RESOLVER = "system:approval_expiry";

@@ -24,7 +24,9 @@ export type PaymentState =
   /** Parked for a guardian. Nothing has been signed or broadcast yet. */
   | "awaiting_approval"
   /** The approval window closed without a yes. Nothing was or will be sent. */
-  | "expired_not_sent";
+  | "expired_not_sent"
+  /** The rules changed while it waited; the approval was cancelled. Nothing was or will be sent. */
+  | "cancelled_not_sent";
 
 export type NextStepAction =
   | "lower_amount"
@@ -34,6 +36,7 @@ export type NextStepAction =
   | "repropose"
   | "retry_later"
   | "request_new_session"
+  | "re_request"
   | "none";
 
 export interface NextStep {
@@ -87,6 +90,13 @@ export function nextStepFor(
       action: "repropose",
       message:
         "The approval expired and nothing was sent. Propose it again as a new intent with `supersedes` set to this intent.",
+    };
+  }
+  if (paymentState === "cancelled_not_sent" || ruleCode === "approval_stale") {
+    return {
+      action: "re_request",
+      message:
+        "The rules changed after this payment was parked, so its approval was cancelled and nothing was sent. Send it again as a new request with a new idempotency key; it will be checked against the current rules.",
     };
   }
   if (ruleCode === "guardian_denied") {
