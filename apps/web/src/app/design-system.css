@@ -1,0 +1,293 @@
+/*
+ * Design system layer — loaded last (after refinements.css).
+ *
+ * 1. Tokens: the type, radius and spacing scales every stylesheet snaps to.
+ *    Literal font-size / border-radius values in globals.css, controls.css
+ *    and refinements.css are mapped onto these (see docs/design-tokens.md).
+ * 2. Contrast: text tokens lifted to WCAG AA on the surfaces they sit on.
+ * 3. Cross-cutting fixes: form-control resets, overflow guards, motion.
+ *
+ * Keep this file token-driven and small. Component-specific fixes belong
+ * next to the component's own rules.
+ */
+
+/* ------------------------------------------------------------ 1. tokens */
+
+:root {
+  /* Type scale (px; the document base stays 14.5px for rem-based utilities). */
+  --text-3xs: 10px; /* floor: nothing renders smaller than this */
+  --text-2xs: 11px; /* eyebrows, kbd, uppercase labels */
+  --text-xs: 12px; /* meta, table secondary, helper text */
+  --text-sm: 13px; /* table body, controls, small buttons */
+  --text-base: 14px; /* body copy in panes */
+  --text-md: 15px;
+  --text-lg: 16px; /* card titles */
+  --text-xl: 18px;
+  --text-2xl: 20px; /* section headings */
+  --text-3xl: 22px; /* page titles, large stats */
+  --text-4xl: 28px; /* hero stats */
+
+  --leading-tight: 1.25;
+  --leading-snug: 1.4;
+  --leading-normal: 1.55;
+
+  /* Radius scale. --radius-sm/md/lg already exist in globals.css (6/8/12). */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-ml: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  /* Spacing scale: 4px grid. */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Aliases for names some components reference but nothing defined
+     (an undefined var() voids the whole declaration, e.g. a border vanished). */
+  --line: var(--color-border);
+  --color-text-muted: var(--color-fg-muted);
+
+  /* Accent darkened a step so white-on-accent buttons clear 4.5:1 (was 4.49). */
+  --color-accent: #3873ae;
+  --color-accent-hover: #2d5f92;
+
+  /* Contrast: faint text was 2.5–2.8:1 on canvas; muted 4.4:1 on surface-2. */
+  --color-ink-muted: #63636e;
+  --color-ink-faint: #70707b;
+  --color-fg-faint: #84848f;
+}
+
+[data-theme="light"] {
+  --color-ink-muted: #5f6470;
+  --color-ink-faint: #6f7480;
+  --color-fg-muted: #5f6470;
+  --color-fg-faint: #6f7480;
+}
+
+[data-theme="dark"] {
+  --color-ink-faint: #84848f;
+  --color-fg-faint: #84848f;
+}
+
+/* ------------------------------------------------------------ 2. form controls */
+
+/*
+ * The global `input { width: 100%; padding: 9px 12px; background … }` rule
+ * also hit checkboxes and radios, turning them into wide empty blocks that
+ * push their labels out of the card (the "Allow real spend" bug, PR #99).
+ * Reset them here once, at the same specificity as the base rule, so any
+ * component class that styles a checkbox still wins.
+ */
+input:where([type="checkbox"], [type="radio"]) {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  box-shadow: none;
+  accent-color: var(--color-accent);
+  vertical-align: middle;
+  cursor: pointer;
+}
+input:where([type="radio"]) {
+  border-radius: 50%;
+}
+input:where([type="checkbox"], [type="radio"]):focus {
+  box-shadow: none;
+}
+input:where([type="checkbox"], [type="radio"]):focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+input:where([type="checkbox"], [type="radio"]):disabled {
+  cursor: not-allowed;
+}
+
+/* Placeholders sit at faint, which is now AA; keep them visibly lighter than values. */
+input::placeholder,
+textarea::placeholder {
+  opacity: 0.85;
+}
+
+/* ------------------------------------------------------------ 3. overflow + layout */
+
+/* Long IDs, URLs and addresses wrap instead of pushing cards wider. */
+.card .mono,
+.card code,
+.empty-body,
+.banner {
+  overflow-wrap: break-word;
+}
+
+/*
+ * API keys table, narrow cards: the agent name is a centered inline-flex
+ * button, so a long name overflowed on both sides and was clipped at the
+ * start ("– market research agent with a lon"). Make it a left-aligned block
+ * that ellipsizes.
+ */
+.api-keys-table .akc-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.api-keys-table .akc-name-cell {
+  min-width: 0;
+}
+
+/*
+ * Page headers drew a 44px dark bar at the far right of their bottom border.
+ * Under a segmented tab group it reads as a misplaced active-tab underline
+ * ("Freezes" looked selected while "API keys" was). Drop the ornament.
+ */
+.payments-page > .card-head::before,
+.agents-page > .card-head::before,
+.insights-page > .grid.g-4::before,
+.developer-page > .banner:first-child::before {
+  content: none;
+}
+
+/* Seller console: the page title sat flush against the top bar. */
+.view > .view-head:first-child {
+  padding-top: var(--space-6);
+}
+
+/* Leave room so the floating "Ask ABI" button never covers the last row. */
+.app .scroll {
+  scroll-padding-bottom: 80px;
+}
+.app .scroll > :last-child {
+  margin-bottom: 64px;
+}
+
+/* Numbers line up in columns everywhere money is shown. */
+.num,
+.stat-value,
+.metric-value,
+td.mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Headings: one weight, one tracking, consistent leading. */
+.card h2,
+.card h3 {
+  line-height: var(--leading-tight);
+  text-wrap: balance;
+}
+p,
+.sub,
+.empty-body {
+  text-wrap: pretty;
+}
+
+/* ------------------------------------------------------------ 3b. seller console */
+
+/*
+ * Overview: the four stats shared a grid with the full-width guide card, so
+ * auto-fit could never collapse tracks and the stats sat at 180px with a gap
+ * on the right. They now get their own row that fills the width.
+ */
+.seller-overview {
+  display: grid;
+  gap: var(--space-3);
+}
+.seller-stats {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.seller-stats > .card {
+  padding: var(--space-4) var(--space-5);
+}
+.seller-stats > .card > .muted {
+  font-size: var(--text-xs);
+  font-weight: 550;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.seller-stats > .card > b {
+  font-size: var(--text-3xl) !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+@media (max-width: 640px) {
+  .seller-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Seller page header: title and description on the type scale. */
+.view > .view-head h2 {
+  font-size: var(--text-3xl);
+  line-height: var(--leading-tight);
+}
+.view > .view-head .muted {
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+
+/*
+ * Phones: the console section header kept two columns (copy + status pills),
+ * squeezing the description into a narrow column. Stack it.
+ */
+@media (max-width: 720px) {
+  .view > .console-section-intro {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-3);
+  }
+  /* An older 720px rule pinned the pills to column 2, which re-created the
+     second column. There is no icon column any more, so keep them in 1. */
+  .view > .console-section-intro .console-section-context {
+    grid-column: 1;
+    justify-content: flex-start;
+  }
+}
+
+/*
+ * Banners: `.banner .txt b` makes the title a block, which also hit bold words
+ * inside the body copy ("Webhook ping (ops notify)" broke onto its own line
+ * with an orphaned full stop). Only the direct title is a block.
+ */
+.banner .txt span b,
+.banner .txt p b {
+  display: inline;
+  font-size: inherit;
+}
+
+/* Marketing nav on phones: "Open console" wrapped onto two lines. */
+.marketing-nav-cta .btn-primary-line {
+  white-space: nowrap;
+}
+@media (max-width: 420px) {
+  .marketing-nav-cta .btn-primary-line {
+    padding-inline: var(--space-3);
+  }
+}
+
+/* ------------------------------------------------------------ 4. motion */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

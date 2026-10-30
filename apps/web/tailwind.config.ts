@@ -13,41 +13,43 @@ const config: Config = {
   },
   theme: {
     extend: {
+      // Mirror the CSS design tokens (globals.css + design-system.css) so
+      // utility classes and hand-rolled CSS can never drift apart.
       colors: {
-        border: "rgba(255,255,255,0.1)",
-        input: "rgba(255,255,255,0.1)",
-        ring: "#3b82f6",
-        background: "#0c0c0e",
-        foreground: "#f4f4f6",
+        border: "var(--color-border)",
+        input: "var(--color-border)",
+        ring: "var(--color-ring)",
+        background: "var(--color-surface)",
+        foreground: "var(--color-fg)",
         primary: {
-          DEFAULT: "#3b82f6",
+          DEFAULT: "var(--color-accent)",
           foreground: "#ffffff",
         },
         muted: {
-          DEFAULT: "#1c1c20",
-          foreground: "#8e8e99",
+          DEFAULT: "var(--color-surface-3)",
+          foreground: "var(--color-fg-muted)",
         },
         accent: {
-          DEFAULT: "#1c1c20",
-          foreground: "#f4f4f6",
+          DEFAULT: "var(--color-surface-3)",
+          foreground: "var(--color-fg)",
         },
         popover: {
-          DEFAULT: "#141416",
-          foreground: "#f4f4f6",
+          DEFAULT: "var(--color-surface-solid)",
+          foreground: "var(--color-fg)",
         },
         card: {
-          DEFAULT: "#0c0c0e",
-          foreground: "#f4f4f6",
+          DEFAULT: "var(--color-surface-2)",
+          foreground: "var(--color-fg)",
         },
       },
       borderRadius: {
-        lg: "16px",
-        md: "11px",
-        sm: "8px",
+        lg: "var(--radius-lg)",
+        md: "var(--radius-md)",
+        sm: "var(--radius-sm)",
       },
       fontFamily: {
-        sans: ["var(--font-sans)", "Sora", "system-ui", "sans-serif"],
-        mono: ["var(--font-mono)", "JetBrains Mono", "monospace"],
+        sans: ["var(--font-sans-stack)"],
+        mono: ["var(--font-mono-stack)"],
       },
       keyframes: {
         "accordion-down": {

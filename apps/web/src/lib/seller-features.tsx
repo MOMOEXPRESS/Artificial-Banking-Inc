@@ -66,7 +66,7 @@ export const rowStyle = {
 export const formGrid = {
   display: "grid",
   gap: 10,
-  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
 };
 
 export const preStyle = {
