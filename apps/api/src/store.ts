@@ -380,6 +380,16 @@ export interface ApprovalRow {
   staleReasons?: string[];
 }
 
+export interface WaitlistRow {
+  id: number;
+  email: string;
+  createdAt: string;
+  source?: string;
+  referrer?: string;
+  notifyStatus?: string;
+  notifiedAt?: string;
+}
+
 export type GuardianRole = "owner" | "approver" | "viewer";
 
 export interface GuardianRow {
@@ -1059,6 +1069,22 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_org ON notifications(org_id, id);
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(org_id, read_at);
+-- Public waitlist (POST /v1/public/waitlist). Not org-scoped. Email is stored
+-- lowercased and unique, so re-joining never creates a duplicate. The IP is
+-- kept only as a peppered hash. Additive only.
+CREATE TABLE IF NOT EXISTS waitlist (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  source TEXT,
+  referrer TEXT,
+  ip_hash TEXT,
+  -- Owner alert for this signup: sent | failed:<code> | capped | not_configured
+  notify_status TEXT,
+  notified_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_waitlist_created ON waitlist(created_at);
+CREATE INDEX IF NOT EXISTS idx_waitlist_notified ON waitlist(notified_at);
 -- Per-org notification email recipient. No row = send to the org owner.
 CREATE TABLE IF NOT EXISTS notification_settings (
   org_id TEXT PRIMARY KEY,
@@ -6796,6 +6822,98 @@ export const store = {
   },
 
   /** Email of the org's first active owner membership, if any. */
+  // -------------------------------------------------------------- waitlist
+  /**
+   * Add an email to the waitlist. Idempotent: a repeat join changes nothing
+   * and reports `created: false`, so callers can answer both the same way.
+   */
+  joinWaitlist(entry: { email: string; source?: string; referrer?: string; ipHash?: string }): {
+    created: boolean;
+    id: number;
+  } {
+    const info = db
+      .prepare(
+        "INSERT OR IGNORE INTO waitlist (email, created_at, source, referrer, ip_hash) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(
+        entry.email,
+        nowIso(),
+        entry.source ?? null,
+        entry.referrer ?? null,
+        entry.ipHash ?? null,
+      );
+    if (info.changes > 0) return { created: true, id: Number(info.lastInsertRowid) };
+    const row = db.prepare("SELECT id FROM waitlist WHERE email = ?").get(entry.email) as Row;
+    return { created: false, id: Number(row.id) };
+  },
+
+  countWaitlist(): number {
+    return Number((db.prepare("SELECT COUNT(*) AS n FROM waitlist").get() as Row).n);
+  },
+
+  listWaitlist(opts: { limit?: number; offset?: number } = {}): WaitlistRow[] {
+    const limit = Math.min(Math.max(opts.limit ?? 100, 1), 10_000);
+    const offset = Math.max(opts.offset ?? 0, 0);
+    return (
+      db
+        .prepare("SELECT * FROM waitlist ORDER BY id DESC LIMIT ? OFFSET ?")
+        .all(limit, offset) as Row[]
+    ).map((r) => ({
+      id: Number(r.id),
+      email: String(r.email),
+      createdAt: String(r.created_at),
+      source: (r.source as string | null) ?? undefined,
+      referrer: (r.referrer as string | null) ?? undefined,
+      notifyStatus: (r.notify_status as string | null) ?? undefined,
+      notifiedAt: (r.notified_at as string | null) ?? undefined,
+    }));
+  },
+
+  /** Owner alerts sent since `sinceIso` (the flood cap counts these). */
+  countWaitlistNotifiedSince(sinceIso: string): number {
+    return Number(
+      (
+        db
+          .prepare(
+            "SELECT COUNT(*) AS n FROM waitlist WHERE notify_status = 'sent' AND notified_at >= ?",
+          )
+          .get(sinceIso) as Row
+      ).n,
+    );
+  },
+
+  markWaitlistNotify(id: number, status: string): void {
+    db.prepare("UPDATE waitlist SET notify_status = ?, notified_at = ? WHERE id = ?").run(
+      status.slice(0, 120),
+      nowIso(),
+      id,
+    );
+  },
+
+  /** Emails of this org's active owners whose address is verified. */
+  orgVerifiedOwnerEmails(orgId: string): string[] {
+    return (
+      db
+        .prepare(
+          `SELECT u.email AS email FROM memberships m JOIN users u ON u.id = m.user_id
+           WHERE m.org_id = ? AND m.role = 'owner' AND m.revoked_at IS NULL
+             AND u.disabled_at IS NULL AND u.email_verified_at IS NOT NULL`,
+        )
+        .all(orgId) as Row[]
+    ).map((r) => String(r.email).toLowerCase());
+  },
+
+  /** True when a user with this email exists, is enabled and verified. */
+  isVerifiedUserEmail(email: string): boolean {
+    return Boolean(
+      db
+        .prepare(
+          "SELECT 1 FROM users WHERE email = ? AND disabled_at IS NULL AND email_verified_at IS NOT NULL",
+        )
+        .get(email.toLowerCase()),
+    );
+  },
+
   getOrgOwnerEmail(orgId: string): string | null {
     const row = db
       .prepare(

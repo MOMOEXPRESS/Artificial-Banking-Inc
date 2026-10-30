@@ -162,7 +162,8 @@ export type View =
   | "policy"
   | "webhooks"
   | "activity"
-  | "settings";
+  | "settings"
+  | "waitlist";
 
 /** Human label for goto / breadcrumb CTAs (never show raw keys). */
 export function viewLabel(view: string): string {
@@ -183,6 +184,7 @@ export function viewLabel(view: string): string {
     webhooks: "Webhooks",
     activity: "Insights · Activity",
     settings: "Settings",
+    waitlist: "Waitlist",
   };
   return map[view] ?? view;
 }

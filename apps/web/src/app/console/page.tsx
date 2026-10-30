@@ -80,6 +80,7 @@ import { Overview } from "../../lib/overview-view";
 import { Playground } from "../../lib/playground-view";
 import { Ledger } from "../../lib/ledger-view";
 import { Webhooks } from "../../lib/webhooks-view";
+import { WaitlistView } from "../../lib/waitlist-view";
 import {
   EMPTY_FEED,
   collapseApprovals,
@@ -111,6 +112,14 @@ const NAV: { key: View; label: string; icon: string; group: string }[] = [
   { key: "playground", label: "Playground", icon: "play", group: "Developers" },
   { key: "webhooks", label: "Webhooks", icon: "zap", group: "Developers" },
 ];
+
+/** Shown only to waitlist admins (GET /v1/guardian/waitlist/access). */
+const WAITLIST_NAV: { key: View; label: string; icon: string; group: string } = {
+  key: "waitlist",
+  label: "Waitlist",
+  icon: "inbox",
+  group: "Home",
+};
 
 const NAV_GROUPS = ["Home", "Money", "Connections", "Controls", "Developers"] as const;
 
@@ -200,6 +209,12 @@ const VIEW_META: Partial<Record<View, { eyebrow: string; description: string; ic
       "Search the complete allow, review, deny, and settlement history with the policy context intact.",
     icon: "list",
   },
+  waitlist: {
+    eyebrow: "Home · Waitlist",
+    description:
+      "Everyone who joined from the public waitlist form, newest first. Export the full list as CSV.",
+    icon: "inbox",
+  },
   settings: {
     eyebrow: "Organization · Settings",
     description:
@@ -231,6 +246,7 @@ const ALL_VIEWS = new Set<View>([
   "webhooks",
   "activity",
   "settings",
+  "waitlist",
 ]);
 
 const TREASURY_TAB_SET = new Set(["fund", "wallets", "move", "analytics", "recovery"]);
@@ -298,6 +314,7 @@ function navGroupOf(view: View): string {
 
 function viewLabelOf(view: View): string {
   if (view === "settings") return "Settings";
+  if (view === "waitlist") return "Waitlist";
   if (view === "approvals") return "Approvals";
   if (view === "activity") return "Transactions";
   if (view === "webhooks") return "Webhooks";
@@ -333,6 +350,8 @@ export default function Console() {
   const [journals, setJournals] = useState<Journal[]>([]);
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
+  /** Waitlist admins only (the API decides): adds the Waitlist nav item. */
+  const [waitlistAllowed, setWaitlistAllowed] = useState(false);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [setup, setSetup] = useState<Setup | null>(null);
@@ -992,6 +1011,21 @@ export default function Console() {
     onToggleHelp: help.toggle,
   });
 
+  useEffect(() => {
+    if (!session || org?.actor?.role !== "owner") {
+      setWaitlistAllowed(false);
+      return;
+    }
+    let live = true;
+    gFetch("/v1/guardian/waitlist/access")
+      .then((r) => (r.ok ? r.json() : { allowed: false }))
+      .then((d: { allowed?: boolean }) => live && setWaitlistAllowed(Boolean(d.allowed)))
+      .catch(() => live && setWaitlistAllowed(false));
+    return () => {
+      live = false;
+    };
+  }, [session, session?.orgId, org?.actor?.role, gFetch]);
+
   if (!hydrated) return null;
   if (!session) return <Login onLogin={saveSession} setToast={setToast} />;
 
@@ -1058,7 +1092,9 @@ export default function Console() {
             </button>
           </div>
           {NAV_GROUPS.map((group) => {
-            const items = NAV.filter((n) => n.group === group);
+            const items = (waitlistAllowed ? [...NAV, WAITLIST_NAV] : NAV).filter(
+              (n) => n.group === group,
+            );
             const groupActive = items.some((n) => n.key === railActive);
             const showBadge =
               (group === "Money" && pending.length > 0) ||
@@ -1599,6 +1635,9 @@ export default function Console() {
                   ) : (
                     <PolicyLoader gFetch={gFetch} onLoaded={setPolicy} />
                   ))}
+                {view === "waitlist" && waitlistAllowed && (
+                  <WaitlistView gFetch={gFetch} setToast={setToast} />
+                )}
                 {view === "webhooks" && (
                   <Webhooks {...shared} webhooks={webhooks} deliveries={deliveries} />
                 )}

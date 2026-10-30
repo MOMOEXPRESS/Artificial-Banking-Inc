@@ -5,6 +5,7 @@ import Link from "next/link";
 import { MarketingCta, MarketingShell, SectionHead } from "../lib/marketing-shell";
 import { LandingMotion } from "../lib/landing-motion";
 import { Icon } from "../lib/ui";
+import { WaitlistBand } from "../lib/waitlist-form";
 
 /**
  * Artificial Banking Incorporated — public home page.
@@ -40,6 +41,7 @@ export default function HomePage() {
         alt="Approval stamp, key, and receipt connected in sequence"
         flip
       />
+      <WaitlistBand />
       <MarketingCta />
     </MarketingShell>
   );
