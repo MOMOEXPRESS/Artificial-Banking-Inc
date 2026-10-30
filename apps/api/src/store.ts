@@ -598,10 +598,30 @@ function applyEssentialPragmas(database: Database.Database): void {
 }
 
 /**
+ * Every handle the revision hook has been installed on.
+ *
+ * On Workers the Durable Object injects a *new* SqlStorage adapter on every
+ * fetch (bindStore in apps/api-worker/src/worker.ts). This used to be a single
+ * `prepareHookInstalled` boolean, so only the very first handle was ever
+ * wrapped: every later write ran through an unwrapped handle, dataRevision
+ * never moved again, and every revision-keyed cache (metrics, reconcile,
+ * summary, vendors, burn, anomalies, economics) kept serving the numbers from
+ * the first request after the Durable Object woke up.
+ */
+const hookedHandles = new WeakSet<object>();
+
+/** Global data revision — see bumpRevision / currentRevision below. */
+let dataRevision = 0;
+
+/**
  * Every mutating prepare bumps dataRevision. Re-installed after reloadDbFromDisk
  * so the hook always binds the live Database handle.
  */
 function installPrepareRevisionHook(database: Database.Database): void {
+  // Idempotent per handle: wrapping twice would bump twice per write, and a
+  // handle that was never wrapped would never bump at all.
+  if (hookedHandles.has(database)) return;
+  hookedHandles.add(database);
   const rawPrepare = database.prepare.bind(database);
   const MUTATES = /^\s*(INSERT|UPDATE|DELETE|REPLACE)/i;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -637,7 +657,6 @@ function openStoreDatabase(): Database.Database {
 }
 
 let dbInstance: Database.Database | null = null;
-let prepareHookInstalled = false;
 /** Last injected handle — Workers rebind per DO invocation via globalThis. */
 let lastInjected: Database.Database | null = null;
 
@@ -649,10 +668,7 @@ function ensureDb(): Database.Database {
     if (injected !== lastInjected) {
       lastInjected = injected;
       dbInstance = injected;
-      if (!prepareHookInstalled) {
-        installPrepareRevisionHook(injected);
-        prepareHookInstalled = true;
-      }
+      installPrepareRevisionHook(injected);
     }
     return injected;
   }
@@ -759,7 +775,6 @@ export function closeDb(): void {
     /* already closed */
   }
   dbInstance = null;
-  prepareHookInstalled = false;
 }
 
 /**
@@ -770,7 +785,6 @@ export function reloadDbFromDisk(): void {
   closeDb();
   dbInstance = openStoreDatabase();
   installPrepareRevisionHook(dbInstance);
-  prepareHookInstalled = true;
   migrateSecretsAtRest();
   migrateVaultKeysAtRest();
   migrateChallengeChecks();
@@ -2061,8 +2075,11 @@ export function idempotencyTtlMs(): number {
  * Deliberately global rather than per-org: a missed invalidation in money code
  * would serve a stale balance, which is far worse than the occasional wasted
  * recompute when a different org writes. Writes are rare; polls are constant.
+ *
+ * The counter itself (`dataRevision`) is declared next to the revision hook
+ * near the top of this file: an injected handle (Workers, tests) is hooked on
+ * first use, which is during module-level schema setup — before this point.
  */
-let dataRevision = 0;
 
 export function bumpRevision(): void {
   dataRevision++;
@@ -2091,10 +2108,7 @@ function cached<T>(key: string, compute: () => T): T {
  * Installed on first ensureDb() after schema bootstrap (module-level SQL below
  * already opened the handle via the Proxy).
  */
-if (!prepareHookInstalled) {
-  installPrepareRevisionHook(ensureDb());
-  prepareHookInstalled = true;
-}
+installPrepareRevisionHook(ensureDb());
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;

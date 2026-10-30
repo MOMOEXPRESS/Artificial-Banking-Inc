@@ -7,6 +7,8 @@ import type { Alert, Approval, Decision, Escrow, Metrics, Session, Shared } from
 import type { Policy } from "./policy-view";
 import { Button } from "@/components/ui/button";
 import { PageTour } from "./page-tour";
+import { budgetCapUsdc, budgetRefreshNote } from "./budget-health";
+import type { LoadFailure } from "./load-state";
 
 const FIRST_RUN_TIPS = [
   "Start with a budget in Treasury. Its linked ops group keeps setup organized; agents receive permission to use the shared budget.",
@@ -33,6 +35,9 @@ export function Overview({
   alerts,
   readOnly,
   budgetOpsReady,
+  refreshProblem = null,
+  refreshing = false,
+  onRetryRefresh,
 }: Shared & {
   metrics: Metrics | null;
   decisions: Decision[];
@@ -45,6 +50,10 @@ export function Overview({
   summary: Summary | null;
   invStats: InvoiceStats | null;
   budgetOpsReady: boolean | null;
+  /** Set when the shell's live refresh has failed twice or more in a row. */
+  refreshProblem?: { failures: LoadFailure[]; lastOkAt: number | null } | null;
+  refreshing?: boolean;
+  onRetryRefresh?: () => void;
 }) {
   const orgAvailable =
     org?.balances.find((balance) => balance.kind === "org_available")?.usdc ?? "0";
@@ -52,6 +61,11 @@ export function Overview({
     .filter((balance) => balance.kind === "dept_available" || balance.kind === "shared_available")
     .reduce((sum, balance) => sum + (Number(balance.usdc) || 0), 0);
   const held = metrics?.balancesUsdc?.escrow ?? "0";
+  // The cap comes from `/org` (fast poll, same source as the bars below);
+  // the slow-poll policy is only a fallback. The header used to read the
+  // policy alone, so a missed slow poll left it blank while the bars rendered.
+  const dailyCap = budgetCapUsdc(org?.dailyMaxUsdc, policy?.dailyMaxUsdc);
+  const refreshNote = refreshProblem ? budgetRefreshNote(refreshProblem) : null;
   const pending = useMemo(
     () => approvals.filter((approval) => approval.status === "pending"),
     [approvals],
@@ -412,7 +426,7 @@ export function Overview({
             <div className="ops-section-head compact">
               <div>
                 <h3>Budget health</h3>
-                <p>{fmtUsd(policy?.dailyMaxUsdc)}/agent daily cap</p>
+                <p>{dailyCap ? `${fmtUsd(dailyCap)}/agent daily cap` : "Daily cap loading…"}</p>
               </div>
               <button
                 type="button"
@@ -423,6 +437,22 @@ export function Overview({
                 <Icon name="sliders" size={15} />
               </button>
             </div>
+            {refreshNote && (
+              <div className="ops-refresh-note" role="status" data-testid="budget-refresh-note">
+                <Icon name="alert" size={14} />
+                <span>{refreshNote}</span>
+                {onRetryRefresh && (
+                  <button
+                    type="button"
+                    className="ops-refresh-retry"
+                    onClick={onRetryRefresh}
+                    disabled={refreshing}
+                  >
+                    {refreshing ? "Retrying…" : "Retry"}
+                  </button>
+                )}
+              </div>
+            )}
             <div className="ops-budget-list">
               {(org?.agents ?? []).slice(0, 5).map((agent) => (
                 <button
@@ -439,7 +469,7 @@ export function Overview({
                     </span>
                     <BarLine
                       value={Number(agent.spent24hUsdc)}
-                      max={Number(org?.dailyMaxUsdc ?? 1)}
+                      max={Number(dailyCap ?? 0) || 1}
                     />
                   </span>
                 </button>
