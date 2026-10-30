@@ -70,6 +70,8 @@ export function Webhooks({
             When money moves (paid, denied, needs your approval, escrow locked…), ABI POSTs signed
             JSON to a URL you control — Slack adapter, CRM, books — so you don&apos;t sit in the
             console. For a hands-on walkthrough, run Playground → <b>Webhook ping (ops notify)</b>.
+            This page is the developer delivery log for those endpoints; your notification history
+            is under the bell at the top right.
           </span>
         </span>
       </div>
@@ -206,7 +208,12 @@ export function Webhooks({
 
       <div className="card fill" style={{ display: "flex", flexDirection: "column" }}>
         <div className="card-head">
-          <h2>Delivery log</h2>
+          <div>
+            <h2>Delivery log</h2>
+            <span className="muted" style={{ fontSize: 12 }}>
+              What ABI sent to your endpoints. Not your notification history — see the bell.
+            </span>
+          </div>
         </div>
         {deliveries.length === 0 ? (
           <Empty icon="inbox">No deliveries yet.</Empty>

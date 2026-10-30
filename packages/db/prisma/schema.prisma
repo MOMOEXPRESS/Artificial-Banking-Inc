@@ -385,6 +385,30 @@ model Merchants {
   @@map("merchants")
 }
 
+model NotificationSettings {
+  orgId String @id @map("org_id")
+  email String?
+  emailEnabled Int @default(1) @map("email_enabled")
+  updatedAt String @map("updated_at")
+  @@map("notification_settings")
+}
+
+model Notifications {
+  id Int @id
+  orgId String @map("org_id")
+  kind String
+  title String
+  body String @default("")
+  link String?
+  severity String @default("info")
+  ref String?
+  createdAt String @map("created_at")
+  readAt String? @map("read_at")
+  @@index([orgId, readAt])
+  @@index([orgId, id])
+  @@map("notifications")
+}
+
 model OfferIntegrations {
   offerId String @id @map("offer_id") // -> offers.id
   lastChallengeJson String? @map("last_challenge_json")
