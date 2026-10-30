@@ -59,8 +59,8 @@ function Hero() {
           <p className="hero-sub">
             ABI sits between an AI agent and company funds. Each agent receives a governed spending
             budget from the organization vault. You set the rules; exceptions wait for a person.
-            Settlement depends on the configured payment rail: sandbox mock, or Base Sepolia testnet
-            USDC. Mainnet and managed custody are not wired yet.
+            Settlement runs on Base Sepolia testnet USDC: balances come only from on-chain deposits.
+            Mainnet and managed custody are not wired yet.
           </p>
           <div className="hero-ctas">
             <Link className="btn-primary" href="/console">
@@ -197,9 +197,9 @@ function TrustStrip() {
   );
 }
 
-/** A scoped sandbox connector currently available to ChatGPT clients. */
+/** A scoped testnet connector currently available to ChatGPT clients. */
 function ChatGPTIntegrationBand() {
-  const integrations = [{ key: "chatgpt", name: "ChatGPT", protocol: "Sandbox MCP" }];
+  const integrations = [{ key: "chatgpt", name: "ChatGPT", protocol: "Testnet MCP" }];
   const marks = Array.from({ length: 4 }, (_, index) => {
     const integration = integrations[index % integrations.length];
     return (
@@ -220,13 +220,13 @@ function ChatGPTIntegrationBand() {
         <div className="chatgpt-integration-copy">
           <h2 id="chatgpt-integration-title">Connect ChatGPT to ABI.</h2>
           <p>
-            Give ChatGPT a scoped, revocable sandbox session to check spending capacity, simulate
+            Give ChatGPT a scoped, revocable testnet session to check spending capacity, simulate
             ABI policies, and record payment requests.
           </p>
         </div>
         <div
           className="chatgpt-integration-ribbon"
-          aria-label="ChatGPT connected to ABI through sandbox MCP"
+          aria-label="ChatGPT connected to ABI through testnet MCP"
         >
           <div className="chatgpt-integration-track">
             <div className="chatgpt-integration-group">{marks}</div>
@@ -238,10 +238,10 @@ function ChatGPTIntegrationBand() {
         <p className="chatgpt-integration-note">
           <span className="chatgpt-integration-pulse" aria-hidden />
           Scoped access <span aria-hidden>·</span> revocable session <span aria-hidden>·</span>{" "}
-          sandbox only
+          testnet only
         </p>
         <Link className="btn-ghost" href="/docs#chatgpt">
-          View sandbox setup guide <Icon name="arrowRight" size={14} />
+          View setup guide <Icon name="arrowRight" size={14} />
         </Link>
       </div>
     </section>
@@ -464,7 +464,11 @@ const FEATURES: {
     body: "ABI supports x402 machine payments. Rules run first. The configured rail determines whether an action is simulated, sent on testnet, or eligible for live settlement.",
     visual: {
       label: "API payment",
-      lines: ["seller  data.example", "requested  $1.20 of $5", "rail  sandbox · sample USDC"],
+      lines: [
+        "seller  data.example",
+        "requested  $1.20 of $5",
+        "rail  Base Sepolia · testnet USDC",
+      ],
     },
   },
   {
@@ -604,7 +608,7 @@ const STEPS = [
     n: "03",
     title: "Set budgets and rules",
     lead: "Caps, per-payment limits, approval thresholds, and allowed sites.",
-    body: "Run the simulator with sample payments first. Better to learn a rule fires in the sandbox than after real money moved.",
+    body: "Run the simulator with sample payments first. Better to learn a rule fires in the simulator than after real money moved.",
     visual: {
       label: "Rules draft",
       lines: ["cap  $200 / day", "ask me  > $25", "allow  *.openai.com"],

@@ -37,11 +37,13 @@ describe("isolated console review and HTTP stress", () => {
     });
     assert.equal(response.status, 200);
     const body = (await response.json()) as {
-      ledgerMode: string;
+      ledgerMode?: string;
+      network: { testnet: boolean };
       agents: { availableUsdc: string; budget: unknown }[];
       balances: { kind: string }[];
     };
-    assert.equal(body.ledgerMode, "sandbox");
+    assert.equal(body.ledgerMode, undefined, "sandbox/live mode no longer exists");
+    assert.equal(typeof body.network.testnet, "boolean");
     assert.equal(body.agents.length, 2);
     assert.ok(
       body.agents.every(

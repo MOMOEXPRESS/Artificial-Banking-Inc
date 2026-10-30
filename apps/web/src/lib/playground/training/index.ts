@@ -2,7 +2,7 @@
  * Training layer — the playground's training wheels, isolated behind one flag.
  *
  * Everything here is optional on top of the real workflow (`lib/workflow`,
- * `lib/flows`): guided scenario catalog and hints, sandbox-only setup steps,
+ * `lib/flows`): guided scenario catalog and hints, testnet-only practice setup steps,
  * red-team drills. Production code must not import this folder (enforced by
  * ESLint `no-restricted-imports` and `training-boundary.test.ts`); only the
  * playground view does, and only uses it when `isTrainingEnabled(org)`.
@@ -54,14 +54,14 @@ export const OUTCOME_LABEL: Record<Mission["expectedOutcome"], string> = {
   observe: "Observe only",
 };
 
-/** Extra run-sheet steps available only in sandbox practice. */
+/** Extra run-sheet steps available only in testnet practice. */
 export const TRAINING_STEP_KINDS: ExtraStepKind[] = [
   {
     kind: "drain",
     label: "Red-team drain (practice only)",
     needsAmount: true,
     needsDestination: true,
-    detail: "Attempt pay to an unapproved address (should refuse). Sandbox practice only.",
+    detail: "Attempt pay to an unapproved address (should refuse). Testnet practice only.",
     defaults: { amount: "5", destination: "0x1111111111111111111111111111111111111111" },
     build: ({ amount, dest }) => drainAttempt(amount, dest),
   },

@@ -2,7 +2,7 @@
  * Phase 7 (H3/H4): ledger money must trace to a real event.
  *
  * These tests pin the backing arithmetic — expected on-chain balance is
- * `-(external) - unbacked` — and the mode rule that decides who may mint.
+ * `-(external) - unbacked` — and the sandbox write-off that keeps it exact.
  * They do not touch the network: the one `reconcileOrgOnchain` case exercised
  * here is the vault-unreadable path, which returns before any RPC call.
  */
@@ -25,7 +25,7 @@ after(() => {
   }
 });
 
-/** Book a simulated deposit the way the sandbox deposit route does. */
+/** Book a simulated deposit the way the removed sandbox deposit route did. */
 function sandboxDeposit(orgId: string, micro: bigint) {
   store.applyEntries(orgId, [
     {
@@ -42,10 +42,10 @@ function sandboxDeposit(orgId: string, micro: bigint) {
   store.addUnbackedMicro(orgId, micro);
 }
 
-describe("ledger mode", () => {
-  it("an org seeded with an opening balance is sandbox and expects no on-chain funds", () => {
+describe("live books", () => {
+  it("an org seeded with an opening balance (demo/tests only) expects no on-chain funds", () => {
     const org = store.createOrg("Seeded Co", 100_000_000n);
-    assert.equal(store.getOrgLedgerMode(org.id), "sandbox");
+    assert.ok(!store.listSandboxOrgIds().includes(org.id), "every org is live");
     // The opening balance is written straight onto org:available without
     // debiting `external`, so it is already outside the backing arithmetic.
     assert.equal(store.getUnbackedMicro(org.id), 0n);
@@ -55,17 +55,33 @@ describe("ledger mode", () => {
 
   it("an org that starts empty is live and holds no unbacked money", () => {
     const org = store.createOrg("Live Co", 0n);
-    assert.equal(store.getOrgLedgerMode(org.id), "live");
+    assert.ok(!store.listSandboxOrgIds().includes(org.id));
     assert.equal(store.getUnbackedMicro(org.id), 0n);
     assert.equal(store.expectedOnchainMicro(org.id), 0n);
   });
 
-  it("mode is switchable, because a demo org that funds itself for real is now live", () => {
-    const org = store.createOrg("Graduating Co", 0n);
-    store.setOrgLedgerMode(org.id, "sandbox");
-    assert.equal(store.getOrgLedgerMode(org.id), "sandbox");
-    store.setOrgLedgerMode(org.id, "live");
-    assert.equal(store.getOrgLedgerMode(org.id), "live");
+  it("writing off legacy simulated money leaves the on-chain expectation unchanged", () => {
+    const org = store.createOrg("Writeoff Co", 0n);
+    store.creditOnchainUsdcDeposit({
+      orgId: org.id,
+      chain: "base-sepolia",
+      txHash: "0xw1",
+      logIndex: 0,
+      blockNumber: "1",
+      from: "0x1111111111111111111111111111111111111111",
+      to: store.getVaultAddress(org.id) ?? "0x0",
+      amountMicro: 3_000_000n,
+    });
+    sandboxDeposit(org.id, 10_000_000n);
+    const expected = store.expectedOnchainMicro(org.id);
+    const r = store.retireSandbox(org.id, { actor: "test", reason: "go_live" });
+    assert.equal(r.writtenOffMicro, 10_000_000n);
+    assert.equal(store.expectedOnchainMicro(org.id), expected);
+    assert.equal(store.getUnbackedMicro(org.id), 0n);
+    assert.equal(
+      store.getAccountMap(org.id).get(`org:${org.id}:available`)?.balanceMicro,
+      3_000_000n,
+    );
   });
 });
 
@@ -152,7 +168,7 @@ describe("expected on-chain balance", () => {
     assert.equal(store.expectedOnchainMicro(org.id), 18_000_000n);
   });
 
-  it("a sandbox org that also holds real money reconciles against the real part", () => {
+  it("an org with an opening float that also holds real money reconciles against the real part", () => {
     const org = store.createOrg("Hybrid Co", 50_000_000n);
     assert.equal(store.expectedOnchainMicro(org.id), 0n);
     store.creditOnchainUsdcDeposit({

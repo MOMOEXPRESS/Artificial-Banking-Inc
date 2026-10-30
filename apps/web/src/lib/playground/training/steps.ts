@@ -1,8 +1,8 @@
 /**
- * Training-only steps: sandbox setup (temporary allowlist edits, a demo
+ * Training-only steps: practice setup (temporary allowlist edits, a demo
  * webhook inbox), red-team drills and report templates for guided scenarios.
  * These change org configuration or deliberately misbehave, so they are only
- * reachable while training is enabled on a sandbox org (see ./flag.ts).
+ * reachable while training is enabled on testnet (see ./flag.ts).
  */
 import * as A from "../../flows/agent";
 import * as G from "../../flows/guardian";

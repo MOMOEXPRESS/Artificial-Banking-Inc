@@ -123,7 +123,7 @@ type WithdrawResult = { status: number; body: Record<string, unknown> };
 
 /**
  * Send USDC out of the org treasury: guard (freeze, blocklist, allowlist,
- * caps), broadcast on live orgs, then book the outflow. Shared by an
+ * caps), broadcast the USDC transfer, then book the outflow. Shared by an
  * immediate withdrawal and by a parked one that guardians just approved, so
  * both go through exactly the same checks.
  */
@@ -162,7 +162,17 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
       },
     };
   }
-  const live = store.getOrgLedgerMode(org.id) === "live";
+  if (!destination || !/^0x[a-fA-F0-9]{40}$/.test(destination)) {
+    return {
+      status: 400,
+      body: {
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "A 0x destination address is required to withdraw USDC.",
+        },
+      },
+    };
+  }
   const guard = guardTreasuryWithdraw({
     org,
     actor,
@@ -180,7 +190,8 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
     return { status: guard.status, body: withdrawDenialBody(guard) };
   }
   let transfer: Awaited<ReturnType<typeof transferUsdcFromVault>> | undefined;
-  if (live && destination) {
+  // Every org is live: a Treasury send always broadcasts (no book-only send).
+  {
     const intentId = guard.intentId;
     let broadcastHash: string | undefined;
     try {
@@ -256,9 +267,7 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
       {
         id: id("j"),
         orgId: org.id,
-        memo:
-          input.memo ??
-          `${live ? "treasury_withdraw" : "sandbox_withdraw"}:${destination ?? "external"}`,
+        memo: input.memo ?? `treasury_withdraw:${destination}`,
         createdAt: new Date().toISOString(),
         lines: [
           { accountId: orgAvail, deltaMicro: -amount },
@@ -267,10 +276,9 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
       },
     ]);
   } catch (e) {
-    // Live: the transfer already went out, so count it against the cap
-    // even though the books could not record it — a human must
-    // reconcile. Sandbox: nothing moved.
-    if (live && transfer) {
+    // The transfer already went out, so count it against the cap even
+    // though the books could not record it — a human must reconcile.
+    if (transfer) {
       guard.commit();
       store.finishSettlement(guard.intentId, {
         state: "needs_review",
@@ -285,7 +293,7 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
   // Close the settlement row opened at broadcast. Without this a confirmed,
   // booked withdrawal stays `broadcast` and the recovery sweep flags it as
   // "confirmed on-chain but the ledger has no matching entry" ten minutes on.
-  if (live && transfer) {
+  if (transfer) {
     store.finishSettlement(guard.intentId, {
       state: "settled",
       rail: "evm-usdc-transfer",
@@ -293,13 +301,10 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
       txHash: transfer.txHash,
     });
   }
-  // A simulated outflow reduces the unbacked total: the books shed money
-  // the vault never held.
-  if (!live) store.addUnbackedMicro(org.id, -amount);
   recordObs({
     name: "treasury.withdraw",
     orgId: org.id,
-    attrs: { amountUsdc: input.amountUsdc, simulated: !live },
+    attrs: { amountUsdc: input.amountUsdc },
   });
   return {
     status: 200,
@@ -307,7 +312,6 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
       ok: true,
       outcome: "allow",
       intentId: guard.intentId,
-      simulated: !live,
       amountUsdc: input.amountUsdc,
       assetId,
       symbol: "USDC",
@@ -901,12 +905,11 @@ export function registerTreasuryRoutes(
   );
 
   /**
-   * Recorded deposit into org treasury / vault holdings.
-   *
-   * Live orgs cannot mint here: ledger balance must originate from USDC that
-   * actually arrived at the vault address (credited by the on-chain deposit
-   * sweep). Sandbox orgs may still book simulated money, tracked in
-   * `unbacked_micro` so on-chain reconciliation stays truthful.
+   * Record a holding by hand — only for assets ABI cannot read from a chain
+   * (no adapter / no RPC). USDC and chain-read assets are refused: their
+   * balance must come from money that actually arrived at the vault address
+   * (credited by the on-chain deposit sweep). Simulated sandbox top-ups were
+   * removed with sandbox mode.
    */
   app.post(
     "/v1/guardian/treasury/deposit",
@@ -943,58 +946,23 @@ export function registerTreasuryRoutes(
             .json({ error: { code: "VALIDATION_ERROR", message: "Amount must be positive" } });
         }
 
-        // USDC remains on the double-entry spend rail; other assets use vault holdings.
+        // USDC is credited only by on-chain deposit detection.
         if (assetId === "asset_usdc") {
-          if (store.getOrgLedgerMode(org.id) === "live") {
-            return res.status(400).json({
-              error: {
-                code: "UNBACKED_DEPOSIT_REFUSED",
-                message:
-                  "This organization holds real money. Send USDC to the vault address instead — it is credited automatically once the transfer confirms.",
-                vaultAddress: store.getVaultAddress(org.id),
-                network: activeChain().id,
-              },
-            });
-          }
-          const externalId = `org:${org.id}:external`;
-          const orgAvail = accountId("org", org.id);
-          store.applyEntries(org.id, [
-            {
-              id: id("j"),
-              orgId: org.id,
-              memo: body.memo ?? "sandbox_deposit",
-              createdAt: new Date().toISOString(),
-              lines: [
-                { accountId: externalId, deltaMicro: -amount },
-                { accountId: orgAvail, deltaMicro: amount },
-              ],
+          return res.status(400).json({
+            error: {
+              code: "UNBACKED_DEPOSIT_REFUSED",
+              message:
+                "Send USDC to the vault address instead — it is credited automatically once the transfer confirms.",
+              vaultAddress: store.getVaultAddress(org.id),
+              network: activeChain().id,
             },
-          ]);
-          // Simulated money in, so the vault will not gain this amount.
-          store.addUnbackedMicro(org.id, amount);
-          recordObs({
-            name: "treasury.deposit",
-            orgId: org.id,
-            attrs: { amountUsdc: body.amountUsdc, assetId, simulated: true },
-          });
-          return res.json({
-            ok: true,
-            simulated: true,
-            onchain: false,
-            note: "Simulated sandbox credit. Nothing was deposited on-chain and the vault balance did not change.",
-            amountUsdc: body.amountUsdc,
-            assetId,
-            symbol: asset.symbol,
-            orgAvailableUsdc: formatMicroToUsdc(
-              store.getAccountMap(org.id).get(orgAvail)?.balanceMicro ?? 0n,
-            ),
           });
         }
 
         // Same rule as USDC: if a balance can be read from the chain, it may not
         // be typed in. Assets without an adapter stay manual — that is a gap in
         // coverage, not permission to invent numbers where coverage exists.
-        if (store.getOrgLedgerMode(org.id) === "live" && assetBacking(asset).kind === "chain") {
+        if (assetBacking(asset).kind === "chain") {
           return res.status(400).json({
             error: {
               code: "UNBACKED_DEPOSIT_REFUSED",
@@ -1025,7 +993,6 @@ export function registerTreasuryRoutes(
           symbol: asset.symbol,
           balance: formatAssetAmount(bal, asset.decimals),
           // A typed-in amount is never an on-chain deposit.
-          simulated: store.getOrgLedgerMode(org.id) === "sandbox",
           recordedOnly: true,
           onchain: false,
         });
@@ -1039,7 +1006,7 @@ export function registerTreasuryRoutes(
    *
    * Live orgs broadcast a real USDC transfer from the vault and only book the
    * outflow once the transfer succeeds — the ledger never claims money left
-   * unless it did. Sandbox orgs book a simulated outflow and say so.
+   * unless it did.
    *
    * Every withdrawal passes the guardian treasury guard first (org freeze,
    * blocklist, optional destination allowlist, per-withdrawal and rolling 24h
@@ -1086,9 +1053,8 @@ export function registerTreasuryRoutes(
             });
           }
 
-          const live = store.getOrgLedgerMode(org.id) === "live";
           const destination = body.destination?.trim();
-          if (live && (!destination || !/^0x[a-fA-F0-9]{40}$/.test(destination))) {
+          if (!destination || !/^0x[a-fA-F0-9]{40}$/.test(destination)) {
             return res.status(400).json({
               error: {
                 code: "VALIDATION_ERROR",
@@ -1161,7 +1127,7 @@ export function registerTreasuryRoutes(
 
         // No bookkeeping in place of settlement: a live org cannot "send" an
         // asset that is read from the chain unless a real send rail exists.
-        const sendSupport = assetSendSupport(asset, store.getOrgLedgerMode(org.id));
+        const sendSupport = assetSendSupport(asset);
         if (sendSupport.mode === "unsupported") {
           return res.status(409).json({
             error: {
@@ -1219,7 +1185,6 @@ export function registerTreasuryRoutes(
           balance: formatAssetAmount(bal, asset.decimals),
           // Nothing was broadcast. Say exactly what happened.
           sendMode: sendSupport.mode,
-          simulated: sendSupport.mode === "simulated",
           recordedOnly: true,
         });
       },
@@ -1301,7 +1266,7 @@ export function registerTreasuryRoutes(
 
   /**
    * Wallet source of truth: the verified receiving address, its network and
-   * chain id, native gas (separate from USDC), simulated vs on-chain balances,
+   * chain id, native gas (separate from USDC), ledger vs on-chain balances,
    * and what "send" really does for each asset. See chain/wallet-profile.ts.
    */
   app.get(
@@ -1322,7 +1287,6 @@ export function registerTreasuryRoutes(
       }
       const profile = buildWalletProfile({
         orgId: org.id,
-        ledgerMode: store.getOrgLedgerMode(org.id),
         vaultAddress: address,
         vaultPrivateKey: store.getVaultPrivateKey(org.id),
         custodyProvider,
@@ -1433,7 +1397,7 @@ export function registerTreasuryRoutes(
       const journals = store.listJournals(org.id, 200);
       const ledgerItems: {
         id: string;
-        kind: "demo_in" | "withdraw";
+        kind: "demo_in" | "withdraw" | "writeoff";
         source: "ledger";
         assetId: string;
         symbol: string;
@@ -1460,6 +1424,22 @@ export function registerTreasuryRoutes(
         // it as -40 USDC confused the demo seed path.
         if (memo.includes("seed_demo_budget") || memo.includes("seed_budget")) continue;
 
+        if (memo.startsWith("sandbox_writeoff:")) {
+          ledgerItems.push({
+            id: j.id,
+            kind: "writeoff",
+            source: "ledger",
+            assetId: "asset_usdc",
+            symbol: "USDC",
+            amount: amt,
+            amountUsdc: amt,
+            direction: delta < 0n ? "out" : "in",
+            at: j.createdAt,
+            label: "Simulated sandbox balance written off (nothing sent on-chain)",
+            memo: j.memo,
+          });
+          continue;
+        }
         if (
           (memo.includes("treasury_deposit") ||
             memo.includes("sandbox_deposit") ||

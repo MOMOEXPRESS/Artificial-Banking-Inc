@@ -1,6 +1,6 @@
 /**
  * Guided scenario catalog (training). Each scenario is a plan of production
- * workflow steps plus training-only steps (sandbox setup, drills), with the
+ * workflow steps plus training-only steps (practice setup, drills), with the
  * expected outcome and hints the playground shows. Removing training means
  * deleting this folder; the workflow runner does not depend on it.
  */
@@ -891,7 +891,7 @@ const DESTRUCTIVE = new Set([
   "vendor_burst",
   "commerce_velocity_boundary",
 ]);
-/** Scenarios whose setup edits org policy (sandbox practice only). */
+/** Scenarios whose setup edits org policy (testnet practice only). */
 const EDITS_POLICY = new Set(["onchain_wallet"]);
 
 /**

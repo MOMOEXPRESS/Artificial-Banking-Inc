@@ -111,7 +111,6 @@ export function Overview({
   );
   const sevenDaySpend = recentSpendDays.reduce((sum, day) => sum + day.amount, 0);
   const activeAgents = (org?.agents ?? []).filter((agent) => agent.status !== "frozen").length;
-  const isLive = org?.ledgerMode === "live";
   const actorRole = org?.actor?.role ?? "owner";
   const attentionItems = useMemo(() => {
     const approvalItems = pending.slice(0, 3).map((approval) => ({
@@ -239,7 +238,7 @@ export function Overview({
         <div className="ops-primary-balance">
           <span>Available treasury</span>
           <strong>{fmtUsd(orgAvailable)}</strong>
-          <small>{isLive ? "Backed by the connected vault" : "Sandbox balance"}</small>
+          <small>Backed by the connected vault</small>
         </div>
         <div className="ops-balance-metric">
           <span>Shared budgets</span>

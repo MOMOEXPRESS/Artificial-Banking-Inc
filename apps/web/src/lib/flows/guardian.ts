@@ -8,7 +8,7 @@ import type { FlowResult, GuardianClient } from "./client";
 export const getPolicy = (g: GuardianClient): Promise<FlowResult> =>
   g.call("GET", "/v1/guardian/policy");
 
-/** Change policy. Only the Policies page and sandbox practice runs may call this. */
+/** Change policy. Only the Policies page and testnet practice runs may call this. */
 export const updatePolicy = (g: GuardianClient, patch: Record<string, unknown>) =>
   g.call("POST", "/v1/guardian/policy", patch);
 

@@ -21,9 +21,28 @@ process.env.POLICYVAULT_MOCK_TRANSFER = "1";
 process.env.ABI_CHAT_LLM = "0";
 process.env.ABI_CHAT_AGENT = "0";
 process.env.POLICYVAULT_ALLOW_BOOTSTRAP = "0";
+process.env.CHAIN = "base-sepolia";
+// Unreachable on purpose: any accidental real RPC read fails fast.
+process.env.CHAIN_RPC_URL = "http://127.0.0.1:9";
+process.env.ABI_TX_RECEIPT_TIMEOUT_MS = "50";
 
 const { store } = await import("./store.js");
 const { app } = await import("./index.js");
+// TEST-ONLY: every org is live now, so a successful withdrawal broadcasts.
+// The chain is a local fake; nothing touches Base Sepolia. Synthetic hash.
+const transfer = await import("./chain/transfer.js");
+const { privateKeyToAccount } = await import("viem/accounts");
+transfer.setVaultChainClientsForTests((_cfg, privateKey) => ({
+  account: { address: privateKeyToAccount(privateKey).address },
+  publicClient: {
+    readContract: async () => 10_000_000_000_000n,
+    getBalance: async () => 10n ** 16n,
+    estimateContractGas: async () => 65_000n,
+    estimateFeesPerGas: async () => ({ maxFeePerGas: 1_000_000_000n }),
+    waitForTransactionReceipt: async () => ({ status: "success" }),
+  },
+  walletClient: { writeContract: async () => `0x${"ab".repeat(32)}` },
+}));
 const { __resetTreasuryGuardForTests, TREASURY_WITHDRAW_TOOL } =
   await import("./treasury-guard.js");
 
@@ -37,6 +56,7 @@ before(async () => {
 });
 
 after(() => {
+  transfer.setVaultChainClientsForTests(null);
   server?.close();
   try {
     rmSync(dir, { recursive: true, force: true });
@@ -50,14 +70,9 @@ beforeEach(() => __resetTreasuryGuardForTests());
 const DEST = "0x3333333333333333333333333333333333333333";
 const OTHER = "0x4444444444444444444444444444444444444444";
 
-/** Sandbox org (deposit > 0) with $100 in the org treasury. */
-function sandboxOrg() {
-  return store.createOrg("Treasury Guard Co", 100_000_000n);
-}
-
-/** Live org (no mock float) with $100 booked in the treasury. */
+/** Org with $100 that arrived on-chain, booked in the treasury. */
 function liveOrg() {
-  const org = store.createOrg("Live Treasury Co", 0n, { ledgerMode: "live" });
+  const org = store.createOrg("Live Treasury Co", 0n);
   store.applyEntries(org.id, [
     {
       id: `j_seed_${org.id}`,
@@ -106,7 +121,7 @@ async function setPolicy(guardianKey: string, body: Record<string, unknown>) {
 
 describe("guardian treasury withdraw guard", () => {
   it("refuses any withdrawal while the org is frozen, and records the decision", async () => {
-    const org = sandboxOrg();
+    const org = liveOrg();
     const before = orgAvailable(org.id);
     store.setOrgStatus(org.id, "frozen");
     const r = await withdraw(org.guardianKey, { amountUsdc: "1", destination: DEST });
@@ -133,7 +148,7 @@ describe("guardian treasury withdraw guard", () => {
   });
 
   it("applies the org blocklist to guardian withdrawals", async () => {
-    const org = sandboxOrg();
+    const org = liveOrg();
     assert.equal((await setPolicy(org.guardianKey, { blocklist: [DEST] })).status, 200);
     const r = await withdraw(org.guardianKey, { amountUsdc: "1", destination: DEST });
     assert.equal(r.status, 403);
@@ -141,21 +156,21 @@ describe("guardian treasury withdraw guard", () => {
   });
 
   it("enforces a destination allowlist when one is configured", async () => {
-    const org = sandboxOrg();
+    const org = liveOrg();
     const saved = await setPolicy(org.guardianKey, { treasuryWithdrawAllowlist: [DEST] });
     assert.equal(saved.status, 200);
     const miss = await withdraw(org.guardianKey, { amountUsdc: "1", destination: OTHER });
     assert.equal(miss.status, 403);
     assert.deepEqual(miss.body.ruleIds, ["treasury_withdraw_allowlist"]);
     const none = await withdraw(org.guardianKey, { amountUsdc: "1" });
-    assert.equal(none.status, 403, "no destination cannot satisfy an allowlist");
+    assert.equal(none.status, 400, "a withdrawal always needs a 0x destination");
     const hit = await withdraw(org.guardianKey, { amountUsdc: "1", destination: DEST });
     assert.equal(hit.status, 200);
     assert.equal(hit.body.ok, true);
   });
 
   it("enforces the per-withdrawal cap with the numbers that bound", async () => {
-    const org = sandboxOrg();
+    const org = liveOrg();
     const saved = await setPolicy(org.guardianKey, { treasuryWithdrawMaxUsdc: "10" });
     assert.equal(saved.status, 200);
     const over = await withdraw(org.guardianKey, { amountUsdc: "10.01", destination: DEST });
@@ -170,32 +185,38 @@ describe("guardian treasury withdraw guard", () => {
   });
 
   it("enforces a rolling 24h cap across withdrawals and reports what remains", async () => {
-    const org = sandboxOrg();
+    const org = liveOrg();
     const saved = await setPolicy(org.guardianKey, {
       treasuryWithdrawMaxUsdc: "10",
       treasuryWithdrawDailyMaxUsdc: "15",
     });
     assert.equal(saved.status, 200);
-    assert.equal((await withdraw(org.guardianKey, { amountUsdc: "10" })).status, 200);
-    const over = await withdraw(org.guardianKey, { amountUsdc: "6" });
+    assert.equal(
+      (await withdraw(org.guardianKey, { amountUsdc: "10", destination: DEST })).status,
+      200,
+    );
+    const over = await withdraw(org.guardianKey, { amountUsdc: "6", destination: DEST });
     assert.equal(over.status, 403);
     assert.deepEqual(over.body.ruleIds, ["treasury_withdraw_daily_max"]);
     assert.equal(over.body.limits?.used, "10");
     assert.equal(over.body.limits?.remaining, "5");
-    assert.equal((await withdraw(org.guardianKey, { amountUsdc: "5" })).status, 200);
+    assert.equal(
+      (await withdraw(org.guardianKey, { amountUsdc: "5", destination: DEST })).status,
+      200,
+    );
     assert.equal(orgAvailable(org.id), 85_000_000n);
   });
 
   it("applies a conservative default cap when none is configured", async () => {
-    const org = store.createOrg("Big Float Co", 10_000_000_000n); // $10,000 sandbox
-    const r = await withdraw(org.guardianKey, { amountUsdc: "1000.01" });
+    const org = store.createOrg("Big Float Co", 10_000_000_000n); // $10,000 opening float
+    const r = await withdraw(org.guardianKey, { amountUsdc: "1000.01", destination: DEST });
     assert.equal(r.status, 403);
     assert.deepEqual(r.body.ruleIds, ["treasury_withdraw_max"]);
     assert.equal(r.body.limits?.cap, "1000");
   });
 
   it("rejects non-positive or inverted cap configuration", async () => {
-    const org = sandboxOrg();
+    const org = liveOrg();
     assert.equal((await setPolicy(org.guardianKey, { treasuryWithdrawMaxUsdc: "0" })).status, 400);
     assert.equal(
       (

@@ -4,6 +4,8 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { rulesFor } from "./engine.js";
 import { store } from "./store.js";
+import { isTestnetChain } from "./chain/asset-adapters.js";
+import { activeChain } from "./chain/network.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -128,7 +130,7 @@ function createServer(input: {
   orgId: string;
   scopes: string[];
 }) {
-  const server = new McpServer({ name: "abi-sandbox", version: "0.1.0" });
+  const server = new McpServer({ name: "abi-testnet", version: "0.1.0" });
   const policy = rulesFor(input.agentId, input.orgId);
   const allowedApiDestinations = [...policy.vendorAllowlist, ...policy.domainAllowlist];
 
@@ -137,7 +139,7 @@ function createServer(input: {
     {
       title: "Get ABI spending capacity",
       description:
-        "Use before proposing a purchase. Returns the authenticated ABI agent, its available sandbox budget, remaining daily authority, freeze state, and approved API merchants.",
+        "Use before proposing a purchase. Returns the authenticated ABI agent, its available budget, remaining daily authority, freeze state, and approved API merchants.",
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     async () => {
@@ -149,12 +151,12 @@ function createServer(input: {
         const frozen = data.frozen === true;
         const enriched = {
           ...data,
-          environment: "sandbox",
+          environment: "testnet",
           connectionAgent: input.agentName,
           allowedApiDestinations,
         };
         return toolResult(
-          `${input.agentName} is authenticated to ABI Sandbox. Available budget: $${available} USDC. Daily authority remaining: $${daily} USDC. ${frozen ? "Spending is frozen." : "Spending is active."}${allowedApiDestinations.length ? ` Approved API merchants include ${allowedApiDestinations.join(", ")}.` : " No API merchants are currently approved."}`,
+          `${input.agentName} is authenticated to ABI (testnet). Available budget: $${available} USDC. Daily authority remaining: $${daily} USDC. ${frozen ? "Spending is frozen." : "Spending is active."}${allowedApiDestinations.length ? ` Approved API merchants include ${allowedApiDestinations.join(", ")}.` : " No API merchants are currently approved."}`,
           enriched,
         );
       } catch (error) {
@@ -168,7 +170,7 @@ function createServer(input: {
     {
       title: "Check a payment with ABI",
       description:
-        "Dry-run a proposed payment against the real ABI policy engine without moving sandbox funds. Use paymentKind=api for a digital service or x402-style merchant; use wallet for an on-chain address.",
+        "Dry-run a proposed payment against the real ABI policy engine without moving any funds. Use paymentKind=api for a digital service or x402-style merchant; use wallet for an on-chain address.",
       inputSchema: {
         amountUsdc: z.string().min(1).describe("Decimal USDC amount, for example 0.01"),
         destination: z
@@ -211,7 +213,7 @@ function createServer(input: {
       {
         title: "Propose an ABI payment",
         description:
-          "Submit a genuine payment request to ABI Sandbox. ABI will allow, deny, or route it to human approval under the authenticated agent's policies. When allowed it changes the sandbox ledger, and a wallet (0x address) payment also sends real Base Sepolia testnet USDC on-chain from the org vault. Use data.example for the bundled approved demo research merchant.",
+          "Submit a genuine payment request to ABI (testnet). ABI will allow, deny, or route it to human approval under the authenticated agent's policies. When allowed it changes the ledger, and a wallet (0x address) payment also sends real Base Sepolia testnet USDC on-chain from the org vault. Use data.example for the bundled approved demo research merchant.",
         inputSchema: {
           amountUsdc: z.string().min(1).describe("Decimal USDC amount, for example 0.01"),
           destination: z.string().min(1).describe("Approved merchant/domain or 0x wallet address"),
@@ -244,7 +246,7 @@ function createServer(input: {
             amountRequestedUsdc: amountUsdc,
             destination,
             purpose,
-            environment: "sandbox",
+            environment: "testnet",
             authenticatedAgent: input.agentName,
           });
         } catch (error) {
@@ -324,8 +326,8 @@ function methodNotAllowed(res: express.Response) {
  *
  * The session token is deliberately short-lived and revocable. It appears in
  * the connector URL only because the first proof uses ChatGPT's no-auth custom
- * app mode; production replaces this bootstrap shape with OAuth. Live-money
- * organizations are rejected even if a valid token is supplied.
+ * app mode; production replaces this bootstrap shape with OAuth. On a mainnet
+ * deployment every request is rejected even if a valid token is supplied.
  */
 export function registerRemoteMcp(app: express.Express) {
   app.post("/mcp/:token", (req, res, next) => {
@@ -342,10 +344,12 @@ export function registerRemoteMcp(app: express.Express) {
         id: null,
       });
     }
-    if (store.getOrgLedgerMode(session.agent.orgId) !== "sandbox") {
+    // Testnet only: sandbox mode is gone, so the line between "practice" and
+    // real money is the deployment's chain. Testnet USDC has no cash value.
+    if (!isTestnetChain(activeChain().id)) {
       return res.status(403).json({
         jsonrpc: "2.0",
-        error: { code: -32003, message: "This developer-mode MCP endpoint is sandbox-only." },
+        error: { code: -32003, message: "This developer-mode MCP endpoint is testnet-only." },
         id: null,
       });
     }

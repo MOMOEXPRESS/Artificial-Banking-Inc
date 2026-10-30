@@ -51,6 +51,8 @@ import {
   type OrgRow,
   type RunRow,
 } from "./store.js";
+import { isTestnetChain } from "./chain/asset-adapters.js";
+import { activeChain } from "./chain/network.js";
 import { reconcileOrgOnchain } from "./treasury-backing.js";
 import {
   startTelegramPolling,
@@ -1167,6 +1169,24 @@ app.post(
 app.get(
   "/v1/guardian/org",
   guardianRoute((org, req, res) => {
+    // Belt and braces for the boot migration: an org still flagged sandbox is
+    // moved to live (simulated balance written off) the first time it loads.
+    if (store.isLegacySandboxOrg(org.id)) {
+      try {
+        const r = store.retireSandbox(org.id, { actor: "system:first-load", reason: "migration" });
+        recordObs({
+          name: "org.sandbox.retired",
+          orgId: org.id,
+          attrs: {
+            from: r.previousMode,
+            by: "system:first-load",
+            writtenOffUsdc: formatMicroToUsdc(r.writtenOffMicro),
+          },
+        });
+      } catch (e) {
+        console.error(`[sandbox-retire] first-load org=${org.id} failed:`, e);
+      }
+    }
     const agents = store.listAgents(org.id);
     const template = store.getPolicyTemplate(org.id);
     const actor = (req as express.Request & { guardianCtx?: GuardianCtx }).guardianCtx;
@@ -1207,10 +1227,9 @@ app.get(
         usdc: formatMicroToUsdc(a.balanceMicro),
       })),
       vaultAddress: store.getVaultAddress(org.id),
-      // Live orgs hold real money and cannot mint; sandbox orgs can, and every
-      // surface that shows their balance says so.
-      ledgerMode: store.getOrgLedgerMode(org.id),
-      unbackedUsdc: formatMicroToUsdc(store.getUnbackedMicro(org.id)),
+      // Every org is live (sandbox mode was removed). Testnet vs mainnet is
+      // the deployment's chain; the console keys practice tools off it.
+      network: { id: activeChain().id, testnet: isTestnetChain(activeChain().id) },
       legal: LEGAL_FOOTER,
     });
   }),

@@ -4,7 +4,7 @@
  * A Mission is an ordered plan of steps. Every step calls a production flow
  * (`lib/flows`) with the agent's own key or the console's authenticated
  * guardian client, so a run in the playground is the same traffic a real agent
- * and a real guardian produce. Guided scenarios, hints and sandbox-only steps
+ * and a real guardian produce. Guided scenarios, hints and testnet-only practice steps
  * live in `lib/playground/training` and are layered on top of these types.
  */
 import type { AgentClient, GuardianClient } from "../flows/client";
@@ -72,7 +72,7 @@ export interface Mission {
   chain?: string[];
   /** Deliberately hostile or high-volume; blocked on live orgs. */
   destructive?: boolean;
-  /** Changes org configuration (policy allowlist); sandbox practice only. */
+  /** Changes org configuration (policy allowlist); testnet practice only. */
   editsPolicy?: boolean;
 }
 

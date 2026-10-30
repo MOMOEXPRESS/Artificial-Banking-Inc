@@ -140,7 +140,8 @@ export function Playground({
   runs?: Run[];
 }) {
   const training = isTrainingEnabled(org);
-  const live = org?.ledgerMode === "live";
+  /** Every org is live; only the deployment's network differs (unknown = treat as mainnet). */
+  const mainnet = org?.network?.testnet !== true;
   const [pasteKey, setPasteKey] = useState("");
   const [shownRaw, setShownRaw] = useState<Record<string, boolean>>({});
   const [repeat, setRepeat] = useState<RunRepeat>("once");
@@ -291,18 +292,17 @@ export function Playground({
     const src = source;
     const queue = planRun(activeMission, repeat, findMission);
     if (!training && queue.some((m) => m.destructive || m.editsPolicy)) {
-      setToast("Drills and policy-editing scenarios only run on sandbox orgs.", "err");
+      setToast("Drills and policy-editing scenarios only run on testnet.", "err");
       return;
     }
     if (
       src === "custom" &&
       realSpend &&
-      (live || customSteps.some((st) => st.kind === "pay_wallet"))
+      (mainnet || customSteps.some((st) => st.kind === "pay_wallet"))
     ) {
-      // Sandbox does not make wallet payments simulated: "On-chain wallet pay"
-      // broadcasts real Base Sepolia testnet USDC from the vault.
+      // "On-chain wallet pay" broadcasts real Base Sepolia testnet USDC from the vault.
       const ok = window.confirm(
-        live
+        mainnet
           ? `This run moves real money from ${actor.name}'s budget (up to ${fmtUsd(String(maxSpend(customSteps)))}). Continue?`
           : `This run sends real Base Sepolia testnet USDC on-chain from your vault for each "On-chain wallet pay" step (up to ${fmtUsd(String(maxSpend(customSteps)))} in total). Testnet USDC has no cash value, but the transfers are real and cannot be undone. Continue?`,
       );
@@ -510,12 +510,12 @@ export function Playground({
       <header className="playground-hero">
         <div>
           <div className="playground-eyebrow" data-testid="playground-mode">
-            <span className={`playground-live-dot ${live ? "live" : ""}`} />{" "}
+            <span className="playground-live-dot live" />{" "}
             {training
-              ? "Practice · sandbox org · real policy engine"
-              : live
+              ? "Practice · testnet · real policy engine"
+              : mainnet
                 ? "Live workflow · real money · real policy engine"
-                : "Workflow · real policy engine"}
+                : "Live workflow · testnet · real policy engine"}
           </div>
           <h1>
             {training
@@ -524,7 +524,7 @@ export function Playground({
           </h1>
           <p>
             {training
-              ? "Guided exercises and your own run sheets call the same APIs your agents use in production. Practice tools only appear while this org is in sandbox mode."
+              ? "Guided exercises and your own run sheets call the same APIs your agents use in production. Practice tools only appear on testnet, where funds have no cash value."
               : "Compose the steps an agent should take — budget, pay, x402, escrow — and run them through the production APIs. Live runs never change your policy."}
           </p>
         </div>
@@ -538,8 +538,8 @@ export function Playground({
             <span>{actor ? `${actor.name} can spend today` : "no acting agent"}</span>
           </div>
           <div>
-            <b>{live ? "Live" : "Sandbox"}</b>
-            <span>ledger mode</span>
+            <b>{mainnet ? "Mainnet" : "Testnet"}</b>
+            <span>network</span>
           </div>
         </div>
       </header>
@@ -794,9 +794,9 @@ export function Playground({
                   <small>
                     {realSpend
                       ? `Spend steps move money from the agent's budget (up to ${fmtUsd(String(maxSpend(customSteps)))}).${
-                          live
+                          mainnet
                             ? ""
-                            : " On-chain wallet pay sends real Base Sepolia testnet USDC, even in sandbox."
+                            : " On-chain wallet pay sends real Base Sepolia testnet USDC."
                         }`
                       : "Off: every spend step is a dry run — the policy engine answers, no money moves."}
                   </small>

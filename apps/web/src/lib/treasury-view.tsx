@@ -162,7 +162,6 @@ export function TreasuryView({
   readOnly = false,
   initialTab,
   onTabChange,
-  ledgerMode = "sandbox",
 }: {
   gFetch: (path: string, init?: RequestInit) => Promise<Response>;
   busy: boolean;
@@ -170,8 +169,6 @@ export function TreasuryView({
   readOnly?: boolean;
   initialTab?: string | null;
   onTabChange?: (tab: TreasuryTab) => void;
-  /** `live` orgs hold real money and cannot book simulated deposits. */
-  ledgerMode?: "sandbox" | "live";
 }) {
   const locked = busy || readOnly;
   const [wallets, setWallets] = useState<WalletsPayload | null>(null);
@@ -228,11 +225,11 @@ export function TreasuryView({
   /** True when this asset's balance is read from the chain, not typed in. */
   const assetIsChainBacked = assetId === "asset_usdc" || selectedAsset?.backing?.kind === "chain";
   /**
-   * A live org may not record balances by hand for anything the chain can
-   * answer for. Assets with no adapter keep the manual path — a coverage gap
-   * is not permission to invent numbers where coverage exists.
+   * Every org is live: nothing the chain can answer for may be recorded by
+   * hand. Assets with no adapter keep the manual path — a coverage gap is not
+   * permission to invent numbers where coverage exists.
    */
-  const usdcLive = ledgerMode === "live" && assetIsChainBacked;
+  const usdcLive = assetIsChainBacked;
   /** Source of truth for address, network, gas and send support (GET /v1/guardian/wallet). */
   const [walletProfile, setWalletProfile] = useState<WalletProfile | null>(null);
   const sendSupport = walletProfile?.assets.find((a) => a.assetId === assetId)?.send;
@@ -273,7 +270,6 @@ export function TreasuryView({
     expectedUsdc: string;
     driftUsdc: string;
     unbackedUsdc: string;
-    ledgerMode: "sandbox" | "live";
     at: string;
   } | null>(null);
   const [vaultActivity, setVaultActivity] = useState<
@@ -609,7 +605,8 @@ export function TreasuryView({
                   Organization vault
                 </span>
                 <span className="vault-live-state">
-                  <i aria-hidden /> {ledgerMode === "live" ? "Live" : "Sandbox"}
+                  <i aria-hidden />{" "}
+                  {walletProfile?.network.testnet === false ? "Live" : "Live · testnet"}
                 </span>
               </div>
 
@@ -624,7 +621,6 @@ export function TreasuryView({
                 networkLabel={holdingNetwork(activeHolding)}
                 chainId={walletProfile?.network.chainId}
                 gasLine={gasLine}
-                simulated={walletProfile?.balancesSimulated ?? ledgerMode === "sandbox"}
                 orgName={wallets?.org?.name}
                 copied={copied}
                 onCopy={() => void copyAddress(cardAddress)}
@@ -726,7 +722,7 @@ export function TreasuryView({
               onRefresh={() => void refreshOnchain()}
               usdc={(activeHolding?.id ?? assetId) === "asset_usdc"}
               onchain={onchain}
-              ledgerLabel={ledgerMode === "sandbox" ? "Sandbox book balance" : "Ledger available"}
+              ledgerLabel="Ledger available"
               ledgerBalance={fmt(wallets?.org?.availableUsdc)}
               expectedUsdc={backing?.expectedUsdc}
               onRescan={() =>
@@ -824,20 +820,14 @@ export function TreasuryView({
                 </h2>
                 <div className="sub">
                   {assetId === "asset_usdc"
-                    ? usdcLive
-                      ? "This organization holds real money. Send broadcasts a USDC transfer from the vault on-chain — the ledger only records it once the transfer succeeds. To add funds, send USDC to the vault address above."
-                      : 'Sandbox mode: "Add simulated balance" and Treasury sends here only move the books — nothing is broadcast. Agent payments to a wallet address are different: they send real Base Sepolia testnet USDC from the vault on-chain, with a transaction hash.'
+                    ? "Send broadcasts a USDC transfer from the vault on-chain — the ledger only records it once the transfer succeeds. To add funds, send USDC to the vault address above."
                     : (selectedAsset?.backing?.reason ??
                       selectedAsset?.backing?.note ??
                       `Record ${selectedAsset?.symbol ?? "asset"} into vault holdings.`)}
                 </div>
               </div>
               <span className={`wallet-hero-pill ${usdcLive ? "" : "warn"}`}>
-                {usdcLive
-                  ? "Live · real funds"
-                  : assetIsChainBacked
-                    ? "Sandbox · simulated top-ups"
-                    : "Recorded by hand"}
+                {usdcLive ? "Live · real funds" : "Recorded by hand"}
               </span>
             </div>
             <div className="grid g-2 fill">
@@ -868,9 +858,7 @@ export function TreasuryView({
                           await refresh();
                           await refreshOnchain();
                           depositForm.reset({ amountUsdc: "100" });
-                          return j.simulated
-                            ? `Added a simulated ${j.amountUsdc} ${j.symbol ?? "USDC"} sandbox balance — nothing was deposited on-chain.`
-                            : `Recorded ${j.amountUsdc} ${j.symbol ?? "USDC"} by hand — not an on-chain deposit.`;
+                          return `Recorded ${j.amountUsdc} ${j.symbol ?? "USDC"} by hand — not an on-chain deposit.`;
                         }),
                     )}
                   >
@@ -880,8 +868,8 @@ export function TreasuryView({
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>
-                            {ledgerMode === "sandbox" ? "Add simulated balance" : "Record by hand"}{" "}
-                            ({holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
+                            Record by hand (
+                            {holdings.find((h) => h.id === assetId)?.symbol ?? "USDC"})
                           </FormLabel>
                           <FormControl>
                             <AmountStepper
@@ -904,8 +892,7 @@ export function TreasuryView({
                       )}
                     />
                     <Button type="submit" size="sm" disabled={locked}>
-                      <Icon name="plus" size={13} />{" "}
-                      {ledgerMode === "sandbox" ? "Add simulated balance" : "Record"}
+                      <Icon name="plus" size={13} /> Record
                     </Button>
                     <p className="faint" style={{ fontSize: 11.5, margin: 0 }}>
                       Not an on-chain deposit. Real funds arrive only by sending to the receiving
@@ -938,8 +925,8 @@ export function TreasuryView({
                           return `Waiting for guardian review — ${j.move?.amountUsdc ?? values.amountUsdc} USDC is above the ${j.thresholdUsdc ?? ""} USDC approval threshold. Approve it under Move → Activity.`;
                         }
                         await refreshOnchain();
-                        return j.simulated
-                          ? `Recorded a simulated ${j.amountUsdc} ${j.symbol ?? "USDC"} outflow — nothing moved on-chain.`
+                        return j.recordedOnly
+                          ? `Recorded ${j.amountUsdc} ${j.symbol ?? ""} sent by hand — not an on-chain transfer.`
                           : `Sent ${j.amountUsdc} ${j.symbol ?? "USDC"} from the vault${j.txHash ? ` · ${String(j.txHash).slice(0, 10)}…` : ""}.`;
                       }),
                   )}
@@ -977,12 +964,14 @@ export function TreasuryView({
                     name="destination"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Destination / memo</FormLabel>
+                        <FormLabel>
+                          {assetIsChainBacked ? "Destination (0x address)" : "Destination / memo"}
+                        </FormLabel>
                         <FormControl>
                           <Input
                             {...field}
                             disabled={readOnly}
-                            placeholder="external wallet / note"
+                            placeholder={assetIsChainBacked ? "0x…" : "external wallet / note"}
                             data-shortcut-ignore
                           />
                         </FormControl>
@@ -1001,8 +990,7 @@ export function TreasuryView({
                     variant="ghost"
                     disabled={locked || Boolean(sendDisabledReason)}
                   >
-                    <Icon name="send" size={13} />{" "}
-                    {sendSupport?.mode === "simulated" ? "Send (simulated)" : "Send"}
+                    <Icon name="send" size={13} /> Send
                   </Button>
                 </form>
               </Form>

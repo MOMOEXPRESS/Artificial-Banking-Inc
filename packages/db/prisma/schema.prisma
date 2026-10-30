@@ -461,7 +461,7 @@ model Orgs {
   guardianKey String @map("guardian_key")
   depositMicro BigInt? @map("deposit_micro")
   settingsJson String? @map("settings_json")
-  ledgerMode String @default("sandbox") @map("ledger_mode")
+  ledgerMode String @default("live") @map("ledger_mode")
   unbackedMicro BigInt @default(0) @map("unbacked_micro")
   kind String @default("buyer")
   @@unique([guardianKey])

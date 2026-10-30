@@ -1085,12 +1085,12 @@ export default function Console() {
             <div className="spacer" />
             <button
               type="button"
-              className={`environment-chip ${org?.ledgerMode === "live" ? "live" : "sandbox"}`}
+              className="environment-chip live"
               onClick={() => setView("settings")}
               aria-label="Open environment settings"
             >
               <i />
-              <span>{org?.ledgerMode === "live" ? "Live" : "Sandbox"}</span>
+              <span>{org?.network?.testnet === false ? "Live" : "Live · testnet"}</span>
               <Icon name="arrowRight" size={12} />
             </button>
             <button
@@ -1113,9 +1113,9 @@ export default function Console() {
                       {org?.actor?.role === "viewer"
                         ? "Viewer · read-only"
                         : org?.actor?.role === "approver"
-                          ? "Approver · " + (org?.ledgerMode === "live" ? "live" : "sandbox")
+                          ? "Approver · " + (org?.network?.testnet === false ? "live" : "testnet")
                           : connected
-                            ? "Owner · " + (org?.ledgerMode === "live" ? "live" : "sandbox")
+                            ? "Owner · " + (org?.network?.testnet === false ? "live" : "testnet")
                             : "reconnecting…"}
                       {org?.org?.status === "frozen" ? " · FROZEN" : ""}
                     </span>
@@ -1288,8 +1288,8 @@ export default function Console() {
                       <p>{viewMeta.description}</p>
                     </div>
                     <div className="console-section-context" aria-label="Current operating context">
-                      <span className={org?.ledgerMode === "live" ? "live" : ""}>
-                        <i /> {org?.ledgerMode === "live" ? "Live" : "Sandbox"}
+                      <span className="live">
+                        <i /> {org?.network?.testnet === false ? "Live" : "Live · testnet"}
                       </span>
                       <span>{org?.actor?.role ?? "owner"}</span>
                     </div>
@@ -1324,7 +1324,6 @@ export default function Console() {
                     busy={busy}
                     act={act}
                     readOnly={readOnly}
-                    ledgerMode={org?.ledgerMode ?? "sandbox"}
                     initialTab={tabHint && TREASURY_TAB_SET.has(tabHint) ? tabHint : null}
                     onTabChange={(t) => setTabHint(t)}
                   />

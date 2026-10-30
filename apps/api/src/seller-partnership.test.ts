@@ -187,7 +187,6 @@ describe("seller partnership — separate partner accounts", () => {
       verificationToken: "verify-same",
       verificationTtlMs: 60_000,
       markEmailVerified: true,
-      ledgerMode: "sandbox",
     });
     assert.equal(buyer.status, "created");
 

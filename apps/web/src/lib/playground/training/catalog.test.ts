@@ -54,9 +54,9 @@ describe("Guided scenario catalog (training)", () => {
     assert.equal(findMission("brief")?.destructive, false);
   });
 
-  it("is only enabled on sandbox orgs (unknown mode fails closed)", () => {
-    assert.equal(isTrainingEnabled({ ledgerMode: "sandbox" }), true);
-    assert.equal(isTrainingEnabled({ ledgerMode: "live" }), false);
+  it("is only enabled on testnet (unknown network fails closed)", () => {
+    assert.equal(isTrainingEnabled({ network: { testnet: true } }), true);
+    assert.equal(isTrainingEnabled({ network: { testnet: false } }), false);
     assert.equal(isTrainingEnabled(null), false);
     assert.equal(isTrainingEnabled({}), false);
   });

@@ -1005,10 +1005,9 @@ for (const migration of [
   "ALTER TABLE pay_events ADD COLUMN org_id TEXT",
   "ALTER TABLE orgs ADD COLUMN settings_json TEXT",
   "ALTER TABLE guardians ADD COLUMN conditions_json TEXT",
-  // Phase 7: an org either holds real money or simulates it. Existing rows
-  // default to 'sandbox' deliberately — every org created before this column
-  // could mint unbacked balance, so calling any of them 'live' would repeat
-  // the untruth this phase removes.
+  // Phase 7 added a per-org sandbox/live mode. Sandbox has since been removed:
+  // rows that still say 'sandbox' are moved to live at boot, with their
+  // simulated balance written off (see migrateSandboxOrgsToLive).
   "ALTER TABLE orgs ADD COLUMN ledger_mode TEXT NOT NULL DEFAULT 'sandbox'",
   // Running total of ledger money that is NOT backed by vault funds:
   // simulated credits add, simulated debits subtract. Expected on-chain
@@ -2279,31 +2278,23 @@ function normalizeFact(fact: string): string {
 
 export const store = {
   // ------------------------------------------------------------------ orgs
-  createOrg(
-    name: string,
-    depositMicro: MicroUsdc,
-    opts?: { ledgerMode?: "sandbox" | "live"; kind?: OrgKind },
-  ): OrgRow {
+  createOrg(name: string, depositMicro: MicroUsdc, opts?: { kind?: OrgKind }): OrgRow {
     const orgId = id("org");
     const guardianKey = `pv_guardian_${randomBytes(12).toString("hex")}`;
     const guardianKeyHash = hashSecret(guardianKey);
     const kind: OrgKind = opts?.kind === "seller" ? "seller" : "buyer";
     const tx = db.transaction(() => {
-      // An opening balance nobody sent on-chain is simulated money, so an org
-      // seeded with one is a sandbox org. Orgs that start empty default to live
-      // (real money only) unless the caller opts into sandbox — self-signup on
-      // testnet does that so first-time users can simulate deposits and use MCP.
+      // Every org is live: its books only gain money that arrives at the vault
+      // on-chain. Testnet vs mainnet is the deployment's CHAIN, not an org
+      // mode. (Sandbox mode and simulated top-ups were removed.)
       //
+      // An opening balance (seedDemoOrg / tests only — never a public route
+      // in production) is written straight onto org:available and
       // `unbacked_micro` stays 0 even for a seeded org: the opening balance is
       // written straight onto org:available and never debits `external`, so
       // -(external) already excludes it. Counting it here would subtract it
       // twice and make every seeded org look short by its own float.
-      //
-      // Seller orgs default to sandbox with zero float — they settle on-chain to
-      // the partner wallet, not through the buyer treasury.
-      const ledgerMode =
-        opts?.ledgerMode ??
-        (kind === "seller" ? "sandbox" : depositMicro > 0n ? "sandbox" : "live");
+      const ledgerMode = "live";
       db.prepare(
         "INSERT INTO orgs (id, name, status, guardian_key, deposit_micro, ledger_mode, unbacked_micro, kind) VALUES (?, ?, 'active', ?, ?, ?, ?, ?)",
       ).run(orgId, name, guardianKeyHash, depositMicro.toString(), ledgerMode, "0", kind);
@@ -2370,10 +2361,7 @@ export const store = {
     return db.transaction(() => {
       const taken = db.prepare("SELECT 1 FROM partner_accounts WHERE email = ?").get(email);
       if (taken) throw new Error("PARTNER_EMAIL_TAKEN");
-      const org = this.createOrg(input.companyName.trim(), 0n, {
-        kind: "seller",
-        ledgerMode: "sandbox",
-      });
+      const org = this.createOrg(input.companyName.trim(), 0n, { kind: "seller" });
       const profile = this.upsertSellerProfile(org.id, {
         displayName: input.companyName,
         website: input.website ?? "",
@@ -3894,8 +3882,6 @@ export const store = {
     invitationToken?: string;
     verificationToken: string;
     verificationTtlMs: number;
-    /** Override ledger mode for newly created (non-invite) orgs. */
-    ledgerMode?: "sandbox" | "live";
     /** When true, mark the email verified immediately (testnet opt-in path). */
     markEmailVerified?: boolean;
   }):
@@ -3926,7 +3912,6 @@ export const store = {
           const org = this.createOrg(
             input.orgName?.trim() || `${input.name.trim()}'s organization`,
             0n,
-            input.ledgerMode ? { ledgerMode: input.ledgerMode } : undefined,
           );
           orgId = org.id;
           role = "owner";
@@ -6322,17 +6307,134 @@ export const store = {
   // ------------------------------------------------------- ledger backing
 
   /**
-   * `live` orgs may only hold money that arrived on-chain. `sandbox` orgs may
-   * mint ledger balance for demos, and everything they hold is marked as
-   * simulated wherever it surfaces.
+   * Retire the sandbox: put an org on live books in one atomic step.
+   *
+   * Sandbox mode let an org mint ledger balance ("Add simulated balance")
+   * that never arrived on-chain, tracked in `unbacked_micro`. Live books may
+   * only hold money that arrived at the vault, so this writes that simulated
+   * money off instead of asking an owner to "send" it away by hand:
+   *
+   *  - USDC: one journal (memo `sandbox_writeoff:<reason>`) debits the
+   *    simulated amount from org available first, then from agent / budget
+   *    available balances, and credits the `external` contra account.
+   *    `unbacked_micro` drops by the same amount, so the expected on-chain
+   *    balance (-(external) - unbacked) does not move and reconciliation
+   *    stays exact. Nothing is broadcast.
+   *  - Other assets: while an org was in sandbox, every typed-in holding was
+   *    a simulated top-up (on-chain detection only credits USDC), so each one
+   *    is zeroed with a `sandbox_writeoff` vault event.
+   *  - Money still locked in holds/escrows cannot be written off without
+   *    breaking an in-flight payment; it stays counted in `unbacked_micro`
+   *    (reported as `remainingUnbackedMicro`) so reconciliation still knows.
+   *
+   * Idempotent: an org already live with nothing simulated is a no-op.
    */
-  getOrgLedgerMode(orgId: string): "sandbox" | "live" {
-    const r = db.prepare("SELECT ledger_mode FROM orgs WHERE id = ?").get(orgId) as Row | undefined;
-    return r?.ledger_mode === "live" ? "live" : "sandbox";
+  retireSandbox(
+    orgId: string,
+    opts: { actor: string; reason: "go_live" | "migration" },
+  ): {
+    changed: boolean;
+    previousMode: string;
+    writtenOffMicro: bigint;
+    remainingUnbackedMicro: bigint;
+    journalId: string | null;
+    assetsZeroed: { assetId: string; amountMicro: bigint }[];
+  } {
+    return db.transaction(() => {
+      const row = db
+        .prepare("SELECT ledger_mode, unbacked_micro FROM orgs WHERE id = ?")
+        .get(orgId) as Row | undefined;
+      if (!row) throw new Error("ORG_NOT_FOUND");
+      const previousMode = (row.ledger_mode as string | null) ?? "sandbox";
+      const wasSandbox = previousMode !== "live";
+      const unbacked = BigInt((row.unbacked_micro as string | null) ?? "0");
+      const memo = `sandbox_writeoff:${opts.reason}`;
+      const createdAt = nowIso();
+
+      let remaining = unbacked > 0n ? unbacked : 0n;
+      let journalId: string | null = null;
+      const accounts = [...this.getAccountMap(orgId).values()];
+      const orgAvail = accounts.filter((a) => a.id === `org:${orgId}:available`);
+      const others = accounts
+        .filter(
+          (a) =>
+            a.id !== `org:${orgId}:available` &&
+            (a.kind === "agent_available" ||
+              a.kind === "dept_available" ||
+              a.kind === "shared_available"),
+        )
+        .sort((a, b) => a.id.localeCompare(b.id));
+      const lines: { accountId: string; deltaMicro: bigint }[] = [];
+      for (const acct of [...orgAvail, ...others]) {
+        if (remaining <= 0n) break;
+        const take = acct.balanceMicro < remaining ? acct.balanceMicro : remaining;
+        if (take <= 0n) continue;
+        lines.push({ accountId: acct.id, deltaMicro: -take });
+        remaining -= take;
+      }
+      const writtenOff = (unbacked > 0n ? unbacked : 0n) - remaining;
+      if (writtenOff > 0n) {
+        journalId = id("j");
+        lines.push({ accountId: `org:${orgId}:external`, deltaMicro: writtenOff });
+        this.applyEntries(orgId, [{ id: journalId, orgId, memo, createdAt, lines }]);
+        db.prepare("UPDATE orgs SET unbacked_micro = ? WHERE id = ?").run(
+          (unbacked - writtenOff).toString(),
+          orgId,
+        );
+      }
+
+      const assetsZeroed: { assetId: string; amountMicro: bigint }[] = [];
+      if (wasSandbox) {
+        const holdings = db
+          .prepare(
+            "SELECT asset_id, balance_micro FROM org_asset_balances WHERE org_id = ? AND asset_id != 'asset_usdc'",
+          )
+          .all(orgId) as Row[];
+        for (const h of holdings) {
+          const amount = BigInt((h.balance_micro as string | null) ?? "0");
+          if (amount <= 0n) continue;
+          const assetId = h.asset_id as string;
+          this.setOrgAssetBalance(orgId, assetId, 0n);
+          this.addVaultAssetEvent({
+            orgId,
+            assetId,
+            kind: "out",
+            amountMicro: amount,
+            memo,
+            counterparty: opts.actor,
+          });
+          assetsZeroed.push({ assetId, amountMicro: amount });
+        }
+      }
+
+      if (wasSandbox) {
+        db.prepare("UPDATE orgs SET ledger_mode = 'live' WHERE id = ?").run(orgId);
+      }
+      if (wasSandbox || writtenOff > 0n) bumpRevision();
+      return {
+        changed: wasSandbox || writtenOff > 0n || assetsZeroed.length > 0,
+        previousMode,
+        writtenOffMicro: writtenOff,
+        remainingUnbackedMicro: unbacked - writtenOff,
+        journalId,
+        assetsZeroed,
+      };
+    })();
   },
 
-  setOrgLedgerMode(orgId: string, mode: "sandbox" | "live"): void {
-    db.prepare("UPDATE orgs SET ledger_mode = ? WHERE id = ?").run(mode, orgId);
+  /** True for a pre-retirement row still flagged sandbox. */
+  isLegacySandboxOrg(orgId: string): boolean {
+    const r = db.prepare("SELECT ledger_mode FROM orgs WHERE id = ?").get(orgId) as Row | undefined;
+    return Boolean(r) && r!.ledger_mode !== "live";
+  },
+
+  /** Org ids still on sandbox books (pre-retirement rows). */
+  listSandboxOrgIds(): string[] {
+    return (
+      db
+        .prepare("SELECT id FROM orgs WHERE ledger_mode IS NULL OR ledger_mode != 'live'")
+        .all() as Row[]
+    ).map((r) => r.id as string);
   },
 
   /** Ledger money not backed by vault funds. See `unbacked_micro` migration. */
@@ -7701,3 +7803,36 @@ export const x401Store = {
     return db.prepare(X401_LIST_AUDIT).all(offerId, limit) as Record<string, unknown>[];
   },
 };
+
+/**
+ * Sandbox mode was removed. Move every org still on sandbox books to live,
+ * writing off its simulated (never on-chain) balance with an auditable
+ * journal. Idempotent: once every row is live this does nothing.
+ */
+export function migrateSandboxOrgsToLive(): {
+  orgId: string;
+  writtenOffMicro: bigint;
+  remainingUnbackedMicro: bigint;
+}[] {
+  const migrated: { orgId: string; writtenOffMicro: bigint; remainingUnbackedMicro: bigint }[] = [];
+  for (const orgId of store.listSandboxOrgIds()) {
+    try {
+      const r = store.retireSandbox(orgId, { actor: "system:migration", reason: "migration" });
+      migrated.push({
+        orgId,
+        writtenOffMicro: r.writtenOffMicro,
+        remainingUnbackedMicro: r.remainingUnbackedMicro,
+      });
+      console.info(
+        `[sandbox-retire] org=${orgId} from=${r.previousMode} writtenOff=${formatMicroToUsdc(r.writtenOffMicro)} USDC remainingUnbacked=${formatMicroToUsdc(r.remainingUnbackedMicro)} assetsZeroed=${r.assetsZeroed.length}`,
+      );
+    } catch (e) {
+      // One bad row must not stop boot; it stays sandbox-flagged and is
+      // retried on the next start (and on the owner go-live path).
+      console.error(`[sandbox-retire] org=${orgId} failed:`, e);
+    }
+  }
+  return migrated;
+}
+
+migrateSandboxOrgsToLive();
