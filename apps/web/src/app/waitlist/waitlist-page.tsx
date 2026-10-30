@@ -6,7 +6,7 @@ import { WaitlistForm } from "../../lib/waitlist-form";
 
 export function WaitlistPage() {
   return (
-    <MarketingShell>
+    <MarketingShell active="waitlist">
       <section className="waitlist-page">
         <span className="eyebrow">Artificial Banking Inc.</span>
         <h1>Let AI agents pay for things — without losing control.</h1>
