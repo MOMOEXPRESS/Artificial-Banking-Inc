@@ -10,7 +10,8 @@ import {
 } from "../../lib/sign-out";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ABAppIcon } from "../../lib/brand";
+import { ABAppIcon, ABMark } from "../../lib/brand";
+import { showApprovalToast } from "../../lib/approval-toast";
 import { Icon, fmtUsd, relTime } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
 import { ChatView } from "../../lib/chat-view";
@@ -83,6 +84,7 @@ import { Webhooks } from "../../lib/webhooks-view";
 import { WaitlistView } from "../../lib/waitlist-view";
 import {
   EMPTY_FEED,
+  approvalToastFrom,
   collapseApprovals,
   freshSince,
   linkView,
@@ -407,6 +409,8 @@ export default function Console() {
   const viewRef = useRef<View>(view);
   viewRef.current = view;
   const seenApprovals = useRef<Set<string>>(new Set());
+  /** Approvals that already have an on-screen card (one card per approval). */
+  const approvalCards = useRef<Set<string>>(new Set());
   /** Approvals already pending at sign-in are not "new" — do not hijack the view. */
   const firstApprovalLoad = useRef(true);
   /** Lives in the shell so Stop still works after navigating away and back. */
@@ -521,6 +525,24 @@ export default function Console() {
       return null;
     });
   }, []);
+
+  /** Approval card "Review": open Approvals and bring that approval into view. */
+  const reviewApproval = useCallback(
+    (approvalId: string | null) => {
+      setView("approvals");
+      if (!approvalId || typeof window === "undefined") return;
+      window.setTimeout(() => {
+        const el = document.querySelector(
+          `[data-approval-id="${CSS.escape(approvalId)}"]`,
+        ) as HTMLElement | null;
+        if (!el) return;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("approval-card-flash");
+        window.setTimeout(() => el.classList.remove("approval-card-flash"), 1800);
+      }, 350);
+    },
+    [setView],
+  );
 
   useEffect(() => {
     if (!hydrated) return;
@@ -727,6 +749,17 @@ export default function Console() {
         // Toasts for new failed payments, refusals and approvals. The first
         // load only records the high-water mark so refreshes don't replay.
         for (const n of freshSince(next.notifications, lastNotifId.current)) {
+          const card = approvalToastFrom(n);
+          if (card) {
+            // The approvals poll lands in the same refresh and shows a richer
+            // card (with context) for the same approval; give it a beat first.
+            window.setTimeout(() => {
+              if (card.approvalId && approvalCards.current.has(card.approvalId)) return;
+              if (card.approvalId) approvalCards.current.add(card.approvalId);
+              showApprovalToast(card, { onReview: reviewApproval });
+            }, 1200);
+            continue;
+          }
           const t = toastFor(n);
           if (t) setToast(t.message, t.kind);
         }
@@ -758,7 +791,7 @@ export default function Console() {
       logLoadFailure("shell", failure);
       setOrgLoad((s) => ({ ...s, failures: s.failures + 1, last: [failure] }));
     }
-  }, [gFetch, saveSession, setToast, setIfChanged]);
+  }, [gFetch, saveSession, setToast, setIfChanged, reviewApproval]);
 
   const refreshSlow = useCallback(async () => {
     if (!sessionRef.current) return;
@@ -956,6 +989,19 @@ export default function Console() {
       goto: "approvals",
     };
     setBanner(alert);
+    // One card per approval: the notification feed reuses this toast id.
+    const card = (hint: string) => {
+      approvalCards.current.add(a.id);
+      return showApprovalToast(
+        {
+          approvalId: a.id,
+          amount: fmtUsd(a.amountUsdc),
+          agent: agentName(a.agentId),
+          destination: a.destination,
+        },
+        { onReview: reviewApproval, hint },
+      );
+    };
     // Don't yank you off the Playground — it already shows inline Approve/Deny
     // right where you're watching the agent. Jump from anywhere else to Approvals.
     if (
@@ -966,16 +1012,13 @@ export default function Console() {
       viewRef.current !== "chat"
     ) {
       setView("approvals");
-      setToast(`Agent parked a ${fmtUsd(a.amountUsdc)} payment — opened Approvals.`, "info");
+      card("Opened Approvals for you.");
     } else if (viewRef.current === "playground") {
-      setToast(
-        `Agent parked ${fmtUsd(a.amountUsdc)} — approve or deny it right in the timeline.`,
-        "info",
-      );
+      card("Approve or deny it right in the timeline.");
     } else if (viewRef.current === "chat") {
-      setToast(`New approval in chat · ${fmtUsd(a.amountUsdc)}`, "info");
+      card("It is waiting in this chat too.");
     }
-  }, [pending, loading, agentName, setToast, setView]);
+  }, [pending, loading, agentName, setView, reviewApproval]);
 
   useEffect(() => {
     if (banner && !pending.some((p) => `apr_${p.id}` === banner.id)) setBanner(null);
@@ -1233,11 +1276,17 @@ export default function Console() {
               <PopoverTrigger asChild>
                 <button
                   className="icon-btn"
-                  aria-label={`Notifications${feed.unreadCount ? ` (${feed.unreadCount} unread)` : ""}`}
+                  aria-label={`Notifications${pending.length ? ` (${pending.length} approval${pending.length === 1 ? "" : "s"} waiting)` : ""}${feed.unreadCount ? ` (${feed.unreadCount} unread)` : ""}`}
                   data-testid="notifications-bell"
                 >
                   <Icon name="bell" />
-                  {(visibleAlerts.length > 0 || feed.unreadCount > 0) && <span className="ping" />}
+                  {pending.length > 0 ? (
+                    <span className="bell-count" data-testid="bell-approval-count">
+                      {pending.length > 99 ? "99+" : pending.length}
+                    </span>
+                  ) : (
+                    (visibleAlerts.length > 0 || feed.unreadCount > 0) && <span className="ping" />
+                  )}
                 </button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-[min(360px,calc(100vw-24px))] p-0">
@@ -1705,9 +1754,10 @@ export default function Console() {
           aria-label="Open ABI assistant"
           title="Open ABI assistant"
         >
-          <Icon name="spark" size={17} />
+          <span className="abi-assistant-fab-mark" aria-hidden="true">
+            <ABMark size={18} tone="#fff" />
+          </span>
           <span>Ask ABI</span>
-          {pending.length > 0 && <i>{pending.length}</i>}
         </button>
 
         <ConsoleCommandPalette
