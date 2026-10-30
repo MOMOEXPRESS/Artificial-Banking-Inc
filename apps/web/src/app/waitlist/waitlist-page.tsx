@@ -18,7 +18,7 @@ export function WaitlistPage() {
         <p className="waitlist-links">
           <Link href="/">How it works</Link>
           <span aria-hidden>·</span>
-          <Link href="/console?demo=1">Try the live demo</Link>
+          <Link href="/console">Open the console</Link>
           <span aria-hidden>·</span>
           <Link href="/docs">Docs</Link>
         </p>
