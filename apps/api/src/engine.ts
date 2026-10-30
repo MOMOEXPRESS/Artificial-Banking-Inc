@@ -40,6 +40,8 @@ import { X402_GUARD_RULE_IDS, X402Error, X402Rail, type X402Expectation } from "
 import { TransferMockRail } from "./rails/transfer-mock.js";
 import { EvmUsdcTransferRail, isEvmPayDestination } from "./rails/evm-usdc-transfer.js";
 import type { PaymentRail } from "./rails/types.js";
+import { complianceGate } from "./kyc-kya.js";
+import { effectiveKyc } from "./compliance-routes.js";
 import { screenDestination } from "./platform/compliance.js";
 import { notify } from "./platform/notifier.js";
 import { recordObs } from "./platform/observability.js";
@@ -236,7 +238,27 @@ export function rulesFor(
     // x402 session budget — only for requests made through a session key
     // that was minted with one.
     ...sessionBudgetRules(opts?.sessionId),
+    ...complianceRules(orgId, agentId, destination),
   };
+}
+
+/** In-house KYC/KYA gate (see kyc-kya.ts). */
+function complianceRules(
+  orgId: string,
+  agentId: string,
+  destination: string | undefined,
+): Pick<PolicyRules, "complianceBlock" | "complianceCaps"> {
+  const gate = complianceGate({
+    grandfathered: store.isComplianceGrandfathered(orgId),
+    kyc: effectiveKyc(orgId),
+    kya: store.getAgentKya(orgId, agentId),
+    destination,
+    destinationCategory: destination ? store.categoryForDestination(orgId, destination) : undefined,
+  });
+  if (gate.kind === "block")
+    return { complianceBlock: { ruleId: gate.ruleId, reason: gate.reason } };
+  if (gate.kind === "cap") return { complianceCaps: { reason: gate.reason, ...gate.caps } };
+  return {};
 }
 
 function sessionBudgetRules(

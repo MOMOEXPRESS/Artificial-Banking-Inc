@@ -7,6 +7,7 @@ import "./refinements.css";
 import "./waitlist.css";
 import "./design-system.css";
 import "./legal.css";
+import "./compliance.css";
 
 // Self-hosted (OFL, see fonts/OFL-IBM-Plex.txt) so builds never depend on a
 // Google Fonts fetch, which flaked in CI.

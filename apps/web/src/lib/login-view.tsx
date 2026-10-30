@@ -118,6 +118,7 @@ export function Login({
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [inviteToken, setInviteToken] = useState("");
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const [mode, setMode] = useState<LoginMode>("signin");
   /**
    * Password reset. The API and the emailed link already existed; there was no
@@ -387,6 +388,7 @@ export function Login({
           email: email.trim(),
           name: fullName.trim() || email.trim().split("@")[0],
           password,
+          acceptTerms,
           ...(inviteToken.trim()
             ? { invitationToken: inviteToken.trim() }
             : { orgName: orgName.trim() || undefined }),
@@ -855,13 +857,31 @@ export function Login({
                     value={inviteToken}
                     onChange={(e) => setInviteToken(e.target.value)}
                     onKeyDown={(e) =>
-                      e.key === "Enter" && email.trim() && password && void signUp()
+                      e.key === "Enter" && email.trim() && password && acceptTerms && void signUp()
                     }
                   />
                 </div>
+                <label className="compliance-check" style={{ margin: "4px 0 12px" }}>
+                  <input
+                    type="checkbox"
+                    checked={acceptTerms}
+                    onChange={(e) => setAcceptTerms(e.target.checked)}
+                  />
+                  <span>
+                    I accept the{" "}
+                    <a href="/terms" target="_blank">
+                      Terms of Use
+                    </a>{" "}
+                    and{" "}
+                    <a href="/privacy" target="_blank">
+                      Privacy Notice
+                    </a>
+                    . ABI is testnet software, not a bank.
+                  </span>
+                </label>
                 <button
                   style={{ width: "100%" }}
-                  disabled={busy || !email.trim() || !password}
+                  disabled={busy || !email.trim() || !password || !acceptTerms}
                   onClick={() => void signUp()}
                 >
                   {inviteToken.trim() ? "Join organization" : "Create account & organization"}

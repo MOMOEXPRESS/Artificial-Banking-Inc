@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "./ui";
+import { CompliancePanel } from "./compliance-panel";
 import { AiEgressPanel } from "./ai-egress-panel";
 import { MfaPanel } from "./mfa-panel";
 import { AccountAccessPanel } from "./account-access-panel";
@@ -137,6 +138,14 @@ const SECTIONS = [
     description: "Give a runtime the minimum credentials and scopes it needs.",
   },
   {
+    key: "compliance",
+    label: "Compliance (KYC & KYA)",
+    icon: "shield",
+    group: "People & access",
+    description:
+      "Know your customer and know your agent: internal, self-attested checks that set starter limits.",
+  },
+  {
     key: "danger",
     label: "Danger zone",
     icon: "alert",
@@ -190,6 +199,11 @@ export function SettingsView({
 }) {
   const readOnly = actorRole === "viewer";
   const [section, setSection] = useState<Section>("profile");
+  // Deep links such as /console?view=settings&section=compliance.
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("section");
+    if (wanted && SECTIONS.some((item) => item.key === wanted)) setSection(wanted as Section);
+  }, []);
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [quorum, setQuorum] = useState(1);
   const [newGuardian, setNewGuardian] = useState("");
@@ -1798,6 +1812,10 @@ ${agents || "_None saved in this browser session._"}
               </div>
             </div>
           </>
+        )}
+
+        {section === "compliance" && (
+          <CompliancePanel gFetch={gFetch} act={act} canEdit={actorRole === "owner"} />
         )}
 
         {section === "ai" && (

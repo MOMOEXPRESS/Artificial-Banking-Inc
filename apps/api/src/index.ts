@@ -93,6 +93,7 @@ import { registerMfaRoutes, stepUpThresholdMicro } from "./routes/mfa-routes.js"
 import { registerAgentRoutes } from "./routes/agent-routes.js";
 import { registerNotificationRoutes } from "./routes/notification-routes.js";
 import { registerWaitlistRoutes } from "./waitlist.js";
+import { registerComplianceRoutes } from "./compliance-routes.js";
 import { actionEventsMiddleware } from "./action-events.js";
 import { startScheduler } from "./jobs/scheduler.js";
 import { registerPaymentRoutes } from "./routes/payment-routes.js";
@@ -669,6 +670,7 @@ registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
 registerAgentRoutes(app, { guardianRoute });
 registerNotificationRoutes(app, { guardianRoute });
 registerWaitlistRoutes(app, { guardianRoute });
+registerComplianceRoutes(app, { guardianRoute });
 registerPolicyRoutes(app, { guardianRoute });
 registerConnectionRoutes(app, { guardianRoute });
 registerPaymentRoutes(app, { guardianRoute });

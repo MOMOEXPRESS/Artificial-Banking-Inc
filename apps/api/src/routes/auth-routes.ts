@@ -21,6 +21,7 @@ import { formatMicroToUsdc } from "@policyvault/common";
 import { recordObs } from "../platform/observability.js";
 import { store, type UserRow } from "../store.js";
 import { signupTokenProblem } from "../auth/signup-token.js";
+import { KYC_TERMS_VERSION } from "../kyc-kya.js";
 import { assertAuthRuntimeReady } from "../auth/key-encryption.js";
 import {
   allowUnverifiedSignup,
@@ -115,6 +116,8 @@ export function registerAuthRoutes(app: express.Express) {
           orgName: z.string().min(1).max(80).optional(),
           /** Accept an invitation instead of creating a new org. */
           invitationToken: z.string().optional(),
+          /** The console's "I accept the Terms and Privacy Notice" box. */
+          acceptTerms: z.boolean().optional(),
         })
         .parse(req.body);
 
@@ -178,6 +181,9 @@ export function registerAuthRoutes(app: express.Express) {
         verificationTtlMs: VERIFY_EMAIL_TTL_MS,
         markEmailVerified: skipVerify,
       });
+      if (created.status === "created" && body.acceptTerms) {
+        store.recordTermsAcceptance(created.user.id, KYC_TERMS_VERSION);
+      }
       if (created.status === "conflict") {
         return res.status(409).json({
           error: { code: "EMAIL_IN_USE", message: "An account with that email already exists." },
