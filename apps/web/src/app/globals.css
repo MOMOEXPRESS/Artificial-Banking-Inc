@@ -11789,141 +11789,6 @@ button.sm.ghost.on {
   }
 }
 
-/* ChatGPT sandbox connection ribbon on the public landing page. */
-.chatgpt-integration {
-  padding: 8px 24px 48px;
-}
-
-.chatgpt-integration-inner {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 24px 28px 18px;
-  display: grid;
-  grid-template-columns: minmax(245px, 0.72fr) minmax(0, 1.28fr);
-  align-items: center;
-  gap: 28px 36px;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--color-surface-solid) 88%, var(--bg));
-}
-
-.chatgpt-integration-copy .eyebrow {
-  margin-bottom: 9px;
-}
-
-.chatgpt-integration-copy h2 {
-  margin: 0 0 8px;
-  font-size: clamp(19px, 2vw, 23px);
-  line-height: 1.2;
-  letter-spacing: -0.035em;
-}
-
-.chatgpt-integration-copy p {
-  max-width: 44ch;
-  margin: 0;
-  color: var(--color-ink-secondary);
-  font-size: var(--text-sm);
-  line-height: 1.6;
-}
-
-.chatgpt-integration-ribbon {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-solid);
-  box-shadow: 0 6px 20px rgba(10, 10, 12, 0.035);
-  mask-image: linear-gradient(90deg, transparent, #000 7%, #000 93%, transparent);
-}
-
-.chatgpt-integration-track,
-.chatgpt-integration-group,
-.chatgpt-integration-mark {
-  display: flex;
-  align-items: center;
-}
-
-.chatgpt-integration-track {
-  width: max-content;
-  animation: chatgpt-integration-pass 36s linear infinite;
-  will-change: transform;
-}
-
-.chatgpt-integration-ribbon:hover .chatgpt-integration-track {
-  animation-play-state: paused;
-}
-
-.chatgpt-integration-group {
-  flex: 0 0 auto;
-  gap: 32px;
-  padding: 14px 16px;
-}
-
-.chatgpt-integration-mark {
-  flex: 0 0 auto;
-  gap: 9px;
-  white-space: nowrap;
-  color: var(--color-ink);
-  font-size: var(--text-sm);
-  font-weight: 650;
-  letter-spacing: -0.015em;
-}
-
-.chatgpt-integration-logo {
-  display: block;
-  width: 22px;
-  height: 22px;
-  color: var(--color-ink);
-}
-
-.chatgpt-integration-separator {
-  margin-left: 2px;
-  color: var(--color-ink-muted);
-  font-size: var(--text-base);
-}
-
-.chatgpt-integration-protocol {
-  padding: 5px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-pill);
-  color: var(--color-ink-secondary);
-  font-size: var(--text-3xs);
-  font-weight: 650;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
-}
-
-.chatgpt-integration-note {
-  grid-column: 2;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin: -18px 0 0 4px;
-  color: var(--color-ink-muted);
-  font-size: var(--text-3xs);
-  font-weight: 650;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.chatgpt-integration-pulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-success);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 14%, transparent);
-}
-
-@keyframes chatgpt-integration-pass {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-
 /* Settings information architecture: compact section rail + focused detail. */
 .settings-page {
   grid-template-columns: 226px minmax(0, 1fr);
@@ -12292,28 +12157,6 @@ button.sm.ghost.on {
 }
 
 @media (max-width: 620px) {
-  .chatgpt-integration {
-    padding: 4px 16px 34px;
-  }
-
-  .chatgpt-integration-inner {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 17px;
-    padding: 20px 17px 16px;
-    border-radius: var(--radius-ml);
-  }
-
-  .chatgpt-integration-note {
-    grid-column: 1;
-    margin: -7px 0 0;
-    font-size: var(--text-3xs);
-  }
-
-  .chatgpt-integration-group {
-    gap: 22px;
-    padding: 12px 14px;
-  }
-
   .settings-page .set-nav {
     margin: 0 -4px;
   }
@@ -12350,13 +12193,6 @@ button.sm.ghost.on {
 
   .settings-profile-fields-wide .field:not(:first-child) {
     grid-column: auto;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chatgpt-integration-track {
-    animation: none;
-    transform: none;
   }
 }
 
@@ -12404,13 +12240,6 @@ button.sm.ghost.on {
 .first-run-steps b {
   color: var(--fg, #0f172a);
   font-variant-numeric: tabular-nums;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chatgpt-integration-track {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-  }
 }
 
 /* Always-visible topbar logout (every signed-in console page, every width). */
@@ -13702,5 +13531,12 @@ button.sm.ghost.on {
 @media (max-width: 600px) {
   .approval-toast {
     width: 100%;
+  }
+}
+
+/* Phones: the API-keys notice keeps its side margins instead of overflowing the card. */
+@media (max-width: 720px) {
+  .api-keys-card > .api-keys-notice {
+    width: auto;
   }
 }

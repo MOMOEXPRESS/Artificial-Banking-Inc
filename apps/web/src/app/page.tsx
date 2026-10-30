@@ -69,14 +69,14 @@ function Hero() {
             <Link className="btn-primary" href="/console">
               Open the console <Icon name="arrowRight" size={14} />
             </Link>
-            <Link className="btn-ghost" href="/console?demo=1">
-              <Icon name="play" size={14} /> Try the live demo
+            <Link className="btn-ghost" href="/waitlist?ref=home-hero">
+              Join the waitlist
             </Link>
           </div>
           <div className="hero-meta">
             <div>
-              <b>Rail-aware</b>
-              <span>simulation, testnet, or live</span>
+              <b>Testnet</b>
+              <span>Base Sepolia USDC, no real money</span>
             </div>
             <div className="sep" />
             <div>
