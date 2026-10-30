@@ -194,6 +194,81 @@ p,
   text-wrap: pretty;
 }
 
+/* ------------------------------------------------------------ 3b. seller console */
+
+/*
+ * Overview: the four stats shared a grid with the full-width guide card, so
+ * auto-fit could never collapse tracks and the stats sat at 180px with a gap
+ * on the right. They now get their own row that fills the width.
+ */
+.seller-overview {
+  display: grid;
+  gap: var(--space-3);
+}
+.seller-stats {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.seller-stats > .card {
+  padding: var(--space-4) var(--space-5);
+}
+.seller-stats > .card > .muted {
+  font-size: var(--text-xs);
+  font-weight: 550;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.seller-stats > .card > b {
+  font-size: var(--text-3xl) !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+@media (max-width: 640px) {
+  .seller-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Seller page header: title and description on the type scale. */
+.view > .view-head h2 {
+  font-size: var(--text-3xl);
+  line-height: var(--leading-tight);
+}
+.view > .view-head .muted {
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+
+/*
+ * Phones: the console section header kept two columns (copy + status pills),
+ * squeezing the description into a narrow column. Stack it.
+ */
+@media (max-width: 720px) {
+  .view > .console-section-intro {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-3);
+  }
+  /* An older 720px rule pinned the pills to column 2, which re-created the
+     second column. There is no icon column any more, so keep them in 1. */
+  .view > .console-section-intro .console-section-context {
+    grid-column: 1;
+    justify-content: flex-start;
+  }
+}
+
+/*
+ * Banners: `.banner .txt b` makes the title a block, which also hit bold words
+ * inside the body copy ("Webhook ping (ops notify)" broke onto its own line
+ * with an orphaned full stop). Only the direct title is a block.
+ */
+.banner .txt span b,
+.banner .txt p b {
+  display: inline;
+  font-size: inherit;
+}
+
 /* ------------------------------------------------------------ 4. motion */
 
 @media (prefers-reduced-motion: reduce) {
