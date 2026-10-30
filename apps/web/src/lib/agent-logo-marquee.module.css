@@ -1,0 +1,161 @@
+/* Landing page "Connect your agent" logo strip. CSS-only marquee. */
+.band {
+  padding: 8px 24px 48px;
+}
+
+.inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px 28px 20px;
+  display: grid;
+  grid-template-columns: minmax(240px, 0.7fr) minmax(0, 1.3fr);
+  align-items: center;
+  gap: 18px 36px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-surface-solid) 88%, var(--bg));
+  overflow: hidden;
+}
+
+.copy h2 {
+  margin: 0 0 8px;
+  font-size: clamp(19px, 2vw, 23px);
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+}
+
+.copy p {
+  max-width: 44ch;
+  margin: 0;
+  color: var(--color-ink-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.eyebrow {
+  margin-bottom: 9px;
+}
+
+.viewport {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+
+.track {
+  display: flex;
+  width: max-content;
+  animation: agent-marquee 48s linear infinite;
+  will-change: transform;
+}
+
+.viewport:hover .track,
+.viewport:focus-within .track {
+  animation-play-state: paused;
+}
+
+.group {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 36px;
+  margin: 0;
+  /* Trailing padding equals the gap so the two copies join seamlessly. */
+  padding: 12px 36px 12px 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 9px;
+  white-space: nowrap;
+  color: var(--color-ink-secondary);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  transition: color 160ms ease;
+}
+
+.item:hover {
+  color: var(--color-ink);
+}
+
+.logo {
+  display: block;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
+
+.foot {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.note {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@keyframes agent-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (max-width: 760px) {
+  .band {
+    padding: 4px 16px 34px;
+  }
+
+  .inner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding: 20px 17px 16px;
+    border-radius: 11px;
+  }
+
+  .group {
+    gap: 26px;
+    padding-right: 26px;
+  }
+}
+
+/* No motion: drop the duplicate copy and wrap the logos in place. */
+@media (prefers-reduced-motion: reduce) {
+  .viewport {
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+
+  .track {
+    width: auto;
+    animation: none;
+    transform: none;
+  }
+
+  .group {
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    gap: 14px 26px;
+    padding: 8px 0;
+  }
+
+  .duplicate {
+    display: none;
+  }
+}
