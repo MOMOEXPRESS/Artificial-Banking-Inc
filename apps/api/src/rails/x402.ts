@@ -300,6 +300,17 @@ async function readBody(response: Response): Promise<unknown> {
     : response.text();
 }
 
+/** A string field of the EIP-3009 authorization inside a payment payload. */
+function extractAuthField(payload: unknown, field: string): string | undefined {
+  const root = (payload ?? {}) as Record<string, unknown>;
+  const inner = (root.payload ?? {}) as Record<string, unknown>;
+  const auth = (inner.authorization ?? root.authorization ?? {}) as Record<string, unknown>;
+  const v = auth[field];
+  if (typeof v === "string" && v) return v;
+  if (typeof v === "number" || typeof v === "bigint") return String(v);
+  return undefined;
+}
+
 function extractAuthNonce(payload: unknown): string | undefined {
   if (!payload || typeof payload !== "object") return undefined;
   const root = payload as Record<string, unknown>;
@@ -335,7 +346,15 @@ export async function payViaX402(args: {
    */
   onAuthorizationSigned?: (
     marker: string,
-    details: { nonce?: string; validBefore?: string },
+    details: {
+      nonce?: string;
+      validBefore?: string;
+      valueMicro: bigint;
+      payer: string;
+      payTo: string;
+      asset: string;
+      network: string;
+    },
   ) => void;
   /**
    * Read the payer's on-chain balance of `asset` before anything is signed.
@@ -450,12 +469,29 @@ export async function payViaX402(args: {
       `PAYMENT-SIGNATURE header is ${headerBytes(signatureHeaders)} bytes (limit ${MAX_X402_HEADER_BYTES}).`,
     );
   }
+  const realNonce = extractAuthNonce(payload);
   const nonce =
-    extractAuthNonce(payload) ??
-    `anon-${createHash("sha256").update(randomBytes(16)).digest("hex").slice(0, 16)}`;
+    realNonce ?? `anon-${createHash("sha256").update(randomBytes(16)).digest("hex").slice(0, 16)}`;
+  // Reserve the signed maximum: the value in the signed authorization is the
+  // most this payment can ever move. It was checked to equal the selected
+  // price (<= authorized) above; refuse here, before sending, if not.
+  if (selected.priceMicro > args.authorizedMicro) {
+    throw new X402Error(
+      "PRICE_EXCEEDS_AUTHORIZED",
+      `Signed value ${selected.priceMicro} exceeds the held amount ${args.authorizedMicro}. Nothing was sent.`,
+    );
+  }
   // Irreversible: the seller can settle this signed authorization on-chain even
   // if the HTTP response is non-2xx or the PAYMENT-RESPONSE is malformed.
-  args.onAuthorizationSigned?.(`x402-auth:${nonce}`, { nonce });
+  args.onAuthorizationSigned?.(`x402-auth:${nonce}`, {
+    ...(realNonce && { nonce: realNonce }),
+    validBefore: extractAuthField(payload, "validBefore"),
+    valueMicro: selected.priceMicro,
+    payer: wallet.address,
+    payTo: selected.requirement.payTo,
+    asset: selected.requirement.asset,
+    network: selected.network,
+  });
   const paid = await noRedirect(
     () =>
       fetchNoRedirect(
@@ -580,9 +616,22 @@ export class X402Rail implements PaymentRail {
       // public hostname is not reliable, and the seller gets the buyer identity.
       fetchImpl: hosted ? hostedFetch({ buyerOrgId: ctx.orgId, agentId: ctx.agentId }) : undefined,
       readBalance: presignCheckEnabled() ? readUsdcBalance : undefined,
-      onAuthorizationSigned: (marker) => {
-        // Persist before the seller sees the signature — this is the
-        // signed-but-unrecorded-spend guard.
+      onAuthorizationSigned: (marker, details) => {
+        // Reserve the signed maximum and persist the authorization before the
+        // seller sees the signature — the signed-but-unrecorded-spend guard.
+        ctx.onSigned?.(
+          details.valueMicro,
+          details.nonce
+            ? {
+                nonce: details.nonce,
+                validBefore: details.validBefore,
+                payer: details.payer,
+                payTo: details.payTo,
+                asset: details.asset,
+                network: details.network,
+              }
+            : undefined,
+        );
         ctx.onBroadcast?.(this.name, marker);
       },
     });

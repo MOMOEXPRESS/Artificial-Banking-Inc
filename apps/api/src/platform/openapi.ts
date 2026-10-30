@@ -86,6 +86,13 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
           "agentBearer",
         ),
       },
+      "/v1/agent/intents/{intentId}/status": {
+        get: stub(
+          ["agent"],
+          "Cheap status read: settled, failed, outcome_unknown, expired_unclaimed, not_assessed, … plus recheck_after",
+          "agentBearer",
+        ),
+      },
       "/v1/agent/decision-receipts/verify": {
         post: stub(
           ["agent"],
@@ -105,6 +112,23 @@ export function openApiDocument(baseUrl = "http://localhost:8787") {
         ),
       },
 
+      "/v1/guardian/settlements/{intentId}": {
+        get: stub(["guardian"], "Status of any intent or treasury withdrawal", "guardianBearer"),
+      },
+      "/v1/guardian/settlements/{intentId}/close": {
+        post: stub(
+          ["guardian"],
+          "Close an unknown outcome as unresolved (amount stays held and counted)",
+          "guardianBearer",
+        ),
+      },
+      "/v1/guardian/reconciliation/outflows": {
+        get: stub(
+          ["guardian"],
+          "Outflow reconciliation: transfer id, policy revision, staleness, releases; ?onchain=1",
+          "guardianBearer",
+        ),
+      },
       "/v1/guardian/org": {
         get: stub(["guardian"], "Org, agents, balances, settings", "guardianBearer"),
       },

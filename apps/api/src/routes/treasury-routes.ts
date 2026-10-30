@@ -36,6 +36,8 @@ import { withVaultLock } from "../chain/vault-queue.js";
 import { assetSendSupport, buildWalletProfile } from "../chain/wallet-profile.js";
 import { guardTreasuryWithdraw, type TreasuryGuardDenial } from "../treasury-guard.js";
 import { treasuryApprovalThresholdMicro, treasuryThresholdOutcome } from "../treasury-threshold.js";
+import { canonicalJson, sha256Hex } from "../decision-receipts.js";
+import { escalationOwner, unknownDeadlines } from "../jobs/settlement-recovery.js";
 
 /** HTTP body for a refused guardian withdrawal — same shape as an agent policy deny. */
 function withdrawDenialBody(d: TreasuryGuardDenial) {
@@ -134,6 +136,9 @@ type UsdcWithdrawInput = {
   amountUsdc: string;
   destination?: string;
   memo?: string;
+  /** Caller's idempotency key, stored on the settlement row with its expiry. */
+  idempotencyKey?: string;
+  idempotencyExpiresAt?: string;
 };
 
 /**
@@ -180,6 +185,8 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
     amountMicro: amount,
     amountDisplay: formatMicroToUsdc(amount),
     destination,
+    // Rule 6: the balance left after other in-flight / unknown withdrawals.
+    availableMicro: available,
   });
   if (!guard.ok) {
     recordObs({
@@ -190,6 +197,15 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
     return { status: guard.status, body: withdrawDenialBody(guard) };
   }
   let transfer: Awaited<ReturnType<typeof transferUsdcFromVault>> | undefined;
+  // The guard reserved this withdrawal as a `pending` settlement row in the
+  // shared database. Name its resolver and human now, before anything is sent.
+  store.annotateSettlement(guard.intentId, {
+    resolver: "chain:tx_receipt",
+    escalateTo: escalationOwner(org.id),
+    policyRevision: store.getPolicyVersion(org.id),
+    idempotencyKey: input.idempotencyKey,
+    idempotencyExpiresAt: input.idempotencyExpiresAt,
+  });
   // Every org is live: a Treasury send always broadcasts (no book-only send).
   {
     const intentId = guard.intentId;
@@ -204,14 +220,7 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
         onBroadcast: (txHash) => {
           broadcastHash = txHash;
           // Durable before the receipt wait, so the recovery sweep can find it.
-          store.beginSettlement({
-            intentId,
-            orgId: org.id,
-            agentId: `guardian:${actor}`,
-            tool: "treasury_withdraw",
-            destination,
-            amountMicro: amount,
-          });
+          store.recordSignedMax(intentId, amount);
           store.markSettlementBroadcast(intentId, "evm-usdc-transfer", txHash);
         },
       });
@@ -229,6 +238,10 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
           rail: "evm-usdc-transfer",
           txHash: broadcastHash,
         });
+        // Outcome unknown: rechecked from the receipt, handed to a named human
+        // at the second deadline. The amount stays reserved against the org.
+        const unknown = unknownDeadlines();
+        store.markOutcomeUnknown(intentId, { ...unknown, error: message });
         recordObs({
           name: "treasury.withdraw.uncertain",
           orgId: org.id,
@@ -238,6 +251,10 @@ async function performUsdcWithdrawLocked(input: UsdcWithdrawInput): Promise<With
           status: 409,
           body: {
             outcome: "pending_reconciliation",
+            state: "outcome_unknown",
+            recheck_after: unknown.recheckAfter,
+            escalate_at: unknown.escalateAt,
+            status_url: `/v1/guardian/settlements/${intentId}`,
             intentId,
             txHash: broadcastHash,
             explorerUrl: activeChain().explorerTx(broadcastHash),
@@ -868,6 +885,15 @@ export function registerTreasuryRoutes(
           store.updateTreasuryMove(move.id, { status: "cancelled", resolvedBy: "system" });
           throw e;
         }
+        if (result.status === 409) {
+          // Broadcast but unconfirmed: never record a cancel while money may
+          // have moved. The move stays executed; the settlement row (outcome
+          // unknown) is what gets reconciled.
+          return res.status(409).json({
+            ...result.body,
+            move: moveView(scopedStore(org.id).getTreasuryMove(move.id)!),
+          });
+        }
         if (result.status !== 200) {
           // Approved, but the guard or the chain refused it now. Nothing moved.
           store.updateTreasuryMove(move.id, {
@@ -1023,170 +1049,285 @@ export function registerTreasuryRoutes(
             destination: z.string().optional(),
             memo: z.string().max(120).optional(),
             assetId: z.string().optional(),
+            /** Safe-retry key; the `Idempotency-Key` header works too. */
+            idempotencyKey: z.string().min(8).max(128).optional(),
           })
           .parse(req.body);
-        const assetId = body.assetId?.trim() || "asset_usdc";
-        const asset = store.getAsset(assetId);
-        if (!asset) {
-          return res
-            .status(400)
-            .json({ error: { code: "VALIDATION_ERROR", message: "Unknown asset" } });
+        const idemRaw =
+          body.idempotencyKey ??
+          (typeof req.headers["idempotency-key"] === "string"
+            ? req.headers["idempotency-key"]
+            : undefined);
+        if (idemRaw !== undefined && (idemRaw.length < 8 || idemRaw.length > 128)) {
+          return res.status(400).json({
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "Idempotency key must be 8-128 characters.",
+              field: "idempotencyKey",
+            },
+          });
+        }
+        // Make the withdrawal safe to retry: the same key replays the first
+        // result instead of sending twice. A key reused for a different
+        // request, or one still in flight, maps to "unknown", never "failed".
+        let idem: { key: string; expiresAt?: string } | undefined;
+        if (idemRaw) {
+          const key = `withdraw:${idemRaw}`;
+          const requestHash = sha256Hex(
+            canonicalJson({
+              amountUsdc: body.amountUsdc.trim(),
+              destination: body.destination?.trim().toLowerCase() ?? null,
+              assetId: body.assetId?.trim() || "asset_usdc",
+              memo: body.memo ?? null,
+            }),
+          );
+          if (!store.reserveIdempotent(org.id, key, { requestHash })) {
+            const meta = store.getIdempotentMeta(org.id, key);
+            const existing = store.getIdempotent(org.id, key) as
+              (Record<string, unknown> & { status?: string; httpStatus?: number }) | undefined;
+            if (meta?.requestHash && meta.requestHash !== requestHash) {
+              return res.status(409).json({
+                outcome: "unknown",
+                state: "outcome_unknown",
+                error: {
+                  code: "IDEMPOTENCY_MISMATCH",
+                  message:
+                    "This idempotency key was already used for a different withdrawal. Treat that one's outcome as unknown and read its status; do not resend under a new key.",
+                },
+                ...(typeof existing?.intentId === "string" && {
+                  intentId: existing.intentId,
+                  status_url: `/v1/guardian/settlements/${existing.intentId}`,
+                }),
+              });
+            }
+            if (!existing || existing.status === "in_flight") {
+              return res.status(409).json({
+                outcome: "unknown",
+                state: "outcome_unknown",
+                recheck_after: new Date(Date.now() + 5_000).toISOString(),
+                error: {
+                  code: "IDEMPOTENCY_IN_FLIGHT",
+                  message:
+                    "A withdrawal with this key is still in flight. Its outcome is unknown until it finishes; retry the same key later.",
+                },
+              });
+            }
+            const { httpStatus, ...payload } = existing;
+            return res
+              .status(typeof httpStatus === "number" ? httpStatus : 200)
+              .json({ ...payload, replayed: true });
+          }
+          idem = { key, expiresAt: store.getIdempotentMeta(org.id, key)?.expiresAt };
+        }
+        // Record the final answer under the key. A clean "nothing was sent"
+        // failure frees the key so the same request can simply be retried.
+        const finish = (status: number, payload: Record<string, unknown>) => {
+          if (idem) {
+            const nothingSent =
+              status >= 400 &&
+              status !== 403 &&
+              status !== 409 &&
+              payload.outcome !== "pending_reconciliation";
+            if (nothingSent) store.releaseIdempotent(org.id, idem.key);
+            else store.setIdempotent(org.id, idem.key, { ...payload, httpStatus: status });
+          }
+          return res.status(status).json(payload);
+        };
+        try {
+          return await withdrawRoute(body, idem);
+        } catch (e) {
+          // An unexpected throw may have come after the broadcast (e.g. the
+          // ledger write). Never free the key on a guess: a retry under it
+          // reads "unknown" and the settlement row says what happened.
+          if (idem) {
+            store.setIdempotent(org.id, idem.key, {
+              outcome: "unknown",
+              state: "outcome_unknown",
+              error: {
+                code: "OUTCOME_UNKNOWN",
+                message:
+                  "The first attempt with this key ended unexpectedly. Check the treasury settlements before sending again.",
+              },
+              httpStatus: 409,
+            });
+          }
+          throw e;
         }
 
-        if (assetId === "asset_usdc") {
-          let amount: bigint;
-          try {
-            amount = parseUsdcToMicro(body.amountUsdc);
-          } catch {
+        async function withdrawRoute(
+          body: {
+            amountUsdc: string;
+            destination?: string;
+            memo?: string;
+            assetId?: string;
+          },
+          idem: { key: string; expiresAt?: string } | undefined,
+        ) {
+          const assetId = body.assetId?.trim() || "asset_usdc";
+          const asset = store.getAsset(assetId);
+          if (!asset) {
             return res
               .status(400)
-              .json({ error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" } });
-          }
-          const orgAvail = accountId("org", org.id);
-          const available = store.getAccountMap(org.id).get(orgAvail)?.balanceMicro ?? 0n;
-          if (amount <= 0n || amount > available) {
-            return res.status(400).json({
-              error: {
-                code: "INSUFFICIENT_STIPEND",
-                message: `Org has ${formatMicroToUsdc(available)} available`,
-              },
-            });
+              .json({ error: { code: "VALIDATION_ERROR", message: "Unknown asset" } });
           }
 
-          const destination = body.destination?.trim();
-          if (!destination || !/^0x[a-fA-F0-9]{40}$/.test(destination)) {
-            return res.status(400).json({
-              error: {
-                code: "VALIDATION_ERROR",
-                message: "A 0x destination address is required to withdraw real USDC.",
-              },
-            });
-          }
-          const actor = guardianIdentity(req);
+          if (assetId === "asset_usdc") {
+            let amount: bigint;
+            try {
+              amount = parseUsdcToMicro(body.amountUsdc);
+            } catch {
+              return res
+                .status(400)
+                .json({ error: { code: "VALIDATION_ERROR", message: "Invalid USDC amount" } });
+            }
+            const orgAvail = accountId("org", org.id);
+            const available = store.getAccountMap(org.id).get(orgAvail)?.balanceMicro ?? 0n;
+            if (amount <= 0n || amount > available) {
+              return finish(400, {
+                error: {
+                  code: "INSUFFICIENT_STIPEND",
+                  message: `Org has ${formatMicroToUsdc(available)} available`,
+                },
+              });
+            }
 
-          // Above the treasury approval threshold: park for guardian review
-          // instead of sending. The guard still runs first (as a dry run), so
-          // a request the hard limits would refuse is refused now rather than
-          // parked, and an approval is never stacked on top of a refusal.
-          const threshold = treasuryHitlMicro(org);
-          if (treasuryThresholdOutcome(amount, threshold) === "review") {
-            const check = guardTreasuryWithdraw({
+            const destination = body.destination?.trim();
+            if (!destination || !/^0x[a-fA-F0-9]{40}$/.test(destination)) {
+              return finish(400, {
+                error: {
+                  code: "VALIDATION_ERROR",
+                  message: "A 0x destination address is required to withdraw real USDC.",
+                },
+              });
+            }
+            const actor = guardianIdentity(req);
+
+            // Above the treasury approval threshold: park for guardian review
+            // instead of sending. The guard still runs first (as a dry run), so
+            // a request the hard limits would refuse is refused now rather than
+            // parked, and an approval is never stacked on top of a refusal.
+            const threshold = treasuryHitlMicro(org);
+            if (treasuryThresholdOutcome(amount, threshold) === "review") {
+              const check = guardTreasuryWithdraw({
+                org,
+                actor,
+                assetId,
+                amountMicro: amount,
+                amountDisplay: formatMicroToUsdc(amount),
+                destination,
+                dryRun: true,
+              });
+              if (!check.ok) return finish(check.status, withdrawDenialBody(check));
+              const move = store.createTreasuryMove({
+                id: id("tmv"),
+                orgId: org.id,
+                kind: "withdraw",
+                fromScope: "org",
+                fromId: org.id,
+                toScope: "org",
+                toId: "external",
+                destination,
+                amountMicro: amount,
+                assetId,
+                memo: body.memo,
+                status: "pending",
+                votes: [actor],
+                createdAt: new Date().toISOString(),
+              });
+              emitEvent(org.id, "treasury.move.pending", moveView(move));
+              void notify({
+                kind: "info",
+                orgId: org.id,
+                title: "Treasury withdrawal needs approval",
+                body: `${formatMicroToUsdc(amount)} USDC → ${destination ?? "external"}`,
+                meta: { moveId: move.id },
+              });
+              return finish(202, {
+                ok: true,
+                outcome: "review",
+                move: moveView(move),
+                thresholdUsdc: formatMicroToUsdc(threshold),
+                awaitingVotes: Math.max(0, treasuryQuorum(org.id) - move.votes.length),
+                hint: "A guardian approves it under Treasury → Move → Activity.",
+              });
+            }
+
+            const result = await performUsdcWithdraw({
               org,
               actor,
-              assetId,
-              amountMicro: amount,
-              amountDisplay: formatMicroToUsdc(amount),
+              amount,
+              amountUsdc: body.amountUsdc,
               destination,
-              dryRun: true,
-            });
-            if (!check.ok) return res.status(check.status).json(withdrawDenialBody(check));
-            const move = store.createTreasuryMove({
-              id: id("tmv"),
-              orgId: org.id,
-              kind: "withdraw",
-              fromScope: "org",
-              fromId: org.id,
-              toScope: "org",
-              toId: "external",
-              destination,
-              amountMicro: amount,
-              assetId,
               memo: body.memo,
-              status: "pending",
-              votes: [actor],
-              createdAt: new Date().toISOString(),
+              idempotencyKey: idem?.key,
+              idempotencyExpiresAt: idem?.expiresAt,
             });
-            emitEvent(org.id, "treasury.move.pending", moveView(move));
-            void notify({
-              kind: "info",
-              orgId: org.id,
-              title: "Treasury withdrawal needs approval",
-              body: `${formatMicroToUsdc(amount)} USDC → ${destination ?? "external"}`,
-              meta: { moveId: move.id },
-            });
-            return res.status(202).json({
-              ok: true,
-              outcome: "review",
-              move: moveView(move),
-              thresholdUsdc: formatMicroToUsdc(threshold),
-              awaitingVotes: Math.max(0, treasuryQuorum(org.id) - move.votes.length),
-              hint: "A guardian approves it under Treasury → Move → Activity.",
-            });
+            return finish(result.status, result.body);
           }
 
-          const result = await performUsdcWithdraw({
+          // No bookkeeping in place of settlement: a live org cannot "send" an
+          // asset that is read from the chain unless a real send rail exists.
+          const sendSupport = assetSendSupport(asset);
+          if (sendSupport.mode === "unsupported") {
+            return finish(409, {
+              error: {
+                code: "ASSET_SEND_UNSUPPORTED",
+                message: sendSupport.reason,
+                assetId,
+                symbol: asset.symbol,
+              },
+            });
+          }
+          let amount: bigint;
+          try {
+            amount = parseAssetAmount(body.amountUsdc, asset.decimals);
+          } catch {
+            return finish(400, {
+              error: { code: "VALIDATION_ERROR", message: `Invalid ${asset.symbol} amount` },
+            });
+          }
+          const available = store.getOrgAssetBalance(org.id, assetId);
+          if (amount <= 0n || amount > available) {
+            return finish(400, {
+              error: {
+                code: "INSUFFICIENT_STIPEND",
+                message: `Vault has ${formatAssetAmount(available, asset.decimals)} ${asset.symbol}`,
+              },
+            });
+          }
+          // Recorded holdings, not a chain broadcast — but still money the org
+          // says it sent, so freeze / blocklist / allowlist apply. USDC caps do not.
+          const guard = guardTreasuryWithdraw({
             org,
-            actor,
-            amount,
+            actor: guardianIdentity(req),
+            assetId,
+            amountMicro: amount,
+            amountDisplay: `${formatAssetAmount(amount, asset.decimals)} ${asset.symbol}`,
+            destination: body.destination,
+          });
+          if (!guard.ok) return finish(guard.status, withdrawDenialBody(guard));
+          const bal = store.creditOrgAsset(org.id, assetId, -amount);
+          guard.commit();
+          store.addVaultAssetEvent({
+            orgId: org.id,
+            assetId,
+            kind: "out",
+            amountMicro: amount,
+            memo: body.memo ?? "vault_send",
+            counterparty: body.destination,
+          });
+          return finish(200, {
+            ok: true,
+            intentId: guard.intentId,
             amountUsdc: body.amountUsdc,
-            destination,
-            memo: body.memo,
-          });
-          return res.status(result.status).json(result.body);
-        }
-
-        // No bookkeeping in place of settlement: a live org cannot "send" an
-        // asset that is read from the chain unless a real send rail exists.
-        const sendSupport = assetSendSupport(asset);
-        if (sendSupport.mode === "unsupported") {
-          return res.status(409).json({
-            error: {
-              code: "ASSET_SEND_UNSUPPORTED",
-              message: sendSupport.reason,
-              assetId,
-              symbol: asset.symbol,
-            },
+            assetId,
+            symbol: asset.symbol,
+            balance: formatAssetAmount(bal, asset.decimals),
+            // Nothing was broadcast. Say exactly what happened.
+            sendMode: sendSupport.mode,
+            recordedOnly: true,
           });
         }
-        let amount: bigint;
-        try {
-          amount = parseAssetAmount(body.amountUsdc, asset.decimals);
-        } catch {
-          return res.status(400).json({
-            error: { code: "VALIDATION_ERROR", message: `Invalid ${asset.symbol} amount` },
-          });
-        }
-        const available = store.getOrgAssetBalance(org.id, assetId);
-        if (amount <= 0n || amount > available) {
-          return res.status(400).json({
-            error: {
-              code: "INSUFFICIENT_STIPEND",
-              message: `Vault has ${formatAssetAmount(available, asset.decimals)} ${asset.symbol}`,
-            },
-          });
-        }
-        // Recorded holdings, not a chain broadcast — but still money the org
-        // says it sent, so freeze / blocklist / allowlist apply. USDC caps do not.
-        const guard = guardTreasuryWithdraw({
-          org,
-          actor: guardianIdentity(req),
-          assetId,
-          amountMicro: amount,
-          amountDisplay: `${formatAssetAmount(amount, asset.decimals)} ${asset.symbol}`,
-          destination: body.destination,
-        });
-        if (!guard.ok) return res.status(guard.status).json(withdrawDenialBody(guard));
-        const bal = store.creditOrgAsset(org.id, assetId, -amount);
-        guard.commit();
-        store.addVaultAssetEvent({
-          orgId: org.id,
-          assetId,
-          kind: "out",
-          amountMicro: amount,
-          memo: body.memo ?? "vault_send",
-          counterparty: body.destination,
-        });
-        res.json({
-          ok: true,
-          intentId: guard.intentId,
-          amountUsdc: body.amountUsdc,
-          assetId,
-          symbol: asset.symbol,
-          balance: formatAssetAmount(bal, asset.decimals),
-          // Nothing was broadcast. Say exactly what happened.
-          sendMode: sendSupport.mode,
-          recordedOnly: true,
-        });
       },
       { ownerOnly: true },
     ),

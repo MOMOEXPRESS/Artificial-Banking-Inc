@@ -111,9 +111,19 @@ export const JOBS: JobDefinition[] = [
     intervalMs: 2 * 60_000,
     leaseMs: 300_000,
     run: async () => {
-      const { checked, failed, needsReview } = await recoverStuckSettlements();
-      if (checked > 0) {
-        recordObs({ name: "jobs.settlementRecovery", attrs: { checked, failed, needsReview } });
+      const r = await recoverStuckSettlements();
+      if (r.checked > 0 || (r.rechecked ?? 0) > 0) {
+        recordObs({
+          name: "jobs.settlementRecovery",
+          attrs: {
+            checked: r.checked,
+            failed: r.failed,
+            needsReview: r.needsReview,
+            rechecked: r.rechecked ?? 0,
+            resolved: r.resolved ?? 0,
+            escalated: r.escalated ?? 0,
+          },
+        });
       }
     },
   },

@@ -48,6 +48,7 @@ import { emitEvent } from "./webhooks.js";
 import { ingestSellerPayment, payeePinProblem, sellerPrePayCheck } from "./seller-ingest.js";
 import { X402_NETWORKS } from "./seller-x402.js";
 import { buildDenial } from "./denial.js";
+import { escalationOwner, resolverFor, unknownDeadlines } from "./jobs/settlement-recovery.js";
 
 /** Default approval window when APPROVAL_TTL_MINUTES is unset or unreadable. */
 export const DEFAULT_APPROVAL_TTL_MINUTES = 10;
@@ -772,6 +773,19 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     amountMicro: input.amountMicro,
     sessionId: input.sessionId,
   });
+  // Name, up front, who reads the outcome if the response is lost and who it
+  // goes to at the second deadline; pin the policy revision it ran under and
+  // the accounts the hold sits in so a later job can give it back.
+  store.annotateSettlement(input.intentId, {
+    resolver:
+      selectedRail === x402Rail
+        ? "x402:authorization_state"
+        : resolverFor({ rail: selectedRail.name }),
+    escalateTo: escalationOwner(input.orgId),
+    policyRevision: store.getPolicyVersion(input.orgId),
+    heldAccountId: agentHeldId,
+    availableAccountId: agentAvailableId,
+  });
 
   try {
     const settled = await selectedRail.settle({
@@ -785,6 +799,17 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
         selectedRail === x402Rail ? x402ExpectationFor(input.orgId, input.destination) : undefined,
       // Called the instant a hash exists, before waiting for confirmation.
       onBroadcast: (rail, txHash) => store.markSettlementBroadcast(input.intentId, rail, txHash),
+      // Reserve the signed maximum: record exactly what was signed before it
+      // leaves the process, and refuse (nothing sent) if it exceeds the hold.
+      onSigned: (signedMaxMicro, authorization) => {
+        if (signedMaxMicro > input.amountMicro) {
+          throw new X402Error(
+            "PRICE_EXCEEDS_AUTHORIZED",
+            `Signed ${signedMaxMicro} exceeds the held ${input.amountMicro}. Nothing was sent.`,
+          );
+        }
+        store.recordSignedMax(input.intentId, signedMaxMicro, authorization);
+      },
     });
     if (!settled.settled) {
       throw new X402Error(
@@ -811,6 +836,46 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       state: maybeMoved ? "needs_review" : "failed",
       error: e instanceof Error ? e.message : String(e),
     });
+    let unknown: { recheckAfter: string; escalateAt: string } | undefined;
+    if (maybeMoved) {
+      // Reserve the signed maximum, not the request: only what was signed can
+      // ever move, so the rest of the hold goes back now, and the row says where.
+      const signed = attempt?.signedMaxMicro;
+      if (signed !== undefined && signed < input.amountMicro) {
+        try {
+          store.applyEntries(input.orgId, [
+            releaseHold({
+              orgId: input.orgId,
+              journalId: `rs_${input.intentId}`,
+              intentId: input.intentId,
+              agentHeldId,
+              agentAvailableId,
+              amountMicro: input.amountMicro - signed,
+            }),
+          ]);
+          store.recordHoldRelease(input.intentId, {
+            amountMicro: input.amountMicro - signed,
+            to: agentAvailableId,
+            reason: "above_signed_max",
+          });
+        } catch (releaseErr) {
+          console.error(`signed-max release failed intent=${input.intentId}:`, releaseErr);
+        }
+      }
+      // Outcome unknown: amount stays held and counted, rechecked by the named
+      // resolver, handed to a named human at the second deadline.
+      unknown = unknownDeadlines();
+      store.markOutcomeUnknown(input.intentId, {
+        ...unknown,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      emitEvent(input.orgId, "payment.outcome_unknown", {
+        intentId: input.intentId,
+        agentId: input.agentId,
+        reason: e instanceof Error ? e.message : String(e),
+        ...unknown,
+      });
+    }
     const railCode =
       e && typeof e === "object" && "code" in e && typeof (e as { code: unknown }).code === "string"
         ? (e as { code: string }).code
@@ -856,10 +921,16 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
         payload: {
           intentId: input.intentId,
           outcome: "pending_reconciliation",
+          state: "outcome_unknown",
+          recheck_after: unknown?.recheckAfter,
+          status_url: `/v1/agent/intents/${input.intentId}/status`,
           settlement: {
             state: "needs_review",
+            outcome: "outcome_unknown",
             ...(attempt?.txHash && { txHash: attempt.txHash }),
             ...(attempt?.rail && { rail: attempt.rail }),
+            ...(unknown && { recheckAfter: unknown.recheckAfter, escalateAt: unknown.escalateAt }),
+            heldUsdc: formatMicroToUsdc(attempt?.signedMaxMicro ?? input.amountMicro),
           },
           error: {
             code: "SETTLEMENT_UNCERTAIN",
@@ -941,6 +1012,11 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       error: `rail settled but ledger write failed: ${String(e)}`,
       rail,
       txHash,
+    });
+    store.resolveSettlementOutcome(input.intentId, {
+      outcome: "claimed_unbooked",
+      state: "needs_review",
+      resolvedBy: "system:ledger_write_failed",
     });
     try {
       releaseFullHold();
