@@ -21,9 +21,9 @@ const buttonVariants = cva(
           "rounded-[var(--radius-sm)] bg-[var(--color-danger-soft)] text-[var(--color-danger)] border border-[color-mix(in_srgb,var(--color-danger)_28%,transparent)] hover:brightness-110",
       },
       size: {
-        default: "h-9 px-4 py-2 text-sm",
-        sm: "h-8 px-3 text-xs rounded-[9px]",
-        lg: "h-10 px-6 text-sm",
+        default: "h-9 px-4 py-2 text-[length:var(--text-sm)]",
+        sm: "h-8 px-3 text-[length:var(--text-xs)]",
+        lg: "h-10 px-6 text-[length:var(--text-base)]",
         icon: "h-9 w-9",
       },
     },

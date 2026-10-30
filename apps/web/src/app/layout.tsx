@@ -5,6 +5,7 @@ import "./globals.css";
 import "./controls.css";
 import "./refinements.css";
 import "./waitlist.css";
+import "./design-system.css";
 
 const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
