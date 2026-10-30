@@ -131,6 +131,7 @@ model Approvals {
   sessionId String? @map("session_id")
   rulesHash String? @map("rules_hash")
   policyRevision String? @map("policy_revision")
+  staleReasonsJson String? @map("stale_reasons_json")
   @@index([orgId])
   @@map("approvals")
 }

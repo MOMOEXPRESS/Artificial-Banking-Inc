@@ -59,12 +59,13 @@ change. 409 responses for uncertain sends carry `state`, `recheck_after` and
 
 ### Approval record the agent can read
 
-`GET /v1/agent/approvals/:id` now returns `rulesHash` (sha-256 of the
-canonical policy rules at request time), `policyRevision`, the current
+`GET /v1/agent/approvals/:id` now returns `rulesHash` (`r2:` + sha-256 of the
+agent's effective rules at request time), `policyRevision`, the current
 revision, `stale` reasons, and `approver` (`null` while pending, then who
-resolved it, when, and each guardian vote). A stale approval is **reported**,
-not auto-cancelled: execution re-evaluates against the current rules anyway.
-This deviates from Tina's "dead, not old" wording — flagged for a decision.
+resolved it, when, and each guardian vote). A stale approval is **cancelled
+automatically** (`cancelled_stale`, resolver `system:stale_cancel`, reasons
+recorded, nothing sent, agent told to re-request) — "dead, not old". See
+[REFUSALS-AND-APPROVALS.md](./REFUSALS-AND-APPROVALS.md#stale-approvals-are-cancelled-dead-not-old).
 
 ## 2. Withdrawals are safe to retry
 

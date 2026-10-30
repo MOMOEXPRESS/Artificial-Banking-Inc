@@ -743,16 +743,13 @@ describe("item 4: approval record and outflow reconciliation", () => {
     });
     const before = await call(`/v1/agent/approvals/${parked.body.approvalId}`, f.agent.apiKey);
     assert.equal(before.status, 200);
-    assert.match(before.body.approval.rulesHash, /^[0-9a-f]{64}$/);
+    assert.match(before.body.approval.rulesHash, /^r2:[0-9a-f]{64}$/);
     assert.equal(before.body.approval.policyRevision, store.getPolicyVersion(f.org.id));
     assert.equal(before.body.approval.approver, null);
     assert.deepEqual(before.body.approval.stale, []);
     assert.ok(before.body.approval.staleIf.includes("policy_revision_changed"));
 
-    // A policy edit makes the pending approval visibly stale.
-    store.setPolicyTemplate(f.org.id, { ...store.getPolicyTemplate(f.org.id) }, "edit");
-    const stale = await call(`/v1/agent/approvals/${parked.body.approvalId}`, f.agent.apiKey);
-    assert.deepEqual(stale.body.approval.stale, ["policy_revision_changed"]);
+    // A policy edit now cancels it instead (stale-approvals.api.test.ts).
 
     const resolved = await call(
       `/v1/guardian/approvals/${parked.body.approvalId}/resolve`,

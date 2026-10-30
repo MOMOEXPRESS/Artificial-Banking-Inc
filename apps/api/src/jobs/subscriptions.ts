@@ -11,7 +11,14 @@
  */
 import { formatMicroToUsdc } from "@policyvault/common";
 import { evaluatePolicy } from "@policyvault/policy";
-import { approvalExpiresAt, executeIntent, id, recordDecision, rulesFor } from "../engine.js";
+import {
+  approvalBindingHash,
+  approvalExpiresAt,
+  executeIntent,
+  id,
+  recordDecision,
+  rulesFor,
+} from "../engine.js";
 import { notify } from "../platform/notifier.js";
 import { store, type ApprovalRow } from "../store.js";
 import { emitEvent } from "../webhooks.js";
@@ -74,6 +81,9 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
         status: "pending",
         createdAt: new Date().toISOString(),
         expiresAt: approvalExpiresAt(),
+        // Bound to these rules: a policy change cancels it (cancelled_stale).
+        rulesHash: approvalBindingHash(sub.agentId, sub.orgId),
+        policyRevision: store.getPolicyVersion(sub.orgId),
       };
       store.createApproval(approval);
       // notify() already fans into the webhook channel — do not also emitEvent.

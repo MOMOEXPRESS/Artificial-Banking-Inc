@@ -113,6 +113,15 @@ export function describeEvent(kind: string, raw: unknown): Described {
     case "approval.resolved": {
       const status = str(d.status) ?? "resolved";
       const by = str(d.resolvedBy);
+      if (status === "cancelled_stale") {
+        const reasons = Array.isArray(d.staleReasons) ? d.staleReasons.join(", ") : undefined;
+        return {
+          title: "Approval cancelled: rules changed",
+          body: join(str(d.approvalId), reasons, "nothing was sent; the agent must re-request"),
+          link: "approvals",
+          severity: "info",
+        };
+      }
       return {
         title: `Approval ${status}`,
         body: join(str(d.approvalId), by && status !== "expired" ? `by ${by}` : undefined),

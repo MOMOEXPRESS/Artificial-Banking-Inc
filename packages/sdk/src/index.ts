@@ -558,7 +558,7 @@ export interface ApprovalView {
   tool: string;
   amountUsdc: string;
   destination: string;
-  status: "pending" | "approved" | "denied" | "expired";
+  status: "pending" | "approved" | "denied" | "expired" | "cancelled_stale";
   reasons: string[];
   createdAt: string;
   expiresAt: string;

@@ -55,11 +55,11 @@ read `error`.
   returns the same code (and the same `denial`), whatever idempotency key it
   used. A refusal never charges anything.
 - `payment_state` is one of `not_sent`, `awaiting_approval`,
-  `expired_not_sent`. In every one of them nothing has been signed or
-  broadcast.
+  `expired_not_sent`, `cancelled_not_sent`. In every one of them nothing has
+  been signed or broadcast.
 - `next_step.action` is the one move the agent may make next:
   `lower_amount`, `wait_for_window`, `ask_guardian`, `check_status`,
-  `repropose`, `retry_later`, `request_new_session` or `none`.
+  `repropose`, `retry_later`, `request_new_session`, `re_request` or `none`.
 - `numbers` is present for cap refusals (the "denial numbers").
 
 ## Approvals
@@ -82,6 +82,51 @@ read `error`.
 - Expiry emits `approval.resolved` with `status: "expired"`,
   `resolvedBy: "system:approval_expiry"`, and a named `owner` (the org's
   owner) whose decision it was waiting for.
+
+### Stale approvals are cancelled ("dead, not old")
+
+An approval binds to the rules it was parked under: `policyRevision` (the
+org's policy version) and `rulesHash` (`r2:` + sha-256 of the agent's
+effective caps, budgets, windows and allowlists — org template plus agent
+override — and the session key's x402 budget). Spend counters and balances
+are not part of the hash: other payments settling do not make an approval
+stale, and the vote-time policy re-check still enforces every cap.
+
+If either changes while the approval is pending, it is **cancelled**:
+
+- **When:** at the moment of the change (every policy write — template edits,
+  restores, template applies, quorum changes, allowlist changes from
+  connections, agent overrides set or cleared — cancels what it made stale),
+  in the scheduled approval sweep (every 10 s), on approval and intent-status
+  reads, when a guardian votes, and once more under the claim right before
+  execution.
+- **End state:** status `cancelled_stale`, `resolvedBy:
+"system:stale_cancel"`, and the reasons recorded (`staleReasons`:
+  `policy_revision_changed`, `rules_hash_changed`).
+- **Money:** nothing is sent. A parked approval holds no funds (nothing is
+  reserved until a guardian's yes executes), so there is nothing to release.
+- **Event:** `approval.resolved` with `status: "cancelled_stale"`,
+  `resolvedBy: "system:stale_cancel"`, `staleReasons`, `ruleIds:
+["approval_stale"]` and the `denial` — exactly once.
+- **Refusal:** `rule_code: "approval_stale"`, `payment_state:
+"cancelled_not_sent"`, `next_step.action: "re_request"`. A guardian vote on a
+  stale approval gets `409 APPROVAL_STALE` with the same `denial`; the vote is
+  not recorded and nothing executes. A retry under the same idempotency key
+  replays the cancellation; the agent re-requests with a **new** key and is
+  checked against the current rules.
+- **Agent-readable record:** `GET /v1/agent/approvals/:id` shows
+  `status: "cancelled_stale"`, `stale` (the reasons) and `cancelled: { reason,
+staleReasons, by, at, rule_code, next_step }`; the intent status read
+  returns `state: "cancelled_stale"` (terminal).
+- **Idempotent:** cancellation is a compare-and-set on `pending` (or on the
+  guardian's claim), so each approval is cancelled at most once; repeat
+  sweeps and later policy changes do nothing.
+- Approvals parked before this change carry an older hash format and are
+  judged on `policyRevision` alone.
+
+Note: every policy write bumps the revision, so any edit — even one unrelated
+to a given payment, such as allowlisting a new seller — cancels all of the
+org's pending approvals. That is the intended "dead, not old" behaviour.
 
 ## x402 session budgets
 

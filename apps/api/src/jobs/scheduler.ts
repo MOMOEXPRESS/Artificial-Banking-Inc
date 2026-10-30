@@ -15,7 +15,7 @@
  *   - reports through the observability sink rather than only to stdout.
  */
 import { randomBytes } from "node:crypto";
-import { sweepApprovalExpiry, sweepEscrowTimeouts } from "../engine.js";
+import { sweepApprovalExpiry, sweepEscrowTimeouts, sweepStaleApprovals } from "../engine.js";
 import { runAutoFundSweep } from "../auto-fund.js";
 import { runOnchainDepositSweep } from "../chain/sync-deposits.js";
 import { recordObs } from "../platform/observability.js";
@@ -53,7 +53,11 @@ export const JOBS: JobDefinition[] = [
     name: "approval-expiry",
     intervalMs: 10_000,
     leaseMs: 60_000,
-    run: () => sweepApprovalExpiry(),
+    run: () => {
+      sweepApprovalExpiry();
+      // Backstop for the policy-write hook: cancel anything the rules made stale.
+      sweepStaleApprovals();
+    },
   },
   {
     name: "overdue-invoices",

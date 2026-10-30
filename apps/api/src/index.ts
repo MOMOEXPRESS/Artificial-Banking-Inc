@@ -36,11 +36,13 @@ import {
   scopedIdempotencyKey,
   settleEscrow,
   sweepApprovalExpiry,
+  sweepStaleApprovals,
+  approvalBindingHash,
   sweepEscrowTimeouts,
   type ExecInput,
 } from "./engine.js";
 import { buildDenial } from "./denial.js";
-import { approvalRecord, intentStatus, outflowReconciliation, rulesHash } from "./outcomes.js";
+import { approvalRecord, intentStatus, outflowReconciliation } from "./outcomes.js";
 import { anomalies, burnForecast, jobEconomics, vendorLedger } from "./analytics.js";
 import { answerQuestion, buildSummary } from "./insights.js";
 import { runAbiAgent, runMemoryCommand } from "./abi-agent/index.js";
@@ -1029,9 +1031,9 @@ async function handleIntent(
       createdAt: new Date().toISOString(),
       expiresAt: approvalExpiresAt(),
       // The approval record binds the exact rules it was checked against.
-      rulesHash: rulesHash(
-        rulesFor(input.agentId, input.orgId, input.destination, { sessionId: input.sessionId }),
-      ),
+      // Caps, budgets and allowlists only (not spend counters): if any of
+      // them change before a guardian decides, the approval is cancelled.
+      rulesHash: approvalBindingHash(input.agentId, input.orgId, input.sessionId),
       policyRevision: decision.policyVersion ?? store.getPolicyVersion(input.orgId),
     };
     store.createApproval(approval);
@@ -2372,6 +2374,7 @@ app.get(
   "/v1/guardian/approvals",
   guardianRoute((org, req, res) => {
     sweepApprovalExpiry();
+    sweepStaleApprovals(org.id);
     const status = req.query.status ? String(req.query.status) : undefined;
     res.json({ approvals: store.listApprovals(org.id, status).map(approvalView) });
   }),
@@ -2481,6 +2484,17 @@ app.post(
             rule_code: "approval_timeout",
           },
           denial: buildDenial({ ruleIds: ["approval_timeout"], paymentState: "expired_not_sent" }),
+          approval: approvalView(outcome.approval),
+        });
+      case "stale":
+        return res.status(409).json({
+          error: {
+            code: "APPROVAL_STALE",
+            message: `The rules changed after this payment was parked (${outcome.staleReasons.join(", ")}). The approval was cancelled and nothing was sent; the agent must re-request it.`,
+            rule_code: "approval_stale",
+          },
+          staleReasons: outcome.staleReasons,
+          denial: buildDenial({ ruleIds: ["approval_stale"], paymentState: "cancelled_not_sent" }),
           approval: approvalView(outcome.approval),
         });
       case "frozen":
@@ -2807,6 +2821,7 @@ app.get("/v1/agent/approvals/:id", (req, res) => {
   if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
   if (!requireAgentScope(auth, "read", res)) return;
   sweepApprovalExpiry();
+  sweepStaleApprovals(auth.orgId);
   const approval = store.getApproval(req.params.id, auth.orgId);
   if (!approval || approval.agentId !== auth.agentId) {
     return res.status(404).json({ error: { code: "NOT_FOUND" } });
@@ -2828,6 +2843,7 @@ app.get("/v1/agent/intents/:intentId/status", (req, res) => {
   if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
   if (!requireAgentScope(auth, "read", res)) return;
   sweepApprovalExpiry();
+  sweepStaleApprovals(auth.orgId);
   const status = intentStatus(auth.orgId, req.params.intentId, auth.agentId);
   if (!status) return res.status(404).json({ error: { code: "NOT_FOUND" } });
   res.json(status);

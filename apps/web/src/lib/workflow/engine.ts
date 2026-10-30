@@ -278,5 +278,8 @@ async function waitForApproval(
     if (status === "approved") return "approved";
     if (status === "denied") return "denied";
     if (status === "expired") return "expired";
+    // The rules changed while it waited: cancelled, nothing sent. Treated as
+    // a refusal; the run must re-request under the current rules.
+    if (status === "cancelled_stale") return "denied";
   }
 }
