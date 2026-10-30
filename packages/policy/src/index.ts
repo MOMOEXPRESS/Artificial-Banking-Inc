@@ -60,6 +60,14 @@ export interface PolicyRules {
   /** Settled org spend for this exact destination, injected by the runtime. */
   merchantSpentLast24hMicro?: MicroUsdc;
   /**
+   * x402 session budget: the most the session key this request came through
+   * may spend on pay_api over its whole life. Injected by the runtime only for
+   * session-key requests; omitted means no session budget.
+   */
+  sessionBudgetMicro?: MicroUsdc;
+  /** pay_api spend already counted against that session (settled + in flight). */
+  sessionSpentMicro?: MicroUsdc;
+  /**
    * Per-category ceilings (P6-T3), keyed by lowercase category.
    *
    * Amount + destination + time says nothing about WHAT the money is for,
@@ -500,6 +508,28 @@ export function evaluatePolicy(
           cap,
           rules.merchantSpentLast24hMicro ?? 0n,
           "24h",
+        ),
+      };
+    }
+  }
+
+  // x402 session budget. The x402 SDK only caps a single payment; a session
+  // key minted for one job gets a total it can never exceed, whatever the
+  // agent's daily headroom says.
+  if (intent.tool === "pay_api" && rules.sessionBudgetMicro !== undefined) {
+    const used = rules.sessionSpentMicro ?? 0n;
+    if (used + intent.amountMicro > rules.sessionBudgetMicro) {
+      return {
+        outcome: "deny",
+        ruleIds: ["session_budget"],
+        reasons: ["Exceeds this session key's x402 budget"],
+        policyVersion,
+        limits: capLimits(
+          "session_budget",
+          intent.amountMicro,
+          rules.sessionBudgetMicro,
+          used,
+          "session",
         ),
       };
     }

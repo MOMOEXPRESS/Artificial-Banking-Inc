@@ -160,6 +160,14 @@ export interface SessionKeyRecord {
   token?: string;
   label?: string;
   scopes: string[];
+  /**
+   * x402 session budget, decimal USDC: the most this session key may spend on
+   * `pay_api` (x402) over its whole life. Omitted means no session budget —
+   * the agent's own caps still apply either way.
+   */
+  x402BudgetUsdc?: string;
+  /** pay_api spend counted against the budget so far (settled + in flight). */
+  x402SpentUsdc?: string;
   expiresAt: string;
   revokedAt?: string;
   createdAt: string;
