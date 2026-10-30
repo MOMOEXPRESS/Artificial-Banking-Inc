@@ -8031,25 +8031,40 @@ export const sellerStore = {
     supportEmail: string;
   })[] {
     return (
-      db
-        .prepare(
-          `SELECT o.*, COALESCE(p.display_name, g.name) AS seller_name, COALESCE(p.website, '') AS seller_website,
+      (
+        db
+          .prepare(
+            `SELECT o.*, i.ownership_origin, COALESCE(p.display_name, g.name) AS seller_name, COALESCE(p.website, '') AS seller_website,
                   p.payout_address AS seller_payout, COALESCE(p.support_email, '') AS seller_support
            FROM offers o
            JOIN orgs g ON g.id = o.org_id
+           JOIN offer_integrations i ON i.offer_id = o.id
            LEFT JOIN seller_profiles p ON p.org_id = o.org_id
            WHERE o.status = 'published' AND o.directory_listed = 1
              AND o.archived_at IS NULL AND (o.sunset_at IS NULL OR o.sunset_at > ?)
+             AND i.last_verified_at IS NOT NULL
+             AND (o.hosted = 1 OR i.ownership_verified_at IS NOT NULL)
+             AND p.payout_address IS NOT NULL AND p.payout_address != ''
            ORDER BY o.updated_at DESC`,
+          )
+          .all(nowIsoStr) as Row[]
+      )
+        // The directory and the pay resolver share one ownership rule: only a
+        // verified owner of the endpoint is listed.
+        .filter(
+          (r) =>
+            Number(r.hosted) === 1 ||
+            (typeof r.ownership_origin === "string" &&
+              r.ownership_origin === endpointOrigin(String(r.endpoint_url))),
         )
-        .all(nowIsoStr) as Row[]
-    ).map((r) => ({
-      ...rowToOffer(r),
-      sellerName: String(r.seller_name),
-      website: String(r.seller_website ?? ""),
-      payoutAddress: optStr(r.seller_payout),
-      supportEmail: String(r.seller_support ?? ""),
-    }));
+        .map((r) => ({
+          ...rowToOffer(r),
+          sellerName: String(r.seller_name),
+          website: String(r.seller_website ?? ""),
+          payoutAddress: optStr(r.seller_payout),
+          supportEmail: String(r.seller_support ?? ""),
+        }))
+    );
   },
 
   listArchivedOffers(sellerOrgId: string): OfferRow[] {

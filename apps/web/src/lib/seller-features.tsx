@@ -35,6 +35,11 @@ export type SellerOffer = {
     wellKnownUrl?: string | null;
     record?: string | null;
   };
+  /** Live in the public buyer directory, or every reason it is not. */
+  listing?: {
+    live: boolean;
+    blockers: { code: string; message: string }[];
+  };
   integration: {
     lastVerifiedAt: string | null;
     snippetVersion: string | null;
@@ -264,7 +269,8 @@ export function DirectoryView({ offers, onOffersChanged }: FeatureProps) {
         </p>
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {offers.map((o) => {
-            const live = publicIds.has(o.id);
+            const live = o.listing ? o.listing.live : publicIds.has(o.id);
+            const blocker = o.listing?.blockers[0];
             return (
               <li key={o.id} style={rowStyle}>
                 <div style={{ minWidth: 0 }}>
@@ -273,14 +279,17 @@ export function DirectoryView({ offers, onOffersChanged }: FeatureProps) {
                     <Pill tone="ok">Live in directory</Pill>
                   ) : o.directoryListed === false ? (
                     <Pill tone="muted">Hidden</Pill>
-                  ) : o.status !== "published" ? (
-                    <Pill tone="warn">Lists when published</Pill>
                   ) : (
-                    <Pill tone="muted">Past sunset</Pill>
+                    <Pill tone="warn">Not live yet</Pill>
                   )}
                   <div className="muted" style={{ fontSize: 12.5 }}>
                     {o.slug} · {o.version ?? "v1"} · {o.priceUsdc} USDC · {o.status}
                   </div>
+                  {!live && blocker && (
+                    <div className="muted" style={{ fontSize: 12.5 }} data-testid="listing-blocker">
+                      Next step: {blocker.message}
+                    </div>
+                  )}
                 </div>
                 <Toggle
                   label="List in directory"

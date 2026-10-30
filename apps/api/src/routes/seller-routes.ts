@@ -18,6 +18,7 @@ import { resolveConsoleUrl, sendEmail } from "../platform/email.js";
 import { recordObs } from "../platform/observability.js";
 import { fetchNoRedirect, outboundUrlProblem } from "../outbound-url.js";
 import {
+  endpointOrigin,
   partnerStore,
   sellerStore,
   store,
@@ -156,6 +157,51 @@ function ownershipView(offer: OfferRow) {
   };
 }
 
+export type ListingBlocker =
+  | "ARCHIVED"
+  | "PAYOUT_MISSING"
+  | "NOT_VERIFIED"
+  | "OWNERSHIP_UNPROVEN"
+  | "NOT_PUBLISHED"
+  | "PAUSED"
+  | "SUNSET"
+  | "HIDDEN";
+
+/**
+ * Whether this offer is live in the public buyer directory, and if not, every
+ * reason why, in the order the seller should fix them. Mirrors
+ * sellerStore.listDirectoryOffers exactly.
+ */
+export function listingStatus(
+  offer: OfferRow,
+  now = new Date(),
+): { live: boolean; blockers: { code: ListingBlocker; message: string }[] } {
+  const blockers: { code: ListingBlocker; message: string }[] = [];
+  const add = (code: ListingBlocker, message: string) => blockers.push({ code, message });
+  if (offer.archivedAt) add("ARCHIVED", "Archived offers are off sale.");
+  if (!store.getSellerProfile(offer.orgId)?.payoutAddress) {
+    add("PAYOUT_MISSING", "Set a payout wallet in Settings.");
+  }
+  const integration = store.getOfferIntegration(offer.id);
+  if (!integration?.lastVerifiedAt) {
+    add("NOT_VERIFIED", "Verify the unpaid 402 at the current price, network and endpoint.");
+  }
+  const ownershipProven =
+    offer.hosted ||
+    (Boolean(integration?.ownershipVerifiedAt) &&
+      integration?.ownershipOrigin === endpointOrigin(offer.endpointUrl));
+  if (!ownershipProven) {
+    add("OWNERSHIP_UNPROVEN", "Serve your ownership record on the endpoint's origin, then verify.");
+  }
+  if (offer.status === "paused") add("PAUSED", "Paused: publish again to resume sales.");
+  else if (offer.status !== "published") add("NOT_PUBLISHED", "Publish once verified.");
+  if (offer.sunsetAt && offer.sunsetAt <= now.toISOString()) {
+    add("SUNSET", "This version is past its sunset date.");
+  }
+  if (!offer.directoryListed) add("HIDDEN", "Listing is turned off for this offer.");
+  return { live: blockers.length === 0, blockers };
+}
+
 export function offerView(offer: OfferRow) {
   const integration = store.getOfferIntegration(offer.id);
   return {
@@ -184,6 +230,7 @@ export function offerView(offer: OfferRow) {
     createdAt: offer.createdAt,
     updatedAt: offer.updatedAt,
     ownership: ownershipView(offer),
+    listing: listingStatus(offer),
     integration: {
       lastVerifiedAt: integration?.lastVerifiedAt ?? null,
       snippetVersion: integration?.snippetVersion ?? null,

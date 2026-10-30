@@ -59,6 +59,22 @@ export function toChallengeCheck(raw: unknown): ChallengeCheck | null {
   };
 }
 
+/** One line for the catalog: live in the directory, or the next thing to fix. */
+export function listingSummary(offer: SellerOffer): { live: boolean; text: string } {
+  if (!offer.listing) return { live: offer.status === "published", text: offer.status };
+  if (offer.listing.live) return { live: true, text: "Live in the buyer directory" };
+  const next = offer.listing.blockers[0];
+  return { live: false, text: next ? next.message : "Not listed" };
+}
+
+/** Which lifecycle action the catalog row offers inline. */
+export function nextAction(offer: SellerOffer): "verify" | "publish" | null {
+  if (offer.archivedAt) return null;
+  if (offer.status === "published" || offer.status === "paused") return null;
+  if (offer.status === "verified" && offer.integration.lastVerifiedAt) return "publish";
+  return "verify";
+}
+
 export function statusTone(status: SellerOffer["status"]): "ok" | "warn" | "muted" | "danger" {
   if (status === "published") return "ok";
   if (status === "verified") return "warn";
@@ -105,6 +121,7 @@ export function CatalogView({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [archived, setArchived] = useState<SellerOffer[]>([]);
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
 
   useEffect(() => {
     if (!showArchived) return;
@@ -155,6 +172,42 @@ export function CatalogView({
     }
   }
 
+  async function verifyInline(offer: SellerOffer) {
+    setRowBusy(offer.id);
+    try {
+      const res = await apiFetch(`/v1/seller/offers/${offer.id}/verify`, {
+        method: "POST",
+        body: "{}",
+      });
+      if (!res.ok) {
+        toast(await sellerApiError(res, "Verify failed"), "err");
+      } else {
+        toast("Verified. Publish it to go live.", "ok");
+      }
+      await onOffersChanged();
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
+  async function publishInline(offer: SellerOffer) {
+    setRowBusy(offer.id);
+    try {
+      const res = await apiFetch(`/v1/seller/offers/${offer.id}/publish`, {
+        method: "POST",
+        body: "{}",
+      });
+      if (!res.ok) {
+        toast(await sellerApiError(res, "Publish failed"), "err");
+      } else {
+        toast("Published. Buyer agents can pay it now.", "ok");
+      }
+      await onOffersChanged();
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
   async function resume(offer: SellerOffer) {
     const res = await apiFetch(`/v1/seller/offers/${offer.id}/publish`, {
       method: "POST",
@@ -189,6 +242,143 @@ export function CatalogView({
 
   return (
     <div style={{ display: "grid", gap: 16, maxWidth: 880 }}>
+      <Card
+        title="Your catalog"
+        actions={
+          <Button size="sm" variant="secondary" onClick={() => setShowArchived((v) => !v)}>
+            {showArchived ? "Hide archived" : "Show archived"}
+          </Button>
+        }
+      >
+        {offers.length === 0 ? (
+          <Empty>No offers yet. Add one to start selling.</Empty>
+        ) : (
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {offers.map((o) => (
+              <li key={o.id} style={{ ...rowStyle, display: "block" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
+                    >
+                      <b>{o.title}</b>
+                      <Pill tone={statusTone(o.status)}>{o.status}</Pill>
+                      {o.hosted && <Pill tone="muted">ABI hosted</Pill>}
+                      {o.accessMode === "allowlist" && <Pill tone="muted">approved buyers</Pill>}
+                      {o.deprecatedAt && <Pill tone="warn">deprecated</Pill>}
+                    </div>
+                    <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
+                      {o.slug} · {o.version ?? "v1"} · {o.category ?? "other"} · {o.priceUsdc} USDC
+                      on {o.network}
+                    </div>
+                    <div className="muted" style={{ fontSize: 12, wordBreak: "break-all" }}>
+                      {o.endpointUrl}
+                    </div>
+                    {(() => {
+                      const listing = listingSummary(o);
+                      return (
+                        <div
+                          data-testid="listing-status"
+                          style={{
+                            fontSize: 12.5,
+                            marginTop: 4,
+                            color: listing.live ? "var(--color-success, inherit)" : undefined,
+                          }}
+                          className={listing.live ? undefined : "muted"}
+                        >
+                          {listing.live ? "● " : "○ "}
+                          {listing.text}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {nextAction(o) === "verify" && (
+                      <Button
+                        size="sm"
+                        disabled={rowBusy === o.id}
+                        onClick={() => void verifyInline(o)}
+                      >
+                        {rowBusy === o.id ? "Checking…" : "Verify"}
+                      </Button>
+                    )}
+                    {nextAction(o) === "publish" && (
+                      <Button
+                        size="sm"
+                        disabled={rowBusy === o.id}
+                        onClick={() => void publishInline(o)}
+                      >
+                        {rowBusy === o.id ? "Publishing…" : "Publish"}
+                      </Button>
+                    )}
+                    <Button size="sm" variant="secondary" onClick={() => onIntegrate(o.id)}>
+                      {o.hosted ? "Details" : "Integration"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setEditingId(editingId === o.id ? null : o.id)}
+                    >
+                      {editingId === o.id ? "Close" : "Edit"}
+                    </Button>
+                    {o.status === "published" && (
+                      <Button size="sm" variant="secondary" onClick={() => void pause(o)}>
+                        Pause
+                      </Button>
+                    )}
+                    {o.status === "paused" && (
+                      <Button size="sm" variant="secondary" onClick={() => void resume(o)}>
+                        Resume
+                      </Button>
+                    )}
+                    <Button size="sm" variant="secondary" onClick={() => void archive(o)}>
+                      Archive
+                    </Button>
+                  </div>
+                </div>
+                {editingId === o.id && (
+                  <OfferEditor
+                    offer={o}
+                    onSaved={async () => {
+                      setEditingId(null);
+                      await onOffersChanged();
+                    }}
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {showArchived && (
+          <div style={{ marginTop: 16 }}>
+            <h4 style={{ margin: "0 0 6px" }}>Archived</h4>
+            {archived.length === 0 ? (
+              <Empty>Nothing archived.</Empty>
+            ) : (
+              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                {archived.map((o) => (
+                  <li key={o.id} style={rowStyle}>
+                    <span>
+                      {o.title} <span className="muted">· {o.slug}</span>
+                    </span>
+                    <span className="muted" style={{ fontSize: 12 }}>
+                      archived {fmtDate(o.archivedAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </Card>
       <Card title="New offer">
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
           <Button
@@ -301,109 +491,6 @@ export function CatalogView({
         <Button style={{ marginTop: 12 }} disabled={busy} onClick={() => void create()}>
           {busy ? "Adding…" : "Add offer"}
         </Button>
-      </Card>
-
-      <Card
-        title="Your catalog"
-        actions={
-          <Button size="sm" variant="secondary" onClick={() => setShowArchived((v) => !v)}>
-            {showArchived ? "Hide archived" : "Show archived"}
-          </Button>
-        }
-      >
-        {offers.length === 0 ? (
-          <Empty>No offers yet. Add one to start selling.</Empty>
-        ) : (
-          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-            {offers.map((o) => (
-              <li key={o.id} style={{ ...rowStyle, display: "block" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12,
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <div
-                      style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}
-                    >
-                      <b>{o.title}</b>
-                      <Pill tone={statusTone(o.status)}>{o.status}</Pill>
-                      {o.hosted && <Pill tone="muted">ABI hosted</Pill>}
-                      {o.accessMode === "allowlist" && <Pill tone="muted">approved buyers</Pill>}
-                      {o.deprecatedAt && <Pill tone="warn">deprecated</Pill>}
-                    </div>
-                    <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
-                      {o.slug} · {o.version ?? "v1"} · {o.category ?? "other"} · {o.priceUsdc} USDC
-                      on {o.network}
-                    </div>
-                    <div className="muted" style={{ fontSize: 12, wordBreak: "break-all" }}>
-                      {o.endpointUrl}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <Button size="sm" variant="secondary" onClick={() => onIntegrate(o.id)}>
-                      {o.status === "draft" ? "Verify & publish" : "Integration"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => setEditingId(editingId === o.id ? null : o.id)}
-                    >
-                      {editingId === o.id ? "Close" : "Edit"}
-                    </Button>
-                    {o.status === "published" && (
-                      <Button size="sm" variant="secondary" onClick={() => void pause(o)}>
-                        Pause
-                      </Button>
-                    )}
-                    {o.status === "paused" && (
-                      <Button size="sm" variant="secondary" onClick={() => void resume(o)}>
-                        Resume
-                      </Button>
-                    )}
-                    <Button size="sm" variant="secondary" onClick={() => void archive(o)}>
-                      Archive
-                    </Button>
-                  </div>
-                </div>
-                {editingId === o.id && (
-                  <OfferEditor
-                    offer={o}
-                    onSaved={async () => {
-                      setEditingId(null);
-                      await onOffersChanged();
-                    }}
-                  />
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        {showArchived && (
-          <div style={{ marginTop: 16 }}>
-            <h4 style={{ margin: "0 0 6px" }}>Archived</h4>
-            {archived.length === 0 ? (
-              <Empty>Nothing archived.</Empty>
-            ) : (
-              <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-                {archived.map((o) => (
-                  <li key={o.id} style={rowStyle}>
-                    <span>
-                      {o.title} <span className="muted">· {o.slug}</span>
-                    </span>
-                    <span className="muted" style={{ fontSize: 12 }}>
-                      archived {fmtDate(o.archivedAt)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
       </Card>
     </div>
   );
