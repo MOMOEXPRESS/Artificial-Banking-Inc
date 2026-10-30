@@ -5,6 +5,7 @@
 import { buildOrgBriefSafe } from "./context.js";
 import {
   lastScratchpad,
+  olderHistorySummary,
   resolveFollowUp,
   scratchpadSnippet,
   transcriptSnippet,
@@ -45,6 +46,12 @@ const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   forget_fact:
     "Delete a saved org note. Pass target (words from the note, or its number from recall_facts) or all=true only when the guardian explicitly asks to clear everything.",
   draft_marketing_blurb: "Draft marketing copy from org facts (not published).",
+  recent_payments:
+    "Numbered list of the latest payment attempts (settled / blocked / waiting) with agent and time. Optional agentId, outcome (allow|deny|review).",
+  notifications_digest:
+    "Latest notifications under the bell with unread count. Read-only — never marks anything read.",
+  conversation_recap:
+    "Recap of earlier chat sessions with this org: topics, agents discussed, recent questions.",
 };
 
 type OpenAiToolCall = {
@@ -63,6 +70,22 @@ type OpenAiMessage = {
 
 function openaiTools() {
   return TOOL_NAMES.map((name) => {
+    if (name === "recent_payments") {
+      return {
+        type: "function" as const,
+        function: {
+          name,
+          description: TOOL_DESCRIPTIONS[name],
+          parameters: {
+            type: "object",
+            properties: {
+              agentId: { type: "string", description: "Optional agent id" },
+              outcome: { type: "string", enum: ["allow", "deny", "review"] },
+            },
+          },
+        },
+      };
+    }
     if (name === "lookup_decision" || name === "explain_decision") {
       return {
         type: "function" as const,
@@ -79,6 +102,15 @@ function openaiTools() {
               agentId: {
                 type: "string",
                 description: "Optional agent id to scope the search",
+              },
+              intentId: {
+                type: "string",
+                description: "Exact decision id (from recent_payments DATA.decisionIds)",
+              },
+              outcome: {
+                type: "string",
+                enum: ["allow", "deny", "review"],
+                description: "Prefer the latest decision with this outcome",
               },
             },
             required: name === "lookup_decision" ? ["query"] : [],
@@ -189,6 +221,7 @@ export async function runLlmToolLoop(
   const followed = resolveFollowUp(message, recent);
   const effectiveMessage = followed.query !== message ? followed.query : message;
   const history = transcriptSnippet(recent, 6);
+  const earlier = olderHistorySummary(recent, 6);
   const scratch = scratchpadSnippet(lastScratchpad(recent));
   const ctx = buildOrgBriefSafe(orgId);
   let memories = "";
@@ -230,6 +263,10 @@ export async function runLlmToolLoop(
         "For durable notes the guardian teaches you, call remember_fact; to list them call recall_facts; to delete one call forget_fact.",
         "Use the guardian notes below as background facts about this org when they are relevant, and say when an answer relies on one. Connect notes to the live snapshot (e.g. a note about an agent + that agent's current spend) instead of repeating either back.",
         "When asked what to do next, prefer recommend_next.",
+        'Guardians often type casually, misspell words or dictate by voice: read for intent ("reseacher" = Researcher, "txns" = payments, "stuck" = pending approvals).',
+        'Resolve "the last one", "the second one", "that agent" against the previous answer and scratchpad; if it is genuinely ambiguous, ask one short clarifying question.',
+        "If the org data does not contain the answer, say you don't know rather than estimating. Never state a figure that is not in the snapshot or a tool result.",
+        "If asked to approve, deny, pay, transfer, or change policy, explain you can't from chat and point to the console page where the guardian does it.",
         "You cannot post anywhere or sign up for anything. For social or web copy, call draft_marketing_blurb and hand the guardian text to post themselves.",
         "After tools return, write a concise plain-text reply for the guardian.",
         "",
@@ -237,6 +274,7 @@ export async function runLlmToolLoop(
         ctx,
         roster ? `\n${roster}` : "",
         scratch ? `\n${scratch}` : "",
+        earlier ? `\n${earlier}` : "",
         memories ? `\n${memories}` : "",
       ]
         .filter(Boolean)

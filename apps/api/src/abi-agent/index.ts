@@ -21,6 +21,15 @@ import {
 import { planTools } from "./planner.js";
 import { formatAdvice, synthesizeAdvice } from "./reason.js";
 import { anomalyNote, pickTools, runTool, type ToolName, type ToolResult } from "./tools.js";
+import {
+  detectActionRequest,
+  normalizeMessage,
+  outOfScopeTopic,
+  parseReference,
+  type ActionRequest,
+  type Normalized,
+} from "./language.js";
+import { suggestFollowUps } from "./suggestions.js";
 
 export type AbiAgentResult = {
   answer: string;
@@ -29,6 +38,13 @@ export type AbiAgentResult = {
   via?: "llm" | "keywords" | "legacy";
   scratchpad?: Scratchpad;
   intent?: string;
+  /** Quick-reply chips for the next turn (questions ABI can answer). */
+  suggestions?: string[];
+};
+
+export type AbiAgentOptions = {
+  /** Caller's guardian role — shapes "who can do this" guidance, never permissions. */
+  role?: "owner" | "approver" | "viewer";
 };
 
 function preferGoto(results: ToolResult[]): string | undefined {
@@ -156,7 +172,14 @@ function runMemoryCommand(orgId: string, cmd: MemoryCommand, recent: ChatTurn[])
 function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): AbiAgentResult {
   const intent = classifyIntent(message);
   const { query, reuseTools, scratch } = resolveFollowUp(message, recent);
+  const wantOutcome = /\b(blocked|denied|denial|refused)\b/.test(message)
+    ? "deny"
+    : /\b(waiting|pending|review|reviewed|parked)\b/.test(message)
+      ? "review"
+      : undefined;
   const entities = bindEntities(orgId, query);
+  /** Agents named in *this* message (before borrowing last turn's). */
+  const namedNow = [...entities.agentIds];
   // Merge scratch entities when follow-up is pronoun-heavy
   if (!entities.agentIds.length && scratch.agentIds?.length) {
     entities.agentIds = scratch.agentIds;
@@ -167,7 +190,20 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
   }
 
   const planned = planTools(intent, query);
-  const picked = new Set<ToolName>([...planned, ...pickTools(query), ...reuseTools]);
+  let loose = pickTools(query);
+  // pickTools answers any short message with a status survey. That is right
+  // for "hi" but wrong for "and the writer?" (already routed) or "blorp"
+  // (not understood — say so instead of reciting numbers).
+  const surveyFallback =
+    loose.length === 2 &&
+    loose.includes("org_summary") &&
+    loose.includes("pending_approvals") &&
+    !/\b(summary|overview|status|approvals?|pending|waiting)\b/.test(query);
+  if (surveyFallback) {
+    const greeting = /\b(hi|hello|hey|help|abi|survey|look around|what can)\b/.test(query);
+    if (planned.length || reuseTools.length || entities.agentIds.length || !greeting) loose = [];
+  }
+  const picked = new Set<ToolName>([...planned, ...loose, ...reuseTools]);
 
   if (wantsAgentDetail(query, entities) || intent === "agent_detail") {
     picked.add("agent_detail");
@@ -181,6 +217,22 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
 
   if (!picked.size) {
     const legacy = answerQuestion(orgId, message);
+    if (/^I can answer from your own data/.test(legacy.answer)) {
+      return {
+        answer: [
+          `I'm not sure what you're asking${message.length <= 60 ? ` with “${message}”` : ""}, so I won't guess at numbers.`,
+          "I can answer from your org's live data: agents and their spend, balances and budgets, what's waiting on you, recent payments and why one was blocked, policy bands and quiet hours, notifications, and what we talked about before. Try one of the suggestions below, or rephrase.",
+          notesBlock(relevantNotes(orgId, message)),
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        goto: "chat",
+        toolsUsed: [],
+        via: "keywords",
+        scratchpad: scratch,
+        intent: "unknown",
+      };
+    }
     const ctx = buildOrgContext(orgId);
     const advice = synthesizeAdvice([], ctx);
     return {
@@ -224,6 +276,16 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
         runTool(orgId, t, {
           query: dest || m?.[1] || message,
           agentId: entities.agentIds[0],
+          outcome: wantOutcome,
+        }),
+      );
+      continue;
+    }
+    if (t === "recent_payments") {
+      results.push(
+        runTool(orgId, t, {
+          agentId: namedNow.length === 1 ? namedNow[0] : undefined,
+          outcome: wantOutcome === "deny" ? "deny" : undefined,
         }),
       );
       continue;
@@ -284,16 +346,251 @@ function runKeywordPath(orgId: string, message: string, recent: ChatTurn[]): Abi
   };
 }
 
+/** What each refused action maps to in the console, and who can do it there. */
+function actionGuard(
+  orgId: string,
+  action: ActionRequest,
+  recent: ChatTurn[],
+  opts: AbiAgentOptions,
+): AbiAgentResult {
+  const ctx = buildOrgContext(orgId);
+  const scratch = lastScratchpad(recent);
+  const results: ToolResult[] = [];
+  let how = "";
+  let goto = "chat";
+  switch (action.kind) {
+    case "approve":
+    case "deny":
+      results.push(runTool(orgId, "pending_approvals"));
+      how = ctx.pendingApprovals
+        ? "Use the Approve / Deny buttons on the payment card at the top of this chat, or open Approvals. Each vote is yours and is recorded against your seat."
+        : "There's nothing waiting for a decision right now.";
+      goto = "approvals";
+      break;
+    case "pay":
+      how =
+        "Payments are made by your agents and checked against policy; guardians fund agents and budgets from Treasury, where you confirm each transfer yourself.";
+      goto = "treasury";
+      break;
+    case "policy":
+      results.push(runTool(orgId, "get_policy"));
+      how =
+        opts.role === "owner"
+          ? "As the owner you can change bands and quiet hours in Policy — the change is versioned and you can restore an earlier one."
+          : "Policy changes are owner-only; ask an owner, or open Policy to see the current bands.";
+      goto = "policy";
+      break;
+    case "freeze":
+    case "agent_admin":
+      results.push(runTool(orgId, "list_agents"));
+      how =
+        "Open the agent's page in the console to freeze, thaw, rename or rotate its key — you confirm the change there.";
+      goto = "agents";
+      break;
+    case "notifications":
+      how = "Use “Mark all read” under the bell — I only read notifications, I never change them.";
+      goto = "overview";
+      break;
+  }
+  const blocks = [
+    `I can't ${action.what} from chat — the ABI Assistant is read-only, so nothing moves or changes unless you do it yourself in the console.`,
+    how,
+    ...results.map((r) => `${r.title}\n${r.text}`),
+  ].filter(Boolean);
+  return {
+    answer: blocks.join("\n\n"),
+    goto,
+    toolsUsed: results.map((r) => r.tool),
+    via: "keywords",
+    scratchpad: buildScratchpad(results, scratch),
+    intent: "action_request",
+  };
+}
+
+function outOfScope(orgId: string, topic: string, recent: ChatTurn[]): AbiAgentResult {
+  return {
+    answer: `I don't have data on ${topic} — ABI only sees your organization's own agents, balances, payments, policy and notifications, so any figure I gave you would be made up.\n\nWhere things stand now\n${formatOrgContext(buildOrgContext(orgId))}`,
+    goto: "chat",
+    toolsUsed: [],
+    via: "keywords",
+    scratchpad: lastScratchpad(recent),
+    intent: "out_of_scope",
+  };
+}
+
+/**
+ * "explain the second one" / "why was the last one blocked" / "that payment":
+ * resolve against the list shown last turn, else against the live trail.
+ */
+function resolveReferenceTurn(
+  orgId: string,
+  text: string,
+  recent: ChatTurn[],
+): AbiAgentResult | null {
+  const ref = parseReference(text);
+  if (ref === null) return null;
+  const scratch = lastScratchpad(recent);
+  const outcome = /\b(blocked|denied|denial)\b/.test(text)
+    ? "deny"
+    : /\b(waiting|pending|review)\b/.test(text)
+      ? "review"
+      : undefined;
+  // A numbered agent list → "the second one" is an agent.
+  if (
+    typeof ref === "number" &&
+    scratch.lastTopic === "agents" &&
+    (scratch.agentNames?.length ?? 0) > 1 &&
+    !scratch.decisionIds?.length
+  ) {
+    const name = scratch.agentNames![ref - 1];
+    if (!name) return null;
+    const r = runTool(orgId, "agent_detail", {
+      agentId: scratch.agentIds?.[ref - 1],
+      agentName: name,
+    });
+    return {
+      answer: `${r.title}\n${r.text}`,
+      goto: r.goto,
+      toolsUsed: ["agent_detail"],
+      via: "keywords",
+      scratchpad: buildScratchpad([r], scratch),
+      intent: "agent_detail",
+    };
+  }
+  const ids = scratch.decisionIds ?? [];
+  let intentId: string | undefined;
+  if (typeof ref === "number") {
+    intentId = ids[ref - 1];
+    if (!intentId) {
+      if (!ids.length) return null;
+      return {
+        answer: `The last list I showed had ${ids.length} item${ids.length === 1 ? "" : "s"}, so there's no number ${ref}. Say “show recent payments” to refresh it.`,
+        goto: "payments",
+        toolsUsed: [],
+        via: "keywords",
+        scratchpad: scratch,
+        intent: "decision_why",
+      };
+    }
+  } else if (!outcome && ids.length && scratch.lastTopic === "payments") {
+    intentId = ids[0];
+  }
+  const r = runTool(orgId, "explain_decision", {
+    intentId,
+    outcome,
+    // "why was the last one blocked" is org-wide; only scope to the agent in
+    // focus when the guardian didn't name an outcome.
+    agentId:
+      !intentId && !outcome && scratch.agentIds?.length === 1 ? scratch.agentIds[0] : undefined,
+  });
+  return {
+    answer: `${r.title}\n${r.text}`,
+    goto: r.goto,
+    toolsUsed: ["explain_decision"],
+    via: "keywords",
+    scratchpad: buildScratchpad([r], { ...scratch, decisionIds: scratch.decisionIds }),
+    intent: "decision_why",
+  };
+}
+
+/** Saved notes like "I prefer short answers" change how replies are shaped. */
+function prefersBrief(orgId: string): boolean {
+  try {
+    return store
+      .listAbiMemories(orgId, 50)
+      .some((m) =>
+        /\b(prefer|like|want|keep)\b.{0,30}\b(short|brief|concise|terse|quick)\b.{0,12}\b(answers?|replies|responses?)?/i.test(
+          m.fact,
+        ),
+      );
+  } catch {
+    return false;
+  }
+}
+
+function brief(answer: string): string {
+  // Keep the substance; drop the advisory tails and context echoes.
+  return answer
+    .split("\n\n")
+    .filter((b) => !/^(Suggested next|Signals|Where things stand now|\(Vault )/.test(b))
+    .join("\n\n");
+}
+
+function finish(
+  orgId: string,
+  res: AbiAgentResult,
+  norm: Normalized | null,
+  recent: ChatTurn[],
+): AbiAgentResult {
+  let answer = res.answer;
+  if (res.intent !== "remember" && res.intent !== "forget" && prefersBrief(orgId)) {
+    answer = brief(answer);
+  }
+  // Don't repeat the same "Suggested next" block turn after turn.
+  const prevAssistant = [...recent].reverse().find((t) => t.role === "assistant")?.body ?? "";
+  const blocks = answer.split("\n\n");
+  const repeated = blocks.filter((b) => /^Suggested next\n/.test(b) && prevAssistant.includes(b));
+  if (repeated.length && blocks.length > repeated.length) {
+    answer = blocks.filter((b) => !repeated.includes(b)).join("\n\n");
+  }
+  if (norm?.corrections.length) {
+    const fixes = norm.corrections.map((c) => `“${c.from}” as “${c.to}”`).join(", ");
+    answer = `(Reading ${fixes}.)\n\n${answer}`;
+  }
+  const ctx = buildOrgContext(orgId);
+  const suggestions = suggestFollowUps({
+    intent: res.intent,
+    toolsUsed: res.toolsUsed,
+    ctx,
+    scratch: res.scratchpad ?? lastScratchpad(recent),
+  });
+  return { ...res, answer, suggestions };
+}
+
 /**
  * Run the ABI agent. Pass recent chat turns for follow-up detection / LLM context.
+ *
+ * Order matters: memory commands, then refusals (the assistant is read-only and
+ * says so before any model sees the request), then out-of-scope honesty, then
+ * references to the last list, then the optional LLM, then the keyword brain —
+ * which reads the normalized text so typos and casual phrasing still route.
  */
 export async function runAbiAgent(
   orgId: string,
   message: string,
   recent: ChatTurn[] = [],
+  opts: AbiAgentOptions = {},
 ): Promise<AbiAgentResult> {
   const memoryCmd = parseMemoryCommand(message);
-  if (memoryCmd) return runMemoryCommand(orgId, memoryCmd, recent);
+  if (memoryCmd) return finish(orgId, runMemoryCommand(orgId, memoryCmd, recent), null, recent);
+
+  let names: string[] = [];
+  try {
+    names = store
+      .listAgents(orgId)
+      .filter((a) => a.status !== "archived")
+      .map((a) => a.name);
+  } catch {
+    names = [];
+  }
+  const norm = normalizeMessage(message, names);
+  const text = norm.text || message.toLowerCase();
+
+  const action = detectActionRequest(norm.light) ?? detectActionRequest(text);
+  if (action) return finish(orgId, actionGuard(orgId, action, recent, opts), norm, recent);
+
+  const oos = outOfScopeTopic(text);
+  if (
+    oos &&
+    classifyIntent(text) === "unknown" &&
+    !pickTools(text).some((t) => t !== "org_summary" && t !== "pending_approvals")
+  ) {
+    return finish(orgId, outOfScope(orgId, oos, recent), norm, recent);
+  }
+
+  const referred = resolveReferenceTurn(orgId, text, recent);
+  if (referred) return finish(orgId, referred, norm, recent);
+
   try {
     const llm = await runLlmToolLoop(orgId, message, recent);
     if (llm && (llm.toolsUsed.length || llm.answer)) {
@@ -304,20 +601,25 @@ export async function runAbiAgent(
         advice && !llm.toolsUsed.includes("recommend_next")
           ? `${llm.answer}\n\n${formatAdvice(advice)}`
           : llm.answer;
-      return {
-        answer,
-        goto: preferGoto(llm.results),
-        toolsUsed: llm.toolsUsed,
-        via: "llm",
-        scratchpad,
-        intent: classifyIntent(message),
-      };
+      return finish(
+        orgId,
+        {
+          answer,
+          goto: preferGoto(llm.results),
+          toolsUsed: llm.toolsUsed,
+          via: "llm",
+          scratchpad,
+          intent: classifyIntent(text),
+        },
+        null,
+        recent,
+      );
     }
   } catch (err) {
     console.warn("[abi-agent] llm loop failed, using keywords:", (err as Error).message);
   }
 
-  return runKeywordPath(orgId, message, recent);
+  return finish(orgId, runKeywordPath(orgId, text, recent), norm, recent);
 }
 
 export { runMemoryCommand };

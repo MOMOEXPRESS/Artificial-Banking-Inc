@@ -17,6 +17,8 @@ export type Scratchpad = {
   agentNames?: string[];
   destinations?: string[];
   inQuiet?: boolean;
+  /** Decision (intent) ids from the last list shown, newest first — for "the second one". */
+  decisionIds?: string[];
 };
 
 export function lastToolsUsed(recent: ChatTurn[]): ToolName[] {
@@ -58,6 +60,10 @@ export function buildScratchpad(
     if (Array.isArray(d.destinations))
       next.destinations = d.destinations.filter((x): x is string => typeof x === "string");
     if (typeof d.inQuiet === "boolean") next.inQuiet = d.inQuiet;
+    if (Array.isArray(d.decisionIds) && d.decisionIds.length)
+      next.decisionIds = d.decisionIds
+        .filter((x): x is string => typeof x === "string")
+        .slice(0, 10);
   }
   return next;
 }
@@ -175,4 +181,31 @@ export function scratchpadSnippet(scratch: Scratchpad): string {
   if (scratch.destinations?.length) bits.push(`dest=${scratch.destinations.join(",")}`);
   if (typeof scratch.inQuiet === "boolean") bits.push(`inQuiet=${scratch.inQuiet}`);
   return bits.length ? `Scratchpad: ${bits.join(" · ")}` : "";
+}
+
+/**
+ * One-line digest of the turns that fall outside the verbatim window, so a
+ * long conversation keeps its thread without sending (or re-reading) every
+ * message. Built from stored intents and agent names — no model involved.
+ */
+export function olderHistorySummary(recent: ChatTurn[], verbatim = 6): string {
+  const older = recent
+    .filter((t) => t.role === "user" || t.role === "assistant")
+    .slice(0, -verbatim);
+  if (!older.length) return "";
+  const intents = new Set<string>();
+  const agents = new Set<string>();
+  for (const t of older) {
+    if (t.role !== "assistant") continue;
+    if (typeof t.meta?.intent === "string" && t.meta.intent !== "unknown")
+      intents.add(t.meta.intent);
+    const pad = t.meta?.scratchpad as Scratchpad | undefined;
+    if (pad?.agentNames && pad.agentNames.length <= 2)
+      for (const n of pad.agentNames) agents.add(n);
+  }
+  const asked = older.filter((t) => t.role === "user").length;
+  const bits = [`${asked} earlier question(s)`];
+  if (intents.size) bits.push(`topics: ${[...intents].join(", ")}`);
+  if (agents.size) bits.push(`agents: ${[...agents].join(", ")}`);
+  return `Earlier in this conversation — ${bits.join(" · ")}`;
 }
