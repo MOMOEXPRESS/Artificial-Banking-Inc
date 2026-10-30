@@ -1,0 +1,150 @@
+/* Settings → Compliance (KYC & KYA). Uses design-system tokens only. */
+.compliance-disclaimer {
+  margin-bottom: var(--space-3);
+}
+.compliance-limits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ml);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  margin-bottom: var(--space-3);
+}
+.compliance-reasons {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--muted, inherit);
+}
+.compliance-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+.compliance-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.compliance-summary span,
+.kya-meta em {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--faint, var(--muted));
+  font-style: normal;
+}
+.compliance-summary b {
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.compliance-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin-top: var(--space-3);
+}
+.compliance-form .field {
+  margin: 0;
+}
+.compliance-wide {
+  grid-column: 1 / -1;
+}
+.compliance-check {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  cursor: pointer;
+}
+.compliance-check input {
+  margin-top: 3px;
+  flex: none;
+}
+.compliance-warn {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--bad, #b42318);
+}
+.compliance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-2);
+}
+.compliance-actions .faint {
+  font-size: var(--text-xs);
+  flex: 1 1 260px;
+}
+.kya-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.kya-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ml);
+  padding: var(--space-3) var(--space-4);
+  min-width: 0;
+}
+.kya-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.kya-name {
+  display: block;
+  font-size: var(--text-base);
+  overflow-wrap: anywhere;
+}
+.kya-fp {
+  font-size: var(--text-xs);
+}
+.kya-pills {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+.kya-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-2) 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.kya-meta em {
+  display: block;
+}
+.kya-spend {
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  margin-bottom: var(--space-2);
+}
+.compliance-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+.compliance-history li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: space-between;
+}

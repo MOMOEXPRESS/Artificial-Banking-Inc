@@ -67,9 +67,10 @@ const WINDOW_CAPS = new Set([
   "category_daily_max",
   "velocity",
   "velocity_hourly",
+  "kyc_tier_daily",
 ]);
 
-const LOWER_AMOUNT = new Set(["per_tx_max", "category_per_tx_max"]);
+const LOWER_AMOUNT = new Set(["per_tx_max", "category_per_tx_max", "kyc_tier_per_tx"]);
 
 /** The single allowed next move for a refusal with this rule code. */
 export function nextStepFor(
@@ -97,6 +98,22 @@ export function nextStepFor(
       action: "re_request",
       message:
         "The rules changed after this payment was parked, so its approval was cancelled and nothing was sent. Send it again as a new request with a new idempotency key; it will be checked against the current rules.",
+    };
+  }
+  if (ruleCode === "kyc_restricted" || ruleCode === "kya_suspended") {
+    return {
+      action: "ask_guardian",
+      message:
+        ruleCode === "kyc_restricted"
+          ? "This organization is restricted by ABI's internal KYC check. Do not retry."
+          : "An owner suspended this agent (Know Your Agent). Do not retry until it is reinstated.",
+    };
+  }
+  if (ruleCode === "kya_out_of_scope") {
+    return {
+      action: "ask_guardian",
+      message:
+        "This payment is outside the agent's declared scope. An owner must widen the scope in Settings → Compliance.",
     };
   }
   if (ruleCode === "guardian_denied") {

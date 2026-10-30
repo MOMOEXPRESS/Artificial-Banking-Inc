@@ -70,6 +70,25 @@ model AgentGroups {
   @@map("agent_groups")
 }
 
+model AgentKya {
+  agentId String @id @map("agent_id")
+  orgId String @map("org_id")
+  purpose String @default("")
+  operator String @default("")
+  model String?
+  provider String?
+  allowedCategoriesJson String @default("[]") @map("allowed_categories_json")
+  allowedCounterpartiesJson String @default("[]") @map("allowed_counterparties_json")
+  status String @default("unattested")
+  attestedByUserId String? @map("attested_by_user_id")
+  attestedByName String? @map("attested_by_name")
+  attestedAt String? @map("attested_at")
+  suspendedReason String? @map("suspended_reason")
+  updatedAt String @map("updated_at")
+  @@index([orgId])
+  @@map("agent_kya")
+}
+
 model AgentPolicies {
   agentId String @id @map("agent_id") // -> agents.id
   orgId String @map("org_id") // -> orgs.id
@@ -169,6 +188,19 @@ model ChatMessages {
   createdAt String @map("created_at")
   @@index([orgId, createdAt])
   @@map("chat_messages")
+}
+
+model ComplianceEvents {
+  id Int @id
+  orgId String @map("org_id")
+  subjectKind String @map("subject_kind")
+  subjectId String @map("subject_id")
+  action String
+  actor String?
+  detailJson String @default("{}") @map("detail_json")
+  createdAt String @map("created_at")
+  @@index([orgId, id])
+  @@map("compliance_events")
 }
 
 model Decisions {
@@ -488,6 +520,30 @@ model OrgAssetBalances {
   @@map("org_asset_balances")
 }
 
+model OrgKyc {
+  orgId String @id @map("org_id")
+  subjectUserId String? @map("subject_user_id")
+  entityType String @default("individual") @map("entity_type")
+  legalName String @default("") @map("legal_name")
+  businessName String? @map("business_name")
+  registrationNumber String? @map("registration_number")
+  country String @default("")
+  ageAttested Int @default(0) @map("age_attested")
+  sanctionsAttested Int @default(0) @map("sanctions_attested")
+  pepDeclared Int @default(0) @map("pep_declared")
+  intendedUse String @default("") @map("intended_use")
+  expectedVolume String @default("under_1k") @map("expected_volume")
+  status String @default("unverified")
+  riskTier String @default("medium") @map("risk_tier")
+  statusReasonsJson String @default("[]") @map("status_reasons_json")
+  termsVersion String? @map("terms_version")
+  termsAcceptedAt String? @map("terms_accepted_at")
+  submittedAt String? @map("submitted_at")
+  verifiedAt String? @map("verified_at")
+  updatedAt String @map("updated_at")
+  @@map("org_kyc")
+}
+
 model Orgs {
   id String @id
   name String
@@ -498,6 +554,7 @@ model Orgs {
   ledgerMode String @default("sandbox") @map("ledger_mode")
   unbackedMicro BigInt @default(0) @map("unbacked_micro")
   kind String @default("buyer")
+  complianceGrandfathered Int @default(0) @map("compliance_grandfathered")
   @@unique([guardianKey])
   @@map("orgs")
 }
@@ -908,6 +965,8 @@ model Users {
   emailVerifiedAt String? @map("email_verified_at")
   lastLoginAt String? @map("last_login_at")
   disabledAt String? @map("disabled_at")
+  termsVersion String? @map("terms_version")
+  termsAcceptedAt String? @map("terms_accepted_at")
   @@unique([email])
   @@map("users")
 }

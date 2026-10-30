@@ -9,6 +9,7 @@
  * Postgres/Prisma (packages/db) swaps in behind this same surface when a real
  * Postgres is available — endpoint code never touches SQL directly.
  */
+import type { AgentActivityStats, KyaRecord, KycRecord } from "./kyc-kya.js";
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -2006,6 +2007,81 @@ migrateVaultKeysAtRest();
 migrateChallengeChecks();
 migrateHostedOfferUrls();
 
+// ---------------------------------------------------------------------------
+// In-house KYC / KYA (Oct 30). Additive. Organizations that already exist when
+// the column is first added are grandfathered: their spending is not capped by
+// the starter limits (restriction and agent suspension still apply).
+// ---------------------------------------------------------------------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS org_kyc (
+  org_id TEXT PRIMARY KEY,
+  subject_user_id TEXT,
+  entity_type TEXT NOT NULL DEFAULT 'individual',
+  legal_name TEXT NOT NULL DEFAULT '',
+  business_name TEXT,
+  registration_number TEXT,
+  country TEXT NOT NULL DEFAULT '',
+  age_attested INTEGER NOT NULL DEFAULT 0,
+  sanctions_attested INTEGER NOT NULL DEFAULT 0,
+  pep_declared INTEGER NOT NULL DEFAULT 0,
+  intended_use TEXT NOT NULL DEFAULT '',
+  expected_volume TEXT NOT NULL DEFAULT 'under_1k',
+  status TEXT NOT NULL DEFAULT 'unverified',
+  risk_tier TEXT NOT NULL DEFAULT 'medium',
+  status_reasons_json TEXT NOT NULL DEFAULT '[]',
+  terms_version TEXT,
+  terms_accepted_at TEXT,
+  submitted_at TEXT,
+  verified_at TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_kya (
+  agent_id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  purpose TEXT NOT NULL DEFAULT '',
+  operator TEXT NOT NULL DEFAULT '',
+  model TEXT,
+  provider TEXT,
+  allowed_categories_json TEXT NOT NULL DEFAULT '[]',
+  allowed_counterparties_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'unattested',
+  attested_by_user_id TEXT,
+  attested_by_name TEXT,
+  attested_at TEXT,
+  suspended_reason TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_kya_org ON agent_kya(org_id);
+CREATE TABLE IF NOT EXISTS compliance_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id TEXT NOT NULL,
+  subject_kind TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  actor TEXT,
+  detail_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_compliance_events_org ON compliance_events(org_id, id);
+`);
+for (const migration of [
+  "ALTER TABLE users ADD COLUMN terms_version TEXT",
+  "ALTER TABLE users ADD COLUMN terms_accepted_at TEXT",
+]) {
+  try {
+    db.exec(migration);
+  } catch {
+    /* column already exists */
+  }
+}
+try {
+  db.exec("ALTER TABLE orgs ADD COLUMN compliance_grandfathered INTEGER NOT NULL DEFAULT 0");
+  // First boot with KYC/KYA: everything that already exists is grandfathered.
+  db.exec("UPDATE orgs SET compliance_grandfathered = 1");
+} catch {
+  /* column already exists */
+}
+
 // Seed platform USDC asset once (legacy path kept for older DBs).
 {
   const exists = db.prepare("SELECT id FROM assets WHERE id = ?").get("asset_usdc");
@@ -2583,6 +2659,35 @@ function rowToNotification(r: Row): NotificationRow {
     createdAt: String(r.created_at),
     readAt: (r.read_at as string | null) ?? null,
   };
+}
+
+function kyaFromRow(r: Row): KyaRecord {
+  return {
+    agentId: r.agent_id,
+    orgId: r.org_id,
+    purpose: r.purpose,
+    operator: r.operator,
+    model: r.model ?? undefined,
+    provider: r.provider ?? undefined,
+    allowedCategories: JSON.parse(r.allowed_categories_json || "[]") as string[],
+    allowedCounterparties: JSON.parse(r.allowed_counterparties_json || "[]") as string[],
+    status: r.status,
+    attestedByUserId: r.attested_by_user_id ?? undefined,
+    attestedByName: r.attested_by_name ?? undefined,
+    attestedAt: r.attested_at ?? undefined,
+    suspendedReason: r.suspended_reason ?? undefined,
+    updatedAt: r.updated_at,
+  };
+}
+
+export interface ComplianceEventRow {
+  id: number;
+  subjectKind: "org" | "agent";
+  subjectId: string;
+  action: string;
+  actor?: string;
+  detail: Record<string, unknown>;
+  createdAt: string;
 }
 
 export const store = {
@@ -6890,6 +6995,229 @@ export const store = {
     );
   },
 
+  // ---------------------------------------------------------- KYC / KYA
+
+  isComplianceGrandfathered(orgId: string): boolean {
+    const r = db
+      .prepare("SELECT compliance_grandfathered AS g FROM orgs WHERE id = ?")
+      .get(orgId) as Row | undefined;
+    return Number(r?.g ?? 0) === 1;
+  },
+
+  __setComplianceGrandfatheredForTests(orgId: string): void {
+    db.prepare("UPDATE orgs SET compliance_grandfathered = 1 WHERE id = ?").run(orgId);
+  },
+
+  getOrgKyc(orgId: string): KycRecord | undefined {
+    const r = db.prepare("SELECT * FROM org_kyc WHERE org_id = ?").get(orgId) as Row | undefined;
+    if (!r) return undefined;
+    return {
+      orgId: r.org_id,
+      subjectUserId: r.subject_user_id ?? undefined,
+      entityType: r.entity_type === "business" ? "business" : "individual",
+      legalName: r.legal_name,
+      businessName: r.business_name ?? undefined,
+      registrationNumber: r.registration_number ?? undefined,
+      country: r.country,
+      ageAttested: Number(r.age_attested) === 1,
+      sanctionsAttested: Number(r.sanctions_attested) === 1,
+      pepDeclared: Number(r.pep_declared) === 1,
+      intendedUse: r.intended_use,
+      expectedMonthlyVolume: r.expected_volume,
+      status: r.status,
+      riskTier: r.risk_tier,
+      statusReasons: JSON.parse(r.status_reasons_json || "[]") as string[],
+      termsVersion: r.terms_version ?? undefined,
+      termsAcceptedAt: r.terms_accepted_at ?? undefined,
+      submittedAt: r.submitted_at ?? undefined,
+      verifiedAt: r.verified_at ?? undefined,
+      updatedAt: r.updated_at,
+    };
+  },
+
+  upsertOrgKyc(rec: Omit<KycRecord, "updatedAt">): KycRecord {
+    const now = nowIso();
+    db.prepare(
+      `INSERT INTO org_kyc (org_id, subject_user_id, entity_type, legal_name, business_name,
+         registration_number, country, age_attested, sanctions_attested, pep_declared, intended_use,
+         expected_volume, status, risk_tier, status_reasons_json, terms_version, terms_accepted_at,
+         submitted_at, verified_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(org_id) DO UPDATE SET subject_user_id = excluded.subject_user_id,
+         entity_type = excluded.entity_type, legal_name = excluded.legal_name,
+         business_name = excluded.business_name, registration_number = excluded.registration_number,
+         country = excluded.country, age_attested = excluded.age_attested,
+         sanctions_attested = excluded.sanctions_attested, pep_declared = excluded.pep_declared,
+         intended_use = excluded.intended_use, expected_volume = excluded.expected_volume,
+         status = excluded.status, risk_tier = excluded.risk_tier,
+         status_reasons_json = excluded.status_reasons_json, terms_version = excluded.terms_version,
+         terms_accepted_at = excluded.terms_accepted_at, submitted_at = excluded.submitted_at,
+         verified_at = excluded.verified_at, updated_at = excluded.updated_at`,
+    ).run(
+      rec.orgId,
+      rec.subjectUserId ?? null,
+      rec.entityType,
+      rec.legalName,
+      rec.businessName ?? null,
+      rec.registrationNumber ?? null,
+      rec.country,
+      rec.ageAttested ? 1 : 0,
+      rec.sanctionsAttested ? 1 : 0,
+      rec.pepDeclared ? 1 : 0,
+      rec.intendedUse,
+      rec.expectedMonthlyVolume,
+      rec.status,
+      rec.riskTier,
+      JSON.stringify(rec.statusReasons),
+      rec.termsVersion ?? null,
+      rec.termsAcceptedAt ?? null,
+      rec.submittedAt ?? null,
+      rec.verifiedAt ?? null,
+      now,
+    );
+    return this.getOrgKyc(rec.orgId)!;
+  },
+
+  getAgentKya(orgId: string, agentId: string): KyaRecord | undefined {
+    const r = db
+      .prepare("SELECT * FROM agent_kya WHERE agent_id = ? AND org_id = ?")
+      .get(agentId, orgId) as Row | undefined;
+    return r ? kyaFromRow(r) : undefined;
+  },
+
+  listAgentKya(orgId: string): KyaRecord[] {
+    return (db.prepare("SELECT * FROM agent_kya WHERE org_id = ?").all(orgId) as Row[]).map(
+      kyaFromRow,
+    );
+  },
+
+  upsertAgentKya(rec: Omit<KyaRecord, "updatedAt">): KyaRecord {
+    db.prepare(
+      `INSERT INTO agent_kya (agent_id, org_id, purpose, operator, model, provider,
+         allowed_categories_json, allowed_counterparties_json, status, attested_by_user_id,
+         attested_by_name, attested_at, suspended_reason, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(agent_id) DO UPDATE SET purpose = excluded.purpose, operator = excluded.operator,
+         model = excluded.model, provider = excluded.provider,
+         allowed_categories_json = excluded.allowed_categories_json,
+         allowed_counterparties_json = excluded.allowed_counterparties_json,
+         status = excluded.status, attested_by_user_id = excluded.attested_by_user_id,
+         attested_by_name = excluded.attested_by_name, attested_at = excluded.attested_at,
+         suspended_reason = excluded.suspended_reason, updated_at = excluded.updated_at
+       WHERE agent_kya.org_id = excluded.org_id`,
+    ).run(
+      rec.agentId,
+      rec.orgId,
+      rec.purpose,
+      rec.operator,
+      rec.model ?? null,
+      rec.provider ?? null,
+      JSON.stringify(rec.allowedCategories),
+      JSON.stringify(rec.allowedCounterparties),
+      rec.status,
+      rec.attestedByUserId ?? null,
+      rec.attestedByName ?? null,
+      rec.attestedAt ?? null,
+      rec.suspendedReason ?? null,
+      nowIso(),
+    );
+    return this.getAgentKya(rec.orgId, rec.agentId)!;
+  },
+
+  addComplianceEvent(e: {
+    orgId: string;
+    subjectKind: "org" | "agent";
+    subjectId: string;
+    action: string;
+    actor?: string;
+    detail?: Record<string, unknown>;
+  }): void {
+    db.prepare(
+      `INSERT INTO compliance_events (org_id, subject_kind, subject_id, action, actor, detail_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      e.orgId,
+      e.subjectKind,
+      e.subjectId,
+      e.action,
+      e.actor ?? null,
+      JSON.stringify(e.detail ?? {}),
+      nowIso(),
+    );
+  },
+
+  listComplianceEvents(orgId: string, limit = 50): ComplianceEventRow[] {
+    return (
+      db
+        .prepare("SELECT * FROM compliance_events WHERE org_id = ? ORDER BY id DESC LIMIT ?")
+        .all(orgId, limit) as Row[]
+    ).map((r) => ({
+      id: Number(r.id),
+      subjectKind: r.subject_kind,
+      subjectId: r.subject_id,
+      action: r.action,
+      actor: r.actor ?? undefined,
+      detail: JSON.parse(r.detail_json || "{}") as Record<string, unknown>,
+      createdAt: r.created_at,
+    }));
+  },
+
+  /** Recent-activity counters for KYA anomaly flags (read-only). */
+  agentActivityStats(orgId: string, agentId: string): AgentActivityStats {
+    const now = storeNowMs();
+    const since24 = new Date(now - 24 * 3_600_000).toISOString();
+    const d = db
+      .prepare(
+        `SELECT COUNT(*) AS n,
+                SUM(CASE WHEN outcome = 'deny' THEN 1 ELSE 0 END) AS denies,
+                SUM(CASE WHEN rule_ids_json LIKE '%kya_out_of_scope%' THEN 1 ELSE 0 END) AS oos
+         FROM decisions WHERE org_id = ? AND agent_id = ? AND at >= ?`,
+      )
+      .get(orgId, agentId, since24) as Row;
+    const pays = (sinceMs: number) =>
+      Number(
+        (
+          db
+            .prepare("SELECT COUNT(*) AS n FROM pay_events WHERE agent_id = ? AND at_ms >= ?")
+            .get(agentId, sinceMs) as Row
+        ).n,
+      );
+    const fresh = db
+      .prepare(
+        `SELECT COUNT(DISTINCT lower(destination)) AS n FROM pay_events p
+         WHERE p.agent_id = ? AND p.at_ms >= ? AND p.destination IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM pay_events q WHERE q.agent_id = p.agent_id
+             AND q.at_ms < ? AND lower(q.destination) = lower(p.destination))`,
+      )
+      .get(agentId, now - 24 * 3_600_000, now - 24 * 3_600_000) as Row;
+    return {
+      decisions24h: Number(d.n ?? 0),
+      denials24h: Number(d.denies ?? 0),
+      outOfScope24h: Number(d.oos ?? 0),
+      pays1h: pays(now - 3_600_000),
+      pays7d: pays(now - 7 * 24 * 3_600_000),
+      newCounterparties24h: Number(fresh.n ?? 0),
+    };
+  },
+
+  recordTermsAcceptance(userId: string, version: string): void {
+    db.prepare("UPDATE users SET terms_version = ?, terms_accepted_at = ? WHERE id = ?").run(
+      version,
+      nowIso(),
+      userId,
+    );
+  },
+
+  userTermsAcceptance(userId: string): { version?: string; acceptedAt?: string } {
+    const r = db
+      .prepare("SELECT terms_version, terms_accepted_at FROM users WHERE id = ?")
+      .get(userId) as Row | undefined;
+    return {
+      version: r?.terms_version ?? undefined,
+      acceptedAt: r?.terms_accepted_at ?? undefined,
+    };
+  },
+
   /** Emails of this org's active owners whose address is verified. */
   orgVerifiedOwnerEmails(orgId: string): string[] {
     return (
@@ -7659,6 +7987,9 @@ export const store = {
         "chat_messages",
         "external_actions",
         "abi_memories",
+        "agent_kya",
+        "org_kyc",
+        "compliance_events",
         "org_asset_balances",
         "onchain_deposits",
         "vault_asset_events",

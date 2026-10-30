@@ -132,6 +132,12 @@ export interface PolicyRules {
   paysLastHour?: number;
   agentFrozen: boolean;
   orgFrozen: boolean;
+  /**
+   * In-house KYC/KYA outcome, injected by the runtime. A block refuses every
+   * payment; caps are extra per-payment / 24h ceilings on top of the policy.
+   */
+  complianceBlock?: { ruleId: string; reason: string };
+  complianceCaps?: { reason: string; perTxMaxMicro: MicroUsdc; dailyMaxMicro: MicroUsdc };
 }
 
 /** A ceiling that applies only to spend in one category. */
@@ -397,6 +403,47 @@ export function evaluatePolicy(
       reasons: ["Agent is frozen"],
       policyVersion,
     };
+  }
+  if (rules.complianceBlock) {
+    return {
+      outcome: "deny",
+      ruleIds: [rules.complianceBlock.ruleId],
+      reasons: [rules.complianceBlock.reason],
+      policyVersion,
+    };
+  }
+  if (rules.complianceCaps && intent.amountMicro > 0n) {
+    const c = rules.complianceCaps;
+    if (intent.amountMicro > c.perTxMaxMicro) {
+      return {
+        outcome: "deny",
+        ruleIds: ["kyc_tier_per_tx"],
+        reasons: [`${c.reason} Exceeds the starter per-payment limit.`],
+        policyVersion,
+        limits: capLimits(
+          "kyc_tier_per_tx",
+          intent.amountMicro,
+          c.perTxMaxMicro,
+          undefined,
+          "per_payment",
+        ),
+      };
+    }
+    if (rules.spentLast24hMicro + intent.amountMicro > c.dailyMaxMicro) {
+      return {
+        outcome: "deny",
+        ruleIds: ["kyc_tier_daily"],
+        reasons: [`${c.reason} Exceeds the starter 24h limit.`],
+        policyVersion,
+        limits: capLimits(
+          "kyc_tier_daily",
+          intent.amountMicro,
+          c.dailyMaxMicro,
+          rules.spentLast24hMicro,
+          "24h",
+        ),
+      };
+    }
   }
 
   const dest = destinationKey(intent.destination);
@@ -933,6 +980,8 @@ export type PolicyTemplate = Omit<
   | "paysLastHour"
   | "agentFrozen"
   | "orgFrozen"
+  | "complianceBlock"
+  | "complianceCaps"
   | "walletBalanceMicro"
   | "nowMs"
 >;
