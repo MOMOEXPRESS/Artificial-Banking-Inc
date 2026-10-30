@@ -269,6 +269,16 @@ p,
   font-size: inherit;
 }
 
+/* Marketing nav on phones: "Open console" wrapped onto two lines. */
+.marketing-nav-cta .btn-primary-line {
+  white-space: nowrap;
+}
+@media (max-width: 420px) {
+  .marketing-nav-cta .btn-primary-line {
+    padding-inline: var(--space-3);
+  }
+}
+
 /* ------------------------------------------------------------ 4. motion */
 
 @media (prefers-reduced-motion: reduce) {
