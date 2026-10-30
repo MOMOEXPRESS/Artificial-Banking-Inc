@@ -18,6 +18,16 @@ records provide an audit trail for decisions and settlements.
   `agent_cannot_approve`). Approvals expire after `APPROVAL_TTL_MINUTES` as
   "expired, not sent". Policy read failures refuse (`policy_unavailable`).
   Details: [REFUSALS-AND-APPROVALS.md](./REFUSALS-AND-APPROVALS.md).
+- Uncertain sends are `outcome_unknown`, never "failed" without evidence. A
+  recheck job reads the named resolver (EIP-3009 authorization state or the
+  tx receipt), escalates to a named owner at the second deadline, and never
+  books or retries a payment by itself. Holds cover the **signed maximum**;
+  a seller price above the authorization is refused before sending.
+- Treasury withdrawals take idempotency keys (mismatch → unknown, not
+  failed); open withdrawals are reserved in the database
+  (`treasury_withdraw_reserved`), and vault locks are database leases shared
+  across processes. Details:
+  [RELIABILITY-AND-RECONCILIATION.md](./RELIABILITY-AND-RECONCILIATION.md).
 - Telegram approvals require a per-org chat (or documented single-tenant
   fallback), an allowlist or linked `conditions.telegramUserId`, and the same
   role / max-approve gates as the console. Amounts at/above the step-up
