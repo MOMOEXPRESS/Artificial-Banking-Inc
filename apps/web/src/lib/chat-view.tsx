@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Empty, Icon, fmtUsd, relTime } from "./ui";
 import { viewLabel } from "./console-types";
+import { quickReplies } from "./chat-chips";
 import { Button } from "@/components/ui/button";
 
 type ChatMsg = {
@@ -122,7 +123,9 @@ export function ChatView({
         <div>
           <h2>ABI Assistant</h2>
           <div className="sub">
-            Org survey + memory — recommendations, policy, quiet hours. Never moves money from chat.
+            Knows your agents, payments, approvals, policy and notifications, remembers what you
+            teach it, and understands casual or misspelled questions. Read-only — it never moves
+            money, votes or changes policy.
           </div>
         </div>
         {pending.length > 0 && (
@@ -226,14 +229,8 @@ export function ChatView({
         <div ref={bottom} />
       </div>
 
-      <div className="suggest" style={{ marginTop: 12 }}>
-        {[
-          "What should I do next?",
-          "How is Researcher?",
-          "Who can approve?",
-          "Show policy bands",
-          "What do you remember?",
-        ].map((s) => (
+      <div className="suggest" style={{ marginTop: 12 }} aria-label="Suggested questions">
+        {quickReplies(messages).map((s) => (
           <button key={s} disabled={locked} onClick={() => void send(s)}>
             {s}
           </button>
@@ -242,7 +239,7 @@ export function ChatView({
 
       <div className="ask" style={{ marginTop: 10 }}>
         <input
-          placeholder="Ask ABI — next steps, agents, policy, remember that…"
+          placeholder="Ask anything — “hows the researcher doing”, “why was the last one blocked”, “remember that…”"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void send(draft)}

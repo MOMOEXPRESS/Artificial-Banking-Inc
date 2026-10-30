@@ -35,6 +35,9 @@ export const TOOL_NAMES = [
   "recall_facts",
   "forget_fact",
   "draft_marketing_blurb",
+  "recent_payments",
+  "notifications_digest",
+  "conversation_recap",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
@@ -49,6 +52,42 @@ export type ToolResult = {
 };
 
 const usd = (m: bigint) => `$${formatMicroToUsdc(m)}`;
+
+/** "5 min ago" / "3 h ago" / "2 d ago" — relative, so no timezone confusion. */
+export function ago(iso: string, now = Date.now()): string {
+  const ms = now - Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  if (ms < 60_000) return "just now";
+  if (ms < 3600_000) return `${Math.round(ms / 60_000)} min ago`;
+  if (ms < 86_400_000) return `${Math.round(ms / 3600_000)} h ago`;
+  return `${Math.round(ms / 86_400_000)} d ago`;
+}
+
+/** Human labels for stored intents (conversation recap). */
+const TOPIC_LABEL: Record<string, string> = {
+  survey: "status overview",
+  agents: "agents",
+  agent_detail: "an agent's activity",
+  approvals: "pending approvals",
+  spend: "spend",
+  payments: "recent payments",
+  budgets: "budgets",
+  denials: "denials",
+  vendors: "vendors",
+  policy: "policy bands",
+  quiet: "quiet hours",
+  treasury: "treasury",
+  books: "books",
+  burn: "burn and runway",
+  decision_why: "why a payment was blocked or reviewed",
+  governance: "who can approve",
+  recommend: "next steps",
+  compare: "comparing agents",
+  notifications: "notifications",
+  action_request: "a request I can't do from chat",
+  remember: "saved notes",
+  recall: "saved notes",
+};
 
 export function runTool(
   orgId: string,
@@ -404,20 +443,33 @@ export function runTool(
         .toLowerCase()
         .trim();
       const agentId = String(args.agentId ?? "").trim();
-      const decisions = agentId
+      const wantIntent = String(args.intentId ?? "").trim();
+      const wantOutcome = String(args.outcome ?? "").trim();
+      const all = agentId
         ? store.listDecisionsForAgent(orgId, agentId, 80)
         : store.listDecisions(orgId, 400);
-      const matched = q
-        ? decisions.filter(
-            (d) =>
-              d.destination.toLowerCase().includes(q) ||
-              d.outcome.toLowerCase().includes(q) ||
-              d.intentId.toLowerCase().includes(q) ||
-              d.ruleIds.some((r) => r.toLowerCase().includes(q)) ||
-              d.reasons.some((r) => r.toLowerCase().includes(q)),
-          )
-        : decisions.filter((d) => d.outcome === "deny" || d.outcome === "review");
-      const d = matched[0] ?? decisions[0];
+      // "why was the last one blocked" means the last *denial*, not the last decision.
+      const byOutcome =
+        wantOutcome && all.some((d) => d.outcome === wantOutcome)
+          ? all.filter((d) => d.outcome === wantOutcome)
+          : all;
+      const exact = wantIntent ? all.find((d) => d.intentId === wantIntent) : undefined;
+      const matched = exact
+        ? [exact]
+        : q
+          ? all.filter(
+              (d) =>
+                d.destination.toLowerCase().includes(q) ||
+                d.outcome.toLowerCase().includes(q) ||
+                d.intentId.toLowerCase().includes(q) ||
+                d.ruleIds.some((r) => r.toLowerCase().includes(q)) ||
+                d.reasons.some((r) => r.toLowerCase().includes(q)),
+            )
+          : [];
+      const fallback = wantOutcome
+        ? byOutcome
+        : all.filter((d) => d.outcome === "deny" || d.outcome === "review");
+      const d = matched[0] ?? fallback[0] ?? all[0];
       if (!d) {
         return {
           tool: name,
@@ -466,6 +518,16 @@ export function runTool(
         ...bandNotes.map((b) => `• ${b}`),
         "",
         `Live bands now: ask-me $${formatMicroToUsdc(t.hitlAboveMicro)} · per-pay $${formatMicroToUsdc(t.perTxMaxMicro)} · daily $${formatMicroToUsdc(t.dailyMaxMicro)}.`,
+        "",
+        `What this means: ${
+          d.outcome === "deny"
+            ? "the agent was told no and nothing moved. If payments like this should go through, an owner can widen the matching band in Policy — I can't change it from chat."
+            : d.outcome === "review"
+              ? store.listApprovals(orgId, "pending", 50).some((a) => a.intentId === d.intentId)
+                ? "it is parked in Approvals waiting for a guardian vote. Approve or deny it there (or on the card in this chat) — I won't decide it for you."
+                : "it was sent to a guardian for review; that review is no longer pending."
+              : "it was inside every band, so it settled without needing you."
+        }`,
       ].join("\n");
       return {
         tool: name,
@@ -477,7 +539,147 @@ export function runTool(
           destinations: [d.destination],
           agentIds: [d.agentId],
           agentNames: agent ? [agent.name] : [],
+          decisionIds: [d.intentId],
         },
+      };
+    }
+    case "recent_payments": {
+      const agentId = String(args.agentId ?? "").trim();
+      const outcome = String(args.outcome ?? "").trim();
+      let rows = agentId
+        ? store.listDecisionsForAgent(orgId, agentId, 40)
+        : store.listDecisions(orgId, 40);
+      if (outcome) rows = rows.filter((d) => d.outcome === outcome);
+      rows = rows.slice(0, 8);
+      const names = new Map(store.listAgents(orgId).map((a) => [a.id, a.name]));
+      const who = agentId ? names.get(agentId) : undefined;
+      if (!rows.length) {
+        return {
+          tool: name,
+          title: who ? `Recent payments · ${who}` : "Recent payments",
+          text: who
+            ? `${who} hasn't attempted any payments yet.`
+            : "No payment attempts yet — once an agent pays, each one shows up here with its policy outcome.",
+          goto: "payments",
+          data: { topic: "payments", decisionIds: [] },
+        };
+      }
+      const label = (o: string) =>
+        o === "allow" ? "settled" : o === "deny" ? "blocked" : "waiting/reviewed";
+      const lines = rows.map(
+        (d, i) =>
+          `${i + 1}. ${label(d.outcome)} $${d.amountUsdc} → ${d.destination} · ${names.get(d.agentId) ?? "agent"} · ${ago(d.at)}`,
+      );
+      return {
+        tool: name,
+        title: who ? `Recent payments · ${who}` : "Recent payments",
+        text: `${lines.join("\n")}\nSay “explain the second one” (or “the last one”) for the policy reasoning behind any line.`,
+        goto: "payments",
+        data: {
+          topic: "payments",
+          decisionIds: rows.map((d) => d.intentId),
+          destinations: [...new Set(rows.map((d) => d.destination))].slice(0, 5),
+        },
+      };
+    }
+    case "notifications_digest": {
+      // Read-only: listing never marks anything as read.
+      const unread = store.countUnreadNotifications(orgId);
+      const rows = store.listNotifications(orgId, { limit: 6 });
+      if (!rows.length) {
+        return {
+          tool: name,
+          title: "Notifications",
+          text: "No notifications yet. Payments, refusals, approvals, key and policy changes land under the bell.",
+          goto: "overview",
+          data: { topic: "notifications" },
+        };
+      }
+      const icon = (s: string) => (s === "bad" ? "⚠ " : s === "warn" ? "! " : "");
+      const lines = rows.map(
+        (n) =>
+          `• ${icon(n.severity)}${n.title}${n.readAt ? "" : " (unread)"} · ${ago(n.createdAt)}${n.body ? ` — ${n.body.slice(0, 120)}` : ""}`,
+      );
+      const top = rows.find((n) => !n.readAt && (n.severity === "bad" || n.severity === "warn"));
+      return {
+        tool: name,
+        title: `Notifications · ${unread} unread`,
+        text: lines.join("\n"),
+        goto: top?.link ?? rows[0]?.link ?? "overview",
+        data: { topic: "notifications" },
+      };
+    }
+    case "conversation_recap": {
+      const turns = store.listChatMessages(orgId, 300).filter((m) => m.role !== "system");
+      // The route stores the question being answered right now before running
+      // the agent; it is not part of "what we talked about".
+      if (turns.length && turns[turns.length - 1]!.role === "user") turns.pop();
+      const users = turns.filter((m) => m.role === "user" && !parseMemoryCommand(m.body));
+      if (!users.length) {
+        return {
+          tool: name,
+          title: "Our conversations",
+          text: "This is our first conversation — nothing to recap yet.",
+          goto: "chat",
+          data: { topic: "recap" },
+        };
+      }
+      // Sessions = gaps of 3h+ between messages. "Last time" = the session
+      // before the current one when there is one.
+      const sessions: (typeof turns)[] = [];
+      let prev = 0;
+      for (const m of turns) {
+        const t = Date.parse(m.createdAt);
+        if (!sessions.length || t - prev > 3 * 3600_000) sessions.push([]);
+        sessions[sessions.length - 1]!.push(m);
+        prev = t;
+      }
+      const topicOf = (meta: Record<string, unknown> | undefined) =>
+        typeof meta?.intent === "string" ? TOPIC_LABEL[meta.intent] : undefined;
+      const describe = (s: typeof turns) => {
+        const topics = new Set<string>();
+        const agentsSeen = new Set<string>();
+        for (const m of s) {
+          if (m.role !== "assistant") continue;
+          const lbl = topicOf(m.meta);
+          if (lbl) topics.add(lbl);
+          const pad = m.meta?.scratchpad as { agentNames?: unknown } | undefined;
+          if (Array.isArray(pad?.agentNames) && pad!.agentNames.length <= 2) {
+            for (const n of pad!.agentNames) if (typeof n === "string") agentsSeen.add(n);
+          }
+        }
+        const asks = s
+          .filter((m) => m.role === "user" && !parseMemoryCommand(m.body))
+          .slice(-3)
+          .map((m) => `“${m.body.length > 70 ? `${m.body.slice(0, 67)}…` : m.body}”`);
+        const when = s[0] ? `${s[0].createdAt.slice(0, 16).replace("T", " ")} UTC` : "";
+        return [
+          `${when} · ${s.filter((m) => m.role === "user").length} question(s)`,
+          topics.size ? `  Topics: ${[...topics].join(", ")}` : "",
+          agentsSeen.size ? `  Agents discussed: ${[...agentsSeen].join(", ")}` : "",
+          asks.length ? `  You asked: ${asks.join(" · ")}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+      };
+      const shown = sessions.slice(-3).reverse();
+      const notes = store.countAbiMemories(orgId);
+      return {
+        tool: name,
+        title: `Our conversations (${sessions.length} session${sessions.length === 1 ? "" : "s"})`,
+        text: [
+          ...shown.map(
+            (s, i) =>
+              `${i === 0 ? "Most recent" : i === 1 ? "Before that" : "Earlier"} — ${describe(s)}`,
+          ),
+          notes
+            ? `I also keep ${notes} saved note${notes === 1 ? "" : "s"} — ask “what do you remember?”.`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        goto: "chat",
+        data: { topic: "recap" },
       };
     }
     case "governance_status": {
@@ -909,6 +1111,16 @@ export function pickTools(qRaw: string): ToolName[] {
     has("sign up on", "signup on", "register on")
   ) {
     tools.add("draft_marketing_blurb");
+  }
+  if (has("notification", "notifications")) tools.add("notifications_digest");
+  if (has("conversation recap")) tools.add("conversation_recap");
+  if (
+    has("payment", "payments") &&
+    has("recent", "latest", "last", "history", "list", "show") &&
+    !has("why")
+  ) {
+    tools.add("recent_payments");
+    tools.delete("recent_spend");
   }
   if (has("anomaly", "unusual", "weird")) {
     tools.add("burn_forecast");

@@ -1825,7 +1825,9 @@ app.post(
     // ABI agent: read-only org survey + HITL external proposals. ABI_CHAT_AGENT=0 → legacy Q&A.
     const useAgent = process.env.ABI_CHAT_AGENT !== "0";
     const raw = useAgent
-      ? await runAbiAgent(org.id, body.message, prior)
+      ? await runAbiAgent(org.id, body.message, prior, {
+          role: (req as express.Request & { guardianCtx?: GuardianCtx }).guardianCtx?.role,
+        })
       : { ...answerQuestion(org.id, body.message), toolsUsed: [] as string[] };
     // The LLM tool loop already synthesized a final answer. Sending that answer
     // through a second model call adds cost and gives another model a chance to
@@ -1845,6 +1847,9 @@ app.post(
         ...("via" in raw && raw.via ? { via: raw.via } : {}),
         ...("scratchpad" in raw && raw.scratchpad ? { scratchpad: raw.scratchpad } : {}),
         ...("intent" in raw && raw.intent ? { intent: raw.intent } : {}),
+        ...("suggestions" in raw && raw.suggestions?.length
+          ? { suggestions: raw.suggestions }
+          : {}),
       },
     });
     res.json({
@@ -1852,6 +1857,7 @@ app.post(
       goto: raw.goto,
       toolsUsed: raw.toolsUsed ?? [],
       intent: "intent" in raw ? raw.intent : undefined,
+      suggestions: "suggestions" in raw ? (raw.suggestions ?? []) : [],
       messages: store.listChatMessages(org.id),
     });
   }),

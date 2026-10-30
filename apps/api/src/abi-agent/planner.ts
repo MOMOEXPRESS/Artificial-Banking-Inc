@@ -48,6 +48,15 @@ export function planTools(intent: AbiIntent, message: string): ToolName[] {
       return ["list_agents", "compare_agents"];
     case "help":
       return ["org_summary", "recommend_next"];
+    case "payments":
+      return ["recent_payments"];
+    case "notifications":
+      return ["notifications_digest"];
+    case "recap":
+      return ["conversation_recap"];
+    case "action_request":
+    case "out_of_scope":
+      return [];
     case "unknown":
     default: {
       // Soft fallbacks from loose keywords already handled; leave empty for pickTools.

@@ -417,18 +417,17 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
               </header>
 
               {view === "overview" && (
-                <div
-                  style={{
-                    display: "grid",
-                    gap: 12,
-                    gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))",
-                  }}
-                >
-                  <Stat label="Payout wallet" value={profile?.payoutAddress ? "Set" : "Missing"} />
-                  <Stat label="Offers" value={offers.length} />
-                  <Stat label="Verified / published" value={`${verified} / ${published}`} />
-                  <Stat label="Earned (USDC)" value={earned} />
-                  <div className="card" style={{ gridColumn: "1 / -1" }}>
+                <div className="seller-overview">
+                  <div className="seller-stats">
+                    <Stat
+                      label="Payout wallet"
+                      value={profile?.payoutAddress ? "Set" : "Missing"}
+                    />
+                    <Stat label="Offers" value={offers.length} />
+                    <Stat label="Verified / published" value={`${verified} / ${published}`} />
+                    <Stat label="Earned (USDC)" value={earned} />
+                  </div>
+                  <div className="card">
                     <h3 style={{ marginTop: 0 }}>How agents pay you</h3>
                     <ol className="muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
                       <li>Set the wallet that receives USDC in Settings → Payout.</li>
@@ -451,11 +450,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                       </Button>
                     </div>
                   </div>
-                  {activity.length > 0 && (
-                    <div style={{ gridColumn: "1 / -1" }}>
-                      <ActivityView rows={activity.slice(0, 5)} />
-                    </div>
-                  )}
+                  {activity.length > 0 && <ActivityView rows={activity.slice(0, 5)} />}
                 </div>
               )}
 
