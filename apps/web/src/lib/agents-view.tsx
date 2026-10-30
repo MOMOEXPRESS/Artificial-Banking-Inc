@@ -814,7 +814,7 @@ export function AgentsView({
                         {revealedMcpUrl && (
                           <>
                             <div className="muted" style={{ marginTop: 10 }}>
-                              Remote MCP URL (sandbox only)
+                              Remote MCP URL (testnet only)
                             </div>
                             <code className="mono">{revealedMcpUrl}</code>
                             <div className="agent-profile-inline" style={{ marginTop: 8 }}>

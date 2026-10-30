@@ -80,7 +80,7 @@ const TIPS: Record<string, string[]> = {
     "Filter by agent or outcome when debugging a refuse or review.",
   ],
   settings: [
-    "Go-live checks distinguish sandbox setup from on-chain readiness. Check the signer, network and funding before testing settlement.",
+    "Go-live checks show on-chain readiness. Check the signer, network and funding before testing settlement.",
     "Merchant directory is labels only — Policy → Allowlists gates pay_api destinations.",
     "The org kill switch freezes all agent spend immediately.",
   ],

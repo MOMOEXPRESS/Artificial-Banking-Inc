@@ -21,9 +21,7 @@ function profile(over: Partial<WalletProfile> = {}): WalletProfile {
       testnet: true,
       explorerAddress: null,
     },
-    ledgerMode: "sandbox",
-    balancesSimulated: true,
-    usdc: { ledgerAvailableUsdc: "10.00", simulatedUsdc: "10.00", onchainUsdc: "0.00" },
+    usdc: { ledgerAvailableUsdc: "10.00", onchainUsdc: "0.00" },
     gas: {
       symbol: "ETH",
       networkName: "Base Sepolia",
@@ -42,7 +40,7 @@ function profile(over: Partial<WalletProfile> = {}): WalletProfile {
         decimals: 6,
         networkName: "Base Sepolia",
         receiveAddress: ADDR,
-        send: { mode: "simulated", reason: "" },
+        send: { mode: "onchain", reason: "" },
       },
       {
         assetId: "asset_eth",
@@ -50,7 +48,7 @@ function profile(over: Partial<WalletProfile> = {}): WalletProfile {
         decimals: 18,
         networkName: "Base Sepolia",
         receiveAddress: ADDR,
-        send: { mode: "simulated", reason: "" },
+        send: { mode: "onchain", reason: "" },
       },
       {
         assetId: "asset_btc",

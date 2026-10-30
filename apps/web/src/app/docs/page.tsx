@@ -64,14 +64,14 @@ export default function DocsPage() {
                 remote MCP URL shown there to connect a compatible client, including ChatGPT
                 developer mode. The URL is a short-lived bearer credential: treat it like a
                 password, share it only with your chosen client, and revoke the session in ABI when
-                you are done. This proof supports sandbox actions only; it does not authorize
-                live-money settlement.
+                you are done. This proof works on testnet only; it does not authorize mainnet
+                settlement.
               </p>
               <p>
                 ABI is provider-independent. Agents that can call HTTP tools can use the agent API
                 with a scoped agent key. Local clients supporting MCP over stdio can run the bundled
                 MCP server. Remote clients must support MCP Streamable HTTP; their authentication
-                and connection settings vary. The hosted session-link connector is sandbox-only and
+                and connection settings vary. The hosted session-link connector is testnet-only and
                 expires with its session. Persistent remote OAuth connections and individual
                 framework adapters are not implemented yet.
               </p>

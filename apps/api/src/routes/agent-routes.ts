@@ -737,7 +737,7 @@ export function registerAgentRoutes(
         res.status(201).json({
           sessionKey: session,
           mcpUrl: `${req.protocol}://${req.get("host")}/mcp/${session.token}`,
-          note: "Session token and developer-mode MCP URL are shown once. The MCP URL is sandbox-only; revoke this session after testing.",
+          note: "Session token and developer-mode MCP URL are shown once. The MCP URL works on testnet only; revoke this session after testing.",
         });
       },
       { ownerOnly: true },

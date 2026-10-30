@@ -739,13 +739,37 @@ describe("password recovery end to end", () => {
   });
 });
 
-describe("ledger mode switch (testnet)", () => {
-  it("lets an owner move a sandbox signup to live and back; refuses others and outstanding simulated balance", async () => {
+describe("go-live (sandbox mode removed)", () => {
+  /** Put an org back into the pre-retirement sandbox state, as production rows were. */
+  async function legacySandbox(orgId: string, simulatedMicro: bigint) {
     const { store } = await import("../store.js");
+    const { default: Database } = await import("better-sqlite3");
+    const raw = new Database(process.env.POLICYVAULT_DB!);
+    raw.prepare("UPDATE orgs SET ledger_mode = 'sandbox' WHERE id = ?").run(orgId);
+    raw.close();
+    // What the removed "Add simulated balance" route booked.
+    store.applyEntries(orgId, [
+      {
+        id: `j_legacy_${orgId}`,
+        orgId,
+        memo: "sandbox_deposit",
+        createdAt: new Date().toISOString(),
+        lines: [
+          { accountId: `org:${orgId}:external`, deltaMicro: -simulatedMicro },
+          { accountId: `org:${orgId}:available`, deltaMicro: simulatedMicro },
+        ],
+      },
+    ]);
+    store.addUnbackedMicro(orgId, simulatedMicro);
+  }
+
+  it("signups start live; going live writes off simulated balance with no manual step", async () => {
+    const { store } = await import("../store.js");
+    const { formatMicroToUsdc } = await import("@policyvault/common");
     const ownerJar = new Jar();
     const signupRes = await signup(ownerJar, uniqueEmail(), "Mode Co");
     const orgId = ((await signupRes.res.json()) as { org: { id: string } }).org.id;
-    assert.equal(store.getOrgLedgerMode(orgId), "sandbox", "testnet signups start in sandbox");
+    assert.ok(!store.listSandboxOrgIds().includes(orgId), "new signups start live");
 
     // Anonymous and wrong-org callers are refused.
     const anon = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
@@ -762,47 +786,61 @@ describe("ledger mode switch (testnet)", () => {
     });
     assert.equal(foreign.status, 403);
 
-    const bad = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
-      method: "POST",
-      jar: ownerJar,
-      body: { mode: "mainnet" },
-    });
-    assert.equal(bad.status, 400);
-
-    // Simulated money on the books blocks going live.
-    store.addUnbackedMicro(orgId, 5_000_000n);
-    const blocked = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
-      method: "POST",
-      jar: ownerJar,
-      body: { mode: "live" },
-    });
-    assert.equal(blocked.status, 409);
-    assert.equal(
-      ((await blocked.json()) as { error: { code: string } }).error.code,
-      "SIMULATED_BALANCE_OUTSTANDING",
-    );
-    assert.equal(store.getOrgLedgerMode(orgId), "sandbox");
-    store.addUnbackedMicro(orgId, -5_000_000n);
-
+    // The case that used to fail: 10,000 USDC of simulated sandbox balance.
+    await legacySandbox(orgId, 10_000_000_000n);
+    assert.ok(store.listSandboxOrgIds().includes(orgId));
     const live = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
       method: "POST",
       jar: ownerJar,
       body: { mode: "live" },
     });
     assert.equal(live.status, 200);
-    assert.deepEqual(await live.json(), { ok: true, ledgerMode: "live", changed: true });
-    assert.equal(store.getOrgLedgerMode(orgId), "live");
+    const body = (await live.json()) as {
+      ok: boolean;
+      ledgerMode: string;
+      changed: boolean;
+      writtenOffUsdc: string;
+      remainingUnbackedUsdc: string;
+      journalId: string | null;
+    };
+    assert.equal(body.ok, true);
+    assert.equal(body.ledgerMode, "live");
+    assert.equal(body.changed, true);
+    assert.equal(body.writtenOffUsdc, formatMicroToUsdc(10_000_000_000n));
+    assert.equal(body.remainingUnbackedUsdc, formatMicroToUsdc(0n));
+    assert.ok(body.journalId);
+    assert.ok(!store.listSandboxOrgIds().includes(orgId));
+    assert.equal(store.getUnbackedMicro(orgId), 0n);
+    assert.equal(store.getAccountMap(orgId).get(`org:${orgId}:available`)?.balanceMicro, 0n);
+    const journal = store.listJournals(orgId, 50).find((j) => j.id === body.journalId);
+    assert.equal(journal?.memo, "sandbox_writeoff:go_live");
 
-    const back = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
+    // Idempotent.
+    const again = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
       method: "POST",
       jar: ownerJar,
-      body: { mode: "sandbox" },
+      body: { mode: "live" },
     });
-    assert.equal(back.status, 200);
-    assert.equal(store.getOrgLedgerMode(orgId), "sandbox");
+    assert.equal(again.status, 200);
+    assert.equal(((await again.json()) as { changed: boolean }).changed, false);
+
+    // There is no way back into sandbox.
+    for (const mode of ["sandbox", "mainnet"]) {
+      const refused = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
+        method: "POST",
+        jar: ownerJar,
+        body: { mode },
+      });
+      assert.equal(refused.status, 410);
+      assert.equal(
+        ((await refused.json()) as { error: { code: string } }).error.code,
+        "SANDBOX_REMOVED",
+      );
+    }
+    assert.ok(!store.listSandboxOrgIds().includes(orgId));
   });
 
-  it("an approver cannot switch the mode", async () => {
+  it("an approver cannot run the go-live step", async () => {
     const { store } = await import("../store.js");
     const ownerJar = new Jar();
     const signupRes = await signup(ownerJar, uniqueEmail(), "Mode Roles Co");
@@ -822,12 +860,14 @@ describe("ledger mode switch (testnet)", () => {
     });
     const dev = ((await joined.json()) as { devVerificationToken?: string }).devVerificationToken;
     if (dev) await call("/v1/auth/email/verify", { method: "POST", jar, body: { token: dev } });
+    await legacySandbox(orgId, 1_000_000n);
     const res = await call(`/v1/auth/orgs/${orgId}/ledger-mode`, {
       method: "POST",
       jar,
       body: { mode: "live" },
     });
     assert.equal(res.status, 403);
-    assert.equal(store.getOrgLedgerMode(orgId), "sandbox");
+    assert.ok(store.listSandboxOrgIds().includes(orgId));
+    assert.equal(store.getUnbackedMicro(orgId), 1_000_000n);
   });
 });

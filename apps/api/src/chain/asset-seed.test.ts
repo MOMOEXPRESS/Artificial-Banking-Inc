@@ -38,7 +38,7 @@ describe("asset seed and migration", () => {
   });
 
   it("hides Ethereum-mainnet USDT and DAI on testnet unless the org recorded a balance", () => {
-    const org = store.createOrg("Roster Co", 0n, { ledgerMode: "sandbox" });
+    const org = store.createOrg("Roster Co", 0n);
     const ids = store.listAssets(org.id).map((a) => a.id);
     assert.ok(ids.includes("asset_usdc"));
     assert.ok(ids.includes("asset_eurc"));

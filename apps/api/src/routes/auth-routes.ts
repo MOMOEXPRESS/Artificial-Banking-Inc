@@ -176,10 +176,6 @@ export function registerAuthRoutes(app: express.Express) {
         ...(body.invitationToken ? { invitationToken: body.invitationToken } : {}),
         verificationToken,
         verificationTtlMs: VERIFY_EMAIL_TTL_MS,
-        // Self-serve orgs on testnet start in sandbox so simulated deposits and
-        // remote MCP work for first-time users; an owner can switch to live via
-        // POST /v1/auth/orgs/:orgId/ledger-mode. Mainnet stays live-only.
-        ledgerMode: process.env.CHAIN === "base" ? "live" : "sandbox",
         markEmailVerified: skipVerify,
       });
       if (created.status === "conflict") {
@@ -567,57 +563,57 @@ export function registerAuthRoutes(app: express.Express) {
     res.json({ ok: true });
   });
 
-  // -------------------------------------------------------------- ledger mode
+  // -------------------------------------------------------------- go live
 
   /**
-   * Owner-only: switch this org between sandbox and live on testnet.
+   * Owner-only: make sure this org is on live books.
    *
-   * Self-serve signups on testnet start in sandbox and nothing else ever
-   * changed it, so a testnet org could never run treasury sends for real.
-   * Mainnet stays live-only. Moving to live is refused while simulated
-   * (unbacked) balance is still on the books: a live org may only hold money
-   * that arrived on-chain.
+   * Sandbox mode is gone — every org is live and testnet vs mainnet is the
+   * deployment's CHAIN. Orgs created before that are moved at boot
+   * (migrateSandboxOrgsToLive); this route runs the same atomic step on
+   * demand, so the console's old "Switch to live" never needs a manual
+   * Treasury clean-up first: any simulated balance is written off with a
+   * `sandbox_writeoff:go_live` journal and nothing is sent on-chain.
+   * Asking for "sandbox" is refused.
    */
   app.post("/v1/auth/orgs/:orgId/ledger-mode", (req, res) => {
     const gate = requireOwner(req, res);
     if (!gate) return;
-    const parsed = z.object({ mode: z.enum(["sandbox", "live"]) }).safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({
-        error: { code: "INVALID_MODE", message: 'mode must be "sandbox" or "live".' },
-      });
-    }
-    const mode = parsed.data.mode;
-    const current = store.getOrgLedgerMode(gate.orgId);
-    if (process.env.CHAIN === "base" && mode === "sandbox") {
-      return res.status(409).json({
+    const parsed = z.object({ mode: z.string() }).safeParse(req.body);
+    if (!parsed.success || parsed.data.mode !== "live") {
+      return res.status(410).json({
         error: {
-          code: "MAINNET_LIVE_ONLY",
-          message: "Organizations on Base mainnet are live-only and cannot switch to sandbox.",
+          code: "SANDBOX_REMOVED",
+          message:
+            "Sandbox mode was removed. Every organization is live (Base Sepolia testnet on this deployment).",
         },
       });
     }
-    if (mode === current) {
-      return res.json({ ok: true, ledgerMode: current, changed: false });
+    const result = store.retireSandbox(gate.orgId, { actor: gate.user.id, reason: "go_live" });
+    if (result.changed) {
+      recordObs({
+        name: "org.sandbox.retired",
+        orgId: gate.orgId,
+        attrs: {
+          from: result.previousMode,
+          by: gate.user.id,
+          writtenOffUsdc: formatMicroToUsdc(result.writtenOffMicro),
+          journalId: result.journalId ?? "",
+        },
+      });
     }
-    if (mode === "live") {
-      const unbacked = store.getUnbackedMicro(gate.orgId);
-      if (unbacked > 0n) {
-        return res.status(409).json({
-          error: {
-            code: "SIMULATED_BALANCE_OUTSTANDING",
-            message: `This organization still holds ${formatMicroToUsdc(unbacked)} USDC of simulated sandbox balance. Remove it (Treasury → Send (simulated), no destination) before switching to live, so the live books only hold money that arrived on-chain.`,
-          },
-        });
-      }
-    }
-    store.setOrgLedgerMode(gate.orgId, mode);
-    recordObs({
-      name: "org.ledger_mode.changed",
-      orgId: gate.orgId,
-      attrs: { from: current, to: mode, by: gate.user.id },
+    res.json({
+      ok: true,
+      ledgerMode: "live",
+      changed: result.changed,
+      writtenOffUsdc: formatMicroToUsdc(result.writtenOffMicro),
+      remainingUnbackedUsdc: formatMicroToUsdc(result.remainingUnbackedMicro),
+      journalId: result.journalId,
+      assetsZeroed: result.assetsZeroed.map((a) => ({
+        assetId: a.assetId,
+        amountMicro: a.amountMicro.toString(),
+      })),
     });
-    res.json({ ok: true, ledgerMode: mode, changed: true });
   });
 
   // ------------------------------------------------------------------ helpers

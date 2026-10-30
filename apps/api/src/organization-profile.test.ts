@@ -75,7 +75,8 @@ it("saves a validated profile without changing its treasury mode", async () => {
   assert.equal(saved.status, 200);
   const read = await fetch(url, { headers });
   const data = (await read.json()) as { environment: string; profile: Record<string, unknown> };
-  assert.equal(data.environment, "live");
+  // Sandbox mode is gone: the environment is the deployment's network.
+  assert.equal(data.environment, "testnet");
   assert.equal(data.profile.displayName, "After");
   assert.equal(data.profile.workspace, "buyer");
   assert.equal(data.profile.defaultCurrencyDisplay, "EUR");

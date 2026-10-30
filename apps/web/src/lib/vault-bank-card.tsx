@@ -21,7 +21,6 @@ export function VaultBankCard({
   networkLabel,
   chainId,
   gasLine,
-  simulated,
   orgName,
   copied,
   onCopy,
@@ -32,7 +31,6 @@ export function VaultBankCard({
   networkLabel: string;
   chainId?: number;
   gasLine?: { tone: "ok" | "warn" | "unknown"; text: string };
-  simulated?: boolean;
   orgName?: string | null;
   copied: boolean;
   onCopy: () => void;
@@ -106,13 +104,6 @@ export function VaultBankCard({
         )}
         {gasLine ? (
           <small className={gasLine.tone === "warn" ? "warn" : "faint"}>Gas: {gasLine.text}</small>
-        ) : null}
-        {simulated ? (
-          <small className="faint">
-            Sandbox: simulated top-ups are counted in the balance but are not on-chain. Funds sent
-            to this address on {networkLabel} are real testnet money, and agent payments to a wallet
-            address spend real testnet USDC from it.
-          </small>
         ) : null}
       </div>
     </>

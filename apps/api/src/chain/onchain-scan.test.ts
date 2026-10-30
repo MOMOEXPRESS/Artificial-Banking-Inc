@@ -227,7 +227,7 @@ describe("readVaultOnchain", () => {
 
 describe("deposit crediting with a per-vault cursor", () => {
   it("credits a deposit once, then scans only new blocks", async () => {
-    const org = store.createOrg("Cursor Co", 0n, { ledgerMode: "live" });
+    const org = store.createOrg("Cursor Co", 0n);
     const vault = store.getVaultAddress(org.id)! as `0x${string}`;
     const head = 20_000n;
     const logs: Log[] = [
@@ -264,7 +264,7 @@ describe("deposit crediting with a per-vault cursor", () => {
   });
 
   it("does not advance the cursor past a failed scan", async () => {
-    const org = store.createOrg("Retry Co", 0n, { ledgerMode: "live" });
+    const org = store.createOrg("Retry Co", 0n);
     const vault = store.getVaultAddress(org.id)!;
     store.setOnchainScanCursor(org.id, "base-sepolia", vault, 9_000n);
     const rpc = mockRpc({ head: 10_000n, failLogs: true });
@@ -275,7 +275,7 @@ describe("deposit crediting with a per-vault cursor", () => {
   });
 
   it("catches up a long gap across ticks without missing a deposit", async () => {
-    const org = store.createOrg("Catch-up Co", 0n, { ledgerMode: "live" });
+    const org = store.createOrg("Catch-up Co", 0n);
     const vault = store.getVaultAddress(org.id)! as `0x${string}`;
     const head = 100_000n;
     const logs: Log[] = [
@@ -300,7 +300,7 @@ describe("deposit crediting with a per-vault cursor", () => {
   });
 
   it("the sweep stays inside its subrequest budget", async () => {
-    for (let i = 0; i < 12; i++) store.createOrg(`Budget ${i}`, 0n, { ledgerMode: "live" });
+    for (let i = 0; i < 12; i++) store.createOrg(`Budget ${i}`, 0n);
     let rpcCalls = 0;
     const rpc = mockRpc({ head: 1_000_000n, cap: 200 });
     const counted = {
@@ -321,7 +321,7 @@ describe("deposit crediting with a per-vault cursor", () => {
 describe("vault rotation guard", () => {
   it("refuses to rotate when the vault balance cannot be read", async () => {
     // CHAIN_RPC_URL points at a closed port, so the chain read fails.
-    const org = store.createOrg("Rotate Guard Co", 0n, { ledgerMode: "live" });
+    const org = store.createOrg("Rotate Guard Co", 0n);
     const before = store.getVaultAddress(org.id);
     const res = await fetch(`${base}/v1/guardian/treasury/recovery/rotate-vault`, {
       method: "POST",

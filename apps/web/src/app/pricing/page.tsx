@@ -50,8 +50,11 @@ const TIERS = [
 ];
 
 const CAPABILITIES = [
-  ["Sandbox organization and playground", "Available in code; enabled by deployment configuration"],
-  ["Policy simulator, budgets, and approvals", "Available in code; test with sandbox data"],
+  ["Testnet organization and playground", "Available on Base Sepolia; real testnet funds only"],
+  [
+    "Policy simulator, budgets, and approvals",
+    "Available in code; dry-run with the policy simulator",
+  ],
   ["x402 and mock payment rails", "Development rails; live behavior depends on provider setup"],
   ["Base Sepolia settlement", "Testnet support; requires RPC and signer configuration"],
   ["Coinbase CDP custody", "Not connected"],
@@ -96,8 +99,8 @@ export default function PricingPage() {
           <div className="mkt-compare">
             <h3 className="mkt-compare-title">Current capabilities and roadmap</h3>
             <p className="mkt-compare-sub">
-              Availability is not enforced by subscription. Sandbox and testnet capabilities depend
-              on deployment configuration.
+              Availability is not enforced by subscription. Testnet capabilities depend on
+              deployment configuration.
             </p>
             <div className="mkt-compare-wrap">
               <table className="mkt-compare-table">

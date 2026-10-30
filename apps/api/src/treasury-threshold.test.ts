@@ -21,9 +21,28 @@ process.env.POLICYVAULT_MOCK_TRANSFER = "1";
 process.env.ABI_CHAT_LLM = "0";
 process.env.ABI_CHAT_AGENT = "0";
 process.env.POLICYVAULT_ALLOW_BOOTSTRAP = "0";
+process.env.CHAIN = "base-sepolia";
+// Unreachable on purpose: any accidental real RPC read fails fast.
+process.env.CHAIN_RPC_URL = "http://127.0.0.1:9";
+process.env.ABI_TX_RECEIPT_TIMEOUT_MS = "50";
 
 const { store } = await import("./store.js");
 const { app } = await import("./index.js");
+// TEST-ONLY: every org is live, so a guardian withdrawal broadcasts. The chain
+// is a local fake; nothing touches Base Sepolia. The hash is synthetic.
+const transfer = await import("./chain/transfer.js");
+const { privateKeyToAccount } = await import("viem/accounts");
+transfer.setVaultChainClientsForTests((_cfg, privateKey) => ({
+  account: { address: privateKeyToAccount(privateKey).address },
+  publicClient: {
+    readContract: async () => 10_000_000_000_000n,
+    getBalance: async () => 10n ** 16n,
+    estimateContractGas: async () => 65_000n,
+    estimateFeesPerGas: async () => ({ maxFeePerGas: 1_000_000_000n }),
+    waitForTransactionReceipt: async () => ({ status: "success" }),
+  },
+  walletClient: { writeContract: async () => `0x${"ab".repeat(32)}` },
+}));
 const { __resetTreasuryGuardForTests } = await import("./treasury-guard.js");
 const {
   DEFAULT_TREASURY_APPROVAL_THRESHOLD_MICRO,
@@ -41,6 +60,7 @@ before(async () => {
 });
 
 after(() => {
+  transfer.setVaultChainClientsForTests(null);
   server?.close();
   try {
     rmSync(dir, { recursive: true, force: true });

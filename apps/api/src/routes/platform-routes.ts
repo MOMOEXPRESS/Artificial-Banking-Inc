@@ -7,6 +7,8 @@ import type express from "express";
 import { z } from "zod";
 import { getComplianceScreener } from "../platform/compliance.js";
 import { getObservabilitySink, recordObs } from "../platform/observability.js";
+import { isTestnetChain } from "../chain/asset-adapters.js";
+import { activeChain } from "../chain/network.js";
 import { store, type OrgRow } from "../store.js";
 
 type GuardianRoute = (
@@ -48,7 +50,7 @@ export function registerPlatformRoutes(
       res.json({
         orgId: org.id,
         status: org.status,
-        environment: store.getOrgLedgerMode(org.id),
+        environment: isTestnetChain(activeChain().id) ? "testnet" : "mainnet",
         profile: {
           displayName: org.name,
           ...(org.settings.profile &&

@@ -2,7 +2,7 @@
  * Client view of GET /v1/guardian/wallet — the wallet source of truth.
  * Pure helpers so they can be unit tested with node:test.
  */
-export type SendMode = "onchain" | "simulated" | "recorded" | "unsupported";
+export type SendMode = "onchain" | "recorded" | "unsupported";
 
 export type WalletProfile = {
   address: string | null;
@@ -15,10 +15,7 @@ export type WalletProfile = {
     testnet: boolean;
     explorerAddress: string | null;
   };
-  ledgerMode: "sandbox" | "live";
-  /** Sandbox top-ups are simulated bookkeeping. */
-  balancesSimulated: boolean;
-  /** Agent payments to a 0x address go on-chain in every ledger mode. Optional for older APIs. */
+  /** Agent payments to a 0x address go on-chain. Optional for older APIs. */
   agentPayments?: {
     mode: "onchain";
     realFunds: boolean;
@@ -29,7 +26,8 @@ export type WalletProfile = {
   };
   usdc: {
     ledgerAvailableUsdc: string;
-    simulatedUsdc: string;
+    /** Legacy simulated money still locked in a hold after sandbox retirement (normally 0). */
+    unbackedUsdc?: string;
     onchainUsdc: string | null;
   };
   gas: {
@@ -98,14 +96,11 @@ export function assetInputDecimals(
   return profile?.assets.find((a) => a.assetId === assetId)?.decimals ?? 6;
 }
 
-/**
- * What an agent payment does in this org. Sandbox does not make agent payments
- * simulated: a wallet payment broadcasts real (testnet) USDC from the vault.
- */
+/** What an agent payment does: a wallet payment broadcasts real (testnet) USDC from the vault. */
 export function agentPaymentLine(profile: WalletProfile | null | undefined): string {
   if (profile?.agentPayments) return profile.agentPayments.note;
   const net = profile?.network.name ?? "Base Sepolia";
   return profile?.network.testnet === false
     ? `Agent payments to a wallet address send real ${net} USDC from this vault.`
-    : `Agent payments to a wallet address send real ${net} testnet USDC from this vault, in sandbox and live mode alike.`;
+    : `Agent payments to a wallet address send real ${net} testnet USDC from this vault.`;
 }

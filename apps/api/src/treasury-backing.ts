@@ -14,8 +14,8 @@
  *
  * Every internal credit is matched by a debit to `external`, so `-(external)`
  * is the net money the ledger believes it holds. `unbacked` is the running
- * total of simulated movements (sandbox deposits, mock-rail settlements,
- * book-only withdrawals), which never touched the chain.
+ * total of simulated movements (mock-rail settlements, and pre-retirement
+ * sandbox credits still locked in a hold), which never touched the chain.
  *
  * Drift is money that moved without the books noticing, or books that moved
  * without money. Either way it needs a human.
@@ -34,7 +34,6 @@ export type OnchainBackingReport = {
   /** False when the vault could not be read — unknown, not reconciled. */
   checked: boolean;
   orgId: string;
-  ledgerMode: "sandbox" | "live";
   error?: string;
   vaultAddress?: string;
   network?: string;
@@ -67,7 +66,6 @@ export async function reconcileOrgOnchain(
   snapshot?: OnchainVaultSnapshot,
 ): Promise<OnchainBackingReport> {
   const at = new Date().toISOString();
-  const ledgerMode = store.getOrgLedgerMode(orgId);
   const expected = store.expectedOnchainMicro(orgId);
   const unbacked = store.getUnbackedMicro(orgId);
   const vaultAddress = store.getVaultAddress(orgId);
@@ -80,7 +78,6 @@ export async function reconcileOrgOnchain(
       ok: false,
       checked: false,
       orgId,
-      ledgerMode,
       error: snap.error ?? "Could not read vault on-chain",
       vaultAddress,
       network: snap.network,
@@ -104,7 +101,6 @@ export async function reconcileOrgOnchain(
     ok,
     checked: true,
     orgId,
-    ledgerMode,
     vaultAddress,
     network: snap.network,
     onchainMicro: onchain.toString(),
@@ -122,8 +118,8 @@ export async function reconcileOrgOnchain(
 /**
  * Sweep every org and raise the alarm on drift.
  *
- * Sandbox orgs are checked too — their expected balance accounts for the
- * simulated money, so a sandbox org with real deposits still reconciles.
+ * Every org is checked; `unbacked` covers mock-rail settlements so they do
+ * not read as drift.
  */
 export async function runOnchainBackingSweep(): Promise<{
   checked: number;
@@ -170,7 +166,6 @@ export async function runOnchainBackingSweep(): Promise<{
         driftUsdc: report.driftUsdc,
         onchainUsdc: report.onchainUsdc,
         expectedUsdc: report.expectedUsdc,
-        ledgerMode: report.ledgerMode,
       },
     });
     void notify({
@@ -181,7 +176,6 @@ export async function runOnchainBackingSweep(): Promise<{
       meta: {
         vaultAddress: report.vaultAddress,
         driftUsdc: report.driftUsdc,
-        ledgerMode: report.ledgerMode,
       },
     });
     emitEvent(orgId, "treasury.drift.detected", {

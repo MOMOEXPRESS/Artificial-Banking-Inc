@@ -31,6 +31,7 @@ delete process.env.POLICYVAULT_MOCK_TRANSFER;
 const { store } = await import("./store.js");
 const { app } = await import("./index.js");
 const { id } = await import("./engine.js");
+const { formatMicroToUsdc } = await import("@policyvault/common");
 const transfer = await import("./chain/transfer.js");
 const { buildWalletProfile, verifyVaultAddress, assetSendSupport } =
   await import("./chain/wallet-profile.js");
@@ -134,7 +135,7 @@ function creditOrg(orgId: string, micro: bigint) {
 
 describe("wallet source of truth", () => {
   it("one verified address for every token on Base Sepolia; gas is separate and never guessed", async () => {
-    const org = store.createOrg("Profile Co", 0n, { ledgerMode: "sandbox" });
+    const org = store.createOrg("Profile Co", 0n);
     const res = await asGuardian(org.guardianKey, "/v1/guardian/wallet");
     assert.equal(res.status, 200);
     const p = (await res.json()) as {
@@ -143,7 +144,6 @@ describe("wallet source of truth", () => {
       network: { id: string; chainId: number };
       gas: { sufficient: boolean | null; balanceEth: string | null; chainId: number };
       funding: { instructions: string[]; wrongNetworks: { chainId: number }[] };
-      balancesSimulated: boolean;
       custody: { gasSponsorship: boolean };
       assets: { symbol: string; receiveAddress: string | null; send: { mode: string } }[];
     };
@@ -157,7 +157,11 @@ describe("wallet source of truth", () => {
     assert.equal(p.gas.sufficient, null);
     assert.equal(p.gas.balanceEth, null);
     assert.equal(p.custody.gasSponsorship, false);
-    assert.equal(p.balancesSimulated, true);
+    assert.equal(
+      (p as Record<string, unknown>).balancesSimulated,
+      undefined,
+      "no simulated balances",
+    );
     assert.ok(
       p.funding.wrongNetworks.some((n) => n.chainId === 11155111),
       "warns about Ethereum Sepolia",
@@ -168,11 +172,11 @@ describe("wallet source of truth", () => {
     assert.equal(by("EURC").receiveAddress, vault, "tokens on one network share the address");
     assert.equal(by("ETH").receiveAddress, vault);
     assert.equal(by("BTC").receiveAddress, null, "never reuse the EVM address for BTC");
-    assert.equal(by("USDC").send.mode, "simulated");
+    assert.equal(by("USDC").send.mode, "onchain");
   });
 
-  it("sandbox profile says agent wallet payments use real testnet USDC, not simulated", async () => {
-    const org = store.createOrg("Honest Sandbox Co", 0n, { ledgerMode: "sandbox" });
+  it("profile says agent wallet payments use real testnet USDC and never mentions sandbox", async () => {
+    const org = store.createOrg("Honest Co", 0n);
     const res = await asGuardian(org.guardianKey, "/v1/guardian/wallet");
     const p = (await res.json()) as {
       agentPayments: {
@@ -190,17 +194,13 @@ describe("wallet source of truth", () => {
     assert.equal(p.agentPayments.chainId, 84532);
     assert.match(p.agentPayments.note, /real Base Sepolia testnet USDC/);
     const usdc = p.assets.find((a) => a.symbol === "USDC")!;
-    assert.match(usdc.send.reason, /Agent payments to a wallet address/);
-    assert.match(usdc.send.reason, /real Base Sepolia testnet USDC/);
-    assert.doesNotMatch(
-      usdc.send.reason,
-      /^Sandbox organization: the books move, nothing is broadcast on-chain\.$/,
-    );
+    assert.match(usdc.send.reason, /Broadcasts a USDC transfer from the vault on Base Sepolia/);
+    assert.doesNotMatch(JSON.stringify(p), /sandbox|simulated/i);
   });
 
-  it("sandbox agent payment to a 0x address really broadcasts on the USDC rail (kept on purpose)", async () => {
-    const org = store.createOrg("Sandbox Rail Co", 0n, { ledgerMode: "sandbox" });
-    const agent = store.createAgent(org.id, "Sandbox payer");
+  it("agent payment to a 0x address really broadcasts on the USDC rail", async () => {
+    const org = store.createOrg("Rail Co", 0n);
+    const agent = store.createAgent(org.id, "Payer");
     const budget = store.createDepartment(org.id, "Ops");
     assert.equal(store.assignAgentBudget(org.id, agent.agentId, budget.id), "ok");
     const t = store.getPolicyTemplate(org.id);
@@ -231,12 +231,12 @@ describe("wallet source of truth", () => {
       body: JSON.stringify({
         amountUsdc: "1",
         destination: DEST,
-        idempotencyKey: "sandbox-rail-1",
+        idempotencyKey: "agent-rail-1",
       }),
     });
     const body = (await res.json()) as { intentId: string; outcome: string };
     assert.equal(res.status, 200, JSON.stringify(body));
-    assert.equal(chain.writes, 1, "sandbox agent payments broadcast a real transfer");
+    assert.equal(chain.writes, 1, "agent payments broadcast a real transfer");
     const row = store.getSettlement(body.intentId);
     assert.equal(row?.state, "settled");
     assert.equal(row?.rail, "evm-usdc-transfer");
@@ -249,7 +249,6 @@ describe("wallet source of truth", () => {
     assert.equal(verifyVaultAddress(undefined, other), "no-vault");
     const p = buildWalletProfile({
       orgId: "org_x",
-      ledgerMode: "live",
       vaultAddress: DEST,
       vaultPrivateKey: other,
       custodyProvider: "dev-local",
@@ -269,7 +268,6 @@ describe("wallet source of truth", () => {
     const addr = privateKeyToAccount(key).address;
     const p = buildWalletProfile({
       orgId: "org_y",
-      ledgerMode: "live",
       vaultAddress: addr,
       vaultPrivateKey: key,
       custodyProvider: "self-custody",
@@ -291,8 +289,8 @@ describe("wallet source of truth", () => {
 
 describe("pasted agent / session keys are checked against the authenticated org", () => {
   it("rejects a key from another account, revoked and malformed keys; accepts its own", async () => {
-    const a = store.createOrg("Account A", 0n, { ledgerMode: "sandbox" });
-    const b = store.createOrg("Account B", 0n, { ledgerMode: "sandbox" });
+    const a = store.createOrg("Account A", 0n);
+    const b = store.createOrg("Account B", 0n);
     const agentA = store.createAgent(a.id, "A agent");
     const agentB = store.createAgent(b.id, "B agent");
 
@@ -340,23 +338,77 @@ describe("pasted agent / session keys are checked against the authenticated org"
   });
 });
 
-describe("simulated vs real, and unsupported assets", () => {
-  it("sandbox deposit is labelled simulated and is tracked as unbacked", async () => {
-    const org = store.createOrg("Sandbox Co", 0n, { ledgerMode: "sandbox" });
-    const before_ = store.getUnbackedMicro(org.id);
-    const res = await asGuardian(org.guardianKey, "/v1/guardian/treasury/deposit", {
-      amountUsdc: "25",
-    });
-    const body = (await res.json()) as { simulated: boolean; onchain: boolean };
+describe("legacy sandbox orgs", () => {
+  it("are moved to live with simulated balance written off the first time they load", async () => {
+    const org = store.createOrg("First Load Co", 0n);
+    creditOrg(org.id, 2_000_000n); // real
+    const { default: Database } = await import("better-sqlite3");
+    const raw = new Database(process.env.POLICYVAULT_DB!);
+    raw.prepare("UPDATE orgs SET ledger_mode = 'sandbox' WHERE id = ?").run(org.id);
+    raw.close();
+    store.applyEntries(org.id, [
+      {
+        id: id("j"),
+        orgId: org.id,
+        memo: "sandbox_deposit",
+        createdAt: new Date().toISOString(),
+        lines: [
+          { accountId: `org:${org.id}:external`, deltaMicro: -10_000_000_000n },
+          { accountId: `org:${org.id}:available`, deltaMicro: 10_000_000_000n },
+        ],
+      },
+    ]);
+    store.addUnbackedMicro(org.id, 10_000_000_000n);
+    assert.equal(store.isLegacySandboxOrg(org.id), true);
+
+    const res = await asGuardian(org.guardianKey, "/v1/guardian/org");
     assert.equal(res.status, 200);
-    assert.equal(body.simulated, true);
-    assert.equal(body.onchain, false);
-    assert.equal(store.getUnbackedMicro(org.id) - before_, 25_000_000n);
+    const body = (await res.json()) as { balances: { id: string; usdc: string }[] };
+    assert.equal(store.isLegacySandboxOrg(org.id), false);
+    assert.equal(store.getUnbackedMicro(org.id), 0n);
+    assert.equal(
+      body.balances.find((b) => b.id === `org:${org.id}:available`)?.usdc,
+      formatMicroToUsdc(2_000_000n),
+    );
+    assert.equal(chain.writes, 0, "the write-off never sends anything on-chain");
+  });
+});
+
+describe("no simulated top-ups, and unsupported assets", () => {
+  it("there is no simulated top-up: USDC, EURC and ETH cannot be typed in", async () => {
+    const org = store.createOrg("No Topup Co", 0n);
+    for (const assetId of ["asset_usdc", "asset_eurc"]) {
+      const res = await asGuardian(org.guardianKey, "/v1/guardian/treasury/deposit", {
+        amountUsdc: "25",
+        assetId,
+      });
+      assert.equal(res.status, 400, assetId);
+      assert.equal(
+        ((await res.json()) as { error: { code: string } }).error.code,
+        "UNBACKED_DEPOSIT_REFUSED",
+      );
+    }
+    assert.equal(store.getUnbackedMicro(org.id), 0n);
+    assert.equal(store.getAccountMap(org.id).get(`org:${org.id}:available`)?.balanceMicro, 0n);
     assert.equal(chain.writes, 0);
   });
 
-  it("live org cannot mint USDC or 'send' EURC/ETH by bookkeeping", async () => {
-    const org = store.createOrg("Live Co", 0n, { ledgerMode: "live" });
+  it("a Treasury USDC send always needs a 0x destination and never books without broadcasting", async () => {
+    const org = store.createOrg("Book Only Co", 0n);
+    creditOrg(org.id, 5_000_000n);
+    const res = await asGuardian(org.guardianKey, "/v1/guardian/treasury/withdraw", {
+      amountUsdc: "1",
+    });
+    assert.equal(res.status, 400);
+    assert.equal(
+      store.getAccountMap(org.id).get(`org:${org.id}:available`)?.balanceMicro,
+      5_000_000n,
+    );
+    assert.equal(chain.writes, 0);
+  });
+
+  it("org cannot mint USDC or 'send' EURC/ETH by bookkeeping", async () => {
+    const org = store.createOrg("Live Co", 0n);
     const mint = await asGuardian(org.guardianKey, "/v1/guardian/treasury/deposit", {
       amountUsdc: "5",
     });
@@ -380,16 +432,15 @@ describe("simulated vs real, and unsupported assets", () => {
     const usdc = store.getAsset("asset_usdc")!;
     const eurc = store.getAsset("asset_eurc")!;
     const btc = store.getAsset("asset_btc")!;
-    assert.equal(assetSendSupport(usdc, "live").mode, "onchain");
-    assert.equal(assetSendSupport(usdc, "sandbox").mode, "simulated");
-    assert.equal(assetSendSupport(eurc, "live").mode, "unsupported");
-    assert.equal(assetSendSupport(btc, "live").mode, "recorded");
+    assert.equal(assetSendSupport(usdc).mode, "onchain");
+    assert.equal(assetSendSupport(eurc).mode, "unsupported");
+    assert.equal(assetSendSupport(btc).mode, "recorded");
   });
 });
 
 describe("chain transfer preflight and uncertain settlement", () => {
   it("refuses before broadcast when ETH cannot cover gas, even with plenty of USDC", async () => {
-    const org = store.createOrg("Gasless Co", 0n, { ledgerMode: "live" });
+    const org = store.createOrg("Gasless Co", 0n);
     resetChain({ ethWei: 1_000n, usdcMicro: 50_000_000n });
     await assert.rejects(
       transfer.transferUsdcFromVault({ orgId: org.id, to: DEST, amountMicro: 1_000_000n }),
@@ -404,7 +455,7 @@ describe("chain transfer preflight and uncertain settlement", () => {
   });
 
   it("refuses to transfer to the org's own vault before broadcasting", async () => {
-    const org = store.createOrg("Self Pay Co", 0n, { ledgerMode: "live" });
+    const org = store.createOrg("Self Pay Co", 0n);
     const self = store.getVaultAddress(org.id)!;
     await assert.rejects(
       transfer.transferUsdcFromVault({ orgId: org.id, to: self, amountMicro: 1_000_000n }),
@@ -414,9 +465,9 @@ describe("chain transfer preflight and uncertain settlement", () => {
   });
 
   it("an agent can pay another ABI account's vault on-chain (org A -> org B)", async () => {
-    const b = store.createOrg("Receiver B", 0n, { ledgerMode: "sandbox" });
+    const b = store.createOrg("Receiver B", 0n);
     const vaultB = store.getVaultAddress(b.id)!;
-    const a = store.createOrg("Payer A", 0n, { ledgerMode: "sandbox" });
+    const a = store.createOrg("Payer A", 0n);
     const agent = store.createAgent(a.id, "A payer");
     const budget = store.createDepartment(a.id, "Ops");
     assert.equal(store.assignAgentBudget(a.id, agent.agentId, budget.id), "ok");
@@ -469,7 +520,7 @@ describe("chain transfer preflight and uncertain settlement", () => {
   });
 
   it("a receipt timeout is SETTLEMENT_UNCONFIRMED with the hash, not a failure", async () => {
-    const org = store.createOrg("Slow Chain Co", 0n, { ledgerMode: "live" });
+    const org = store.createOrg("Slow Chain Co", 0n);
     resetChain({ receipt: "timeout" });
     const seen: string[] = [];
     await assert.rejects(
@@ -490,7 +541,7 @@ describe("chain transfer preflight and uncertain settlement", () => {
 
   it("a broadcast invalidates cached balance reads so the next refresh is fresh", async () => {
     const { vaultBalanceCacheForTests } = await import("./chain/deposits.js");
-    const org = store.createOrg("Stale Cache Co", 0n, { ledgerMode: "live" });
+    const org = store.createOrg("Stale Cache Co", 0n);
     vaultBalanceCacheForTests.prime(`rpc|${store.getVaultAddress(org.id)!.toLowerCase()}`);
     assert.equal(vaultBalanceCacheForTests.size(), 1);
     await transfer.transferUsdcFromVault({ orgId: org.id, to: DEST, amountMicro: 1_000n });
@@ -498,7 +549,7 @@ describe("chain transfer preflight and uncertain settlement", () => {
   });
 
   it("agent pay: uncertain settlement keeps the hold, is never booked, and a retry never re-broadcasts", async () => {
-    const org = store.createOrg("Agent Pay Co", 0n, { ledgerMode: "live" });
+    const org = store.createOrg("Agent Pay Co", 0n);
     const agent = store.createAgent(org.id, "Payer");
     const budget = store.createDepartment(org.id, "Ops");
     assert.equal(store.assignAgentBudget(org.id, agent.agentId, budget.id), "ok");
@@ -557,7 +608,7 @@ describe("chain transfer preflight and uncertain settlement", () => {
   });
 
   it("treasury withdraw: timeout leaves the books untouched and flags reconciliation", async () => {
-    const org = store.createOrg("Withdraw Co", 0n, { ledgerMode: "live" });
+    const org = store.createOrg("Withdraw Co", 0n);
     creditOrg(org.id, 10_000_000n);
     resetChain({ receipt: "timeout" });
     const res = await asGuardian(org.guardianKey, "/v1/guardian/treasury/withdraw", {
@@ -575,7 +626,7 @@ describe("chain transfer preflight and uncertain settlement", () => {
   });
 
   it("treasury withdraw: a confirmed live withdrawal marks its settlement settled with the hash", async () => {
-    const org = store.createOrg("Settled Co", 0n, { ledgerMode: "live" });
+    const org = store.createOrg("Settled Co", 0n);
     creditOrg(org.id, 10_000_000n);
     const res = await asGuardian(org.guardianKey, "/v1/guardian/treasury/withdraw", {
       amountUsdc: "1",
@@ -596,7 +647,7 @@ describe("chain transfer preflight and uncertain settlement", () => {
   });
 
   it("concurrent treasury withdraws cannot both broadcast past the ledger balance", async () => {
-    const org = store.createOrg("Race Co", 0n, { ledgerMode: "live" });
+    const org = store.createOrg("Race Co", 0n);
     creditOrg(org.id, 1_000_000n);
     resetChain({ writeDelayMs: 30 });
     const send = () =>

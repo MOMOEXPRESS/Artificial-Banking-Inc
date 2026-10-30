@@ -56,7 +56,7 @@ function keysMarkdown(session: Session, kind: "real" | "demo"): string {
 
 Generated: ${when}
 ${session.orgId ? `Org id: \`${session.orgId}\`` : ""}
-Kind: ${kind === "demo" ? "isolated sandbox organization" : "real organization"}
+Kind: ${kind === "demo" ? "isolated demo organization" : "real organization"}
 
 Treat these like root passwords. Anyone with the guardian key can approve spend and change policy.
 We cannot show them again from the server — only a hash is stored.
@@ -955,9 +955,9 @@ export function Login({
                     : "Demo unavailable on this deployment"}
                 </Button>
                 <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.55 }}>
-                  Creates a separate sandbox organization with sample ledger funds. It does not
-                  reset or modify existing organizations. Demo access may be disabled by the
-                  deployment operator.
+                  Creates a separate demo organization with sample ledger funds. It does not reset
+                  or modify existing organizations. Demo access may be disabled by the deployment
+                  operator.
                 </p>
               </>
             )}

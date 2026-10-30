@@ -4,7 +4,7 @@
  * In live mode this IS the workflow: pick an agent, list the real actions it
  * should take, run them under live policy. Every spend step defaults to a dry
  * run (policy simulation, no money moves); real spend is an explicit opt-in.
- * Training (sandbox practice) can register extra step kinds such as red-team
+ * Training (testnet practice) can register extra step kinds such as red-team
  * drills through `extraKinds` — the builder never imports training itself.
  */
 import {
@@ -79,7 +79,7 @@ export const CUSTOM_STEP_CATALOG: StepCatalogEntry[] = [
     needsDestination: true,
     spends: true,
     detail:
-      "USDC.transfer from the vault to a 0x address on your Policy allowlist — any wallet, or another ABI account's vault address (not your own). With real spend on it is a real on-chain transfer (Base Sepolia testnet USDC in sandbox too). Dry run unless real spend is on.",
+      "USDC.transfer from the vault to a 0x address on your Policy allowlist — any wallet, or another ABI account's vault address (not your own). With real spend on it is a real on-chain transfer (Base Sepolia testnet USDC on testnet). Dry run unless real spend is on.",
   },
   {
     kind: "x402",
@@ -115,7 +115,7 @@ export const CUSTOM_STEP_CATALOG: StepCatalogEntry[] = [
   { kind: "summarize", label: "Compile summary", detail: "Close the run and report spend." },
 ];
 
-/** An extension step kind (registered by training for sandbox practice). */
+/** An extension step kind (registered by training for testnet practice). */
 export type ExtraStepKind = StepCatalogEntry & {
   build: (d: { amount: string; dest: string; id: string }) => StepDef;
   defaults?: { amount?: string; destination?: string };

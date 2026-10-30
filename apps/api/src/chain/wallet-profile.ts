@@ -17,12 +17,10 @@
  *    on testnet that is Base Sepolia ETH (chain 84532), not Ethereum Sepolia
  *    (chain 11155111). No paymaster/sponsorship is configured in this
  *    codebase (custody is a self-custodied EOA), so none is claimed.
- *  - Sandbox top-ups ("Add simulated balance") are simulated and say so; they
- *    never imply an on-chain deposit.
- *  - Sandbox does NOT mean agent payments are simulated. An agent payment to a
- *    0x wallet address goes through the EVM USDC rail in every ledger mode, so
- *    on testnet it broadcasts a real Base Sepolia USDC transfer from the vault.
- *    Only guardian Treasury sends from a sandbox org are book-only.
+ *  - There is no sandbox mode and no simulated top-up. Every org is live:
+ *    USDC on the books arrived at the vault on-chain, Treasury sends and
+ *    agent payments to a 0x address broadcast real transfers. On testnet
+ *    (CHAIN=base-sepolia) that is real Base Sepolia testnet USDC.
  */
 import type { AssetRecord } from "@policyvault/common";
 import { formatMicroToUsdc } from "@policyvault/common";
@@ -32,13 +30,9 @@ import type { OnchainVaultSnapshot } from "./deposits.js";
 import { activeChain } from "./network.js";
 import { formatWeiAsEth } from "./transfer.js";
 
-export type LedgerMode = "sandbox" | "live";
-
 export type SendMode =
   /** A real transaction is broadcast; the ledger books it only after it confirms. */
   | "onchain"
-  /** Sandbox Treasury send: the books move, nothing is broadcast. (Agent payments still go on-chain.) */
-  | "simulated"
   /** Asset with no chain adapter: a hand-kept record, never a settlement. */
   | "recorded"
   /** Refused: the asset is read from the chain but no send rail exists for it. */
@@ -53,30 +47,20 @@ const USDC_ASSET_ID = "asset_usdc";
  * the USDC ERC-20 transfer (chain/transfer.ts). EURC and native ETH are read
  * from the chain, so a live org may not "send" them by editing a number.
  */
-export function assetSendSupport(asset: AssetRecord, ledgerMode: LedgerMode): SendSupport {
+export function assetSendSupport(asset: AssetRecord): SendSupport {
   const backing = assetBacking(asset);
   const net = networkName(asset.chain);
   if (asset.id === USDC_ASSET_ID) {
-    return ledgerMode === "live"
-      ? {
-          mode: "onchain",
-          reason: `Broadcasts a USDC transfer from the vault on ${networkName(activeChain().id)}. The ledger records it only after the transaction confirms.`,
-        }
-      : {
-          mode: "simulated",
-          reason: `Sandbox organization: a Treasury send only moves the books — nothing is broadcast. Agent payments to a wallet address are different: they send real ${networkName(activeChain().id)} testnet USDC from this vault on-chain.`,
-        };
+    return {
+      mode: "onchain",
+      reason: `Broadcasts a USDC transfer from the vault on ${networkName(activeChain().id)}. The ledger records it only after the transaction confirms.`,
+    };
   }
   if (backing.kind === "chain") {
-    return ledgerMode === "live"
-      ? {
-          mode: "unsupported",
-          reason: `${asset.symbol} on ${net} is read from the chain, but ABI has no on-chain send rail for it yet. Sending is disabled so the books never record a transfer that did not happen.`,
-        }
-      : {
-          mode: "simulated",
-          reason: `Sandbox organization: ${asset.symbol} sends are simulated bookkeeping, not a ${net} transaction.`,
-        };
+    return {
+      mode: "unsupported",
+      reason: `${asset.symbol} on ${net} is read from the chain, but ABI has no on-chain send rail for it yet. Sending is disabled so the books never record a transfer that did not happen.`,
+    };
   }
   return {
     mode: "recorded",
@@ -114,7 +98,6 @@ export type WalletProfile = ReturnType<typeof buildWalletProfile>;
 
 export function buildWalletProfile(input: {
   orgId: string;
-  ledgerMode: LedgerMode;
   vaultAddress: string | undefined | null;
   vaultPrivateKey: `0x${string}` | undefined | null;
   custodyProvider: string | null;
@@ -166,13 +149,7 @@ export function buildWalletProfile(input: {
       usdcContract: cfg.usdc,
       explorerAddress: address && addressVerified ? cfg.explorerAddress(address) : null,
     },
-    ledgerMode: input.ledgerMode,
-    /** Sandbox top-ups are bookkeeping only; they are never an on-chain deposit. */
-    balancesSimulated: input.ledgerMode === "sandbox",
-    /**
-     * What an agent payment to a 0x address actually does. Independent of the
-     * ledger mode: the EVM USDC rail broadcasts in sandbox too.
-     */
+    /** What an agent payment to a 0x address actually does. */
     agentPayments: {
       mode: "onchain" as const,
       realFunds: true,
@@ -180,12 +157,13 @@ export function buildWalletProfile(input: {
       networkName: cfg.name,
       chainId: cfg.chainId,
       note: testnet
-        ? `Agent payments to a wallet address send real ${cfg.name} testnet USDC (chain ${cfg.chainId}) from this vault, in sandbox and live mode alike. Each one has a transaction hash on the block explorer. Testnet USDC has no cash value.`
+        ? `Agent payments to a wallet address send real ${cfg.name} testnet USDC (chain ${cfg.chainId}) from this vault. Each one has a transaction hash on the block explorer. Testnet USDC has no cash value.`
         : `Agent payments to a wallet address send real ${cfg.name} USDC (chain ${cfg.chainId}) from this vault.`,
     },
     usdc: {
       ledgerAvailableUsdc: formatMicroToUsdc(input.ledgerAvailableMicro),
-      simulatedUsdc: formatMicroToUsdc(input.unbackedMicro > 0n ? input.unbackedMicro : 0n),
+      /** Pre-retirement simulated money still locked in an in-flight hold (normally 0). */
+      unbackedUsdc: formatMicroToUsdc(input.unbackedMicro > 0n ? input.unbackedMicro : 0n),
       onchainUsdc: chainRead ? input.snap!.onchainBalanceUsdc : null,
       onchainMicro: chainRead ? input.snap!.onchainBalanceMicro : null,
     },
@@ -228,7 +206,7 @@ export function buildWalletProfile(input: {
         /** Same vault address for every token on the vault's network; null otherwise. */
         receiveAddress:
           addressVerified && backing.kind === "chain" && onVaultNetwork ? address : null,
-        send: assetSendSupport(asset, input.ledgerMode),
+        send: assetSendSupport(asset),
       };
     }),
   };
