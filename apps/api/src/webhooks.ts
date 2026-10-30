@@ -24,6 +24,8 @@ export type WebhookEvent =
   | "policy.denied"
   | "approval.pending"
   | "approval.resolved"
+  /** A vote was refused because the voter requested the payment (or is an agent). */
+  | "approval.vote_refused"
   | "escrow.locked"
   | "escrow.released"
   | "escrow.refunded"
