@@ -47,8 +47,35 @@ import { scopedStore, sellerStore, store, type ApprovalRow, type EscrowRow } fro
 import { emitEvent } from "./webhooks.js";
 import { ingestSellerPayment, payeePinProblem, sellerPrePayCheck } from "./seller-ingest.js";
 import { X402_NETWORKS } from "./seller-x402.js";
+import { buildDenial } from "./denial.js";
 
-export const APPROVAL_TTL_MINUTES = Number(process.env.APPROVAL_TTL_MINUTES ?? 10);
+/** Default approval window when APPROVAL_TTL_MINUTES is unset or unreadable. */
+export const DEFAULT_APPROVAL_TTL_MINUTES = 10;
+/** Longest approval window allowed (14 days, the same ceiling Stripe uses). */
+export const MAX_APPROVAL_TTL_MINUTES = 14 * 24 * 60;
+
+/**
+ * How long a parked payment waits for a guardian before it expires.
+ *
+ * Fixed per deployment (APPROVAL_TTL_MINUTES, whole minutes) and read at call
+ * time. A missing, non-numeric or non-positive value falls back to the 10
+ * minute default instead of producing an invalid deadline; anything above 14
+ * days is clamped. An expired approval always ends as "expired, not sent".
+ */
+export function approvalTtlMinutes(): number {
+  const raw = process.env.APPROVAL_TTL_MINUTES;
+  const n = raw === undefined || raw.trim() === "" ? NaN : Number(raw);
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_APPROVAL_TTL_MINUTES;
+  return Math.min(Math.floor(n), MAX_APPROVAL_TTL_MINUTES);
+}
+
+/** Deadline for an approval created now. */
+export function approvalExpiresAt(nowMs = Date.now()): string {
+  return new Date(nowMs + approvalTtlMinutes() * 60_000).toISOString();
+}
+
+/** @deprecated read {@link approvalTtlMinutes} — this is only the value at boot. */
+export const APPROVAL_TTL_MINUTES = approvalTtlMinutes();
 export const ESCROW_DEFAULT_TIMEOUT_MINUTES = Number(process.env.ESCROW_TIMEOUT_MINUTES ?? 15);
 
 const x402Rail: PaymentRail = new X402Rail();
@@ -130,7 +157,12 @@ export function resolvedPolicyFor(agentId: string, orgId: string) {
   );
 }
 
-export function rulesFor(agentId: string, orgId: string, destination?: string): PolicyRules {
+export function rulesFor(
+  agentId: string,
+  orgId: string,
+  destination?: string,
+  opts?: { sessionId?: string },
+): PolicyRules {
   const agent = scopedStore(orgId).getAgent(agentId)!;
   const org = store.getOrg(orgId)!;
   const { effective } = resolvedPolicyFor(agentId, orgId);
@@ -193,7 +225,19 @@ export function rulesFor(agentId: string, orgId: string, destination?: string): 
     walletBalanceMicro: funding
       ? (store.getAccountMap(orgId).get(funding.availableId)?.balanceMicro ?? 0n)
       : 0n,
+    // x402 session budget — only for requests made through a session key
+    // that was minted with one.
+    ...sessionBudgetRules(opts?.sessionId),
   };
+}
+
+function sessionBudgetRules(
+  sessionId: string | undefined,
+): Pick<PolicyRules, "sessionBudgetMicro" | "sessionSpentMicro"> {
+  if (!sessionId) return {};
+  const budget = store.sessionX402BudgetMicro(sessionId);
+  if (budget === undefined) return {};
+  return { sessionBudgetMicro: budget, sessionSpentMicro: store.sessionX402SpentMicro(sessionId) };
 }
 
 /**
@@ -329,6 +373,8 @@ export interface ExecInput {
   /** escrow_lock only */
   payeeAgentId?: string;
   timeoutMinutes?: number;
+  /** Session key the request came through; its x402 budget is reserved atomically. */
+  sessionId?: string;
 }
 
 export type ExecResult =
@@ -577,37 +623,58 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
           input.destination.trim().toLowerCase()
         ]
       : undefined;
-  if (
-    merchantCap !== undefined &&
-    !store.reserveMerchantCap({
-      orgId: input.orgId,
-      agentId: input.agentId,
-      intentId: input.intentId,
-      destination: input.destination,
-      amountMicro: input.amountMicro,
-      capMicro: merchantCap,
-    })
-  ) {
+  const sessionBudget =
+    input.tool === "pay_api" && input.sessionId
+      ? store.sessionX402BudgetMicro(input.sessionId)
+      : undefined;
+  // Caps that must hold across concurrent payments are reserved together with
+  // the settlement row, before anything awaits.
+  const reserved =
+    merchantCap !== undefined || sessionBudget !== undefined
+      ? store.reserveSpendCaps({
+          orgId: input.orgId,
+          agentId: input.agentId,
+          intentId: input.intentId,
+          destination: input.destination,
+          amountMicro: input.amountMicro,
+          tool: input.tool,
+          merchantCapMicro: merchantCap,
+          ...(sessionBudget !== undefined && {
+            session: { id: input.sessionId!, budgetMicro: sessionBudget },
+          }),
+        })
+      : ({ ok: true } as const);
+  const capsReserved = merchantCap !== undefined || sessionBudget !== undefined;
+  if (!reserved.ok) {
     releaseFullHold();
-    const merchantUsed = store.merchantSpentLast24h(input.orgId, input.destination);
+    const rule = reserved.rule;
+    const capMicro = rule === "session_budget" ? sessionBudget! : merchantCap!;
+    const usedMicro =
+      rule === "merchant_daily_max"
+        ? store.merchantSpentLast24h(input.orgId, input.destination)
+        : reserved.usedMicro;
+    const message =
+      rule === "session_budget"
+        ? "Session x402 budget consumed by another payment in progress"
+        : "Merchant ceiling consumed by another payment in progress";
     const raced = recordDecision({
       intentId: input.intentId,
       orgId: input.orgId,
       agentId: input.agentId,
       outcome: "deny",
-      ruleIds: ["merchant_daily_max"],
-      reasons: ["Merchant ceiling consumed by another payment in progress"],
+      ruleIds: [rule],
+      reasons: [message],
       tool: input.tool,
       amountUsdc: input.amountUsdc,
       destination: input.destination,
       limits: {
-        ruleId: "merchant_daily_max",
+        ruleId: rule,
         unit: "usdc",
         attempted: input.amountMicro,
-        cap: merchantCap,
-        used: merchantUsed,
-        remaining: merchantCap > merchantUsed ? merchantCap - merchantUsed : 0n,
-        window: "24h",
+        cap: capMicro,
+        used: usedMicro,
+        remaining: capMicro > usedMicro ? capMicro - usedMicro : 0n,
+        window: rule === "session_budget" ? "session" : "24h",
       },
     });
     return {
@@ -616,13 +683,11 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
       payload: {
         intentId: input.intentId,
         outcome: "deny",
-        ruleIds: ["merchant_daily_max"],
+        ruleIds: [rule],
         ...(raced.limits && { limits: raced.limits }),
         receipt: raced.receipt,
-        error: {
-          code: "POLICY_DENIED",
-          message: "Merchant ceiling consumed by another payment in progress",
-        },
+        error: { code: "POLICY_DENIED", message, rule_code: rule },
+        denial: buildDenial({ ruleIds: [rule], numbers: raced.limits }),
       },
     };
   }
@@ -640,7 +705,7 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
   });
   if (!screen.ok) {
     releaseFullHold();
-    if (merchantCap !== undefined) {
+    if (capsReserved) {
       store.finishSettlement(input.intentId, {
         state: "failed",
         error: "Compliance screen blocked payment",
@@ -705,6 +770,7 @@ export async function executeIntent(input: ExecInput): Promise<ExecResult> {
     tool: input.tool,
     destination: input.destination,
     amountMicro: input.amountMicro,
+    sessionId: input.sessionId,
   });
 
   try {
@@ -953,6 +1019,8 @@ export type ApprovalResolution =
   | { kind: "expired"; approval: ApprovalRow }
   | { kind: "frozen"; approval: ApprovalRow }
   | { kind: "forbidden"; message: string; approval: ApprovalRow }
+  /** The voter may never decide this approval (e.g. it is the requester). */
+  | { kind: "refused"; ruleCode: string; message: string; approval: ApprovalRow }
   | { kind: "pending_quorum"; have: number; need: number; approval: ApprovalRow }
   | { kind: "resolved"; ok: boolean; execStatus?: number; approval: ApprovalRow };
 
@@ -1030,6 +1098,51 @@ export function guardianApproveGate(
   return { ok: true };
 }
 
+/**
+ * Refuse a vote from the principal that requested the payment, or from any
+ * agent credential. Nobody approves their own request: an agent (or its key)
+ * that could approve what it asked for would make the approval meaningless.
+ */
+export function selfApprovalProblem(
+  approval: ApprovalRow,
+  guardianId: string,
+): { ruleCode: "self_approval_forbidden" | "agent_cannot_approve"; message: string } | null {
+  const requester = approval.requestedBy ?? `agent:${approval.agentId}`;
+  const isAgentPrincipal = guardianId.startsWith("agent:") || guardianId.startsWith("session:");
+  const sameAgent =
+    guardianId === requester ||
+    guardianId === `agent:${approval.agentId}` ||
+    (approval.sessionId !== undefined && guardianId === `session:${approval.sessionId}`);
+  if (sameAgent) {
+    return {
+      ruleCode: "self_approval_forbidden",
+      message: "The requester cannot approve its own payment. A guardian must decide.",
+    };
+  }
+  if (isAgentPrincipal) {
+    return {
+      ruleCode: "agent_cannot_approve",
+      message: "Agent credentials cannot vote on approvals. A guardian must decide.",
+    };
+  }
+  return null;
+}
+
+/**
+ * Who owns an approval that nobody decided: the org's owner, by name, so the
+ * expiry event says whose inbox it sat in rather than just "expired".
+ */
+export function approvalOwner(orgId: string): { role: "owner"; name: string; userId?: string } {
+  try {
+    const owner = store.listMembersOfOrg(orgId).find((m) => m.role === "owner");
+    if (owner) return { role: "owner", name: owner.name || owner.email, userId: owner.userId };
+  } catch {
+    /* fall through to the org-level owner */
+  }
+  const org = store.getOrg(orgId);
+  return { role: "owner", name: org ? `${org.name} owner` : "Organization owner" };
+}
+
 /** Close the schedule that produced a parked approval. */
 function finishScheduledApproval(approval: ApprovalRow, ok: boolean, error?: string): void {
   if (!approval.subscriptionId) return;
@@ -1092,9 +1205,24 @@ export async function resolveApproval(
   const approval = store.getApproval(approvalId, orgId);
   if (!approval) return { kind: "not_found" };
   if (approval.status !== "pending") return { kind: "conflict", approval };
-  if (new Date(approval.expiresAt).getTime() < Date.now()) {
+  // At or past the deadline is expired. Never an automatic yes: the sweep
+  // marks it "expired, not sent" and nothing is broadcast.
+  if (new Date(approval.expiresAt).getTime() <= Date.now()) {
     sweepApprovalExpiry();
     return { kind: "expired", approval: store.getApproval(approvalId, orgId)! };
+  }
+
+  // Checked before the vote is recorded, so a refused self-vote never counts
+  // toward quorum. Applies to deny votes too: agents do not vote at all.
+  const self = selfApprovalProblem(approval, guardianId);
+  if (self) {
+    emitEvent(orgId, "approval.vote_refused", {
+      approvalId: approval.id,
+      intentId: approval.intentId,
+      voter: guardianId,
+      rule_code: self.ruleCode,
+    });
+    return { kind: "refused", ruleCode: self.ruleCode, message: self.message, approval };
   }
 
   const gate = guardianApproveGate(orgId, guardianId, approve, approval);
@@ -1137,7 +1265,8 @@ export async function resolveApproval(
   if (!approve) {
     const result = {
       outcome: "deny",
-      error: { code: "POLICY_DENIED", message: "Denied by guardian" },
+      error: { code: "POLICY_DENIED", message: "Denied by guardian", rule_code: "guardian_denied" },
+      denial: buildDenial({ ruleIds: ["guardian_denied"] }),
     };
     store.resolveApproval(approval.id, {
       status: "denied",
@@ -1171,6 +1300,7 @@ export async function resolveApproval(
       resolvedBy,
       ruleIds: ["guardian_denied"],
       receipt: denied.receipt,
+      denial: result.denial,
     });
     return { kind: "resolved", ok: true, approval: store.getApproval(approvalId, orgId)! };
   }
@@ -1183,7 +1313,9 @@ export async function resolveApproval(
   // other approvals may have settled and consumed the daily cap. Executing the
   // stale decision would let a queue of individually-legal approvals blow
   // every limit collectively.
-  const rules = rulesFor(approval.agentId, approval.orgId, approval.destination);
+  const rules = rulesFor(approval.agentId, approval.orgId, approval.destination, {
+    sessionId: approval.sessionId,
+  });
   if (rules.agentFrozen || rules.orgFrozen) {
     const frozenRule = rules.orgFrozen ? "org_frozen" : "agent_frozen";
     const frozenDecision = recordDecision({
@@ -1204,7 +1336,12 @@ export async function resolveApproval(
       ruleIds: [frozenRule],
       limits: frozenDecision.limits,
       receipt: frozenDecision.receipt,
-      error: { code: "FROZEN", message: "Agent or org frozen since approval was requested" },
+      error: {
+        code: "FROZEN",
+        message: "Agent or org frozen since approval was requested",
+        rule_code: frozenRule,
+      },
+      denial: buildDenial({ ruleIds: [frozenRule], numbers: frozenDecision.limits }),
     };
     store.resolveApproval(approval.id, {
       status: "denied",
@@ -1223,6 +1360,7 @@ export async function resolveApproval(
       ruleIds: [frozenRule],
       limits: frozenDecision.limits,
       receipt: frozenDecision.receipt,
+      denial: result.denial,
     });
     return { kind: "frozen", approval: store.getApproval(approvalId, orgId)! };
   }
@@ -1265,7 +1403,9 @@ export async function resolveApproval(
       error: {
         code: "POLICY_DENIED",
         message: `No longer permitted: ${recheck.reasons.join("; ")}`,
+        rule_code: recheck.ruleIds[0] ?? "policy_denied",
       },
+      denial: buildDenial({ ruleIds: recheck.ruleIds, numbers: recheckDecision.limits }),
     };
     store.resolveApproval(approval.id, { status: "denied", resolvedAt, resolvedBy, result });
     store.setIdempotent(approval.orgId, idemKey, { ...result, httpStatus: 403 });
@@ -1279,6 +1419,7 @@ export async function resolveApproval(
       ruleIds: recheck.ruleIds,
       ...(recheckDecision.limits && { limits: recheckDecision.limits }),
       receipt: recheckDecision.receipt,
+      denial: result.denial,
     });
     return {
       kind: "resolved",
@@ -1299,6 +1440,7 @@ export async function resolveApproval(
     memo: approval.memo,
     payeeAgentId: approval.payeeAgentId,
     timeoutMinutes: approval.timeoutMinutes,
+    sessionId: approval.sessionId,
   }).catch((e) => {
     // Unexpected throw after claim — release the lock so a guardian can retry.
     store.unclaimApproval(approval.id);
@@ -1442,17 +1584,48 @@ export function sweepEscrowTimeouts() {
   }
 }
 
+/** Who expires approvals — named in the record and in the event. */
+export const APPROVAL_EXPIRY_RESOLVER = "system:approval_expiry";
+
+/**
+ * Expire every pending approval past its deadline.
+ *
+ * An expired approval ends as "expired, not sent": never an automatic yes,
+ * nothing held, nothing broadcast. The move to `expired` is a compare-and-set
+ * on `pending`, so it cannot overwrite an approval a guardian already claimed,
+ * and a claim cannot succeed after it. The agent's idempotency record is
+ * rewritten to the expired outcome, so a retry under the same key replays
+ * "expired" instead of a stale "awaiting approval".
+ */
 export function sweepApprovalExpiry() {
   for (const approval of store.listExpiredPendingApprovals()) {
-    store.resolveApproval(approval.id, {
-      status: "expired",
-      resolvedAt: new Date().toISOString(),
-      result: {
-        outcome: "deny",
-        error: { code: "APPROVAL_TIMEOUT", message: "Guardian did not respond in time" },
-      },
+    const resolvedAt = new Date().toISOString();
+    const denial = buildDenial({
+      ruleIds: ["approval_timeout"],
+      paymentState: "expired_not_sent",
     });
-    recordDecision({
+    const result = {
+      outcome: "deny",
+      intentId: approval.intentId,
+      approvalId: approval.id,
+      ruleIds: ["approval_timeout"],
+      error: {
+        code: "APPROVAL_TIMEOUT",
+        message: "Guardian did not respond in time. Nothing was sent.",
+        rule_code: "approval_timeout",
+      },
+      denial,
+    };
+    if (
+      !store.expireApproval(approval.id, {
+        resolvedAt,
+        resolvedBy: APPROVAL_EXPIRY_RESOLVER,
+        result,
+      })
+    ) {
+      continue; // a guardian claimed it first
+    }
+    const decision = recordDecision({
       intentId: approval.intentId,
       orgId: approval.orgId,
       agentId: approval.agentId,
@@ -1463,10 +1636,25 @@ export function sweepApprovalExpiry() {
       amountUsdc: approval.amountUsdc,
       destination: approval.destination,
     });
+    if (!approval.subscriptionId) {
+      store.setIdempotent(
+        approval.orgId,
+        scopedIdempotencyKey(approval.agentId, approval.idempotencyKey),
+        { ...result, receipt: decision.receipt, httpStatus: 409 },
+      );
+    }
     finishScheduledApproval(approval, false, "Approval expired");
     emitEvent(approval.orgId, "approval.resolved", {
       approvalId: approval.id,
+      intentId: approval.intentId,
+      agentId: approval.agentId,
       status: "expired",
+      resolvedBy: APPROVAL_EXPIRY_RESOLVER,
+      owner: approvalOwner(approval.orgId),
+      expiresAt: approval.expiresAt,
+      ruleIds: ["approval_timeout"],
+      receipt: decision.receipt,
+      denial,
     });
   }
 }

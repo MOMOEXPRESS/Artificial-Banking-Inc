@@ -278,6 +278,14 @@ export interface ApprovalRow {
   timeoutMinutes?: number;
   /** Schedule that owns this approval, when the scheduler parked the charge. */
   subscriptionId?: string;
+  /**
+   * Principal that asked for this payment, e.g. `agent:<id>` or
+   * `session:<id>`. An approval vote from the same principal is refused
+   * (`self_approval_forbidden`): nobody may approve their own request.
+   */
+  requestedBy?: string;
+  /** Session key the request came through, when it used one (x402 budgets). */
+  sessionId?: string;
   ruleIds: string[];
   reasons: string[];
   status: ApprovalStatus;
@@ -1804,6 +1812,25 @@ CREATE TABLE IF NOT EXISTS agent_policies (
 CREATE INDEX IF NOT EXISTS idx_agent_policies_org ON agent_policies(org_id);
 `);
 
+// Columns added after approvals / session_keys / settlement_attempts shipped.
+// Runs here, after every table above exists, so a fresh DB gets them too.
+for (const migration of [
+  // Who asked for a parked payment — an approval by the same principal is refused.
+  "ALTER TABLE approvals ADD COLUMN requested_by TEXT",
+  // Session key a parked payment came through, so its x402 budget is rechecked on approval.
+  "ALTER TABLE approvals ADD COLUMN session_id TEXT",
+  // x402 session budget: total pay_api spend allowed through one session key.
+  "ALTER TABLE session_keys ADD COLUMN x402_budget_micro TEXT",
+  // Which session key a settlement attempt was made through (budget accounting).
+  "ALTER TABLE settlement_attempts ADD COLUMN session_id TEXT",
+]) {
+  try {
+    db.exec(migration);
+  } catch {
+    /* column already exists */
+  }
+}
+
 // C4 — runs after every table exists, so both vaults and the key archive
 // are covered. Idempotent, so it is safe on every boot.
 migrateVaultKeysAtRest();
@@ -2078,6 +2105,8 @@ function rowToApproval(r: Row): ApprovalRow {
     payeeAgentId: r.payee_agent_id ?? undefined,
     timeoutMinutes: r.timeout_minutes ?? undefined,
     subscriptionId: r.subscription_id ?? undefined,
+    requestedBy: r.requested_by ?? undefined,
+    sessionId: r.session_id ?? undefined,
     ruleIds: JSON.parse(r.rule_ids_json),
     reasons: JSON.parse(r.reasons_json),
     status: r.status,
@@ -2868,12 +2897,17 @@ export const store = {
   },
 
   /** Resolve a live session token to agent + scopes (for scope enforcement). */
-  getSessionByToken(token: string): { agent: AgentRow; scopes: string[] } | undefined {
+  getSessionByToken(
+    token: string,
+  ):
+    | { agent: AgentRow; scopes: string[]; sessionId: string; x402BudgetMicro?: MicroUsdc }
+    | undefined {
     if (!token.startsWith("pv_sess_")) return undefined;
     const hashed = lookupHash(token);
     let r = db
       .prepare(
-        `SELECT a.*, s.scopes_json AS scopes_json FROM session_keys s
+        `SELECT a.*, s.scopes_json AS scopes_json, s.id AS session_id, s.x402_budget_micro AS x402_budget_micro
+         FROM session_keys s
          JOIN agents a ON a.id = s.agent_id
          WHERE s.token = ? AND s.revoked_at IS NULL AND s.expires_at > ?`,
       )
@@ -2881,7 +2915,8 @@ export const store = {
     if (!r) {
       r = db
         .prepare(
-          `SELECT a.*, s.scopes_json AS scopes_json FROM session_keys s
+          `SELECT a.*, s.scopes_json AS scopes_json, s.id AS session_id, s.x402_budget_micro AS x402_budget_micro
+           FROM session_keys s
            JOIN agents a ON a.id = s.agent_id
            WHERE s.token = ? AND s.revoked_at IS NULL AND s.expires_at > ?`,
         )
@@ -2908,7 +2943,62 @@ export const store = {
     } catch {
       scopes = [];
     }
-    return { agent: rowToAgent(r), scopes };
+    // Fail closed on the budget too: a value that cannot be read is a budget
+    // of zero, never "no budget".
+    let x402BudgetMicro: MicroUsdc | undefined;
+    if (r.x402_budget_micro !== null && r.x402_budget_micro !== undefined) {
+      try {
+        x402BudgetMicro = parseMicroColumn(r.x402_budget_micro);
+      } catch {
+        x402BudgetMicro = 0n;
+      }
+    }
+    return {
+      agent: rowToAgent(r),
+      scopes,
+      sessionId: String(r.session_id),
+      ...(x402BudgetMicro !== undefined && { x402BudgetMicro }),
+    };
+  },
+
+  /**
+   * pay_api spend counted against one session key's x402 budget.
+   *
+   * Counts every attempt that is not known to have failed — settled at what
+   * was charged, everything else (pending, broadcast, needs_review) at the full
+   * authorized amount. An outcome nobody knows yet stays counted, so a budget
+   * can never be spent twice while a payment is uncertain.
+   */
+  /**
+   * A session key's x402 budget by id, or undefined when it has none.
+   * An unreadable stored value reads as zero (fail closed).
+   */
+  sessionX402BudgetMicro(sessionId: string): MicroUsdc | undefined {
+    const r = db
+      .prepare("SELECT x402_budget_micro FROM session_keys WHERE id = ?")
+      .get(sessionId) as Row | undefined;
+    if (!r || r.x402_budget_micro === null || r.x402_budget_micro === undefined) return undefined;
+    try {
+      return parseMicroColumn(r.x402_budget_micro);
+    } catch {
+      return 0n;
+    }
+  },
+
+  sessionX402SpentMicro(sessionId: string): MicroUsdc {
+    const rows = db
+      .prepare(
+        "SELECT state, amount_micro, charged_micro FROM settlement_attempts WHERE session_id = ? AND tool = 'pay_api' AND state != 'failed'",
+      )
+      .all(sessionId) as Row[];
+    return rows.reduce(
+      (acc, r) =>
+        acc +
+        parseMicroColumn(
+          r.state === "settled" && r.charged_micro != null ? r.charged_micro : r.amount_micro,
+        ),
+      0n,
+    );
   },
 
   /** Resolve a live (non-expired, non-revoked) session key to its agent. */
@@ -4471,12 +4561,13 @@ export const store = {
     tool: string;
     destination: string;
     amountMicro: bigint;
+    sessionId?: string;
   }): void {
     const now = nowIso();
     db.prepare(
       `INSERT INTO settlement_attempts
-         (intent_id, org_id, agent_id, tool, destination, amount_micro, state, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+         (intent_id, org_id, agent_id, tool, destination, amount_micro, state, created_at, updated_at, session_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
        ON CONFLICT(intent_id) DO UPDATE SET state = 'pending', updated_at = excluded.updated_at`,
     ).run(
       input.intentId,
@@ -4487,7 +4578,60 @@ export const store = {
       input.amountMicro.toString(),
       now,
       now,
+      input.sessionId ?? null,
     );
+  },
+
+  /**
+   * Reserve spend against the caps that must hold across concurrent payments
+   * — the shared merchant cap and the x402 session budget — and open the
+   * settlement row in the same transaction. Nothing awaits between the check
+   * and the write, so two payments cannot both pass on the same headroom.
+   */
+  reserveSpendCaps(input: {
+    orgId: string;
+    agentId: string;
+    intentId: string;
+    destination: string;
+    amountMicro: bigint;
+    tool: string;
+    merchantCapMicro?: bigint;
+    session?: { id: string; budgetMicro: bigint };
+  }):
+    { ok: true } | { ok: false; rule: "merchant_daily_max" | "session_budget"; usedMicro: bigint } {
+    const claim = db.transaction(() => {
+      if (this.getSettlement(input.intentId)) {
+        return { ok: false as const, rule: "merchant_daily_max" as const, usedMicro: 0n };
+      }
+      if (input.session && input.tool === "pay_api") {
+        const used = this.sessionX402SpentMicro(input.session.id);
+        if (used + input.amountMicro > input.session.budgetMicro) {
+          return { ok: false as const, rule: "session_budget" as const, usedMicro: used };
+        }
+      }
+      if (input.merchantCapMicro !== undefined) {
+        const settled = this.merchantSpentLast24h(input.orgId, input.destination);
+        const reserved = this.merchantReservedMicro(input.orgId, input.destination);
+        if (settled + reserved + input.amountMicro > input.merchantCapMicro) {
+          return {
+            ok: false as const,
+            rule: "merchant_daily_max" as const,
+            usedMicro: settled + reserved,
+          };
+        }
+      }
+      this.beginSettlement({
+        intentId: input.intentId,
+        orgId: input.orgId,
+        agentId: input.agentId,
+        tool: input.tool,
+        destination: input.destination,
+        amountMicro: input.amountMicro,
+        sessionId: input.session?.id,
+      });
+      return { ok: true as const };
+    });
+    return claim.immediate();
   },
 
   /** Claim merchant headroom before an async rail can let another agent spend it. */
@@ -5237,8 +5381,9 @@ export const store = {
   createApproval(a: ApprovalRow): void {
     db.prepare(
       `INSERT INTO approvals (id, org_id, agent_id, intent_id, tool, amount_micro, amount_usdc, destination, job_id, memo,
-        idempotency_key, payee_agent_id, timeout_minutes, subscription_id, rule_ids_json, reasons_json, status, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        idempotency_key, payee_agent_id, timeout_minutes, subscription_id, rule_ids_json, reasons_json, status, created_at, expires_at,
+        requested_by, session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       a.id,
       a.orgId,
@@ -5259,6 +5404,8 @@ export const store = {
       a.status,
       a.createdAt,
       a.expiresAt,
+      a.requestedBy ?? (a.agentId ? `agent:${a.agentId}` : null),
+      a.sessionId ?? null,
     );
   },
 
@@ -5308,6 +5455,34 @@ export const store = {
       .prepare("UPDATE approvals SET status = 'resolving' WHERE id = ? AND status = 'pending'")
       .run(approvalId);
     return info.changes > 0;
+  },
+
+  /**
+   * Atomically move a still-pending approval to `expired`. Returns false when
+   * a guardian claimed it first (or it was already resolved), so an expiry
+   * can never overwrite an approval that is executing, and an approval can
+   * never execute after it expired.
+   */
+  expireApproval(
+    approvalId: string,
+    fields: { resolvedAt: string; resolvedBy: string; result: unknown },
+  ): boolean {
+    const info = db
+      .prepare(
+        "UPDATE approvals SET status = 'expired', resolved_at = ?, resolved_by = ?, result_json = ? WHERE id = ? AND status = 'pending'",
+      )
+      .run(fields.resolvedAt, fields.resolvedBy, JSON.stringify(fields.result), approvalId);
+    return info.changes > 0;
+  },
+
+  /** Test-only: write a raw x402 budget value so fail-closed parsing can be exercised. */
+  setSessionBudgetRawForTests(sessionId: string, raw: string): void {
+    db.prepare("UPDATE session_keys SET x402_budget_micro = ? WHERE id = ?").run(raw, sessionId);
+  },
+
+  /** Test-only: move an approval's deadline (to simulate time passing). */
+  setApprovalExpiresAtForTests(approvalId: string, iso: string): void {
+    db.prepare("UPDATE approvals SET expires_at = ? WHERE id = ?").run(iso, approvalId);
   },
 
   /** Hand a claimed approval back to pending if execution could not proceed. */
@@ -5657,6 +5832,8 @@ export const store = {
     label?: string;
     scopes?: string[];
     ttlHours?: number;
+    /** x402 session budget in micro-USDC. Omitted = no session budget. */
+    x402BudgetMicro?: MicroUsdc;
   }): SessionKeyRecord {
     const ttl = Math.min(Math.max(input.ttlHours ?? 24, 1), 24 * 30);
     const token = `pv_sess_${randomBytes(16).toString("hex")}`;
@@ -5674,12 +5851,16 @@ export const store = {
       token,
       label: input.label,
       scopes,
+      ...(input.x402BudgetMicro !== undefined && {
+        x402BudgetUsdc: formatMicroToUsdc(input.x402BudgetMicro),
+        x402SpentUsdc: "0",
+      }),
       expiresAt,
       createdAt,
     };
     db.prepare(
-      `INSERT INTO session_keys (id, org_id, agent_id, token, label, scopes_json, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO session_keys (id, org_id, agent_id, token, label, scopes_json, expires_at, created_at, x402_budget_micro)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       row.id,
       row.orgId,
@@ -5689,6 +5870,7 @@ export const store = {
       JSON.stringify(scopes),
       expiresAt,
       createdAt,
+      input.x402BudgetMicro !== undefined ? input.x402BudgetMicro.toString() : null,
     );
     return row;
   },
@@ -5709,6 +5891,10 @@ export const store = {
       agentId: r.agent_id as string,
       label: (r.label as string | null) ?? undefined,
       scopes: JSON.parse(r.scopes_json as string) as string[],
+      ...(r.x402_budget_micro != null && {
+        x402BudgetUsdc: formatMicroToUsdc(parseMicroColumn(r.x402_budget_micro)),
+        x402SpentUsdc: formatMicroToUsdc(this.sessionX402SpentMicro(r.id as string)),
+      }),
       expiresAt: r.expires_at as string,
       revokedAt: (r.revoked_at as string | null) ?? undefined,
       createdAt: r.created_at as string,

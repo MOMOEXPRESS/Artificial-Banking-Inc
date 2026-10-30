@@ -11,7 +11,7 @@
  */
 import { formatMicroToUsdc } from "@policyvault/common";
 import { evaluatePolicy } from "@policyvault/policy";
-import { APPROVAL_TTL_MINUTES, executeIntent, id, recordDecision, rulesFor } from "../engine.js";
+import { approvalExpiresAt, executeIntent, id, recordDecision, rulesFor } from "../engine.js";
 import { notify } from "../platform/notifier.js";
 import { store, type ApprovalRow } from "../store.js";
 import { emitEvent } from "../webhooks.js";
@@ -73,7 +73,7 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
         reasons: decision.reasons,
         status: "pending",
         createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + APPROVAL_TTL_MINUTES * 60_000).toISOString(),
+        expiresAt: approvalExpiresAt(),
       };
       store.createApproval(approval);
       // notify() already fans into the webhook channel — do not also emitEvent.

@@ -127,6 +127,8 @@ model Approvals {
   resolvedAt String? @map("resolved_at")
   resolvedBy String? @map("resolved_by")
   resultJson String? @map("result_json")
+  requestedBy String? @map("requested_by")
+  sessionId String? @map("session_id")
   @@index([orgId])
   @@map("approvals")
 }
@@ -713,6 +715,7 @@ model SessionKeys {
   expiresAt String @map("expires_at")
   revokedAt String? @map("revoked_at")
   createdAt String @map("created_at")
+  x402BudgetMicro BigInt? @map("x402_budget_micro")
   @@index([token])
   @@index([agentId])
   @@index([orgId])
@@ -734,6 +737,7 @@ model SettlementAttempts {
   error String?
   createdAt String @map("created_at")
   updatedAt String @map("updated_at")
+  sessionId String? @map("session_id")
   @@index([orgId, createdAt])
   @@index([state, updatedAt])
   @@map("settlement_attempts")

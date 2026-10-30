@@ -725,6 +725,14 @@ export function registerAgentRoutes(
               .min(1)
               .max(24 * 30)
               .optional(),
+            /**
+             * x402 session budget: total pay_api spend allowed through this
+             * key over its life, decimal USDC. Omit for no session budget.
+             */
+            x402BudgetUsdc: z
+              .string()
+              .regex(/^\d+(\.\d{1,6})?$/, "x402BudgetUsdc must be a USDC amount like 5 or 2.50")
+              .optional(),
           })
           .parse(req.body ?? {});
         const session = store.createSessionKey({
@@ -733,6 +741,9 @@ export function registerAgentRoutes(
           label: body.label,
           scopes: body.scopes,
           ttlHours: body.ttlHours,
+          ...(body.x402BudgetUsdc !== undefined && {
+            x402BudgetMicro: parseUsdcToMicro(body.x402BudgetUsdc),
+          }),
         });
         res.status(201).json({
           sessionKey: session,

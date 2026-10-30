@@ -25,8 +25,9 @@ import { getLogger, requestLogMiddleware } from "./platform/logger.js";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
 import type { PaymentRequired } from "@x402/core/types";
 import {
-  APPROVAL_TTL_MINUTES,
   agentFundingContext,
+  approvalExpiresAt,
+  approvalTtlMinutes,
   executeIntent,
   id,
   recordDecision,
@@ -38,6 +39,7 @@ import {
   sweepEscrowTimeouts,
   type ExecInput,
 } from "./engine.js";
+import { buildDenial } from "./denial.js";
 import { anomalies, burnForecast, jobEconomics, vendorLedger } from "./analytics.js";
 import { answerQuestion, buildSummary } from "./insights.js";
 import { runAbiAgent, runMemoryCommand } from "./abi-agent/index.js";
@@ -504,7 +506,13 @@ function bearer(req: express.Request): string | null {
   return header.slice("Bearer ".length).trim();
 }
 
-type AgentAuth = { orgId: string; agentId: string; scopes: string[] };
+type AgentAuth = {
+  orgId: string;
+  agentId: string;
+  scopes: string[];
+  /** Set when the caller used a session key (pv_sess_). */
+  sessionId?: string;
+};
 
 function authAgent(req: express.Request): AgentAuth | null {
   const key = bearer(req);
@@ -518,6 +526,7 @@ function authAgent(req: express.Request): AgentAuth | null {
       orgId: session.agent.orgId,
       agentId: session.agent.id,
       scopes: session.scopes,
+      sessionId: session.sessionId,
     };
   }
   if (key.startsWith("pv_agent_")) {
@@ -796,6 +805,8 @@ async function handleIntent(
   res: express.Response,
   input: Omit<ExecInput, "intentId"> & { idempotencyKey: string; supersedes?: string },
 ) {
+  /** The principal asking — recorded on any approval so it can never approve itself. */
+  const requestedBy = input.sessionId ? `session:${input.sessionId}` : `agent:${input.agentId}`;
   if (input.supersedes) {
     const problem = supersedesProblem(input.orgId, input.agentId, input.supersedes);
     if (problem) {
@@ -828,20 +839,50 @@ async function handleIntent(
     });
   }
 
-  const decision = evaluatePolicy(
-    {
-      agentId: input.agentId,
-      orgId: input.orgId,
-      tool: input.tool,
-      amountMicro: input.amountMicro,
-      destination: input.destination,
-      jobId: input.jobId,
-      idempotencyKey: input.idempotencyKey,
-      memo: input.memo,
-    },
-    rulesFor(input.agentId, input.orgId, input.destination),
-    store.getPolicyVersion(input.orgId),
-  );
+  // Fail closed. If the policy, the caps' inputs or the evaluator cannot be
+  // read, the answer is a refusal with a rule code — never an allow, never a
+  // half-done payment. Nothing is held or signed, and the idempotency key is
+  // freed so the same request can be retried once the policy reads again.
+  let decision: ReturnType<typeof evaluatePolicy>;
+  try {
+    decision = evaluatePolicy(
+      {
+        agentId: input.agentId,
+        orgId: input.orgId,
+        tool: input.tool,
+        amountMicro: input.amountMicro,
+        destination: input.destination,
+        jobId: input.jobId,
+        idempotencyKey: input.idempotencyKey,
+        memo: input.memo,
+      },
+      rulesFor(input.agentId, input.orgId, input.destination, { sessionId: input.sessionId }),
+      store.getPolicyVersion(input.orgId),
+    );
+    if (
+      decision.outcome !== "allow" &&
+      decision.outcome !== "deny" &&
+      decision.outcome !== "review"
+    ) {
+      throw new Error(`unknown policy outcome: ${String(decision.outcome)}`);
+    }
+  } catch (e) {
+    log.error({ err: e, agentId: input.agentId }, "policy evaluation failed — refusing");
+    store.releaseIdempotent(input.orgId, idemKey);
+    const intentId = id("int");
+    const denial = buildDenial({ ruleIds: ["policy_unavailable"] });
+    return res.status(503).json({
+      intentId,
+      outcome: "deny" as const,
+      ruleIds: ["policy_unavailable"],
+      error: {
+        code: "POLICY_UNAVAILABLE",
+        message: "ABI could not evaluate the policy, so it refused. Nothing was sent.",
+        rule_code: "policy_unavailable",
+      },
+      denial,
+    });
+  }
   const intentId = id("int");
   const recorded = recordDecision({
     intentId,
@@ -886,14 +927,20 @@ async function handleIntent(
   });
 
   if (decision.outcome === "deny") {
+    const denial = buildDenial({ ruleIds: decision.ruleIds, numbers: recorded.limits });
     const payload = {
       intentId,
       outcome: "deny" as const,
-      error: { code: "POLICY_DENIED" as const, message: decision.reasons.join("; ") },
+      error: {
+        code: "POLICY_DENIED" as const,
+        message: decision.reasons.join("; "),
+        rule_code: denial.rule_code,
+      },
       ruleIds: decision.ruleIds,
       ...(recorded.limits && { limits: recorded.limits }),
       ...(input.supersedes && { supersedes: input.supersedes }),
       receipt: recorded.receipt,
+      denial,
     };
     store.setIdempotent(input.orgId, idemKey, { ...payload, httpStatus: 403 });
     emitEvent(input.orgId, "policy.denied", {
@@ -905,6 +952,7 @@ async function handleIntent(
       ruleIds: decision.ruleIds,
       reasons: decision.reasons,
       ...(recorded.limits && { limits: recorded.limits }),
+      denial,
     });
     void notify({
       kind: "policy.denied",
@@ -937,13 +985,20 @@ async function handleIntent(
       idempotencyKey: input.idempotencyKey,
       payeeAgentId: input.payeeAgentId,
       timeoutMinutes: input.timeoutMinutes,
+      requestedBy,
+      sessionId: input.sessionId,
       ruleIds: decision.ruleIds,
       reasons: decision.reasons,
       status: "pending",
       createdAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + APPROVAL_TTL_MINUTES * 60_000).toISOString(),
+      expiresAt: approvalExpiresAt(),
     };
     store.createApproval(approval);
+    const reviewDenial = buildDenial({
+      ruleIds: decision.ruleIds,
+      paymentState: "awaiting_approval",
+      approvalId: approval.id,
+    });
     // Persist the parked result under the key so a retry replays the SAME
     // approval instead of parking a second one that could also be approved.
     const reviewPayload = {
@@ -951,10 +1006,15 @@ async function handleIntent(
       outcome: "review" as const,
       approvalId: approval.id,
       expiresAt: approval.expiresAt,
-      error: { code: "NEEDS_APPROVAL" as const, message: decision.reasons.join("; ") },
+      error: {
+        code: "NEEDS_APPROVAL" as const,
+        message: decision.reasons.join("; "),
+        rule_code: reviewDenial.rule_code,
+      },
       ruleIds: decision.ruleIds,
       hint: "Poll GET /v1/agent/approvals/:id until approved/denied/expired.",
       receipt: recorded.receipt,
+      denial: reviewDenial,
       httpStatus: 202,
     };
     store.setIdempotent(input.orgId, idemKey, reviewPayload);
@@ -962,16 +1022,8 @@ async function handleIntent(
     // registerNotifier("webhook"). Do not also call emitEvent here — that
     // duplicated every approval.pending delivery in the webhook log.
     void notify({ kind: "approval.pending", approval });
-    return res.status(202).json({
-      intentId,
-      outcome: "review" as const,
-      approvalId: approval.id,
-      expiresAt: approval.expiresAt,
-      error: { code: "NEEDS_APPROVAL" as const, message: decision.reasons.join("; ") },
-      ruleIds: decision.ruleIds,
-      hint: "Poll GET /v1/agent/approvals/:id until approved/denied/expired.",
-      receipt: recorded.receipt,
-    });
+    const { httpStatus: _status, ...reviewBody } = reviewPayload;
+    return res.status(202).json(reviewBody);
   }
 
   const { supersedes: _supersedes, ...execInput } = input;
@@ -2261,7 +2313,7 @@ app.get(
         telegram: telegramEnabled(),
         rateLimitPerMin: RATE_LIMIT_PER_MIN,
         rateLimitReadPerMin: RATE_LIMIT_READ_PER_MIN,
-        approvalTtlMinutes: APPROVAL_TTL_MINUTES,
+        approvalTtlMinutes: approvalTtlMinutes(),
       },
     });
   }),
@@ -2275,6 +2327,45 @@ app.get(
     res.json({ approvals: store.listApprovals(org.id, status).map(approvalView) });
   }),
 );
+
+// An agent credential (API key or session key) never votes on an approval.
+// Without this an agent key simply got a generic 401 here; now the refusal
+// says why, with a stable rule code, and the approval is left untouched.
+app.post("/v1/guardian/approvals/:id/resolve", (req, res, next) => {
+  const agentCaller = authAgent(req);
+  if (!agentCaller) return next();
+  const approval = store.getApproval(req.params.id, agentCaller.orgId);
+  const own =
+    approval !== undefined &&
+    (approval.agentId === agentCaller.agentId ||
+      (approval.sessionId !== undefined && approval.sessionId === agentCaller.sessionId));
+  const ruleCode = own ? "self_approval_forbidden" : "agent_cannot_approve";
+  if (approval) {
+    emitEvent(agentCaller.orgId, "approval.vote_refused", {
+      approvalId: approval.id,
+      intentId: approval.intentId,
+      voter: agentCaller.sessionId
+        ? `session:${agentCaller.sessionId}`
+        : `agent:${agentCaller.agentId}`,
+      rule_code: ruleCode,
+    });
+  }
+  return res.status(403).json({
+    error: {
+      code: "SELF_APPROVAL_FORBIDDEN",
+      message: own
+        ? "An agent cannot approve its own payment. A guardian must decide."
+        : "Agent credentials cannot vote on approvals. A guardian must decide.",
+      rule_code: ruleCode,
+    },
+    denial: buildDenial({
+      ruleIds: [ruleCode],
+      ruleCode,
+      paymentState: "awaiting_approval",
+      ...(approval && { approvalId: approval.id }),
+    }),
+  });
+});
 
 app.post(
   "/v1/guardian/approvals/:id/resolve",
@@ -2335,7 +2426,12 @@ app.post(
         });
       case "expired":
         return res.status(409).json({
-          error: { code: "APPROVAL_TIMEOUT", message: "Approval expired" },
+          error: {
+            code: "APPROVAL_TIMEOUT",
+            message: "Approval expired. Nothing was sent.",
+            rule_code: "approval_timeout",
+          },
+          denial: buildDenial({ ruleIds: ["approval_timeout"], paymentState: "expired_not_sent" }),
           approval: approvalView(outcome.approval),
         });
       case "frozen":
@@ -2345,6 +2441,21 @@ app.post(
       case "forbidden":
         return res.status(403).json({
           error: { code: "GUARDIAN_FORBIDDEN", message: outcome.message },
+          approval: approvalView(outcome.approval),
+        });
+      case "refused":
+        return res.status(403).json({
+          error: {
+            code: "SELF_APPROVAL_FORBIDDEN",
+            message: outcome.message,
+            rule_code: outcome.ruleCode,
+          },
+          denial: buildDenial({
+            ruleIds: [outcome.ruleCode],
+            ruleCode: outcome.ruleCode,
+            paymentState: "awaiting_approval",
+            approvalId: outcome.approval.id,
+          }),
           approval: approvalView(outcome.approval),
         });
       case "pending_quorum":
@@ -2601,6 +2712,7 @@ async function handlePay(req: express.Request, res: express.Response, tool: "pay
     memo: parsed.memo,
     idempotencyKey: parsed.idempotencyKey,
     supersedes: parsed.supersedes,
+    sessionId: auth.sessionId,
   });
 }
 
@@ -2702,6 +2814,7 @@ app.post(
       payeeAgentId: body.payeeAgentId,
       timeoutMinutes: body.timeoutMinutes,
       supersedes: body.supersedes,
+      sessionId: auth.sessionId,
     });
   }),
 );
