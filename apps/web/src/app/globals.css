@@ -13424,8 +13424,14 @@ button.sm.ghost.on {
   cursor: pointer;
 }
 
-.lab-real-spend input {
-  margin-top: 2px;
+/* The global input rule sets width: 100% + padding; keep the checkbox at its
+   natural size so the label text sits inside the card next to it. */
+.lab-real-spend input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin: 2px 0 0;
+  padding: 0;
 }
 
 .link-btn {
@@ -13456,6 +13462,9 @@ button.sm.ghost.on {
 
 .lab-real-spend > span {
   display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
   flex-direction: column;
   gap: 2px;
+  overflow-wrap: anywhere;
 }
