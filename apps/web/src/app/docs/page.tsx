@@ -8,7 +8,7 @@ import { Icon } from "../../lib/ui";
 const STEPS = [
   {
     title: "Create an org",
-    body: "Open the console, start a demo org, and put test USDC in the vault.",
+    body: "Create an account and organization in the console, then put Base Sepolia test USDC in the vault.",
   },
   {
     title: "Create an agent",
@@ -131,8 +131,8 @@ export default function DocsPage() {
           </ul>
 
           <div className="mkt-doc-cta">
-            <Link className="btn-primary" href="/console?demo=1">
-              Open the live demo <Icon name="arrowRight" size={14} />
+            <Link className="btn-primary" href="/console">
+              Open the console <Icon name="arrowRight" size={14} />
             </Link>
             <a
               className="btn-ghost"

@@ -26,6 +26,43 @@ export function MarketingShell({
       <MarketingNav active={navActive} />
       {children}
       <MarketingFooter />
+      <CookieNotice />
+    </div>
+  );
+}
+
+const COOKIE_NOTICE_KEY = "abi_cookie_notice";
+
+/** Informational only: ABI sets strictly necessary cookies, so there is nothing to consent to. */
+export function CookieNotice() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    try {
+      setShow(localStorage.getItem(COOKIE_NOTICE_KEY) !== "1");
+    } catch {
+      setShow(false);
+    }
+  }, []);
+  if (!show) return null;
+  return (
+    <div className="cookie-notice" role="region" aria-label="Cookie notice">
+      <p>
+        ABI uses only strictly necessary cookies to sign you in and keep sessions safe. No tracking.{" "}
+        <a href="/cookies">Cookie notice</a>
+      </p>
+      <button
+        className="sm"
+        onClick={() => {
+          try {
+            localStorage.setItem(COOKIE_NOTICE_KEY, "1");
+          } catch {
+            /* private mode: just hide */
+          }
+          setShow(false);
+        }}
+      >
+        Got it
+      </button>
     </div>
   );
 }
@@ -188,7 +225,14 @@ export function MarketingFooter() {
           {" · "}
           <a href="/privacy">Privacy</a>
           {" · "}
-          Not a bank. Not FDIC insured. Operators remain responsible for agent spend.
+          <a href="/cookies">Cookies</a>
+          {" · "}
+          Not a bank or licensed money transmitter. Not FDIC insured. Testnet only (Base Sepolia);
+          test USDC has no cash value. Operators remain responsible for agent spend.
+        </span>
+        <span className="marketing-footer-tm">
+          Third-party names and logos are trademarks of their owners, shown to describe
+          compatibility only; no endorsement or partnership is implied.
         </span>
       </div>
     </footer>
@@ -250,10 +294,10 @@ export function MarketingCta() {
           <strong>Open the console</strong>
           <span className="cta-action-sub">Balances, approvals, and rules.</span>
         </Link>
-        <Link className="cta-action-card" href="/console?demo=1">
-          <span className="cta-action-kicker">Demo</span>
-          <strong>Try a demo org</strong>
-          <span className="cta-action-sub">$100 to play with, two agents, real ledger.</span>
+        <Link className="cta-action-card" href="/waitlist?ref=home-cta">
+          <span className="cta-action-kicker">Early access</span>
+          <strong>Join the waitlist</strong>
+          <span className="cta-action-sub">We&rsquo;ll email you when there&rsquo;s a spot.</span>
         </Link>
       </div>
     </section>
