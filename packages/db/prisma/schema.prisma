@@ -943,6 +943,21 @@ model Vaults {
   @@map("vaults")
 }
 
+model Waitlist {
+  id Int @id
+  email String
+  createdAt String @map("created_at")
+  source String?
+  referrer String?
+  ipHash String? @map("ip_hash")
+  notifyStatus String? @map("notify_status")
+  notifiedAt String? @map("notified_at")
+  @@index([notifiedAt])
+  @@index([createdAt])
+  @@unique([email])
+  @@map("waitlist")
+}
+
 model WebhookDeliveries {
   id Int @id
   orgId String @map("org_id")
