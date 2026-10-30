@@ -16,6 +16,28 @@ import { currentRevision, store } from "./store.js";
  */
 const usd = (m: MicroUsdc) => formatMicroToUsdc(m);
 
+/**
+ * Parse a stored decision amount without letting one odd row take down a
+ * whole analytics endpoint. Decision rows keep the amount string the caller
+ * sent; a value parseUsdcToMicro rejects would throw inside the route and
+ * turn that panel into a 500 on every poll. A row we cannot read counts as
+ * zero instead.
+ */
+export function storedMicro(amount: unknown): MicroUsdc {
+  try {
+    return parseUsdcToMicro(String(amount ?? "0"));
+  } catch {
+    return 0n;
+  }
+}
+
+/** Host part of a stored destination; tolerates null/empty rows. */
+const destKey = (destination: unknown) =>
+  String(destination ?? "")
+    .replace(/^https?:\/\//, "")
+    .split("/")[0]
+    .toLowerCase();
+
 /** Money inside human sentences, where a bare "13.2" reads as a bug. */
 const usdText = (m: MicroUsdc) =>
   `$${Number(formatMicroToUsdc(m)).toLocaleString("en-US", {
@@ -246,10 +268,7 @@ export function vendorLedger(orgId: string): { vendors: VendorRow[]; concentrati
       }
     >();
     for (const d of decisions) {
-      const key = d.destination
-        .replace(/^https?:\/\//, "")
-        .split("/")[0]
-        .toLowerCase();
+      const key = destKey(d.destination);
       const e = map.get(key) ?? {
         total: 0n,
         payments: 0,
@@ -259,11 +278,11 @@ export function vendorLedger(orgId: string): { vendors: VendorRow[]; concentrati
         max: 0n,
         amounts: [],
       };
-      const amt = parseUsdcToMicro(d.amountUsdc);
+      const amt = storedMicro(d.amountUsdc);
       if (d.outcome === "allow") {
         e.total += amt;
         e.payments++;
-        e.amounts.push(Number(d.amountUsdc));
+        e.amounts.push(Number(amt) / 1e6);
         if (amt > e.max) e.max = amt;
       } else if (d.outcome === "deny") {
         e.blocked++;
@@ -337,7 +356,7 @@ export function burnForecast(orgId: string): BurnForecast {
 
     const perAgent = agents.map((a) => {
       const mine = recent.filter((d) => d.agentId === a.id);
-      const spent = mine.reduce((s, d) => s + parseUsdcToMicro(d.amountUsdc), 0n);
+      const spent = mine.reduce((s, d) => s + storedMicro(d.amountUsdc), 0n);
       const balance = accounts.get(`agent:${a.id}:available`)?.balanceMicro ?? 0n;
       const perHour = projectable ? Number(spent) / 1e6 / elapsedHours : 0;
       const capRemaining = Number(dailyCap - spent) / 1e6;
@@ -406,19 +425,45 @@ export function anomalies(orgId: string): { anomalies: Anomaly[]; scanned: numbe
     const allowed = decisions.filter((d) => d.outcome === "allow");
     if (allowed.length < 3) return { anomalies: [], scanned: allowed.length };
 
-    const amounts = allowed.map((d) => Number(d.amountUsdc));
+    const amounts = allowed.map((d) => Number(storedMicro(d.amountUsdc)) / 1e6);
     const mean = amounts.reduce((a, b) => a + b, 0) / amounts.length;
     const sd = Math.sqrt(amounts.reduce((a, b) => a + (b - mean) ** 2, 0) / amounts.length) || 1;
 
     const seenBefore = new Map<string, string>();
     for (const d of [...allowed].reverse()) {
-      const k = d.destination.toLowerCase();
+      const k = String(d.destination ?? "").toLowerCase();
       if (!seenBefore.has(k)) seenBefore.set(k, d.at);
     }
 
+    // Per-agent sorted timestamps so "payments within 5 minutes" is a binary
+    // search per row instead of a scan of every allowed payment (n² before).
+    const times = allowed.map((d) => new Date(d.at).getTime());
+    const byAgent = new Map<string, number[]>();
+    allowed.forEach((d, i) => {
+      const list = byAgent.get(d.agentId) ?? [];
+      list.push(times[i]);
+      byAgent.set(d.agentId, list);
+    });
+    for (const list of byAgent.values()) list.sort((a, b) => a - b);
+    const lowerBound = (list: number[], x: number) => {
+      let lo = 0;
+      let hi = list.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (list[mid] < x) lo = mid + 1;
+        else hi = mid;
+      }
+      return lo;
+    };
+    const within = (agentId: string, t: number, ms: number) => {
+      const list = byAgent.get(agentId) ?? [];
+      // Strictly inside (t - ms, t + ms), matching the old `< 300_000` check.
+      return lowerBound(list, t + ms) - lowerBound(list, t - ms + 1);
+    };
+
     const out: Anomaly[] = [];
-    for (const d of allowed) {
-      const amt = Number(d.amountUsdc);
+    allowed.forEach((d, i) => {
+      const amt = amounts[i];
       const signals: string[] = [];
       let score = 0;
 
@@ -437,17 +482,13 @@ export function anomalies(orgId: string): { anomalies: Anomaly[]; scanned: numbe
         signals.push(`settled at ${String(hour).padStart(2, "0")}:00 UTC, outside normal hours`);
       }
 
-      const firstSeen = seenBefore.get(d.destination.toLowerCase());
+      const firstSeen = seenBefore.get(String(d.destination ?? "").toLowerCase());
       if (firstSeen === d.at) {
         score += 25;
         signals.push("first ever payment to this counterparty");
       }
 
-      const within5m = allowed.filter(
-        (o) =>
-          o.agentId === d.agentId &&
-          Math.abs(new Date(o.at).getTime() - new Date(d.at).getTime()) < 300_000,
-      ).length;
+      const within5m = Number.isFinite(times[i]) ? within(d.agentId, times[i], 300_000) : 0;
       if (within5m >= 5) {
         score += 20;
         signals.push(`${within5m} payments from this agent within 5 minutes`);
@@ -464,7 +505,7 @@ export function anomalies(orgId: string): { anomalies: Anomaly[]; scanned: numbe
           signals,
         });
       }
-    }
+    });
 
     out.sort((a, b) => b.score - a.score);
     return { anomalies: out.slice(0, 25), scanned: allowed.length };
