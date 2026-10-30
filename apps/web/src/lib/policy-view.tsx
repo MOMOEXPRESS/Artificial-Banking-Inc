@@ -11,6 +11,7 @@ import {
   formatBandUsd,
   judgmentScaleMax,
   MAX_BAND,
+  monthlyFromDaily,
 } from "./judgment-bands";
 import { AmountStepper } from "@/components/ui/amount-stepper";
 import { BudgetsPanel } from "./policy-budgets-panel";
@@ -559,6 +560,9 @@ export function PolicyView({
                 />
                 <p id="band-daily-help">
                   Total one agent can spend in any rolling 24 hours. Must be at least the ceiling.
+                </p>
+                <p className="faint" data-testid="monthly-derived">
+                  Monthly limit: {fmtUsd(monthlyFromDaily(daily))} (30 × daily, set automatically)
                 </p>
               </div>
             </div>

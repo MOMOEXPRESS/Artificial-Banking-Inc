@@ -15,7 +15,12 @@ import { dirname, join } from "node:path";
 import Database from "better-sqlite3";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { applyJournal, type JournalEntry, type LedgerAccount } from "@policyvault/ledger";
-import { templateSoloSwarm, type PolicyOverride, type PolicyTemplate } from "@policyvault/policy";
+import {
+  templateSoloSwarm,
+  withDerivedMonthlyMax,
+  type PolicyOverride,
+  type PolicyTemplate,
+} from "@policyvault/policy";
 import type {
   AgentGroupRecord,
   AssetRecord,
@@ -3057,14 +3062,18 @@ export const store = {
     const r = db.prepare("SELECT rules_json FROM policies WHERE org_id = ?").get(orgId) as
       Row | undefined;
     if (!r) return templateSoloSwarm();
-    return JSON.parse(r.rules_json, (_k, v) =>
-      typeof v === "string" && v.startsWith("bigint:") ? BigInt(v.slice(7)) : v,
-    ) as PolicyRulesTemplate;
+    // Monthly always follows daily (30 ×). Rows saved before that rule carry a
+    // fixed template monthly (e.g. $500) that must not cap a raised daily max.
+    return withDerivedMonthlyMax(
+      JSON.parse(r.rules_json, (_k, v) =>
+        typeof v === "string" && v.startsWith("bigint:") ? BigInt(v.slice(7)) : v,
+      ) as PolicyRulesTemplate,
+    );
   },
 
   setPolicyTemplate(orgId: string, template: PolicyRulesTemplate, note?: string): string {
     const version = `v${Date.now()}`;
-    const rulesJson = JSON.stringify(template, (_k, v) =>
+    const rulesJson = JSON.stringify(withDerivedMonthlyMax(template), (_k, v) =>
       typeof v === "bigint" ? `bigint:${v}` : v,
     );
     const tx = db.transaction(() => {

@@ -6,7 +6,19 @@ import {
   applyJudgmentBandDrag,
   judgmentScaleMax,
   MAX_BAND,
+  monthlyFromDaily,
 } from "./judgment-bands.js";
+
+describe("monthlyFromDaily", () => {
+  it("is 30 × daily (2000 → 60000, 3000 → 90000) and never below daily", () => {
+    assert.equal(monthlyFromDaily(2000), 60_000);
+    assert.equal(monthlyFromDaily(3000), 90_000);
+    assert.equal(monthlyFromDaily(50), 1500);
+    assert.ok(monthlyFromDaily(0.5) >= 0.5);
+    assert.equal(monthlyFromDaily(0), 0);
+    assert.equal(monthlyFromDaily(Number.NaN), 0);
+  });
+});
 
 describe("applyJudgmentBandDrag", () => {
   it("raises per-payment when ask-me-above crosses the ceiling, without exploding daily", () => {

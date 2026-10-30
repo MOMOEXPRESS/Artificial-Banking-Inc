@@ -32,8 +32,11 @@ export interface PolicyRules {
   orgDailyMaxMicro?: MicroUsdc;
   /**
    * Cumulative ceiling on what THIS agent may spend in a rolling 30-day window.
-   * `dailyMaxMicro` alone lets an agent spend 30× the daily cap per month,
-   * one compliant day at a time. Omitted means no monthly ceiling.
+   *
+   * Always derived from the daily cap (`deriveMonthlyMaxMicro`, 30 × daily) so
+   * nobody has to set it by hand. A stored value is informational only: the
+   * evaluator and the API recompute it from `dailyMaxMicro`, so an old fixed
+   * template default (e.g. $500) can never block raising the daily cap.
    */
   monthlyMaxMicro?: MicroUsdc;
   /**
@@ -340,6 +343,25 @@ function blocklistMatches(destination: string, rawDestination: string, blocked: 
   return destination === blockedKey || destination.endsWith(`.${blockedKey}`);
 }
 
+/** Monthly (rolling 30-day) cap = this many × the daily cap. */
+export const MONTHLY_MAX_DAILY_MULTIPLE = 30n;
+
+/**
+ * The per-agent rolling 30-day cap, derived from the daily cap. The monthly
+ * limit is never set independently: it follows whatever daily max applies
+ * (org default or per-agent override), and is always ≥ the daily max.
+ */
+export function deriveMonthlyMaxMicro(dailyMaxMicro: MicroUsdc): MicroUsdc {
+  return dailyMaxMicro * MONTHLY_MAX_DAILY_MULTIPLE;
+}
+
+/** Return a copy of `template` whose monthly cap is derived from its daily cap. */
+export function withDerivedMonthlyMax<
+  T extends { dailyMaxMicro: MicroUsdc; monthlyMaxMicro?: MicroUsdc },
+>(template: T): T {
+  return { ...template, monthlyMaxMicro: deriveMonthlyMaxMicro(template.dailyMaxMicro) };
+}
+
 /**
  * Deterministic policy engine. Default deny if any hard rule fails.
  * LLM never calls this with free text — only structured MoneyIntent.
@@ -420,9 +442,12 @@ export function evaluatePolicy(
     };
   }
 
+  // Monthly cap follows the daily cap; a stored (possibly stale) monthly value
+  // is ignored so it can never sit below the daily cap and block anything.
+  const monthlyMaxMicro = deriveMonthlyMaxMicro(rules.dailyMaxMicro);
   if (
-    rules.monthlyMaxMicro !== undefined &&
-    (rules.spentLast30dMicro ?? 0n) + intent.amountMicro > rules.monthlyMaxMicro
+    rules.spentLast30dMicro !== undefined &&
+    rules.spentLast30dMicro + intent.amountMicro > monthlyMaxMicro
   ) {
     return {
       outcome: "deny",
@@ -432,8 +457,8 @@ export function evaluatePolicy(
       limits: capLimits(
         "monthly_max",
         intent.amountMicro,
-        rules.monthlyMaxMicro,
-        rules.spentLast30dMicro ?? 0n,
+        monthlyMaxMicro,
+        rules.spentLast30dMicro,
         "30d",
       ),
     };
@@ -910,13 +935,16 @@ export function resolvePolicy(
   for (const key of Object.keys(orgTemplate)) {
     provenance[key] = "org";
   }
-  if (!override) return { effective, provenance };
-
-  for (const [key, value] of Object.entries(override)) {
-    if (value === undefined) continue;
-    (effective as Record<string, unknown>)[key] = value;
-    provenance[key] = "agent";
+  if (override) {
+    for (const [key, value] of Object.entries(override)) {
+      if (value === undefined) continue;
+      (effective as Record<string, unknown>)[key] = value;
+      provenance[key] = "agent";
+    }
   }
+  // Monthly always follows whichever daily cap won (org or agent override).
+  effective.monthlyMaxMicro = deriveMonthlyMaxMicro(effective.dailyMaxMicro);
+  provenance.monthlyMaxMicro = provenance.dailyMaxMicro ?? "org";
   return { effective, provenance };
 }
 
@@ -925,7 +953,7 @@ export function templateSoloSwarm(): PolicyTemplate {
     // Bands must nest: allow < hitlAboveMicro <= review < perTxMaxMicro <= deny
     perTxMaxMicro: 25_000_000n, // $25 hard per-tx ceiling
     dailyMaxMicro: 50_000_000n, // $50
-    monthlyMaxMicro: 500_000_000n, // $500 rolling 30 days
+    monthlyMaxMicro: deriveMonthlyMaxMicro(50_000_000n), // 30 × daily, rolling 30 days
     maxPaysPerMinute: 10,
     maxPaysPerHour: 60,
     newCounterpartyCooldownHours: 24,
@@ -944,7 +972,7 @@ export function templateSwarm(): PolicyTemplate {
   return {
     perTxMaxMicro: 15_000_000n,
     dailyMaxMicro: 40_000_000n,
-    monthlyMaxMicro: 400_000_000n,
+    monthlyMaxMicro: deriveMonthlyMaxMicro(40_000_000n),
     maxPaysPerMinute: 8,
     maxPaysPerHour: 40,
     newCounterpartyCooldownHours: 48,
@@ -972,7 +1000,7 @@ export function templateApiSeller(): PolicyTemplate {
   return {
     perTxMaxMicro: 50_000_000n,
     dailyMaxMicro: 200_000_000n,
-    monthlyMaxMicro: 2_000_000_000n,
+    monthlyMaxMicro: deriveMonthlyMaxMicro(200_000_000n),
     maxPaysPerMinute: 30,
     maxPaysPerHour: 600,
     newCounterpartyCooldownHours: 0,
