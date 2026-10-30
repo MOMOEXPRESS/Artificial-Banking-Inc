@@ -10853,7 +10853,7 @@ button.sm.ghost.on {
     padding: 0;
   }
 
-  .abi-assistant-fab > span {
+  .abi-assistant-fab > span:not(.abi-assistant-fab-mark) {
     display: none;
   }
 
@@ -13526,4 +13526,181 @@ button.sm.ghost.on {
   flex-direction: column;
   gap: 2px;
   overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------- assistant launcher + approvals */
+
+/* Official ABI mark (light cut) on the always-dark launcher. */
+.abi-assistant-fab-mark {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.abi-assistant-fab-mark img {
+  width: 18px;
+  height: 18px;
+}
+
+/* Pending approvals count on the bell (was a red pill inside the launcher). */
+.icon-btn .bell-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  border: 2px solid var(--color-surface);
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  box-sizing: content-box;
+}
+
+.approval-toast {
+  position: relative;
+  display: flex;
+  gap: 11px;
+  width: min(356px, calc(100vw - 32px));
+  padding: 13px 34px 12px 13px;
+  border: 1px solid var(--color-border-strong);
+  border-left: 3px solid var(--orange, #f08a24);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-fg);
+  box-shadow: 0 10px 28px rgba(17, 18, 23, 0.18);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.approval-toast-ico {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--orange-soft, rgba(240, 138, 36, 0.14));
+  color: var(--orange, #f08a24);
+}
+
+.approval-toast-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.approval-toast-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.approval-toast-head b {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.approval-toast-amount {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.approval-toast-line,
+.approval-toast-hint {
+  margin: 3px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-fg-muted, var(--muted));
+}
+
+.approval-toast-line strong {
+  color: var(--color-fg);
+  font-weight: 600;
+}
+
+.approval-toast-line code {
+  font-size: 11.5px;
+}
+
+.approval-toast-hint {
+  font-size: 11.5px;
+}
+
+.approval-toast-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.approval-toast-review,
+.approval-toast-later {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.approval-toast-review {
+  border: 1px solid transparent;
+  background: var(--color-fg);
+  color: var(--color-surface);
+}
+
+.approval-toast-later {
+  border: 1px solid var(--color-border-strong);
+  background: transparent;
+  color: var(--color-fg);
+}
+
+.approval-toast-x {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-fg-muted, var(--muted));
+  cursor: pointer;
+}
+
+.approval-toast-x:hover,
+.approval-toast-later:hover {
+  background: var(--color-surface-2, rgba(127, 127, 127, 0.1));
+}
+
+.approval-toast button:focus-visible {
+  outline: 2px solid var(--accent, #2f6fde);
+  outline-offset: 2px;
+}
+
+.approval-card-flash {
+  box-shadow: 0 0 0 2px var(--orange, #f08a24);
+  transition: box-shadow 300ms ease;
+}
+
+@media (max-width: 600px) {
+  .approval-toast {
+    width: 100%;
+  }
 }

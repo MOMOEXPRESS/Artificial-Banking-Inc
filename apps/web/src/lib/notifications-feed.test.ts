@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  approvalToastFrom,
   collapseApprovals,
   freshSince,
   linkView,
@@ -92,5 +93,26 @@ describe("notifications feed", () => {
       ["apr_a1_done"],
     );
     assert.equal(out[0]!.title, "Approval expired · $5");
+  });
+
+  it("approval card reads amount, agent and destination from the feed row", () => {
+    const n = item(9, "approval.pending", {
+      title: "Approval needed · $12.00",
+      body: "Scout · → api.anthropic.com",
+      ref: "apr_9",
+    });
+    assert.deepEqual(approvalToastFrom(n), {
+      approvalId: "apr_9",
+      amount: "$12.00",
+      agent: "Scout",
+      destination: "api.anthropic.com",
+    });
+    assert.deepEqual(approvalToastFrom(item(2, "approval.pending", { title: "Approval needed" })), {
+      approvalId: null,
+      amount: null,
+      agent: null,
+      destination: null,
+    });
+    assert.equal(approvalToastFrom(item(3, "payment.failed")), null);
   });
 });

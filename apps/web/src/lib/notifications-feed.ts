@@ -65,6 +65,35 @@ export function toastFor(n: NotificationItem): ToastSpec | null {
   }
 }
 
+/** What the approval card needs: who, how much, where, and which approval. */
+export type ApprovalToastData = {
+  approvalId: string | null;
+  amount: string | null;
+  agent: string | null;
+  destination: string | null;
+};
+
+/**
+ * Approval card data from an `approval.pending` feed row. The API writes
+ * `title: "Approval needed · $12"` and `body: "Scout → api.example.com"`,
+ * with the approval id in `ref`. Anything missing stays null.
+ */
+export function approvalToastFrom(n: NotificationItem): ApprovalToastData | null {
+  if (n.kind !== "approval.pending") return null;
+  const amount = n.title.split("·")[1]?.trim() || null;
+  const body = (n.body ?? "").trim();
+  let agent: string | null = null;
+  let destination: string | null = null;
+  if (body.includes("→")) {
+    const [left, right] = body.split("→");
+    agent = left?.replace(/·\s*$/, "").trim() || null;
+    destination = right?.trim() || null;
+  } else if (body) {
+    agent = body;
+  }
+  return { approvalId: n.ref, amount, agent, destination };
+}
+
 /**
  * New since the last poll. On the first load everything is pre-existing and
  * returns nothing, so a page refresh does not replay old toasts.
