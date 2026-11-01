@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { AppProviders } from "../lib/providers";
+import { OG_IMAGE } from "../lib/og";
 import "./globals.css";
 import "./controls.css";
 import "./refinements.css";
@@ -31,10 +32,30 @@ const plexMono = localFont({
   display: "swap",
 });
 
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://artificial-banking-inc-web.vercel.app";
+
+const SITE_TITLE = "Artificial Banking Incorporated — Financial infrastructure for autonomous AI";
+const SITE_DESCRIPTION =
+  "Programmable AI agent wallets with policies, human approvals, and x402 payments — the authorization layer between AI agents and real money.";
+
 export const metadata: Metadata = {
-  title: "Artificial Banking Incorporated — Financial infrastructure for autonomous AI",
-  description:
-    "Programmable AI agent wallets with policies, human approvals, and x402 payments — the authorization layer between AI agents and real money.",
+  metadataBase: new URL(SITE_URL),
+  title: SITE_TITLE,
+  description: SITE_DESCRIPTION,
+  openGraph: {
+    type: "website",
+    siteName: "Artificial Banking Inc.",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: [OG_IMAGE],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: [OG_IMAGE.url],
+  },
   icons: {
     icon: [
       { url: "/favicon-16.png", sizes: "16x16", type: "image/png" },
