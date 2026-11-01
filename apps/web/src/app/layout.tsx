@@ -32,7 +32,8 @@ const plexMono = localFont({
   display: "swap",
 });
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://artificial-banking-inc-web.vercel.app";
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://artificial-banking-inc-web.vercel.app";
 
 const SITE_TITLE = "Artificial Banking Incorporated — Financial infrastructure for autonomous AI";
 const SITE_DESCRIPTION =
