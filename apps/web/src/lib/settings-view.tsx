@@ -174,6 +174,7 @@ export function SettingsView({
   actorRole = "owner",
   onGoto,
   onSignOut,
+  initialSection = null,
 }: {
   setup: Setup | null;
   recon: Recon | null;
@@ -184,7 +185,16 @@ export function SettingsView({
     guardianKey: string;
     agentKeys: { agentId: string; name: string; key: string }[];
   };
-  org: { org: { name: string; status: string }; vaultAddress: string } | null;
+  org: {
+    org: { name: string; status: string };
+    vaultAddress: string;
+    compliance?: {
+      kycStatus: string;
+      unattestedAgents: number;
+      grandfathered: boolean;
+      needsAttention: boolean;
+    };
+  } | null;
   metrics: { agents: number } | null;
   agents: { id: string; name: string }[];
   busy: boolean;
@@ -196,14 +206,23 @@ export function SettingsView({
   onGoto?: (view: string) => void;
   /** Shared sign-out (lib/sign-out.ts), used by Account access in Organization profile. */
   onSignOut: (everywhere: boolean) => void;
+  /** Deep-link into a settings section (e.g. compliance from KYC/KYA reminders). */
+  initialSection?: string | null;
 }) {
   const readOnly = actorRole === "viewer";
   const [section, setSection] = useState<Section>("profile");
   // Deep links such as /console?view=settings&section=compliance.
   useEffect(() => {
-    const wanted = new URLSearchParams(window.location.search).get("section");
-    if (wanted && SECTIONS.some((item) => item.key === wanted)) setSection(wanted as Section);
-  }, []);
+    const fromProp =
+      initialSection && SECTIONS.some((item) => item.key === initialSection)
+        ? (initialSection as Section)
+        : null;
+    const fromUrl = new URLSearchParams(window.location.search).get("section");
+    const wanted =
+      fromProp ??
+      (fromUrl && SECTIONS.some((item) => item.key === fromUrl) ? (fromUrl as Section) : null);
+    if (wanted) setSection(wanted);
+  }, [initialSection]);
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [quorum, setQuorum] = useState(1);
   const [newGuardian, setNewGuardian] = useState("");
@@ -469,7 +488,16 @@ export function SettingsView({
 
   const onchainMode = !!(setup?.onchainMode ?? setup?.productionMode);
 
+  const complianceDone = org?.compliance ? !org.compliance.needsAttention : false;
+
   const golive = [
+    {
+      done: complianceDone === true,
+      title: "Complete KYC and attest agents (KYA)",
+      body: complianceDone
+        ? "Organization KYC and agent KYA profile checks are complete."
+        : "Open Settings → Compliance. Incomplete KYC/KYA keeps starter spending limits and blocks a clean go-live. You also get reminder notifications until this is done.",
+    },
     {
       // Never "done": managed custody is not implemented (roadmap P4-T1).
       // This row used to tick green whenever CDP env vars were set, telling

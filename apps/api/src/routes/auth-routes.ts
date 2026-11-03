@@ -28,6 +28,7 @@ import {
   emailDeliveryConfigured,
   resolveConsoleUrl,
   sendEmail,
+  sharedTestEmailFromWarning,
 } from "../platform/email.js";
 
 const INVITE_TTL_MS = 7 * 24 * 3600_000;
@@ -225,7 +226,9 @@ export function registerAuthRoutes(app: express.Express) {
             code: "EMAIL_DELIVERY_FAILED",
             message:
               "Your account was created, but the verification email could not be sent. " +
-              "Check SMTP/Resend configuration on the API host, then use Resend verification. " +
+              "On the API Worker set BREVO_API_KEY (preferred) or RESEND_API_KEY, " +
+              "ABI_NOTIFY_EMAIL_FROM to a verified sender (not onboarding@resend.dev for other inboxes), " +
+              "and ABI_CONSOLE_URL — then use Resend verification. " +
               (delivery.error ? `(${delivery.error})` : ""),
           },
           user: userView(created.user),
@@ -234,16 +237,24 @@ export function registerAuthRoutes(app: express.Express) {
           emailSent: false,
         });
       }
+      const sharedFromWarning = delivery.sent
+        ? sharedTestEmailFromWarning(created.user.email)
+        : undefined;
       res.status(201).json({
         user: userView(created.user),
         org: { id: created.orgId, role: created.role },
         verificationRequired: true,
         emailSent: delivery.sent,
+        ...(sharedFromWarning
+          ? { emailDeliveryWarning: sharedFromWarning, sharedTestSender: true }
+          : {}),
         ...(process.env.NODE_ENV !== "production" && !delivery.sent
           ? { devVerificationToken: verificationToken }
           : {}),
         note: delivery.sent
-          ? "Verify your email before signing in. The link expires in 24 hours."
+          ? sharedFromWarning
+            ? sharedFromWarning
+            : "Verify your email before signing in. The link expires in 24 hours. Check spam if it is missing."
           : "Email could not be sent. Use the development verification token or fix mail config.",
       });
     }),

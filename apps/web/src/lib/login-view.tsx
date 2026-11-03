@@ -400,6 +400,9 @@ export function Login({
         emailSent?: boolean;
         verificationRequired?: boolean;
         devVerificationToken?: string;
+        emailDeliveryWarning?: string;
+        sharedTestSender?: boolean;
+        note?: string;
         error?: { code?: string; message?: string };
       };
       if (!res.ok) {
@@ -447,15 +450,19 @@ export function Login({
       }
       setMode("verify");
       setVerificationMessage(
-        d.emailSent
-          ? `We sent a verification link to ${email.trim()}. Open it to finish creating your account.`
-          : `Your account was created, but the verification email could not be sent. Fix mail config on the API host, then request a fresh link below.`,
+        d.emailDeliveryWarning
+          ? d.emailDeliveryWarning
+          : d.emailSent
+            ? `We sent a verification link to ${email.trim()}. Open it to finish creating your account. If it is missing, check spam/junk, then use Resend below.`
+            : `Your account was created, but the verification email could not be sent. On the API host set BREVO_API_KEY (or RESEND_API_KEY), ABI_NOTIFY_EMAIL_FROM (a verified sender — not onboarding@resend.dev for other inboxes), and ABI_CONSOLE_URL — then request a fresh link below.`,
       );
       setToast(
-        d.emailSent
-          ? "Check your email to finish setting up your account."
-          : "Verification email was not delivered — see the message below.",
-        d.emailSent ? "info" : "err",
+        d.emailDeliveryWarning
+          ? "Verification email may not reach this address — see the message below."
+          : d.emailSent
+            ? "Check your email (and spam) to finish setting up your account."
+            : "Verification email was not delivered — see the message below.",
+        d.emailSent && !d.emailDeliveryWarning ? "info" : "err",
       );
       return;
     } catch (e) {
@@ -475,7 +482,12 @@ export function Login({
         body: JSON.stringify({ email: verificationEmail.trim() }),
       });
       if (!response.ok) throw new Error(await readApiError(response));
-      const data = (await response.json()) as { note?: string; devVerificationToken?: string };
+      const data = (await response.json()) as {
+        note?: string;
+        devVerificationToken?: string;
+        emailSent?: boolean;
+        emailError?: string;
+      };
       if (data.devVerificationToken) {
         const verified = await fetch(`${API}/v1/auth/email/verify`, {
           method: "POST",
@@ -499,9 +511,20 @@ export function Login({
           return;
         }
       }
+      if (data.emailSent === false) {
+        setVerificationMessage(
+          data.emailError
+            ? `Verification email could not be sent: ${data.emailError}. On the API host set BREVO_API_KEY (or RESEND_API_KEY), ABI_NOTIFY_EMAIL_FROM (verified sender), and ABI_CONSOLE_URL — then try Resend again. Also check spam.`
+            : (data.note ??
+              "Verification email could not be sent. Fix mail config on the API host, check spam, then try again."),
+        );
+        setToast("Verification email was not delivered.", "err");
+        return;
+      }
       setVerificationMessage(
-        data.note ?? "If an unverified account exists, a fresh link is on its way.",
+        `${data.note ?? "If an unverified account exists, a fresh link is on its way."} Check spam/junk if it does not appear within a few minutes.`,
       );
+      setToast("Verification email sent — check inbox and spam.", "info");
     } catch (error) {
       setVerificationMessage(`Could not resend the link: ${String(error)}`);
     } finally {

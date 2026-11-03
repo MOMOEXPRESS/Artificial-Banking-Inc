@@ -53,6 +53,13 @@ export type OrgView = {
   vaultAddress: string;
   /** Every org is live; this is the deployment's network (testnet = Base Sepolia). */
   network?: { id: string; testnet: boolean };
+  /** KYC / KYA profile completeness for go-live reminders. */
+  compliance?: {
+    kycStatus: "unverified" | "pending" | "verified" | "restricted";
+    unattestedAgents: number;
+    grandfathered: boolean;
+    needsAttention: boolean;
+  };
 };
 
 export type Decision = {
@@ -203,7 +210,7 @@ export type Shared = {
 
 export type Alert = {
   id: string;
-  kind: "approval" | "escrow" | "webhook" | "drift" | "fund";
+  kind: "approval" | "escrow" | "webhook" | "drift" | "fund" | "compliance";
   title: string;
   body: string;
   tone: "warn" | "bad" | "info";

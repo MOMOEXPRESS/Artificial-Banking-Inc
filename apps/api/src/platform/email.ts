@@ -31,6 +31,26 @@ export function emailDeliveryConfigured(): boolean {
   return resolveEmailProvider() !== null;
 }
 
+/**
+ * Resend's shared `onboarding@resend.dev` sender typically only delivers to the
+ * Resend account owner. Using it for arbitrary signup emails looks successful
+ * to the API while the recipient never sees a message.
+ */
+export function usesSharedTestEmailFrom(): boolean {
+  const from = fromAddress().toLowerCase();
+  return from.includes("onboarding@resend.dev") || from.includes("@localhost");
+}
+
+export function sharedTestEmailFromWarning(to: string): string | undefined {
+  if (!usesSharedTestEmailFrom()) return undefined;
+  return (
+    `Mail was accepted by the provider, but ABI_NOTIFY_EMAIL_FROM is still the shared test sender ` +
+    `(onboarding@resend.dev / localhost). That address usually only delivers to the provider account owner — ` +
+    `not to ${to}. Set ABI_NOTIFY_EMAIL_FROM to a verified sender (Brevo-verified email or your Resend domain) ` +
+    `and redeploy the API Worker.`
+  );
+}
+
 function smtpConfigured(): boolean {
   if (process.env.SMTP_URL?.trim()) return true;
   return Boolean(process.env.SMTP_HOST?.trim());

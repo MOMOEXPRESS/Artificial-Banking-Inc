@@ -6857,6 +6857,18 @@ export const store = {
     return Boolean(row);
   },
 
+  /** True when any notification of `kind` exists for the org within `windowMs` (reminder cooldown). */
+  hasRecentNotificationKind(orgId: string, kind: string, windowMs: number): boolean {
+    const cutoff = new Date(Date.now() - windowMs).toISOString();
+    const row = db
+      .prepare(
+        `SELECT 1 FROM notifications
+         WHERE org_id = ? AND kind = ? AND created_at >= ? LIMIT 1`,
+      )
+      .get(orgId, kind, cutoff);
+    return Boolean(row);
+  },
+
   /** Newest first. `before` is an id cursor for the next page. */
   listNotifications(
     orgId: string,

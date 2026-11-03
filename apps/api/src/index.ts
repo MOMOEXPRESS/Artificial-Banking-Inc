@@ -93,9 +93,16 @@ import { registerMfaRoutes, stepUpThresholdMicro } from "./routes/mfa-routes.js"
 import { registerAgentRoutes } from "./routes/agent-routes.js";
 import { registerNotificationRoutes } from "./routes/notification-routes.js";
 import { registerWaitlistRoutes } from "./waitlist.js";
-import { registerComplianceRoutes } from "./compliance-routes.js";
+import { effectiveKyc, registerComplianceRoutes } from "./compliance-routes.js";
 import { actionEventsMiddleware } from "./action-events.js";
 import { startScheduler } from "./jobs/scheduler.js";
+import { ensureComplianceReminders } from "./jobs/compliance-reminders.js";
+import {
+  emailDeliveryConfigured,
+  resolveConsoleUrl,
+  resolveEmailProvider,
+  usesSharedTestEmailFrom,
+} from "./platform/email.js";
 import { registerPaymentRoutes } from "./routes/payment-routes.js";
 import { registerPlatformRoutes } from "./routes/platform-routes.js";
 import { registerSellerRoutes } from "./routes/seller-routes.js";
@@ -1105,6 +1112,7 @@ app.get("/health", (_req, res) => {
   // Liveness: process is up. Do not touch the DB here — health probes should
   // stay cheap even when SQLite is briefly busy.
   const revision = process.env.ABI_GIT_COMMIT?.trim() ?? "";
+  const consoleUrl = resolveConsoleUrl();
   res.json({
     ok: true,
     service: "abi-api",
@@ -1115,6 +1123,15 @@ app.get("/health", (_req, res) => {
     uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
     legal: LEGAL_FOOTER,
     telegram: telegramEnabled(),
+    // Booleans only — never expose keys or the from-address.
+    email: {
+      configured: emailDeliveryConfigured(),
+      provider: resolveEmailProvider(),
+      consoleUrlConfigured: consoleUrl.ok,
+      // True when FROM is still Resend's shared test sender / localhost —
+      // signups to other addresses usually never arrive.
+      sharedTestSender: usesSharedTestEmailFrom(),
+    },
   });
 });
 
@@ -1314,6 +1331,14 @@ app.get(
     // Funding resolution may migrate a legacy assignment; report the matching
     // account snapshot rather than the pre-migration balances.
     const accounts = [...store.getAccountMap(org.id).values()];
+    // Remind incomplete KYC/KYA (24h cooldown). Safe on every load — deduped.
+    ensureComplianceReminders(org.id);
+    const kycStatus = effectiveKyc(org.id)?.status ?? "unverified";
+    const unattestedAgents = agents.filter((a) => {
+      if (a.status === "archived") return false;
+      const kya = store.getAgentKya(org.id, a.id);
+      return !kya || kya.status === "unattested";
+    }).length;
     res.json({
       org: {
         id: org.id,
@@ -1337,6 +1362,13 @@ app.get(
       // Every org is live (sandbox mode was removed). Testnet vs mainnet is
       // the deployment's chain; the console keys practice tools off it.
       network: { id: activeChain().id, testnet: isTestnetChain(activeChain().id) },
+      compliance: {
+        kycStatus,
+        unattestedAgents,
+        grandfathered: store.isComplianceGrandfathered(org.id),
+        needsAttention:
+          kycStatus === "unverified" || kycStatus === "pending" || unattestedAgents > 0,
+      },
       legal: LEGAL_FOOTER,
     });
   }),
