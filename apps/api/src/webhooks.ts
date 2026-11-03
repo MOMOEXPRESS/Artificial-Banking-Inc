@@ -40,6 +40,8 @@ export type WebhookEvent =
   | "invoice.paid"
   | "subscription.charged"
   | "compliance.flagged"
+  | "compliance.kyc_incomplete"
+  | "compliance.kya_incomplete"
   | "treasury.move.pending"
   | "treasury.move.executed"
   | "treasury.recovery"

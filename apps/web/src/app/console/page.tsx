@@ -506,6 +506,13 @@ export default function Console() {
 
   const setView = useCallback((v: View, tab?: string) => {
     setViewState(v);
+    if (v === "settings" && typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("view", "settings");
+      if (tab) url.searchParams.set("section", tab);
+      else url.searchParams.delete("section");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    }
     if (tab !== undefined) {
       setTabHint(tab);
       return;
@@ -937,6 +944,37 @@ export default function Console() {
         goto: "treasury",
       });
     }
+    const compliance = org?.compliance;
+    if (compliance?.needsAttention) {
+      const kycOpen =
+        compliance.kycStatus === "unverified" || compliance.kycStatus === "pending";
+      if (kycOpen) {
+        out.push({
+          id: "compliance_kyc",
+          kind: "compliance",
+          tone: "warn",
+          title:
+            compliance.kycStatus === "pending"
+              ? "Finish KYC — verify the owner email"
+              : "Complete organization KYC",
+          body: "Profile checks are incomplete. Open Settings → Compliance before full deployment.",
+          goto: "settings",
+        });
+      }
+      if (compliance.unattestedAgents > 0) {
+        out.push({
+          id: "compliance_kya",
+          kind: "compliance",
+          tone: "warn",
+          title:
+            compliance.unattestedAgents === 1
+              ? "Attest 1 agent (KYA)"
+              : `Attest ${compliance.unattestedAgents} agents (KYA)`,
+          body: "Know Your Agent is incomplete. Open Settings → Compliance and attest each agent.",
+          goto: "settings",
+        });
+      }
+    }
     return out;
   }, [pending, approvals, escrows, deliveries, recon, org, agentName]);
 
@@ -1325,6 +1363,7 @@ export default function Console() {
                         className="notif-item"
                         onClick={() => {
                           if (al.kind === "fund") setView("treasury", "move");
+                          else if (al.kind === "compliance") setView("settings", "compliance");
                           else setView(al.goto);
                           setNotifOpen(false);
                         }}
@@ -1397,7 +1436,14 @@ export default function Console() {
                           className={`notif-item${n.readAt ? " is-read" : " is-unread"}`}
                           onClick={() => {
                             void markRead(n);
-                            if (target) setView(target as View);
+                            if (
+                              n.kind === "compliance.kyc_incomplete" ||
+                              n.kind === "compliance.kya_incomplete"
+                            ) {
+                              setView("settings", "compliance");
+                            } else if (target) {
+                              setView(target as View);
+                            }
                             setNotifOpen(false);
                           }}
                         >
@@ -1470,7 +1516,11 @@ export default function Console() {
                   variant="secondary"
                   size="sm"
                   onClick={() =>
-                    banner.kind === "fund" ? setView("treasury", "move") : setView(banner.goto)
+                    banner.kind === "fund"
+                      ? setView("treasury", "move")
+                      : banner.kind === "compliance"
+                        ? setView("settings", "compliance")
+                        : setView(banner.goto)
                   }
                 >
                   Review now
@@ -1708,6 +1758,12 @@ export default function Console() {
                     actorRole={org?.actor?.role ?? "owner"}
                     onGoto={(v) => setView(v as View)}
                     onSignOut={(everywhere) => void signOut(everywhere)}
+                    initialSection={
+                      tabHint &&
+                      ["compliance", "golive", "profile", "security", "team"].includes(tabHint)
+                        ? tabHint
+                        : null
+                    }
                   />
                 )}
               </div>

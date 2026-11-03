@@ -60,6 +60,9 @@ export function toastFor(n: NotificationItem): ToastSpec | null {
       return { message: n.title, kind: "info" };
     case "approval.resolved":
       return { message: n.title, kind: n.severity === "ok" ? "ok" : "info" };
+    case "compliance.kyc_incomplete":
+    case "compliance.kya_incomplete":
+      return { message: n.title, kind: "info" };
     default:
       return null;
   }

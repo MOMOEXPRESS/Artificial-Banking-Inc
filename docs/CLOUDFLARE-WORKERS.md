@@ -52,7 +52,7 @@ Workers Vitest pool deferred: monorepo `zod@3` override breaks `@cloudflare/vite
 - `CHAIN=base-sepolia`
 - `ABI_CONSOLE_URL` — Vercel console origin (email links)
 - `ABI_CORS_ORIGINS` — same origin (browser uses `/abi-api` proxy; CORS rarely matters)
-- `ABI_NOTIFY_EMAIL_FROM` — verified Brevo sender, e.g. `ABI <you@gmail.com>`
+- `ABI_NOTIFY_EMAIL_FROM` — verified Brevo sender (production: `ABI <momomaurice20006@gmail.com>`). Never `onboarding@resend.dev` for third-party inboxes.
 - `POLICYVAULT_ALLOW_BOOTSTRAP` — Maurice decides (`1` keeps Demo mode)
 - `ABI_RUNTIME=cloudflare-workers` (set by Worker)
 - `ABI_NO_LISTEN=1`, `ABI_RUN_JOBS=0` (set by Worker)

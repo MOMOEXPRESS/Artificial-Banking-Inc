@@ -25,7 +25,10 @@ CHAIN = "base-sepolia"
 ABI_CONSOLE_URL = "https://artificial-banking-inc-web.vercel.app"
 ABI_PUBLIC_API_URL = "https://abi-api.momomaurice20006.workers.dev"
 ABI_CORS_ORIGINS = "https://artificial-banking-inc-web.vercel.app"
-ABI_NOTIFY_EMAIL_FROM = "ABI <onboarding@resend.dev>"
+# Brevo-first: FROM must be the Brevo-verified sender (Senders & IPs).
+# Free Brevo plan: verify one sender email (no custom domain required).
+# Do NOT use onboarding@resend.dev here — other inboxes never receive mail.
+ABI_NOTIFY_EMAIL_FROM = "ABI <momomaurice20006@gmail.com>"
 ABI_RUNTIME = "cloudflare-workers"
 ABI_NO_LISTEN = "1"
 ABI_RUN_JOBS = "0"
@@ -33,12 +36,12 @@ POLICYVAULT_ALLOW_BOOTSTRAP = "0"
 POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE = "0"
 
 # Secrets (set via `npx wrangler secret put <NAME> --config ./wrangler.toml`):
-#   RESEND_API_KEY         — email delivery (Resend HTTP API)
+#   BREVO_API_KEY          — required for production signup email (preferred path)
+#   RESEND_API_KEY         — optional fallback only; leave unset when using Brevo
 #   ABI_KEK
 #   ABI_KEY_PEPPER
 #   ABI_SIGNUP_TOKEN       — must equal ABI_SIGNUP_TOKEN on the Vercel console
 #   CHAIN_RPC_URL          — only if it embeds a provider key
-# Leave BREVO_API_KEY unset unless Brevo should take over (it is preferred when present).
 # Do NOT put SMTP_* secrets here for the Worker path — SMTP/nodemailer is Node-only (#63).
 
 [[durable_objects.bindings]]

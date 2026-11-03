@@ -33,6 +33,8 @@ export const IMPORTANT_KINDS = new Set<string>([
   "approval.resolved",
   "agent.frozen",
   "compliance.flagged",
+  "compliance.kyc_incomplete",
+  "compliance.kya_incomplete",
   "treasury.move.pending",
   "treasury.drift.detected",
   "treasury.recovery",
@@ -235,6 +237,24 @@ export function describeEvent(kind: string, raw: unknown): Described {
         body: given.body ?? join(dest, reason),
         link: "payments",
         severity: "bad",
+      };
+    case "compliance.kyc_incomplete":
+      return {
+        title: given.title ?? "Complete organization KYC",
+        body:
+          given.body ??
+          "Organization verification is incomplete. Finish Settings → Compliance before full deployment.",
+        link: "settings",
+        severity: "warn",
+      };
+    case "compliance.kya_incomplete":
+      return {
+        title: given.title ?? "Attest your agents (KYA)",
+        body:
+          given.body ??
+          "One or more agents are unattested. Open Settings → Compliance and complete Know Your Agent.",
+        link: "settings",
+        severity: "warn",
       };
     case "treasury.move.pending":
       return {

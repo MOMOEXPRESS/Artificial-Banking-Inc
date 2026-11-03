@@ -26,6 +26,7 @@ import { checkVaultGas } from "./gas-monitor.js";
 import { recoverStuckSettlements } from "./settlement-recovery.js";
 import { runDueSubscriptions } from "./subscriptions.js";
 import { runSellerStatements } from "./seller-statements.js";
+import { runComplianceReminders } from "./compliance-reminders.js";
 
 export interface JobDefinition {
   name: string;
@@ -190,6 +191,18 @@ export const JOBS: JobDefinition[] = [
       const { attempted } = await retryPendingWebhookDeliveries();
       if (attempted > 0) {
         recordObs({ name: "jobs.webhookRetries", attrs: { attempted } });
+      }
+    },
+  },
+  {
+    name: "compliance-reminders",
+    // Daily-ish cadence; each org is also cooled down 24h inside the job.
+    intervalMs: 6 * 60 * 60_000,
+    leaseMs: 300_000,
+    run: () => {
+      const { orgs, reminded } = runComplianceReminders();
+      if (reminded > 0) {
+        recordObs({ name: "jobs.complianceReminders", attrs: { orgs, reminded } });
       }
     },
   },

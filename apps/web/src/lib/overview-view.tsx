@@ -126,11 +126,12 @@ export function Overview({
       .slice(0, Math.max(0, 4 - approvalItems.length))
       .map((alert) => ({
         id: alert.id,
-        icon: alert.kind === "drift" ? "alert" : "zap",
+        icon: alert.kind === "drift" ? "alert" : alert.kind === "compliance" ? "shield" : "zap",
         title: alert.title,
         body: alert.body,
         tone: alert.tone,
-        onOpen: () => setView(alert.goto),
+        onOpen: () =>
+          setView(alert.goto, alert.kind === "compliance" ? "compliance" : undefined),
       }));
     return [...approvalItems, ...alertItems];
   }, [agentName, alerts, pending, setView]);
