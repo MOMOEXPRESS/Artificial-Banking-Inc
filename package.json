@@ -22,6 +22,8 @@
     "dev:mcp": "npm run dev -w @policyvault/mcp-server",
     "dev:worker": "npm run dev -w @policyvault/worker",
     "demo:agent": "npm run start -w @policyvault/demo-agent",
+    "demo:bootstrap": "node scripts/demo-bootstrap.mjs",
+    "demo:hitl-dry-run": "node scripts/demo-hitl-dry-run.mjs",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "db:generate": "npm run generate -w @policyvault/db",
