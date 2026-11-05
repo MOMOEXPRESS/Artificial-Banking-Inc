@@ -2717,7 +2717,6 @@ export interface ComplianceEventRow {
   createdAt: string;
 }
 
-
 export type ProductRecord = {
   id: string;
   orgId: string;

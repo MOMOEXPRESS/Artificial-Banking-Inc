@@ -37,11 +37,7 @@ const productCreateSchema = z.object({
     .default("USDC"),
   stockLevel: z.number().int().min(0).max(1_000_000_000).optional().default(0),
   vendorId: z.string().trim().min(1).max(120),
-  images: z
-    .array(z.string().url().max(500))
-    .max(20)
-    .optional()
-    .default([]),
+  images: z.array(z.string().url().max(500)).max(20).optional().default([]),
   attributes: z.record(z.unknown()).optional().default({}),
 });
 

@@ -58,7 +58,10 @@ const sample = {
   currency: "USDC",
   stockLevel: 12,
   vendorId: "vendor_alpine_co",
-  images: ["https://cdn.example.com/packs/28l-front.jpg", "https://cdn.example.com/packs/28l-side.jpg"],
+  images: [
+    "https://cdn.example.com/packs/28l-front.jpg",
+    "https://cdn.example.com/packs/28l-side.jpg",
+  ],
   attributes: {
     size: "28L",
     region: "EU",
@@ -87,7 +90,12 @@ describe("POST /v1/guardian/products + GET by id", () => {
     assert.ok(product.createdAt);
     assert.ok(product.updatedAt);
 
-    const got = await call(`/v1/guardian/products/${product.id}`, org.guardianKey, undefined, "GET");
+    const got = await call(
+      `/v1/guardian/products/${product.id}`,
+      org.guardianKey,
+      undefined,
+      "GET",
+    );
     assert.equal(got.status, 200, JSON.stringify(got.body));
     assert.deepEqual(got.body.product, product);
   });
@@ -135,7 +143,12 @@ describe("POST /v1/guardian/products + GET by id", () => {
     assert.equal(cross.body.error?.code, "NOT_FOUND");
     assert.equal(cross.body.product, undefined);
 
-    const missing = await call(`/v1/guardian/products/prod_doesnotexist`, a.guardianKey, undefined, "GET");
+    const missing = await call(
+      `/v1/guardian/products/prod_doesnotexist`,
+      a.guardianKey,
+      undefined,
+      "GET",
+    );
     assert.equal(missing.status, 404);
   });
 });
