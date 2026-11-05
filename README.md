@@ -211,8 +211,24 @@ npm run dev:api
 npm run dev:web
 ```
 
-Open <http://localhost:3000/console>, choose **Demo**, and save the keys it shows
-you once.
+Or start both together:
+
+```bash
+npm run dev
+```
+
+Seed a disposable demo organization (Maya Research Desk) and save the keys once:
+
+```bash
+npm run demo:bootstrap
+```
+
+Open <http://localhost:3000/console> → **Use a key** → paste the `guardianKey`.
+Keep `agentApiKey` for Playground / `npm run demo:agent`. Keys are written to
+`apps/api/data/yc-demo-keys.json` (gitignored) — treat them like root passwords.
+
+Investor / YC walkthrough (script + checklist): [`docs/demo/YC-INVESTOR-DEMO.md`](docs/demo/YC-INVESTOR-DEMO.md).
+Validate the HITL money path without a browser: `npm run demo:hitl-dry-run`.
 
 ### Walk the money path
 
