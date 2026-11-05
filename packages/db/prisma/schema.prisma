@@ -667,6 +667,26 @@ model PolicyVersions {
   @@map("policy_versions")
 }
 
+model Products {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  name String
+  description String @default("")
+  category String @default("")
+  priceMicro BigInt @map("price_micro")
+  currency String @default("USDC")
+  stockLevel Int @default(0) @map("stock_level")
+  vendorId String @map("vendor_id")
+  imagesJson String @default("[]") @map("images_json")
+  attributesJson String @default("{}") @map("attributes_json")
+  createdAt String @map("created_at")
+  updatedAt String @map("updated_at")
+  @@index([orgId])
+  @@index([category])
+  @@index([vendorId])
+  @@map("products")
+}
+
 model RecoveryEvents {
   id String @id
   orgId String @map("org_id") // -> orgs.id
