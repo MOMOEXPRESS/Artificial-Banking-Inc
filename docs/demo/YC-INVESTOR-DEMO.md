@@ -238,5 +238,6 @@ curl -s -X POST "$API/v1/guardian/approvals/$APPROVAL_ID/resolve" \
 | `npm run demo:hitl-dry-run` | API-only park → approve → ledger/vendor assert |
 | `node scripts/demo-capture-console.mjs` | Headless console screenshots + video (needs Playwright) |
 | `node scripts/demo-capture-extras.mjs` | Groups, Sessions, Allowlists, Insights Vendors/Activity |
+| `node scripts/demo-record-full-walkthrough.mjs` | Full investor video: marketing → sign-in → Insights/Treasury/Transactions/Policies → Circle faucet → Playground HITL → Approvals → Work (skips Ledger, API keys, Batch, Rails) |
 
-Artifacts from a validated local run live under `/opt/cursor/artifacts/` during agent sessions (not committed).
+Full walkthrough prerequisites: `npm run dev`, Playwright under `/tmp/pw`, and email/password + agent key in `/tmp/abi-full-demo-creds.json`. Outputs `abi-full-investor-demo.mp4` (+ stills) under `/opt/cursor/artifacts/` during agent sessions (not committed). Circle faucet fill is shown; reCAPTCHA may block live USDC credit — demo ledger float still funds the HITL story.
