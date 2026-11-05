@@ -2064,6 +2064,33 @@ CREATE TABLE IF NOT EXISTS compliance_events (
 );
 CREATE INDEX IF NOT EXISTS idx_compliance_events_org ON compliance_events(org_id, id);
 `);
+
+// ---------------------------------------------------------------------------
+// Marketplace products spike (additive). First-class product entity for the
+// agentic marketplace. No vendor onboarding / search / checkout yet — create
+// + read by id only. Money is stored as TEXT minor units (price_micro), same
+// convention as amount_micro / price_usdc_micro elsewhere.
+// ---------------------------------------------------------------------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS products (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  price_micro TEXT NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'USDC',
+  stock_level INTEGER NOT NULL DEFAULT 0,
+  vendor_id TEXT NOT NULL,
+  images_json TEXT NOT NULL DEFAULT '[]',
+  attributes_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_products_vendor ON products(vendor_id);
+CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
+CREATE INDEX IF NOT EXISTS idx_products_org ON products(org_id);
+`);
 for (const migration of [
   "ALTER TABLE users ADD COLUMN terms_version TEXT",
   "ALTER TABLE users ADD COLUMN terms_accepted_at TEXT",
@@ -2688,6 +2715,41 @@ export interface ComplianceEventRow {
   actor?: string;
   detail: Record<string, unknown>;
   createdAt: string;
+}
+
+export type ProductRecord = {
+  id: string;
+  orgId: string;
+  name: string;
+  description: string;
+  category: string;
+  /** Integer minor units as a decimal-digit string (USDC micro when currency is USDC). */
+  priceMicro: string;
+  currency: string;
+  stockLevel: number;
+  vendorId: string;
+  images: string[];
+  attributes: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function rowToProduct(r: Row): ProductRecord {
+  return {
+    id: r.id as string,
+    orgId: r.org_id as string,
+    name: r.name as string,
+    description: (r.description as string) ?? "",
+    category: (r.category as string) ?? "",
+    priceMicro: String(r.price_micro),
+    currency: (r.currency as string) ?? "USDC",
+    stockLevel: Number(r.stock_level ?? 0),
+    vendorId: r.vendor_id as string,
+    images: JSON.parse((r.images_json as string) || "[]") as string[],
+    attributes: JSON.parse((r.attributes_json as string) || "{}") as Record<string, unknown>,
+    createdAt: r.created_at as string,
+    updatedAt: r.updated_at as string,
+  };
 }
 
 export const store = {
@@ -6996,6 +7058,67 @@ export const store = {
   },
 
   // ---------------------------------------------------------- KYC / KYA
+
+  // ----------------------------------------------------------- products
+  createProduct(input: {
+    orgId: string;
+    name: string;
+    description?: string;
+    category?: string;
+    priceMicro: string;
+    currency?: string;
+    stockLevel?: number;
+    vendorId: string;
+    images?: string[];
+    attributes?: Record<string, unknown>;
+  }): ProductRecord {
+    const now = nowIso();
+    const row: ProductRecord = {
+      id: id("prod"),
+      orgId: input.orgId,
+      name: input.name,
+      description: input.description ?? "",
+      category: input.category ?? "",
+      priceMicro: input.priceMicro,
+      currency: (input.currency ?? "USDC").toUpperCase(),
+      stockLevel: input.stockLevel ?? 0,
+      vendorId: input.vendorId,
+      images: input.images ?? [],
+      attributes: input.attributes ?? {},
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.prepare(
+      `INSERT INTO products (
+         id, org_id, name, description, category, price_micro, currency,
+         stock_level, vendor_id, images_json, attributes_json, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      row.id,
+      row.orgId,
+      row.name,
+      row.description,
+      row.category,
+      row.priceMicro,
+      row.currency,
+      row.stockLevel,
+      row.vendorId,
+      JSON.stringify(row.images),
+      JSON.stringify(row.attributes),
+      row.createdAt,
+      row.updatedAt,
+    );
+    return row;
+  },
+
+  /** Org-scoped read. Returns undefined when missing or owned by another org. */
+  getProduct(orgId: string, productId: string): ProductRecord | undefined {
+    const r = db
+      .prepare("SELECT * FROM products WHERE id = ? AND org_id = ?")
+      .get(productId, orgId) as Row | undefined;
+    if (!r) return undefined;
+    return rowToProduct(r);
+  },
 
   isComplianceGrandfathered(orgId: string): boolean {
     const r = db
