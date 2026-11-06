@@ -1,0 +1,27 @@
+{
+  "commitHint": "2703595",
+  "generatedAt": "2026-11-06T00:24:02.508Z",
+  "n": 10000,
+  "seedMs": 77.2,
+  "countRows": 10000,
+  "approxPage25JsonBytes": 5894,
+  "approxBytesPerProduct": 235.8,
+  "measurements": [
+    {
+      "label": "list_category_outdoor_limit_25",
+      "rounds": 40,
+      "p50Ms": 0.027,
+      "p95Ms": 0.036,
+      "maxMs": 0.1
+    },
+    {
+      "label": "js_includes_filter_all_names",
+      "rounds": 10,
+      "p50Ms": 8.84,
+      "p95Ms": 17.346,
+      "maxMs": 17.346
+    }
+  ],
+  "note": "Local better-sqlite3; Durable Object latency will differ. Directory today loads all offers then JS-filters (seller-routes).",
+  "fingerprint": "e7d134edc2ca"
+}

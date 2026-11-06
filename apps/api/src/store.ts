@@ -687,6 +687,17 @@ export function injectStoreDatabase(database: Database.Database): void {
   (globalThis as { __ABI_STORE_DB__?: Database.Database }).__ABI_STORE_DB__ = database;
 }
 
+/**
+ * Marketplace module only — do not use from treasury / money paths.
+ *
+ * Gives `apps/api/src/marketplace/**` a sync SQLite handle without exporting
+ * `db` for the rest of the API. Callers must live under `marketplace/` (enforced
+ * by ESLint `no-restricted-imports` and the money-layer guard test).
+ */
+export function marketplaceDb(): Database.Database {
+  return db;
+}
+
 /** A13 — rehash any leftover plaintext secrets once at boot (idempotent). */
 function migrateSecretsAtRest(): void {
   const rehash = (table: string, column: string, prefix: string) => {
