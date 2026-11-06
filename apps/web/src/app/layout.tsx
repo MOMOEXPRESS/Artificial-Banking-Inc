@@ -9,6 +9,7 @@ import "./waitlist.css";
 import "./design-system.css";
 import "./legal.css";
 import "./compliance.css";
+import "./marketplace.css";
 
 // Self-hosted (OFL, see fonts/OFL-IBM-Plex.txt) so builds never depend on a
 // Google Fonts fetch, which flaked in CI.
@@ -35,9 +36,9 @@ const plexMono = localFont({
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ?? "https://artificial-banking-inc-web.vercel.app";
 
-const SITE_TITLE = "Artificial Banking Incorporated — Financial infrastructure for autonomous AI";
+const SITE_TITLE = "ABI — The agentic marketplace";
 const SITE_DESCRIPTION =
-  "Programmable AI agent wallets with policies, human approvals, and x402 payments — the authorization layer between AI agents and real money.";
+  "Discover software, digital services and physical goods. Let your agent compare products and prepare purchases under your budget and approval rules.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

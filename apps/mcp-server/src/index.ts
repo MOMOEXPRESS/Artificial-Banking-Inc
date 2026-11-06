@@ -11,6 +11,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { PolicyVaultClient } from "@policyvault/sdk";
+import { marketplaceTools, callMarketplaceTool } from "./marketplace-tools.js";
 
 const baseUrl = process.env.POLICYVAULT_API_URL ?? "http://localhost:8787";
 const apiKey = process.env.POLICYVAULT_API_KEY ?? "";
@@ -48,6 +49,7 @@ const server = new Server(
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
+    ...marketplaceTools,
     {
       name: "get_budget",
       description: "Get agent available/held USDC and remaining daily cap",
@@ -201,6 +203,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   const { name, arguments: args } = request.params;
   try {
+    if (marketplaceTools.some(t => t.name === name)) {
+      const data = await callMarketplaceTool(name, args ?? {}, async (method, path, body) => {
+        const result = await fetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+          method, headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+          signal: AbortSignal.timeout(60_000),
+        });
+        const value = await result.json();
+        if (!result.ok) throw Error(JSON.stringify(value));
+        return value;
+      });
+      return { content: [{ type: "text", text: JSON.stringify(data) }] };
+    }
     if (name === "get_budget") {
       const data = await client.getBudget();
       return { content: [{ type: "text", text: JSON.stringify(data, null, 2) }] };
@@ -295,3 +310,4 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
+

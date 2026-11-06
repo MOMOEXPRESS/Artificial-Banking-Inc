@@ -1,0 +1,29 @@
+"use client";
+import { useCallback, useEffect, useState } from "react";
+import { MarketplaceCatalog, marketplaceJson, marketPrice, type MarketplaceProduct } from "./marketplace-catalog";
+import type { Session } from "./console-types";
+import type { GuardianFetch } from "./flows/client";
+import { browserApiBase } from "./browser-api";
+type Item={id:string;product:MarketplaceProduct;quantity:number;paymentState:string;fulfillmentState:string;shipping?:{carrier:string;tracking:string}};
+type Order={id:string;items:Item[]};
+type Quote={id:string;totalMicro:string;expiresAt:string;items:MarketplaceProduct[]};
+export function MarketplaceBuyer({session,gFetch}:{session:Session;gFetch:GuardianFetch}){
+  const [agent,setAgent]=useState(session.agentKeys[0]?.agentId??""),[shortlist,setShortlist]=useState<MarketplaceProduct[]>([]),[orders,setOrders]=useState<Order[]>([]),[quote,setQuote]=useState<Quote|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");
+  const load=useCallback(async()=>{setOrders((await marketplaceJson(await gFetch("/v1/guardian/marketplace/orders"))).orders);},[gFetch]);
+  useEffect(()=>{void load().catch(e=>setError(e.message));},[load]);
+  async function act(fn:()=>Promise<void>){setBusy(true);setError("");try{await fn();await load();}catch(e){setError(e instanceof Error?e.message:"Request failed");}finally{setBusy(false);}}
+  async function agentCall(path:string,body:unknown,method="POST"){
+    const key=session.agentKeys.find(k=>k.agentId===agent)?.key;if(!key)throw Error("Connect an agent in Agents before preparing checkout. Its credential remains in this tab.");
+    return marketplaceJson(await fetch(`${browserApiBase()}/v1/agent/marketplace${path}`,{method,headers:{authorization:`Bearer ${key}`,"content-type":"application/json"},body:JSON.stringify(body)}));
+  }
+  async function prepare(){const cart=await agentCall("/carts",{});let revision=cart.revision;for(const p of shortlist){const updated=await agentCall(`/carts/${cart.id}/items`,{productId:p.id,quantity:1,revision},"PUT");revision=updated.revision;}setQuote(await agentCall(`/carts/${cart.id}/quote`,{}));setMessage("Review the items and total. Preparing a quote has not moved money.");}
+  async function purchase(){if(!quote)return;const order=await agentCall("/checkout",{quoteId:quote.id,idempotencyKey:`quote:${quote.id}`});await agentCall(`/orders/${order.id}/pay`,{});setQuote(null);setShortlist([]);setMessage("Payment requested under your agent’s policy. Check each item’s status below; an approval or uncertain result is not a completed purchase.");}
+  return <div className="market-workspace"><h1>Shop with your agent</h1><p>Find products, prepare a shortlist and review purchases. Your existing budget and approval rules still apply.</p>
+    {error&&<p role="alert" className="market-notice">{error}</p>}{message&&<p role="status">{message}</p>}
+    <label>Shopping agent<select value={agent} onChange={e=>{setAgent(e.target.value);setQuote(null);}}><option value="">Choose a connected agent</option>{session.agentKeys.map(k=><option key={k.agentId} value={k.agentId}>{k.name}</option>)}</select></label>
+    <MarketplaceCatalog onSelect={p=>{setShortlist(items=>items.some(i=>i.id===p.id)?items:[...items,p]);setQuote(null);}}/>
+    <section className="market-shortlist"><h2>Your shortlist</h2>{shortlist.length?<><ul>{shortlist.map(p=><li key={p.id}>{p.name} · {marketPrice(p.priceMicro)} <button disabled={busy} onClick={()=>{setShortlist(v=>v.filter(i=>i.id!==p.id));setQuote(null);}}>Remove</button></li>)}</ul><button disabled={busy||!agent} onClick={()=>void act(prepare)}>Prepare a quote</button></>:<p>Add products from the catalog to compare a purchase before any payment.</p>}
+      {quote&&<div className="market-review"><h3>Review purchase</h3><p>{quote.items.length} items · <strong>{marketPrice(quote.totalMicro)}</strong></p><p>Quote expires {new Date(quote.expiresAt).toLocaleTimeString()}. Physical purchases require a configured shipping quote; this interface currently prepares digital checkout.</p><button disabled={busy||Date.parse(quote.expiresAt)<Date.now()} onClick={()=>void act(purchase)}>Confirm and request payment</button><button disabled={busy} onClick={()=>setQuote(null)}>Keep browsing</button></div>}</section>
+    <section><div className="market-section-heading"><h2>Your orders</h2><button disabled={busy} onClick={()=>void act(load)}>Refresh order status</button></div>{orders.length?orders.map(o=><article key={o.id} className="market-order"><h3>Order {o.id.slice(-8)}</h3>{o.items.map(i=><div key={i.id} className="market-order-item"><div><strong>{i.product.name}</strong><p>Payment: {i.paymentState} · Delivery: {i.fulfillmentState}</p>{i.shipping&&<p>{i.shipping.carrier} · {i.shipping.tracking}</p>}</div><div className="market-actions">{["unpaid","unknown","awaiting_approval","paying"].includes(i.paymentState)&&<button disabled={busy||!agent} onClick={()=>void act(async()=>{await agentCall(`/orders/${o.id}/pay`,{});})}>Recheck governed payment</button>}{i.paymentState==="unpaid"&&<button disabled={busy} onClick={()=>void act(async()=>{await agentCall(`/orders/${o.id}/cancel`,{});})}>Cancel unpaid items</button>}{i.fulfillmentState==="shipped"&&<button disabled={busy} onClick={()=>void act(async()=>{await marketplaceJson(await gFetch(`/v1/guardian/marketplace/items/${i.id}/confirm`,{method:"POST",headers:{"content-type":"application/json"},body:"{}"}));})}>Confirm received</button>}{i.paymentState==="paid"&&i.fulfillmentState==="delivered"&&<a href={`${browserApiBase()}/v1/guardian/marketplace/items/${i.id}/delivery`} target="_blank" rel="noreferrer">Retrieve digital delivery</a>}</div></div>)}</article>):<p>No orders yet. Your purchases will stay here across sessions.</p>}</section>
+  </div>;
+}

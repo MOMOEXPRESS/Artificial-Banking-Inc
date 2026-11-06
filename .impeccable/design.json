@@ -1,0 +1,38 @@
+{
+  "status": "world-confirmed-composition-pending",
+  "palette": {
+    "canvas": "#f4ede2",
+    "surface": "#fffdf8",
+    "subtle": "#e9e0d2",
+    "ink": "#292820",
+    "secondary": "#625e52",
+    "action": "#185c43",
+    "accent": "#dafa70",
+    "divider": "#d8cebe"
+  },
+  "typography": {
+    "sans": "IBM Plex Sans"
+  },
+  "spacing": [
+    4,
+    8,
+    12,
+    16,
+    24,
+    32,
+    48,
+    64
+  ],
+  "radii": {
+    "control": 8,
+    "image": 12
+  },
+  "references": [
+    "Shopify",
+    "Amazon",
+    "Etsy"
+  ],
+  "excludedReferences": [
+    "eBay"
+  ]
+}

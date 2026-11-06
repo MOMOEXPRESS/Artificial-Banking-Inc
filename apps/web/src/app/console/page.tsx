@@ -14,6 +14,7 @@ import { ABAppIcon, ABMark } from "../../lib/brand";
 import { showApprovalToast } from "../../lib/approval-toast";
 import { Icon, fmtUsd, relTime } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
+import { MarketplaceBuyer } from "../../lib/marketplace-buyer";
 import { ChatView } from "../../lib/chat-view";
 import { PolicyView, type Policy } from "../../lib/policy-view";
 import { SettingsView } from "../../lib/settings-view";
@@ -102,6 +103,7 @@ const API = browserApiBase();
 const SELLER = sellerUrl() ?? "";
 
 const NAV: { key: View; label: string; icon: string; group: string }[] = [
+  { key: "marketplace", label: "Marketplace", icon: "search", group: "Home" },
   { key: "overview", label: "Overview", icon: "home", group: "Home" },
   { key: "insights", label: "Insights", icon: "spark", group: "Home" },
   { key: "treasury", label: "Treasury", icon: "wallet", group: "Money" },
@@ -232,6 +234,7 @@ const VIEW_META: Partial<Record<View, { eyebrow: string; description: string; ic
 };
 
 const ALL_VIEWS = new Set<View>([
+  "marketplace",
   "overview",
   "treasury",
   "agents",
@@ -340,7 +343,7 @@ export default function Console() {
   const [prefs, setPrefs] = useState<Prefs>({ autoJump: true });
   const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [view, setViewState] = useState<View>("overview");
+  const [view, setViewState] = useState<View>("marketplace");
   const [tabHint, setTabHint] = useState<string | null>(null);
   const [org, setOrg] = useState<OrgView | null>(null);
   const [budgetOpsSetup, setBudgetOpsSetup] = useState<{ orgId: string; ready: boolean } | null>(
@@ -1517,6 +1520,7 @@ export default function Console() {
                 {view !== "overview" && (
                   <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
                 )}
+                {view === "marketplace" && <MarketplaceBuyer session={session} gFetch={gFetch} />}
                 {view === "overview" && (
                   <Overview
                     {...shared}

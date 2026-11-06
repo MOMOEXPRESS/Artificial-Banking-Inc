@@ -8,7 +8,7 @@ import { Icon } from "./ui";
 /** Shared marketing chrome for Home / Docs / Pricing / About. */
 
 export type MarketingNavKey =
-  "home" | "landing" | "docs" | "pricing" | "about" | "console" | "partnerships" | "waitlist";
+  "home" | "landing" | "marketplace" | "docs" | "pricing" | "about" | "console" | "partnerships" | "waitlist";
 
 /** Public waitlist signup page. No account needed. */
 export const WAITLIST_HREF = "/waitlist";
@@ -24,7 +24,7 @@ export function MarketingShell({
   return (
     <div className="landing">
       <MarketingNav active={navActive} />
-      {children}
+      <main id="main-content">{children}</main>
       <MarketingFooter />
       <CookieNotice />
     </div>
@@ -95,6 +95,7 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
           <ABWordmark size={26} tone="#0a0a0c" />
         </Link>
         <nav className="marketing-links">
+          <Link href="/directory" aria-current={current === "marketplace" ? "page" : undefined} className={current === "marketplace" ? "is-active" : undefined} onClick={close}>Marketplace</Link>
           <Link href="/" className={current === "home" ? "is-active" : undefined} onClick={close}>
             Home
           </Link>
@@ -103,7 +104,7 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
             className={current === "console" ? "is-active" : undefined}
             onClick={close}
           >
-            Console
+            Buy with an agent
           </Link>
           <Link
             href="/docs"
@@ -124,7 +125,7 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
             className={current === "partnerships" ? "is-active" : undefined}
             onClick={close}
           >
-            Partnerships
+            Sell on ABI
           </Link>
           <Link
             href="/about"
@@ -183,8 +184,8 @@ export function MarketingFooter() {
         <div className="marketing-footer-brand">
           <ABWordmark size={28} tone="#fff" />
           <p>
-            Controls so AI agents can spend money — with budgets you set, approvals when it matters,
-            and a record you can show people.
+            A marketplace for agent-assisted purchases: software, digital services and physical goods.
+            Buyers set the budget. Sellers make their products discoverable.
           </p>
         </div>
         <div className="marketing-footer-cols">
@@ -192,6 +193,7 @@ export function MarketingFooter() {
             title="Product"
             links={[
               ["Home", "/"],
+              ["Marketplace", "/directory"],
               ["Buyer console", "/console"],
               ["Partnerships", "/partnerships"],
               ["Partner login", "/partners/login"],
@@ -279,10 +281,10 @@ export function MarketingCta() {
   return (
     <section className="cta-band">
       <div className="cta-open">
-        <h2>Try an agent that can spend — this afternoon.</h2>
+        <h2>Your next purchase starts with a good brief.</h2>
         <p>
-          The console is free while we&rsquo;re building. Bring an OpenAI, Anthropic, or any
-          pay-per-use API key. Your agent can start paying under your rules in a few minutes.
+          Explore seller listings, compare products and prepare a purchase with your agent.
+          Your existing spending rules govern every payment request.
         </p>
       </div>
       <div className="cta-lockup" aria-hidden>
