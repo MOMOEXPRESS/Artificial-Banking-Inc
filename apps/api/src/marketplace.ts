@@ -90,7 +90,7 @@ export function createMarketplace(db: CommerceDatabase, adapters: CommerceAdapte
     const r = get("SELECT p.*,l.kind,l.version,l.offer_id,l.state FROM products p JOIN marketplace_listings l ON l.product_id=p.id JOIN marketplace_vendors v ON v.org_id=l.seller_org WHERE p.id=? AND l.state='published' AND v.status='verified'", id);
     return r ?? fail("NOT_FOUND", "Published product not found", 404);
   };
-  const publicItem = (r: any, seller = false) => ({ id: r.id, orderId: r.order_id, sellerOrgId: r.seller_org, product: decode(r.snapshot_json), quantity: r.quantity, paymentState: r.payment_state, fulfillmentState: r.fulfillment_state, receipt: r.receipt_json ? decode(r.receipt_json) : null, shipping: r.shipping_json ? decode(r.shipping_json) : null, ...(seller && r.address_json ? { shippingAddress: decode(r.address_json) } : {}) });
+  const publicItem = (r: any, seller = false) => ({ id: r.id, orderId: r.order_id, sellerOrgId: r.seller_org, product: decode(r.snapshot_json), quantity: r.quantity, paymentState: r.payment_state, fulfillmentState: r.fulfillment_state, receipt: r.receipt_json ? decode(r.receipt_json) : null, shipping: r.shipping_json ? decode(r.shipping_json) : null, ...(seller && decode(r.snapshot_json).kind === "physical" && r.address_json ? { shippingAddress: decode(r.address_json) } : {}) });
   const orderView = (orgId: string, id: string, agentId?: string) => {
     const o = get("SELECT * FROM marketplace_orders WHERE id=? AND buyer_org=?", id, orgId);
     if (!o || (agentId && o.agent_id !== agentId)) return fail("NOT_FOUND", "Order not found", 404);

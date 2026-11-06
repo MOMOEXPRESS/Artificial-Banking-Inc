@@ -66,7 +66,7 @@ Each vendor/item payment has a stable `marketplace:<itemId>` key. A crash or con
 
 ## Validation and release gates
 
-26 isolated native-SQLite commerce tests and one exact USDC conversion test passed locally before final CI. Coverage includes tenant isolation, identity gates, offer binding, stale carts, last-unit stock, idempotent checkout, quote expiry, digital entitlement recovery, unknown outcomes, approval holds, partial vendor success, separate feedback provenance, dispute access and configured/unconfigured physical escrow paths. Provider tests use fakes, not live money or shipping.
+27 isolated native-SQLite commerce tests and one exact USDC conversion test passed locally before final CI. Coverage includes tenant isolation, identity gates, offer binding, stale carts, last-unit stock, idempotent checkout, quote expiry, digital entitlement recovery, unknown outcomes, approval holds, partial vendor success, separate feedback provenance, dispute access and configured/unconfigured physical escrow paths. Provider tests use fakes, not live money or shipping.
 
 The environment's configured HTTP proxy is unreachable; a full dependency install/build cannot be run locally. The second GitHub CI run passed build, typecheck and lint, with one obsolete logo-marquee homepage test failure subsequently removed. The final revision must pass CI before merging/deploying. Vercel hosts the frontend; the existing persistent API/Worker must also deploy this revision. A frontend-only deployment cannot activate new backend routes. Confirm API `/health` revision, capabilities, product creation/publication, authenticated checkout, and deployed public/buyer/seller mobile/desktop views before declaring production complete.
 

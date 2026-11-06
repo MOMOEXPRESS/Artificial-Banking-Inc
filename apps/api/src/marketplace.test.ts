@@ -190,3 +190,11 @@ test("an uncertain committed payment can reconcile after its listing changes",as
 test("settlement without a digital resource does not falsely report delivery",async()=>{
   const f=fixture({payment:async()=>({status:200,body:{ok:true}})}),p=f.product(),o=f.order(p.id);await f.m.pay(f.a,o.id);const item=f.m.order(f.a.orgId,o.id).items[0];assert.equal(item.paymentState,"paid");assert.equal(item.fulfillmentState,"pending");assert.throws(()=>f.m.delivery(f.a.orgId,item.id),/No digital delivery/);
 });
+
+test("a digital vendor cannot read the shipping address from a mixed-vendor order",async()=>{
+  const f=fixture({fulfillment:{quote:async()=>({reference:"q",totalMicro:"1000000",expiresAt:Date.now()+120000})},escrow:{fund:async()=>({status:200,body:{state:"escrowed",escrowRef:"held"}}),release:async()=>{},refund:async()=>{}}});
+  const physical=f.product("physical-vendor",{kind:"physical",offerId:undefined}),digital=f.product("digital-vendor"),c=f.cart(physical.id);
+  f.m.setCart(f.a,c.id,{productId:digital.id,quantity:1,revision:2});const address={name:"Private Customer",line1:"Road",city:"Paris",postalCode:"75001",country:"FR"},q=await f.m.shippingQuote(f.a,c.id,address);f.m.checkout(f.a,q.id,"privacy",address);
+  const digitalItems=f.m.orders("digital-vendor",true) as {shippingAddress?:unknown}[],physicalItems=f.m.orders("physical-vendor",true) as {shippingAddress?:{name:string}}[];
+  assert.equal(digitalItems[0].shippingAddress,undefined);assert.equal(physicalItems[0].shippingAddress?.name,"Private Customer");
+});
