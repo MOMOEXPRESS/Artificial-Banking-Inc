@@ -108,6 +108,56 @@ export default tseslint.config(
     },
   },
 
+  // Marketplace commerce layer must not import the frozen money path.
+  // Call existing agent/API surfaces instead (Area 7).
+  {
+    files: ["apps/api/src/marketplace/**/*.{ts,tsx}"],
+    ignores: ["apps/api/src/marketplace/**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@policyvault/ledger",
+              message:
+                "Marketplace must not import the ledger; pay via agent pay_api / existing store getters only.",
+            },
+            {
+              name: "@policyvault/custody",
+              message: "Marketplace must not import custody; vaults stay in the money layer.",
+            },
+          ],
+          patterns: [
+            {
+              group: [
+                "**/rails",
+                "**/rails/*",
+                "../rails",
+                "../rails/*",
+                "../../rails",
+                "../../rails/*",
+              ],
+              message: "Marketplace must not import rails/*; use hosted offers + agent pay_api.",
+            },
+            {
+              group: [
+                "**/chain",
+                "**/chain/*",
+                "../chain",
+                "../chain/*",
+                "../../chain",
+                "../../chain/*",
+              ],
+              message:
+                "Marketplace must not import chain/* except future allowlisted read-only helpers listed in AUDIT.md.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // React Native / Expo surface, kept out of the workspace build.
   {
     files: ["archive/**/*.{ts,tsx}"],

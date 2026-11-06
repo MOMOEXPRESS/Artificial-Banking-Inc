@@ -1,0 +1,30 @@
+{
+  "commit": "2703595",
+  "note": "SHA-256 of money-layer frozen files at M0 baseline. Update only in a PR titled money-layer: \u2026 with owner approval.",
+  "files": {
+    "apps/api/src/rails/x402.ts": "990bf3e63984da0d0ccd704e9f36c95318377da48f0f84b7c61626e909ceca62",
+    "apps/api/src/rails/evm-usdc-transfer.ts": "d63832e942d7b5375d8815ebe18edc2e5039b1243e38403d8bc6b0c8c4577d89",
+    "apps/api/src/rails/transfer-mock.ts": "b1462775fe6649b68f0475b65f161cdfd5baf208c3cf6bfd43f775fdc4309db4",
+    "apps/api/src/rails/types.ts": "45cb5c221459e7ebba1a8e0c683b98cae8c2c86c74eb215366f54ac288e04a20",
+    "apps/api/src/seller-x402.ts": "9db07237c63f945b4b52f022ca32a107ff02e12636582a29bb4e8ba28516437a",
+    "apps/api/src/engine.ts": "12f172eb87cde638ac2dcc18305a768bdbfe500bfc54ab2e0803aef5614cf0a8",
+    "apps/api/src/treasury.ts": "b85056d693a53a6c692f0f2ce15a8b324404b1d49c76bc34cfc0051cc864bbda",
+    "apps/api/src/treasury-backing.ts": "dc6b614ffd30f9af6681a9d32f75900e92679d7cd271baacb1834de11882d9dc",
+    "apps/api/src/treasury-guard.ts": "51c77e17ebadaf19f08e62e05cd0d9d516192c087859bf1db1319aae1cee6633",
+    "apps/api/src/treasury-threshold.ts": "61320b432bb041f643bf24d5a6065377c062da83aeb116297abaf3cfb9072a1b",
+    "apps/api/src/jobs/settlement-recovery.ts": "d5447752c2e0820208a1a74d0d0c42c011825ba9a2fd307a3ed1de2791fd0278",
+    "packages/ledger/src/index.ts": "b69dc967eda4e12a843057e1b9bdc3a66cb2566d0f8930119f10fd5632aa40c5",
+    "packages/custody/src/index.ts": "77d346d13bbe0c14efcf3562daf639c30effea94bd578c931242680d3a153a59",
+    "packages/policy/src/index.ts": "75dd72c50642b8221810dc577400d01e5c1a3a2132231ae87fc4bb0cd27c68db",
+    "apps/api/src/chain/asset-adapters.ts": "7722f7b690fd659380d987fa522afad5473665c5e7c149fc95cad75aa15d3fbf",
+    "apps/api/src/chain/deposits.ts": "9ae41da62c20e64f05f6ae2aa6582ee9e4529def06764f12d1efc54cb78fe6db",
+    "apps/api/src/chain/network.ts": "70493cb0984c0f00ae7e00efed9c24de1d0ad8b541440cef91d6aa06aec292c8",
+    "apps/api/src/chain/rpc-budget.ts": "64c20df33cee33603127f8a51189134a863bd431e5f6d174afc9e3d74065545c",
+    "apps/api/src/chain/sync-deposits.ts": "c8030ad84979d2d0b5adf08093cb27d2fc84a25502a05783ecee783175d2934c",
+    "apps/api/src/chain/token-domain.ts": "cba1839450322b3e9305e22861fcc47df4576e604bdb6b0a7434ae43dd02f371",
+    "apps/api/src/chain/transfer.ts": "9e5828746a5383780bf30497fc1a43ef2ed8bcd2d081dfa25dbb1f57631b391e",
+    "apps/api/src/chain/vault-queue.ts": "286fac8f9453cdc3c857f2f520a808df5235046c5ea0ab7c3665525b15949f40",
+    "apps/api/src/chain/wallet-profile.ts": "57831d5b4cc2cc433b7d511a4fa6b64976cb4940adc3cc9b370e69ee9ac7fa04"
+  },
+  "missingAtBaseline": []
+}
