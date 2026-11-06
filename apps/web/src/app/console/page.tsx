@@ -8,11 +8,11 @@ import {
   signedOutNotice,
   signedOutUrl,
 } from "../../lib/sign-out";
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ABAppIcon, ABMark } from "../../lib/brand";
 import { showApprovalToast } from "../../lib/approval-toast";
 import { Icon, fmtUsd, relTime } from "../../lib/ui";
+import { isDrawerViewport } from "../../lib/nav-toggle";
 import { InsightsView } from "../../lib/analytics";
 import { ChatView } from "../../lib/chat-view";
 import { PolicyView, type Policy } from "../../lib/policy-view";
@@ -58,6 +58,7 @@ import {
   shouldShowLoadError,
   type LoadFailure,
 } from "../../lib/load-state";
+import { fastPollBackoffMs } from "../../lib/bounded-poll";
 import {
   sessionForPersistentStorage,
   type Approval,
@@ -368,6 +369,20 @@ export default function Console() {
     startedAt: number;
     last: LoadFailure[];
   }>(() => ({ failures: 0, startedAt: Date.now(), last: [] }));
+  /** Last time `/org` answered — shown when a later refresh fails. */
+  const orgLastOkAt = useRef<number | null>(null);
+  /**
+   * Consecutive fast-poll failures back the 8 s heartbeat off (16 s, 32 s,
+   * capped at 60 s) instead of re-sending all seven reads every tick into an
+   * API that is not answering.
+   */
+  const fastBackoffUntil = useRef(0);
+  const fastFailures = useRef(0);
+  const noteFastFailure = useCallback(() => {
+    fastFailures.current += 1;
+    // Small slack so the 8 s tick that lands right at the boundary still runs.
+    fastBackoffUntil.current = Date.now() + fastPollBackoffMs(fastFailures.current) - 1000;
+  }, []);
   const [orgRetrying, setOrgRetrying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(true);
@@ -768,8 +783,12 @@ export default function Console() {
       if (!o?.org?.id) {
         const failure = await describeFailure("/v1/guardian/org", res[0]);
         logLoadFailure("shell", failure);
+        noteFastFailure();
         setOrgLoad((s) => ({ ...s, failures: s.failures + 1, last: [failure] }));
       } else {
+        fastFailures.current = 0;
+        fastBackoffUntil.current = 0;
+        orgLastOkAt.current = Date.now();
         setOrgLoad((s) => (s.failures ? { failures: 0, startedAt: Date.now(), last: [] } : s));
       }
       if (o?.org?.id) {
@@ -789,9 +808,10 @@ export default function Console() {
       setConnected(false);
       const failure = describeThrown("/v1/guardian/org", e);
       logLoadFailure("shell", failure);
+      noteFastFailure();
       setOrgLoad((s) => ({ ...s, failures: s.failures + 1, last: [failure] }));
     }
-  }, [gFetch, saveSession, setToast, setIfChanged, reviewApproval]);
+  }, [gFetch, saveSession, setToast, setIfChanged, reviewApproval, noteFastFailure]);
 
   const refreshSlow = useCallback(async () => {
     if (!sessionRef.current) return;
@@ -836,7 +856,11 @@ export default function Console() {
   useEffect(() => {
     if (!session) return;
     void refreshAll();
-    const fast = setInterval(() => void refreshFast(), 8000);
+    const fast = setInterval(() => {
+      // Backing off after failures; Retry and tab focus still refresh at once.
+      if (Date.now() < fastBackoffUntil.current) return;
+      void refreshFast();
+    }, 8000);
     const slow = setInterval(() => void refreshSlow(), 30000);
     const onVis = () => {
       if (!document.hidden) void refreshAll();
@@ -1099,26 +1123,24 @@ export default function Console() {
             onClick={() => setRailOpen(false)}
           />
         )}
-        <Sidebar className="rail rail-folders" label="Console navigation">
+        <Sidebar id="console-rail" className="rail rail-folders" label="Console navigation">
           <div className="rail-brand-row">
-            <Link
-              href="/"
-              className="rail-brand"
-              title="Back to landing"
-              style={{ textDecoration: "none" }}
-            >
-              <ABAppIcon size={38} />
-              <span>
-                <b>Artificial Banking</b>
-                <small>Financial operations</small>
-              </span>
-            </Link>
+            {/* The logo is the toggle: no separate arrow. On the desktop rail it
+                collapses/expands the navigation; in the phone drawer (where the
+                rail has no collapsed state) it closes the drawer. */}
             <button
               type="button"
-              className="rail-collapse"
+              className="rail-brand rail-brand-toggle"
+              data-testid="rail-brand-toggle"
+              aria-controls="console-rail"
+              aria-expanded={!railCollapsed}
               aria-label={railCollapsed ? "Expand navigation" : "Collapse navigation"}
               title={railCollapsed ? "Expand navigation" : "Collapse navigation"}
               onClick={() => {
+                if (isDrawerViewport()) {
+                  setRailOpen(false);
+                  return;
+                }
                 const next = !railCollapsed;
                 setRailCollapsed(next);
                 setFolderOpen({
@@ -1131,7 +1153,11 @@ export default function Console() {
                 localStorage.setItem("abi_nav_collapsed", next ? "1" : "0");
               }}
             >
-              <Icon name={railCollapsed ? "arrowRight" : "arrowLeft"} size={15} />
+              <ABAppIcon size={38} />
+              <span>
+                <b>Artificial Banking</b>
+                <small>Financial operations</small>
+              </span>
             </button>
           </div>
           {NAV_GROUPS.map((group) => {
@@ -1530,6 +1556,17 @@ export default function Console() {
                     approvals={approvals}
                     escrows={escrows}
                     policy={policy}
+                    refreshProblem={
+                      orgLoad.failures >= 2
+                        ? { failures: orgLoad.last, lastOkAt: orgLastOkAt.current }
+                        : null
+                    }
+                    refreshing={orgRetrying}
+                    onRetryRefresh={() => {
+                      setOrgRetrying(true);
+                      fastBackoffUntil.current = 0;
+                      void refreshAll().finally(() => setOrgRetrying(false));
+                    }}
                     session={session}
                     updateSession={updateSession}
                     alerts={alerts}

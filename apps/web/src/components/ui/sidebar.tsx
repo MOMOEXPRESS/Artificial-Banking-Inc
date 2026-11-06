@@ -9,13 +9,15 @@ export function Sidebar({
   className,
   children,
   label = "Sidebar",
+  id,
 }: {
   className?: string;
   children: React.ReactNode;
   label?: string;
+  id?: string;
 }) {
   return (
-    <nav className={cn("sidebar-shell", className)} aria-label={label}>
+    <nav id={id} className={cn("sidebar-shell", className)} aria-label={label}>
       {children}
     </nav>
   );

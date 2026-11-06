@@ -6,8 +6,8 @@ import { summarizeFailures, type LoadFailure } from "./load-state";
 
 /**
  * Shown in place of a skeleton that would otherwise spin forever. Says what
- * failed (path + reason, never a body) and offers Retry. Polling keeps going
- * underneath, so the view recovers on its own when the API answers again.
+ * failed (path + reason, never a body) and offers Retry. Callers with bounded
+ * retries pass `hint` so the copy matches what is actually happening.
  */
 export function LoadError({
   title,
@@ -16,8 +16,11 @@ export function LoadError({
   retrying,
   compact,
   testId,
+  hint: hintOverride,
 }: {
   title: string;
+  /** Replaces the default hint (e.g. when automatic retries have stopped). */
+  hint?: string;
   failures: LoadFailure[];
   onRetry: () => void;
   retrying?: boolean;
@@ -27,7 +30,9 @@ export function LoadError({
   const what = summarizeFailures(failures);
   const rateLimited = failures.some((f) => f.status === 429 || f.reason === "RATE_LIMITED");
   const timedOut = failures.some((f) => f.reason === "timeout");
-  const hint = rateLimited
+  const hint = hintOverride
+    ? hintOverride
+    : rateLimited
     ? "The API is rate-limiting this browser. It retries automatically; Retry now if you just waited."
     : timedOut
       ? "The API took too long to answer (cold start or a slow chain read). Retry usually works."

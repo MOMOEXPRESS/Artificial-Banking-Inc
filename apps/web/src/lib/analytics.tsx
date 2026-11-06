@@ -7,13 +7,14 @@ import type { Decision } from "./console-types";
 import { Button } from "@/components/ui/button";
 import { SegTabs } from "@/components/ui/seg-tabs";
 import { LoadError } from "./load-error";
+import { describeFailure, describeThrown, logLoadFailure, type LoadFailure } from "./load-state";
 import {
-  describeFailure,
-  describeThrown,
-  logLoadFailure,
-  shouldShowLoadError,
-  type LoadFailure,
-} from "./load-state";
+  createBoundedPoller,
+  type BoundedPoller,
+  type PollResult,
+  type PollState,
+} from "./bounded-poll";
+import { INSIGHT_PARTS, insightsLoadView, type InsightPart } from "./insights-load";
 
 /* ==================================================================== types */
 
@@ -153,11 +154,14 @@ export function InsightsView({
     if (activitySeed?.key) setTab("trail");
   }, [activitySeed?.key]);
 
-  const [failures, setFailures] = useState<LoadFailure[]>([]);
-  const [startedAt] = useState(() => Date.now());
-  const [failCount, setFailCount] = useState(0);
+  // One bounded poller per panel: a healthy part refreshes every 20 s, a
+  // failing part retries with backoff (2 s, 4 s, 8 s, 16 s) and then stops,
+  // so nothing keeps hammering an endpoint that is not answering.
+  const [parts, setParts] = useState<Record<InsightPart, PollState | undefined>>(
+    () => ({}) as Record<InsightPart, PollState | undefined>,
+  );
   const [retrying, setRetrying] = useState(false);
-  const loadRef = useRef<() => Promise<void>>(async () => {});
+  const pollersRef = useRef<Partial<Record<InsightPart, BoundedPoller>>>({});
 
   useEffect(() => {
     let alive = true;
@@ -169,81 +173,112 @@ export function InsightsView({
       sigs[key] = sig;
       apply();
     };
-    const PARTS = [
-      "/v1/guardian/vendors",
-      "/v1/guardian/burn",
-      "/v1/guardian/anomalies",
-      "/v1/guardian/economics",
-    ] as const;
-    const load = async () => {
-      if (typeof document !== "undefined" && document.hidden) return;
-      // Each panel stands alone: one rate-limited or failing endpoint used to
-      // keep the whole page on its skeleton forever (all four had to succeed
-      // in the same tick before anything rendered).
-      const results = await Promise.all(
-        PARTS.map(async (path) => {
+    const apply: Record<InsightPart, (body: Record<string, unknown>) => boolean> = {
+      vendors: (v) => {
+        if (!Array.isArray(v.vendors)) return false;
+        adopt("vendors", v, () => {
+          setVendors(v.vendors as Vendor[]);
+          setConcentration(Number(v.concentrationPct ?? 0));
+        });
+        return true;
+      },
+      burn: (b) => {
+        if (!b.forecast || typeof b.forecast !== "object") return false;
+        adopt("burn", b, () => setBurn(b.forecast as Burn));
+        return true;
+      },
+      anomalies: (a) => {
+        if (!Array.isArray(a.anomalies)) return false;
+        adopt("anomalies", a, () => {
+          setAnomalies(a.anomalies as Anomaly[]);
+          setScanned(Number(a.scanned ?? 0));
+        });
+        return true;
+      },
+      economics: (e) => {
+        if (!e.economics || typeof e.economics !== "object") return false;
+        adopt("econ", e, () => setEcon(e.economics as Economics));
+        return true;
+      },
+    };
+    const pollers: Partial<Record<InsightPart, BoundedPoller>> = {};
+    for (const part of INSIGHT_PARTS) {
+      const path = `/v1/guardian/${part}`;
+      pollers[part] = createBoundedPoller({
+        intervalMs: 20_000,
+        isHidden: () => typeof document !== "undefined" && document.hidden,
+        onChange: (st) => {
+          if (alive) setParts((prev) => ({ ...prev, [part]: st }));
+        },
+        run: async (): Promise<PollResult> => {
           try {
             const res = await gFetch(path);
             if (res.ok) {
-              const body = await res.json().catch(() => null);
-              if (body) return { path, body, failure: null };
+              const body = (await res
+                .clone()
+                .json()
+                .catch(() => null)) as Record<string, unknown> | null;
+              if (body && alive && apply[part](body)) {
+                setLoaded(true);
+                return { ok: true };
+              }
+              // 200 with a body we can't use — say so instead of looping.
+              const f: LoadFailure = {
+                path,
+                status: res.status,
+                reason: "UNEXPECTED_RESPONSE",
+                at: Date.now(),
+              };
+              logLoadFailure("insights", f);
+              return { ok: false, failure: f };
             }
-            return { path, body: null, failure: await describeFailure(path, res) };
+            const f = await describeFailure(path, res);
+            logLoadFailure("insights", f);
+            return { ok: false, failure: f };
           } catch (e) {
-            return { path, body: null, failure: describeThrown(path, e) };
+            const f = describeThrown(path, e);
+            logLoadFailure("insights", f);
+            return { ok: false, failure: f };
           }
-        }),
-      );
-      if (!alive) return;
-      const [v, b, a, e] = results.map((r) => r.body);
-      if (v) {
-        adopt("vendors", v, () => {
-          setVendors(v.vendors ?? []);
-          setConcentration(v.concentrationPct ?? 0);
-        });
-      }
-      if (b) adopt("burn", b, () => setBurn(b.forecast ?? null));
-      if (a) {
-        adopt("anomalies", a, () => {
-          setAnomalies(a.anomalies ?? []);
-          setScanned(a.scanned ?? 0);
-        });
-      }
-      if (e) adopt("econ", e, () => setEcon(e.economics ?? null));
-      const failed = results.flatMap((r) => (r.failure ? [r.failure] : []));
-      failed.forEach((f) => logLoadFailure("insights", f));
-      setFailures((prev) => (prev.length === 0 && failed.length === 0 ? prev : failed));
-      if (failed.length) setFailCount((n) => n + 1);
-      if (results.some((r) => r.body)) setLoaded(true);
-    };
-    loadRef.current = load;
-    void load();
-    const t = setInterval(load, 20000);
+        },
+      });
+    }
+    pollersRef.current = pollers;
+    for (const p of Object.values(pollers)) p?.start();
     const onVis = () => {
-      if (!document.hidden) void load();
+      if (!document.hidden) for (const p of Object.values(pollers)) p?.resume();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
       alive = false;
-      clearInterval(t);
+      for (const p of Object.values(pollers)) p?.stop();
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [gFetch]);
 
   const retry = () => {
     setRetrying(true);
-    void loadRef.current().finally(() => setRetrying(false));
+    const targets = INSIGHT_PARTS.filter((p) => {
+      const st = parts[p]?.status;
+      return st === "failed" || st === "retrying";
+    });
+    void Promise.all(
+      (targets.length ? targets : INSIGHT_PARTS).map((p) => pollersRef.current[p]?.retryNow()),
+    ).finally(() => setRetrying(false));
   };
+
+  const view = insightsLoadView(parts);
 
   // The decision trail (Activity) comes from the shell's own poll; it never
   // needed the four analytics calls, so it is never gated on them.
   if (!loaded && tab !== "trail") {
     return (
       <>
-        {shouldShowLoadError({ failures: failCount, startedAt, loaded }) && (
+        {view.show && (
           <LoadError
             title="Can't load insights"
-            failures={failures}
+            failures={view.failures}
+            hint={view.hint}
             retrying={retrying}
             onRetry={retry}
             testId="insights-load-error"
@@ -263,11 +298,12 @@ export function InsightsView({
 
   return (
     <div className="console-page insights-page">
-      {failures.length > 0 && tab !== "trail" && (
+      {view.show && tab !== "trail" && (
         <LoadError
           compact
-          title="Some insights could not refresh"
-          failures={failures}
+          title={view.gaveUp ? "Some insights could not load" : "Some insights are retrying"}
+          failures={view.failures}
+          hint={view.hint}
           retrying={retrying}
           onRetry={retry}
           testId="insights-partial-error"

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { isDrawerViewport } from "./nav-toggle";
 import { useCallback, useEffect, useState } from "react";
 import { Sidebar, SidebarFolder, SidebarItem } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
@@ -292,25 +292,22 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
             onClick={() => setRailOpen(false)}
           />
         )}
-        <Sidebar className="rail rail-folders" label="Seller navigation">
+        <Sidebar id="seller-rail" className="rail rail-folders" label="Seller navigation">
           <div className="rail-brand-row">
-            <Link
-              href="/partnerships"
-              className="rail-brand"
-              title="Partnerships"
-              style={{ textDecoration: "none" }}
-            >
-              <ABAppIcon size={38} />
-              <span>
-                <b>ABI Seller</b>
-                <small>Partner console</small>
-              </span>
-            </Link>
+            {/* Same as the buyer console: the logo is the collapse toggle. */}
             <button
               type="button"
-              className="rail-collapse"
+              className="rail-brand rail-brand-toggle"
+              data-testid="rail-brand-toggle"
+              aria-controls="seller-rail"
+              aria-expanded={!railCollapsed}
               aria-label={railCollapsed ? "Expand navigation" : "Collapse navigation"}
+              title={railCollapsed ? "Expand navigation" : "Collapse navigation"}
               onClick={() => {
+                if (isDrawerViewport()) {
+                  setRailOpen(false);
+                  return;
+                }
                 const next = !railCollapsed;
                 setRailCollapsed(next);
                 setFolderOpen({
@@ -322,7 +319,11 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                 });
               }}
             >
-              <Icon name={railCollapsed ? "arrowRight" : "arrowLeft"} size={15} />
+              <ABAppIcon size={38} />
+              <span>
+                <b>ABI Seller</b>
+                <small>Partner console</small>
+              </span>
             </button>
           </div>
           {NAV_GROUPS.map((group) => {
