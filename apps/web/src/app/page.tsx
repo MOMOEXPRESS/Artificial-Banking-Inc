@@ -1,679 +1,161 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
-import { MarketingCta, MarketingShell, SectionHead } from "../lib/marketing-shell";
-import { AgentLogoMarquee } from "../lib/agent-logo-marquee";
-import { LandingMotion } from "../lib/landing-motion";
-import { Icon } from "../lib/ui";
-import { WaitlistBand } from "../lib/waitlist-form";
+import type { ReactNode } from "react";
+import {
+  ArrowRight, ArrowUpRight, Bot, Check, ChevronRight, CircleDollarSign,
+  Code2, Database, LockKeyhole, Search, Server, ShieldCheck, Store,
+  Workflow, Zap
+} from "lucide-react";
+import { MarketingShell } from "../lib/marketing-shell";
+import styles from "./marketplace-home.module.css";
 
-/**
- * Artificial Banking Incorporated — public home page.
- *
- * Sits at "/". The console lives at "/console" and is reached via the
- * "Launch Console" CTAs. This page has no dependency on the console's live
- * session or API polling, so it renders instantly and stays cheap.
- */
+const examples = [
+  { icon: Database, category: "DATA", title: "Market intelligence", description: "Structured datasets and research endpoints for autonomous workflows.", tag: "Example listing", mark: "01" },
+  { icon: Server, category: "COMPUTE", title: "On-demand inference", description: "Model and compute services your agents could use as needed.", tag: "Example listing", mark: "02" },
+  { icon: Code2, category: "APIS", title: "Developer services", description: "Paid tools, APIs, and software capabilities accessible to agents.", tag: "Example listing", mark: "03" },
+];
+
+const flow = [
+  { num: "01", title: "Discover", description: "Find the right service for a task, from APIs and data to computing resources." },
+  { num: "02", title: "Decide", description: "Check what is offered and whether the purchase fits your agent's budget and rules." },
+  { num: "03", title: "Pay", description: "Use x402-enabled payments, with policy checks and human approval when required." },
+  { num: "04", title: "Continue", description: "Receive the service and keep a clear record of the transaction." },
+];
+
+function ActionLink({ href, children, secondary = false }: { href: string; children: ReactNode; secondary?: boolean }) {
+  return (
+    <Link className={secondary ? styles.secondaryAction : styles.primaryAction} href={href}>
+      {children}<ArrowUpRight size={17} strokeWidth={1.8} aria-hidden="true" />
+    </Link>
+  );
+}
+
+function MarketPreview() {
+  return (
+    <div className={styles.preview} aria-label="Illustrative preview of a future ABI agent marketplace">
+      <div className={styles.previewBar}>
+        <div className={styles.previewBrand}><span className={styles.previewBrandIcon}>A</span> ABI <span className={styles.previewSlash}>/</span> Marketplace</div>
+        <span className={styles.previewDemo}>CONCEPT PREVIEW</span>
+      </div>
+      <div className={styles.previewHeading}>
+        <div><span className={styles.microLabel}>AGENT MARKETPLACE</span><h2>Find what your agent needs.</h2></div>
+        <span className={styles.previewCount}>01 / DISCOVER</span>
+      </div>
+      <div className={styles.previewSearch}><Search size={16} aria-hidden="true" /> Search tools, data, APIs, compute</div>
+      <div className={styles.previewFilters}><span className={styles.filterActive}>All services</span><span>APIs</span><span>Data</span><span>Compute</span></div>
+      <div className={styles.previewListings}>
+        {examples.map(({icon: Icon, category, title, description, tag, mark}) => (
+          <div key={title} className={styles.listing}>
+            <div className={styles.listingTop}><span className={styles.listingIcon}><Icon size={20} strokeWidth={1.5} aria-hidden="true" /></span><span className={styles.listingIndex}>{mark}</span></div>
+            <span className={styles.listingCategory}>{category}</span>
+            <h3>{title}</h3>
+            <p>{description}</p>
+            <div className={styles.listingFoot}><span>{tag}</span><ArrowUpRight size={16} aria-hidden="true" /></div>
+          </div>
+        ))}
+      </div>
+      <p className={styles.previewDisclaimer}>Illustrative marketplace categories, not currently available inventory or live offers.</p>
+    </div>
+  );
+}
+
 export default function HomePage() {
   return (
     <MarketingShell active="home">
-      <LandingMotion />
-      <Hero />
-      <MetricsBand />
-      <TrustStrip />
-      <AgentLogoMarquee />
-      <Features />
-      <HomeInterstitial
-        eyebrow="Company money → rules → agent wallet"
-        title="Check the rules first. Move the money second."
-        body="You keep company funds in a vault. Agents only get what you give them. Nothing leaves until it clears your spending rules."
-        src="/home/interstitial-vault.webp"
-        alt="Vault, policy shield, and wallet connected in sequence"
-      />
-      <ProductTour />
-      <HowItWorks />
-      <Enterprise />
-      <HomeInterstitial
-        eyebrow="Approve → unlock → receipt"
-        title="You stay in the loop on anything big."
-        body="Set a dollar limit. Over that, payments wait for a person. Approve or deny, and the record stays with the payment — not buried in a chat log."
-        src="/home/interstitial-approve.webp"
-        alt="Approval stamp, key, and receipt connected in sequence"
-        flip
-      />
-      <WaitlistBand />
-      <MarketingCta />
-    </MarketingShell>
-  );
-}
-
-/* ==================================================================== hero */
-
-function Hero() {
-  return (
-    <section className="hero">
-      <div className="hero-halo" aria-hidden />
-      <div className="hero-inner">
-        <div className="hero-copy">
-          <h1>
-            Let AI agents pay for things — <em>without losing control.</em>
-          </h1>
-          <p className="hero-sub">
-            ABI sits between an AI agent and company funds. Each agent receives a governed spending
-            budget from the organization vault. You set the rules; exceptions wait for a person.
-            Settlement runs on Base Sepolia testnet USDC: balances come only from on-chain deposits.
-            Mainnet and managed custody are not wired yet.
-          </p>
-          <div className="hero-ctas">
-            <Link className="btn-primary" href="/console">
-              Open the console <Icon name="arrowRight" size={14} />
-            </Link>
-            <Link className="btn-ghost" href="/waitlist?ref=home-hero">
-              Join the waitlist
-            </Link>
-          </div>
-          <div className="hero-meta">
-            <div>
-              <b>Testnet</b>
-              <span>Base Sepolia USDC, no real money</span>
-            </div>
-            <div className="sep" />
-            <div>
-              <b>x402</b>
-              <span>pay APIs automatically</span>
-            </div>
-            <div className="sep" />
-            <div>
-              <b>Policy engine</b>
-              <span>checks every payment first</span>
-            </div>
-          </div>
-        </div>
-        <div className="hero-visual">
-          <HeroGraphic />
-        </div>
-      </div>
-    </section>
-  );
-}
-
-/** Product-shaped hero frame — shows what the console looks like before Launch. */
-function HeroGraphic() {
-  return (
-    <div className="hero-graphic">
-      <div className="hero-graphic-frame">
-        <div className="hero-console-mock" aria-hidden>
-          <div className="hero-console-chrome">
-            <span className="hero-console-dot" />
-            <span className="hero-console-dot" />
-            <span className="hero-console-dot" />
-            <span>Console · Overview</span>
-          </div>
-          <div className="hero-console-body">
-            <div className="hero-console-rail">
-              <span className="on" />
-              <span />
-              <span />
-              <span />
-              <span />
-            </div>
-            <div className="hero-console-main">
-              <div className="hero-console-kpis">
-                <div className="hero-console-kpi">
-                  <span>Treasury</span>
-                  <b>$12,480</b>
-                </div>
-                <div className="hero-console-kpi">
-                  <span>Agents</span>
-                  <b>8 live</b>
-                </div>
-                <div className="hero-console-kpi">
-                  <span>Approvals</span>
-                  <b>2 open</b>
-                </div>
+      <main className={styles.page}>
+        <section className={styles.hero}>
+          <div className={styles.heroGrid}>
+            <div className={styles.heroContent}>
+              
+              <h1>The marketplace for <em>agents that get things done.</em></h1>
+              <p className={styles.heroLead}>AI agents can do more than answer questions. They need access to services, data, and tools to complete real work. ABI is building the marketplace where they can find, choose, and pay for what they need.</p>
+              <div className={styles.actions}>
+                <ActionLink href="/waitlist?ref=marketplace-home">Get early access</ActionLink>
+                <ActionLink href="/partnerships" secondary>Sell on ABI</ActionLink>
               </div>
-              <div className="hero-console-card">
-                <div className="row">
-                  <span className="title">Recent activity</span>
-                  <span className="meta">live</span>
-                </div>
-                <p className="meta">ops-bot paid $1.20 · api.openai.com</p>
-                <div className="hero-console-pills">
-                  <i className="ok">allowed</i>
-                  <i className="warn">awaiting</i>
-                  <i>$45 pending</i>
-                </div>
+              <p className={styles.heroStatus}><ShieldCheck size={15} aria-hidden="true" /> Marketplace in development. Payments are currently demonstrated on Base Sepolia testnet.</p>
+            </div>
+            <div className={styles.heroAside} aria-hidden="true">
+              <div className={styles.orb}>
+                <div className={styles.orbitOne} /><div className={styles.orbitTwo} />
+                <span className={styles.orbCore}><Bot size={38} strokeWidth={1.3} /></span>
+                <span className={styles.orbitNode + " " + styles.nodeOne}><Database size={22} /></span>
+                <span className={styles.orbitNode + " " + styles.nodeTwo}><Server size={22} /></span>
+                <span className={styles.orbitNode + " " + styles.nodeThree}><CircleDollarSign size={22} /></span>
               </div>
-              <div className="hero-console-card">
-                <div className="row">
-                  <span className="title">Move funds</span>
-                  <span className="meta">you</span>
-                </div>
-                <p className="meta">
-                  Deposit · Withdraw · Give an agent budget — rules checked first.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="chip-float chip-a">
-          <span className="pill ok">
-            <i /> allowed
-          </span>
-          <span className="mono">$1.20 · paid</span>
-        </div>
-        <div className="chip-float chip-b">
-          <span className="pill warn">
-            <i /> awaiting approval
-          </span>
-          <span className="mono">$45 · api.openai.com</span>
-        </div>
-        <div className="chip-float chip-c">
-          <span className="pill bad">
-            <i /> blocked
-          </span>
-          <span className="mono">not on allowlist</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Only technologies actually present in the codebase belong here. Coinbase CDP
- * and ERC-4337 were listed previously and are not implemented — CDP custody is
- * on the roadmap, account abstraction is not yet scoped. Do not re-add either
- * until there is shipping code behind it.
- */
-function TrustStrip() {
-  return (
-    <section className="trust-strip">
-      <span>Built on</span>
-      <div className="trust-logos partner-logos">
-        <PartnerLogo abbr="BASE">Base</PartnerLogo>
-        <PartnerLogo abbr="USDC">USDC</PartnerLogo>
-        <PartnerLogo abbr="x402">x402</PartnerLogo>
-        <PartnerLogo abbr="712">EIP-712</PartnerLogo>
-      </div>
-    </section>
-  );
-}
-
-function PartnerLogo({ children, abbr }: { children: React.ReactNode; abbr: string }) {
-  return (
-    <span className="partner-logo" title={String(children)}>
-      <svg className="partner-svg" viewBox="0 0 40 40" width="28" height="28" aria-hidden>
-        <rect
-          x="2"
-          y="2"
-          width="36"
-          height="36"
-          rx="0"
-          stroke="currentColor"
-          strokeWidth="2"
-          fill="none"
-        />
-        <text
-          x="20"
-          y="24"
-          textAnchor="middle"
-          fontSize={abbr.length > 3 ? "8" : "10"}
-          fontFamily="var(--mono)"
-          fontWeight="700"
-          fill="currentColor"
-        >
-          {abbr.slice(0, 4)}
-        </text>
-      </svg>
-      <span className="partner-name">{children}</span>
-    </span>
-  );
-}
-
-function MetricsBand() {
-  const metrics = [
-    { label: "Rule check", value: "~0ms", sub: "in the mock rail" },
-    { label: "Approval ping", value: "55ms", sub: "local median" },
-    { label: "Console pages", value: "10", sub: "money, agents, records" },
-    { label: "Demo missions", value: "7", sub: "real API calls, real ledger" },
-  ];
-  return (
-    <section className="metrics-band section tight">
-      <div className="metrics-band-inner">
-        <div className="metrics-strip">
-          {metrics.map((m) => (
-            <div key={m.label} className="metric-inline">
-              <span className="metric-label">{m.label}</span>
-              <strong className="metric-value">{m.value}</strong>
-              <span className="metric-sub">{m.sub}</span>
-            </div>
-          ))}
-        </div>
-        <div className="home-float-token" aria-hidden>
-          <Image
-            src="/home/accent-token.webp"
-            alt=""
-            width={112}
-            height={112}
-            className="home-float-token-img"
-            priority={false}
-          />
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function HomeInterstitial({
-  eyebrow,
-  title,
-  body,
-  src,
-  alt,
-  flip,
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-  src: string;
-  alt: string;
-  flip?: boolean;
-}) {
-  return (
-    <section className={`home-interstitial ${flip ? "is-flip" : ""}`} aria-label={title}>
-      <div className="home-interstitial-inner">
-        <div className="home-interstitial-copy">
-          <span className="eyebrow">{eyebrow}</span>
-          <h2>{title}</h2>
-          <p>{body}</p>
-        </div>
-        <div className="home-interstitial-art">
-          <Image
-            src={src}
-            alt={alt}
-            width={1200}
-            height={675}
-            className="home-interstitial-img"
-            sizes="(max-width: 900px) 100vw, 720px"
-          />
-        </div>
-      </div>
-    </section>
-  );
-}
-
-const PRODUCT_FRAMES = [
-  {
-    title: "Overview",
-    sub: "Vault balance, agents, and money moves in one place.",
-    chips: ["$12.4k vault", "8 agents", "2 approvals"],
-  },
-  {
-    title: "Approvals",
-    sub: "Payments on hold — tap approve or deny.",
-    chips: ["$45 waiting", "needs you", "Telegram too"],
-  },
-  {
-    title: "Policy simulator",
-    sub: "Try your limits before agents spend for real.",
-    chips: ["allowlist", "daily cap", "quiet hours"],
-  },
-];
-
-function ProductTour() {
-  return (
-    <section id="product" className="section product-tour">
-      <SectionHead
-        title="Peek at the product before you sign in"
-        sub="Three screens people actually use — balances, approvals, and testing your rules."
-      />
-      <div className="product-frames">
-        {PRODUCT_FRAMES.map((f) => (
-          <article key={f.title} className="product-frame">
-            <div className="product-frame-chrome">
-              <span />
-              <span />
-              <span />
-              <em>{f.title}</em>
-            </div>
-            <div className="product-frame-body">
-              <h3>{f.title}</h3>
-              <p>{f.sub}</p>
-              <div className="hero-console-pills">
-                {f.chips.map((c) => (
-                  <i key={c}>{c}</i>
-                ))}
-              </div>
-            </div>
-          </article>
-        ))}
-      </div>
-      <div className="product-tour-cta">
-        <Link className="btn-primary" href="/console">
-          Open the console <Icon name="arrowRight" size={14} />
-        </Link>
-      </div>
-    </section>
-  );
-}
-
-/* =============================================================== features */
-
-const FEATURES: {
-  icon: string;
-  title: string;
-  lead: string;
-  body: string;
-  visual: { label: string; lines: string[] };
-}[] = [
-  {
-    icon: "wallet",
-    title: "A budget per agent",
-    lead: "Each agent gets a governed allowance from the organization vault.",
-    body: "You fund the organization vault, then assign each agent a spending budget. Freeze one agent without stopping the rest. Balances and history stay attached to that agent; the budget is not a separate wallet or custody account.",
-    visual: {
-      label: "Budget · ops-bot",
-      lines: ["Available  $420.00", "On hold    $12.40", "Spent today  $38.10"],
-    },
-  },
-  {
-    icon: "sliders",
-    title: "Spending rules",
-    lead: "Daily caps, allowed sites, quiet hours — rules the AI cannot talk its way around.",
-    body: "Change the rules live, and test them in the simulator before anything real goes out. The same checks run on every payment attempt.",
-    visual: {
-      label: "Rule check",
-      lines: ["daily cap  $500  → ok", "site  api.openai.com  → ok", "quiet hours  02:00  → hold"],
-    },
-  },
-  {
-    icon: "check",
-    title: "Human approvals",
-    lead: "Past your limit, money waits until someone says yes.",
-    body: "Approve from the console, chat, or Telegram. Allows and denials go in the same record, so you can see who said what — without digging through chat history.",
-    visual: {
-      label: "Waiting on you",
-      lines: ["$45.00  api.openai.com", "limit  $25", "via  Telegram · console"],
-    },
-  },
-  {
-    icon: "swap",
-    title: "Pay APIs automatically",
-    lead: "Agents can pay services that charge per call — still under your rules.",
-    body: "ABI supports x402 machine payments. Rules run first. The configured rail determines whether an action is simulated, sent on testnet, or eligible for live settlement.",
-    visual: {
-      label: "API payment",
-      lines: [
-        "seller  data.example",
-        "requested  $1.20 of $5",
-        "rail  Base Sepolia · testnet USDC",
-      ],
-    },
-  },
-  {
-    icon: "list",
-    title: "A full money record",
-    lead: "Every try, block, approval, and payment is written down.",
-    body: "Export to CSV or send signed webhooks to your tools. When finance asks what an agent spent last Tuesday, you have receipts — not a chat transcript.",
-    visual: {
-      label: "Journal",
-      lines: ["pay attempt  allowed", "hold  $1.20  → settled", "export  CSV · webhook"],
-    },
-  },
-  {
-    icon: "shield",
-    title: "Keys stay out of the AI",
-    lead: "The model can ask to spend. It never holds the wallet.",
-    body: "The model requests an action; ABI policy decides whether it can proceed. In the current self-custody mode, signing keys are held by the application. Coinbase CDP custody is not yet connected. A freeze can block further work.",
-    visual: {
-      label: "Who does what",
-      lines: ["AI  asks only", "rules  decide", "signer  moves money"],
-    },
-  },
-];
-
-function Features() {
-  const lead = FEATURES.slice(0, 2);
-  const mid = FEATURES.slice(2, 4);
-  const tail = FEATURES.slice(4, 6);
-  return (
-    <div id="features" className="pane-stack">
-      <section className="section pane-intro">
-        <SectionHead
-          title="Wallets, rules, and a paper trail for AI spend"
-          sub="Give agents money they can use — with limits you set, approvals when it matters, and a record you can show finance."
-        />
-      </section>
-      {lead.map((f, i) => (
-        <FeaturePane key={f.title} f={f} index={i} flip={i % 2 === 1} />
-      ))}
-      <section className="pane-pair" aria-label="Approvals and payments">
-        {mid.map((f, i) => (
-          <FeaturePane key={f.title} f={f} index={i + 2} compact />
-        ))}
-      </section>
-      <section className="pane-pair pane-pair-alt" aria-label="Audit and custody">
-        {tail.map((f, i) => (
-          <FeaturePane key={f.title} f={f} index={i + 4} compact />
-        ))}
-      </section>
-    </div>
-  );
-}
-
-function FeaturePane({
-  f,
-  index,
-  flip,
-  compact,
-}: {
-  f: (typeof FEATURES)[number];
-  index: number;
-  flip?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <section
-      className={`pane-block ${flip ? "pane-flip" : ""} ${compact ? "pane-compact" : ""}`}
-      aria-labelledby={`feat-${index}`}
-    >
-      <div className="pane-inner">
-        <div className="pane-copy">
-          <span className="pane-index" aria-hidden>
-            {String(index + 1).padStart(2, "0")}
-          </span>
-          <div className="pane-kicker">
-            <span className="feat-icon inline">
-              <Icon name={f.icon} />
-            </span>
-            <h3 id={`feat-${index}`}>{f.title}</h3>
-          </div>
-          <p className="pane-lead">{f.lead}</p>
-          <p className="pane-body">{f.body}</p>
-        </div>
-        <div className="pane-visual" aria-hidden>
-          <PaneVisual label={f.visual.label} lines={f.visual.lines} />
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function PaneVisual({ label, lines }: { label: string; lines: string[] }) {
-  return (
-    <div className="pane-frame">
-      <div className="pane-frame-chrome">
-        <span />
-        <span />
-        <span />
-        <em>{label}</em>
-      </div>
-      <ul className="pane-frame-lines">
-        {lines.map((line) => (
-          <li key={line}>
-            <code>{line}</code>
-          </li>
-        ))}
-      </ul>
-      <div className="pane-frame-glow" />
-    </div>
-  );
-}
-
-/* =============================================================== how it works */
-
-const STEPS = [
-  {
-    n: "01",
-    title: "Set up your organization",
-    lead: "Create an org, get a guardian key, and put money in the vault.",
-    body: "The guardian key is how you (a person) open the console. The vault keeps its own signing key — you are not pasting private keys into agent configs or chat prompts.",
-    visual: {
-      label: "Org setup",
-      lines: ["org  demo-corp", "guardian  gsk_…", "vault  +$1,000 USDC"],
-    },
-  },
-  {
-    n: "02",
-    title: "Create AI agents",
-    lead: "Each agent gets an API key and its own spending account.",
-    body: "Create agents in the console, then put the key in your Node SDK or MCP setup. From the first call, spend is tied to that agent — so you always know who spent what. (A Python SDK is not published yet.)",
-    visual: {
-      label: "New agent",
-      lines: ["name  research-bot", "key  agk_…", "budget  $100"],
-    },
-  },
-  {
-    n: "03",
-    title: "Set budgets and rules",
-    lead: "Caps, per-payment limits, approval thresholds, and allowed sites.",
-    body: "Run the simulator with sample payments first. Better to learn a rule fires in the simulator than after real money moved.",
-    visual: {
-      label: "Rules draft",
-      lines: ["cap  $200 / day", "ask me  > $25", "allow  *.openai.com"],
-    },
-  },
-  {
-    n: "04",
-    title: "Agents pay for work",
-    lead: "They ask to pay. Rules check. Then money moves on Base.",
-    body: "Holds, refunds, and blocks all land in one journal you can export. Same path every time — whether the amount is $1 or $100.",
-    visual: {
-      label: "Live payment",
-      lines: ["ask  allowed", "sign  vault", "settle  Base · USDC"],
-    },
-  },
-];
-
-function HowItWorks() {
-  const lead = STEPS.slice(0, 2);
-  const pair = STEPS.slice(2, 4);
-  return (
-    <div id="how" className="pane-stack how">
-      <section className="section pane-intro">
-        <SectionHead
-          title="From zero to an agent that can pay — in four steps"
-          sub="No smart contracts to write. Agents never get the vault keys."
-        />
-      </section>
-      {lead.map((s, i) => (
-        <section
-          key={s.n}
-          className={`pane-block ${i % 2 === 1 ? "pane-flip" : ""}`}
-          aria-labelledby={`step-${s.n}`}
-        >
-          <div className="pane-inner">
-            <div className="pane-copy">
-              <span className="pane-index accent" aria-hidden>
-                Step {Number(s.n)}
-              </span>
-              <h3 id={`step-${s.n}`}>{s.title}</h3>
-              <p className="pane-lead">{s.lead}</p>
-              <p className="pane-body">{s.body}</p>
-            </div>
-            <div className="pane-visual" aria-hidden>
-              <PaneVisual label={s.visual.label} lines={s.visual.lines} />
+              <div className={styles.asideFoot}><span>ONE NETWORK</span><span>ENDLESS POSSIBILITIES</span></div>
             </div>
           </div>
         </section>
-      ))}
-      <section className="pane-pair how-pair" aria-label="Policy and paid tasks">
-        {pair.map((s) => (
-          <section key={s.n} className="pane-block pane-compact" aria-labelledby={`step-${s.n}`}>
-            <div className="pane-inner pane-inner-stack">
-              <div className="pane-copy">
-                <span className="pane-index accent" aria-hidden>
-                  Step {Number(s.n)}
-                </span>
-                <h3 id={`step-${s.n}`}>{s.title}</h3>
-                <p className="pane-lead">{s.lead}</p>
-                <p className="pane-body">{s.body}</p>
-              </div>
-              <div className="pane-visual" aria-hidden>
-                <PaneVisual label={s.visual.label} lines={s.visual.lines} />
-              </div>
-            </div>
-          </section>
-        ))}
-      </section>
-    </div>
-  );
-}
 
-/* =============================================================== enterprise */
-
-const ENTERPRISE_POINTS = [
-  {
-    icon: "shield",
-    title: "Who can spend",
-    body: "Roles for people, more than one approver when you need it, and fresh keys per agent.",
-  },
-  {
-    icon: "clock",
-    title: "Budgets you can defend",
-    body: "We re-check the books often and flag you if a cent does not match.",
-  },
-  {
-    icon: "list",
-    title: "Complete audit trail",
-    body: "Every decision, rule, and receipt is stored. Export CSV or stream signed webhooks.",
-  },
-  {
-    icon: "check",
-    title: "Approval workflows",
-    body: "Send large spends to a person, Telegram, or a chat channel — with a hard ceiling above that.",
-  },
-  {
-    icon: "zap",
-    title: "Safe by default",
-    body: "The AI asks. ABI policy decides. The current signer is application-managed self-custody.",
-  },
-  {
-    icon: "swap",
-    title: "Ongoing payments",
-    body: "Subscriptions, agent-to-agent holds, refunds — all still go through the same rules.",
-  },
-];
-
-function Enterprise() {
-  return (
-    <section id="enterprise" className="section enterprise">
-      <SectionHead
-        title="Controls that hold up when more than one person is watching"
-        sub="Because the first surprise AI bill is the one nobody forgets."
-      />
-      <div className="ent-grid">
-        {ENTERPRISE_POINTS.map((p) => (
-          <div key={p.title} className="ent-card">
-            <div className="ent-icon">
-              <Icon name={p.icon} />
-            </div>
-            <h3>{p.title}</h3>
-            <p>{p.body}</p>
+        <section id="marketplace" className={styles.marketSection}>
+          <div className={styles.sectionHeading}>
+            <div><h2>Everything an agent needs.<br /><em>One place to find it.</em></h2></div>
+            <p>ABI is starting with APIs, data, and computing resources. As the ecosystem grows, the marketplace is designed to expand into real-world goods and services.</p>
           </div>
-        ))}
-      </div>
-    </section>
+          <MarketPreview />
+          <div className={styles.marketBottom}><span>Built for machine-to-machine commerce.</span><Link href="/partnerships">Explore seller opportunities <ArrowRight size={16} aria-hidden="true" /></Link></div>
+        </section>
+
+        <section className={styles.audienceSection}>
+          <div className={styles.sectionHeading}><div><h2>Built for the buyers.<br /><em>And the builders.</em></h2></div></div>
+          <div className={styles.audienceGrid}>
+            <article className={styles.audienceCard}>
+              <div className={styles.audienceTop}><Bot size={27} strokeWidth={1.5} /><span>FOR DEVELOPERS & AGENTS</span></div>
+              <h3>Give your agents the ability to buy.</h3>
+              <p>Connect your agent to a growing ecosystem of services. Discover the right capabilities, request payments, and keep spending within defined limits.</p>
+              <Link href="/docs">Explore the developer docs <ArrowUpRight size={18} aria-hidden="true" /></Link>
+              <span className={styles.audienceWatermark}>BUY</span>
+            </article>
+            <article className={styles.audienceCard + " " + styles.sellerCard}>
+              <div className={styles.audienceTop}><Store size={27} strokeWidth={1.5} /><span>FOR BUSINESSES & PROVIDERS</span></div>
+              <h3>Make your services available to AI.</h3>
+              <p>Position APIs, data, compute, and digital services for a new kind of customer: software agents that discover and purchase on behalf of people.</p>
+              <Link href="/partnerships">Become a seller <ArrowUpRight size={18} aria-hidden="true" /></Link>
+              <span className={styles.audienceWatermark}>SELL</span>
+            </article>
+          </div>
+        </section>
+
+        <section id="how-it-works" className={styles.howSection}>
+          <div className={styles.sectionHeading}><div><h2>From intention<br /><em>to transaction.</em></h2></div><p>A simpler path from what an agent needs to what it can actually use. The marketplace discovery experience is planned; the policy engine and testnet payment path already exist.</p></div>
+          <div className={styles.steps}>
+            {flow.map((step) => <div className={styles.step} key={step.num}><span className={styles.stepNum}>{step.num}</span><h3>{step.title}</h3><p>{step.description}</p><ChevronRight size={19} className={styles.stepArrow} aria-hidden="true" /></div>)}
+          </div>
+        </section>
+
+        <section id="trust" className={styles.trustSection}>
+          <div className={styles.trustCopy}><h2>Freedom to act.<br /><em>Rules that protect.</em></h2><p>A marketplace is only useful if you can trust what your agents do. ABI&apos;s existing policy infrastructure gives organizations control over agent spending, approvals, and transaction history.</p><ActionLink href="/console">Explore the testnet console</ActionLink></div>
+          <div className={styles.controlPanel}>
+            <div className={styles.controlHead}><span>POLICY CHECK / ILLUSTRATIVE</span><ShieldCheck size={22} /></div>
+            <div className={styles.controlPayment}><span>Agent purchase request</span><strong>$12.00 <small>USDC</small></strong></div>
+            <div className={styles.controlRows}>
+              <div><Check size={16} /><span>Within assigned budget</span><b>PASS</b></div>
+              <div><Check size={16} /><span>Approved service category</span><b>PASS</b></div>
+              <div><LockKeyhole size={16} /><span>Human approval threshold</span><b>REVIEW</b></div>
+            </div>
+            <div className={styles.controlResult}><span className={styles.resultPulse} /> Held for human approval <span>→</span></div>
+            <p>Example policy decision. Not a live transaction.</p>
+          </div>
+        </section>
+
+        <section className={styles.railSection}>
+          <span className={styles.kicker}>THE PAYMENT FOUNDATION</span>
+          <div className={styles.railGrid}>
+            <div><Zap size={20}/><strong>x402</strong><span>Internet-native payment protocol</span></div>
+            <div><CircleDollarSign size={20}/><strong>USDC</strong><span>Stablecoin-denominated payments</span></div>
+            <div><Workflow size={20}/><strong>Base Sepolia</strong><span>Testnet payment proof</span></div>
+            <div><ShieldCheck size={20}/><strong>Policy engine</strong><span>Budget and approval controls</span></div>
+          </div>
+          <p>These describe technology and implementation, not endorsements or commercial partnerships.</p>
+        </section>
+
+        <section className={styles.finalCta}>
+          <div><h2>The internet was built for people.<br /><em>We&apos;re building for their agents.</em></h2><p>Get early access as ABI expands from agent payments into marketplace discovery and commerce.</p></div>
+          <div className={styles.finalActions}><ActionLink href="/waitlist?ref=marketplace-footer">Join the waitlist</ActionLink><ActionLink href="/partnerships" secondary>List your service</ActionLink></div>
+        </section>
+      </main>
+    </MarketingShell>
   );
 }
