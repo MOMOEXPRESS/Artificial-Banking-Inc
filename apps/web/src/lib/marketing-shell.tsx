@@ -98,40 +98,17 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
           <Link href="/" className={current === "home" ? "is-active" : undefined} onClick={close}>
             Home
           </Link>
-          <Link
-            href="/console"
-            className={current === "console" ? "is-active" : undefined}
-            onClick={close}
-          >
-            Console
+          <Link href="/#marketplace" onClick={close}>
+            Marketplace
           </Link>
-          <Link
-            href="/docs"
-            className={current === "docs" ? "is-active" : undefined}
-            onClick={close}
-          >
-            Docs
+          <Link href="/#how-it-works" onClick={close}>
+            How it works
           </Link>
-          <Link
-            href="/pricing"
-            className={current === "pricing" ? "is-active" : undefined}
-            onClick={close}
-          >
-            Pricing
+          <Link href="/docs" className={current === "docs" ? "is-active" : undefined} onClick={close}>
+            Developers
           </Link>
-          <Link
-            href="/partnerships"
-            className={current === "partnerships" ? "is-active" : undefined}
-            onClick={close}
-          >
-            Partnerships
-          </Link>
-          <Link
-            href="/about"
-            className={current === "about" ? "is-active" : undefined}
-            onClick={close}
-          >
-            About
+          <Link href="/partnerships" className={current === "partnerships" ? "is-active" : undefined} onClick={close}>
+            Sell on ABI
           </Link>
           {/* Mobile menu only: on desktop the same link sits beside "Open console". */}
           <Link
@@ -141,13 +118,6 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
           >
             Join waitlist
           </Link>
-          <a
-            href="https://github.com/MOMOEXPRESS/Artificial-Banking-Inc"
-            target="_blank"
-            rel="noreferrer"
-          >
-            GitHub
-          </a>
         </nav>
         <div className="marketing-nav-cta">
           <Link
@@ -183,19 +153,18 @@ export function MarketingFooter() {
         <div className="marketing-footer-brand">
           <ABWordmark size={28} tone="#fff" />
           <p>
-            Controls so AI agents can spend money — with budgets you set, approvals when it matters,
-            and a record you can show people.
+            A marketplace for AI agents to discover and purchase services — with payments, budgets, and approvals built in.
           </p>
         </div>
         <div className="marketing-footer-cols">
           <FooterCol
             title="Product"
             links={[
-              ["Home", "/"],
+              ["Marketplace", "/#marketplace"],
+              ["How it works", "/#how-it-works"],
               ["Buyer console", "/console"],
-              ["Partnerships", "/partnerships"],
+              ["Sell on ABI", "/partnerships"],
               ["Partner login", "/partners/login"],
-              ["Features", "/#features"],
             ]}
           />
           <FooterCol
