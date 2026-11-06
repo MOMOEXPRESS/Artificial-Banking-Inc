@@ -20,6 +20,7 @@ export function registerMarketplaceRoutes(app: express.Express, deps: {
     ...marketplaceProviderAdapters(deps.payment),
     ...deps.adapters,
     payment: deps.payment,
+    vendorName: (orgId) => store.getSellerProfile(orgId)?.displayName ?? orgId,
     sellerReady: (id) => Boolean(store.getSellerProfile(id)?.payoutAddress),
     offer: (id) => {
       const o = sellerStore.getOfferAnyOrg(id);
@@ -88,6 +89,7 @@ export function registerMarketplaceRoutes(app: express.Express, deps: {
   app.post("/v1/seller/marketplace/items/:id/label",seller(async(org,req,res)=>res.json(await market().shippingLabel(org,String(req.params.id)))));
   app.get("/v1/seller/marketplace/cases",seller((org,_req,res)=>res.json({cases:market().cases(org)})));
   app.post("/v1/seller/marketplace/cases/:id/messages",seller((org,req,res)=>res.json(market().caseMessage(org,String(req.params.id),req.body.message))));
+  app.post("/v1/seller/marketplace/cases/:id/return-received",seller((org,req,res)=>res.json(market().receiveReturn(org,String(req.params.id)))));
   app.post("/v1/guardian/marketplace/vendors/:id/review",guardian((org,req,res)=>{reviewer(org);return res.json(market().verifyVendor(org,String(req.params.id),req.body));},true));
   app.post("/v1/guardian/marketplace/cases/:id/resolve",guardian(async(org,req,res)=>{reviewer(org);return res.json(await market().resolveCase(org,String(req.params.id),req.body));},true));
   app.get("/v1/guardian/marketplace/orders",guardian((org,_req,res)=>res.json({orders:market().orders(org)})));
@@ -102,6 +104,7 @@ export function registerMarketplaceRoutes(app: express.Express, deps: {
   app.post("/v1/guardian/marketplace/items/:id/cases",guardian((org,req,res)=>res.status(201).json(market().openCase(org,String(req.params.id),req.body))));
   app.get("/v1/guardian/marketplace/cases",guardian((org,_req,res)=>res.json({cases:market().cases(org)})));
   app.post("/v1/guardian/marketplace/cases/:id/messages",guardian((org,req,res)=>res.json(market().caseMessage(org,String(req.params.id),req.body.message))));
+  app.post("/v1/guardian/marketplace/cases/:id/return-label",guardian(async(org,req,res)=>res.json(await market().returnLabel(org,String(req.params.id)))));
   app.get("/v1/agent/marketplace/preferences",agent("read",(a,_req,res)=>res.json(market().preferences(a))));
   app.put("/v1/agent/marketplace/preferences",agent("pay",(a,req,res)=>res.json(market().preferences(a,req.body))));
   app.post("/v1/agent/marketplace/compare",agent("read",(_a,req,res)=>res.json(market().compare(req.body.productIds))));
@@ -116,9 +119,7 @@ export function registerMarketplaceRoutes(app: express.Express, deps: {
   app.post("/v1/agent/marketplace/orders/:id/pay",agent("pay",async(a,req,res)=>res.json(await market().pay(a,String(req.params.id)))));
   app.post("/v1/agent/marketplace/orders/:id/cancel",agent("pay",(a,req,res)=>res.json(market().cancel(a.orgId,String(req.params.id),a.agentId))));
   app.get("/v1/agent/marketplace/items/:id/delivery",agent("read",(a,req,res)=>{
-    const orders=market().orders(a.orgId,false,a.agentId) as {items:{id:string}[]}[];
-    if(!orders.some(o=>o.items.some(i=>i.id===req.params.id)))return res.status(404).json({error:{code:"NOT_FOUND"}});
-    return res.json(market().delivery(a.orgId,String(req.params.id)));
+    return res.json(market().delivery(a.orgId,String(req.params.id),a.agentId));
   }));
   app.post("/v1/agent/marketplace/items/:id/signal",agent("pay",(a,req,res)=>res.json(market().feedback(a.orgId,String(req.params.id),req.body,"agent",a.agentId))));
 }

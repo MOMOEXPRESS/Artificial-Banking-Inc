@@ -17,6 +17,7 @@ export default function AboutPage() {
       <section className="mkt-page about-page">
         <div className="mkt-page-inner mkt-about-hero">
           <SectionHead
+            level={1}
             title="ABI, the agentic marketplace"
             sub="A place for people and agents to discover software, digital services and physical goods — with clear seller information and governed purchasing."
           />

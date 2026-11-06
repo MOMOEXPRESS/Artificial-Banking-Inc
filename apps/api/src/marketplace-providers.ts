@@ -16,7 +16,7 @@ export function marketplaceProviderAdapters(payment:NonNullable<CommerceAdapters
   };
   return {
     fulfillment:{quote:async(input)=>{const r=await call("/quotes",input);if(typeof r.expiresAt!=="number")throw new CommerceError("PROVIDER_INVALID","Quote expiry missing",502);return {reference:required(r.reference,"reference"),totalMicro:required(r.totalMicro,"totalMicro"),expiresAt:r.expiresAt};}},
-    shipping:{label:async(input)=>{const r=await call("/shipping/labels",input);return {carrier:required(r.carrier,"carrier"),tracking:required(r.tracking,"tracking"),labelUrl:required(r.labelUrl,"labelUrl")};}},
+    shipping:{label:async(input)=>{const r=await call("/shipping/labels",input);return {carrier:required(r.carrier,"carrier"),tracking:required(r.tracking,"tracking"),labelUrl:required(r.labelUrl,"labelUrl")};},returnLabel:async(input)=>{const r=await call("/returns/labels",input);return {carrier:required(r.carrier,"carrier"),tracking:required(r.tracking,"tracking"),labelUrl:required(r.labelUrl,"labelUrl")};}},
     escrow:{
       fund:async(actor,input)=>{
         const prepared=await call("/escrow/prepare",{...input,buyerOrgId:actor.orgId,agentId:actor.agentId});

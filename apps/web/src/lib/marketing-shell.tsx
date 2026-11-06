@@ -23,6 +23,7 @@ export function MarketingShell({
   const navActive = active === "landing" ? "home" : active;
   return (
     <div className="landing">
+      <a className="market-skip" href="#main-content">Skip to content</a>
       <MarketingNav active={navActive} />
       <main id="main-content">{children}</main>
       <MarketingFooter />
@@ -94,6 +95,7 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
         <Link href="/" aria-label="Artificial Banking Incorporated home" onClick={close}>
           <ABWordmark size={26} tone="#0a0a0c" />
         </Link>
+        <form action="/directory" className="market-header-search" role="search"><label className="sr-only" htmlFor="header-market-search">Search products, software and services</label><input id="header-market-search" name="q" type="search" placeholder="Search products, software and services"/><button type="submit">Search</button></form>
         <nav className="marketing-links">
           <Link href="/directory" aria-current={current === "marketplace" ? "page" : undefined} className={current === "marketplace" ? "is-active" : undefined} onClick={close}>Marketplace</Link>
           <Link href="/" className={current === "home" ? "is-active" : undefined} onClick={close}>
@@ -173,6 +175,7 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
           </button>
         </div>
       </div>
+      <nav className="market-categories" aria-label="Product categories"><a href="/directory">All products</a><a href="/directory?kind=digital">Software & digital goods</a><a href="/directory?kind=service">Data & services</a><a href="/directory?kind=physical">Physical goods</a><Link href="/partners/login?mode=signup">Become a seller</Link></nav>
     </header>
   );
 }
@@ -262,15 +265,18 @@ export function SectionHead({
   eyebrow,
   title,
   sub,
+  level = 2,
 }: {
   eyebrow?: string;
   title: string;
   sub: string;
+  level?: 1 | 2;
 }) {
+  const Heading = level === 1 ? "h1" : "h2";
   return (
     <div className="section-head">
       {eyebrow && <span className="eyebrow">{eyebrow}</span>}
-      <h2>{title}</h2>
+      <Heading>{title}</Heading>
       <p>{sub}</p>
     </div>
   );

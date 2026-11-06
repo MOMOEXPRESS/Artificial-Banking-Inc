@@ -1,38 +1,221 @@
 {
-  "status": "world-confirmed-composition-pending",
-  "palette": {
-    "canvas": "#f4ede2",
-    "surface": "#fffdf8",
-    "subtle": "#e9e0d2",
-    "ink": "#292820",
-    "secondary": "#625e52",
-    "action": "#185c43",
-    "accent": "#dafa70",
-    "divider": "#d8cebe"
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-06T20:01:39.376918+00:00",
+  "title": "Design System: ABI marketplace",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Canvas"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink"
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "Ink Secondary"
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Ink Muted"
+      },
+      "ink-faint": {
+        "role": "neutral",
+        "displayName": "Ink Faint"
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface"
+      },
+      "surface-solid": {
+        "role": "neutral",
+        "displayName": "Surface Solid"
+      },
+      "surface-2": {
+        "role": "neutral",
+        "displayName": "Surface 2"
+      },
+      "surface-3": {
+        "role": "neutral",
+        "displayName": "Surface 3"
+      },
+      "surface-hover": {
+        "role": "neutral",
+        "displayName": "Surface Hover"
+      },
+      "fg": {
+        "role": "neutral",
+        "displayName": "Fg"
+      },
+      "fg-secondary": {
+        "role": "neutral",
+        "displayName": "Fg Secondary"
+      },
+      "fg-muted": {
+        "role": "neutral",
+        "displayName": "Fg Muted"
+      },
+      "fg-faint": {
+        "role": "neutral",
+        "displayName": "Fg Faint"
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Border"
+      },
+      "border-soft": {
+        "role": "neutral",
+        "displayName": "Border Soft"
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Border Strong"
+      },
+      "border-canvas": {
+        "role": "neutral",
+        "displayName": "Border Canvas"
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Accent"
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Accent Hover"
+      },
+      "accent-soft": {
+        "role": "primary",
+        "displayName": "Accent Soft"
+      },
+      "ring": {
+        "role": "neutral",
+        "displayName": "Ring"
+      },
+      "seg-active-bg": {
+        "role": "neutral",
+        "displayName": "Seg Active Bg"
+      },
+      "seg-active-fg": {
+        "role": "neutral",
+        "displayName": "Seg Active Fg"
+      },
+      "footer-forest": {
+        "role": "primary",
+        "displayName": "Footer Forest"
+      },
+      "selection": {
+        "role": "neutral",
+        "displayName": "Selection"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Marketplace display",
+        "purpose": "Homepage heading; 36px below 650px."
+      },
+      "body": {
+        "displayName": "Document base",
+        "purpose": "Inherited base; marketplace paragraphs separately use 1.6 line height."
+      }
+    },
+    "shadows": [
+      {
+        "name": "elevated",
+        "value": "0 4px 16px #2928200d",
+        "purpose": "Shared inherited elevated token; not a product-card shadow."
+      },
+      {
+        "name": "glass",
+        "value": "none",
+        "purpose": "Marketplace override disables glass shadow."
+      }
+    ],
+    "motion": [
+      {
+        "name": "button-background",
+        "value": "background-color .15s ease-out",
+        "purpose": "Marketplace primary hover transition; none under prefers-reduced-motion: reduce."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "catalog-two-columns",
+        "value": "1000px"
+      },
+      {
+        "name": "header-stack",
+        "value": "900px"
+      },
+      {
+        "name": "mobile-stack",
+        "value": "650px"
+      }
+    ]
   },
-  "typography": {
-    "sans": "IBM Plex Sans"
-  },
-  "spacing": [
-    4,
-    8,
-    12,
-    16,
-    24,
-    32,
-    48,
-    64
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Source-derived marketplace primary button.",
+      "html": "<button class=\"ds-primary\">Find products</button>",
+      "css": ".ds-primary{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 18px;border-radius:8px;border:1px solid var(--color-accent);background:var(--color-accent);color:#fffdf8;font:inherit;font-weight:600;cursor:pointer;transition:background-color .15s ease-out}.ds-primary:hover{background:var(--color-accent-hover)}.ds-primary:focus-visible{outline:3px solid var(--color-ring);outline-offset:3px}.ds-primary:disabled{opacity:.5;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Source-derived marketplace search field.",
+      "html": "<label for=\"ds-search\">Describe what you need</label><input id=\"ds-search\" class=\"ds-input\" type=\"search\" placeholder=\"Search products\"/>",
+      "css": ".ds-input{font:inherit;color:var(--color-fg);background:var(--color-surface-solid);border:1px solid var(--color-border-strong);padding:12px;border-radius:8px;min-height:44px;min-width:0;max-width:100%;caret-color:var(--color-accent)}.ds-input:focus-visible{outline:3px solid var(--color-ring);outline-offset:3px}"
+    },
+    {
+      "name": "Image Panel",
+      "kind": "card",
+      "refersTo": "image-panel",
+      "description": "Source-derived marketplace image panel.",
+      "html": "<div class=\"ds-image\">Image not supplied</div>",
+      "css": ".ds-image{display:grid;place-items:center;aspect-ratio:4/3;background:var(--color-surface-3);border-radius:12px;overflow:hidden;color:var(--color-ink-muted)}"
+    },
+    {
+      "name": "Empty State",
+      "kind": "card",
+      "refersTo": "empty-state",
+      "description": "Source-derived marketplace empty state.",
+      "html": "<div class=\"ds-empty\"><h3>The marketplace is taking shape</h3><p>Reviewed sellers\u2019 published products will appear here.</p></div>",
+      "css": ".ds-empty{padding:40px 24px;background:var(--color-surface);border-radius:12px}.ds-empty h3{font-size:24px;margin-top:0}.ds-empty p{line-height:1.6;max-width:72ch}"
+    },
+    {
+      "name": "Category Navigation",
+      "kind": "nav",
+      "description": "Source-derived horizontally scrolling category links; seller entry follows categories.",
+      "html": "<nav class=\"ds-categories\" aria-label=\"Product categories\"><a href=\"/directory\">All products</a><a href=\"/directory?kind=digital\">Software &amp; digital goods</a><a href=\"/partners/login?mode=signup\">Become a seller</a></nav>",
+      "css": ".ds-categories{display:flex;gap:24px;padding:0 clamp(20px,4vw,64px);border-top:1px solid var(--color-border);overflow-x:auto;align-items:center}.ds-categories>a{display:inline-flex;align-items:center;min-height:44px;white-space:nowrap;color:var(--color-ink);font-size:14px;text-decoration:none}.ds-categories>a:last-child{margin-left:auto;color:var(--color-accent);font-weight:600}@media(max-width:900px){.ds-categories{gap:20px}.ds-categories>a:last-child{margin-left:0}}"
+    }
   ],
-  "radii": {
-    "control": 8,
-    "image": 12
-  },
-  "references": [
-    "Shopify",
-    "Amazon",
-    "Etsy"
-  ],
-  "excludedReferences": [
-    "eBay"
-  ]
+  "narrative": {
+    "northStar": "ABI\u2019s beige marketplace",
+    "overview": "Warm beige remains dominant; forest-green actions support familiar commerce. Shopify, Amazon and Etsy are approved references; eBay is excluded. Documentation is source-confirmed; rendered verification remains pending.",
+    "keyCharacteristics": [
+      "Warm tonal surfaces",
+      "Clear product metadata",
+      "Restrained green actions"
+    ],
+    "rules": [
+      {
+        "name": "The Beige Identity Rule",
+        "body": "Keep beige dominant and green restrained.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do preserve ABI identity and equal buyer/seller consideration.",
+      "Do retain focus and reduced-motion behavior."
+    ],
+    "donts": [
+      "Do not invent product inventory or visual certification.",
+      "Do not introduce eBay styling."
+    ]
+  }
 }

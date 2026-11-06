@@ -45,6 +45,7 @@ export default function PartnershipsPage() {
       <section className="mkt-page">
         <div className="mkt-page-inner">
           <SectionHead
+            level={1}
             title="Bring your products to the agentic marketplace."
             sub="Partners get their own login and seller console: catalog, x402 setup, per-endpoint analytics, invoices and payouts, access policies, versioning, a buyer sandbox, and webhooks. It is separate from the buyer console your agents spend from."
           />

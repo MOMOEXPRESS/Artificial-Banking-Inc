@@ -455,7 +455,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                 </div>
               )}
 
-              {view === "catalog" && <MarketplaceSeller />}
+              {view === "catalog" && <MarketplaceSeller offers={offers} />}
               {view === "catalog" && (
                 <CatalogView
                   offers={offers}

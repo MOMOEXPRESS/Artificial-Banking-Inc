@@ -78,6 +78,7 @@ test("digital payments use the governed adapter and entitlements survive service
   const second=createMarketplace(f.db as unknown as CommerceDatabase,f.adapters);
   assert.deepEqual(second.delivery(f.a.orgId,o.items[0].id).content,{license:"purchased-content"});
   assert.throws(()=>second.delivery("other",o.items[0].id),/not found/);
+  assert.throws(()=>second.delivery(f.a.orgId,o.items[0].id,"other-agent"),/not found/);
 });
 test("unknown payment outcome retains stock and never becomes delivered on timeout",async()=>{
   const f=fixture({payment:async()=>{throw Error("network timeout");}});const p=f.product();const o=f.order(p.id);
@@ -159,4 +160,33 @@ test("carrier tracking is idempotent, rejects mismatches and never releases escr
   const event={eventId:"event-1",itemId:item.id,tracking:"TRACK",state:"delivered",observedAt:Date.now()};f.m.tracking(event);assert.equal(f.m.tracking(event).replayed,true);assert.equal(released,0);
   assert.equal(f.m.order(f.a.orgId,o.id).items[0].fulfillmentState,"shipped");
   assert.throws(()=>f.m.tracking({...event,state:"returned"}),/reused/);assert.throws(()=>f.m.tracking({...event,eventId:"event-2",tracking:"OTHER"}),/does not match/);
+});
+
+test("concurrent replay never downgrades a confirmed payment to unknown",async()=>{
+  let release:(value:{status:number;body:Record<string,unknown>})=>void=()=>{};let calls=0;
+  const f=fixture({payment:async()=>{if(++calls===1)return new Promise(resolve=>{release=resolve;});return {status:200,body:{ok:true,resource:{content:"license"}}};}});
+  const p=f.product(),o=f.order(p.id);const first=f.m.pay(f.a,o.id);await f.m.pay(f.a,o.id);release({status:202,body:{state:"outcome_unknown"}});await first;
+  assert.equal(f.m.order(f.a.orgId,o.id).items[0].paymentState,"paid");
+});
+test("commerce transactions use the Worker-compatible transaction facade when present",()=>{
+  const f=fixture();let transactions=0;
+  const facade:CommerceDatabase={exec:sql=>{assert.ok(!sql.startsWith("BEGIN"));return f.db.exec(sql);},prepare:sql=>f.db.prepare(sql) as unknown as ReturnType<CommerceDatabase["prepare"]>,transaction:fn=>()=>{transactions++;f.db.exec("BEGIN IMMEDIATE");try{const value=fn();f.db.exec("COMMIT");return value;}catch(e){f.db.exec("ROLLBACK");throw e;}}};
+  const m=createMarketplace(facade,f.adapters);m.submitVendor("worker-seller",{legalName:"Vendor",country:"FR",registration:"REG",contact:"v@example.com"});assert.equal(transactions,1);
+});
+
+test("return label requires independent authorization and replays without buying a second label",async()=>{
+  let labels=0,refunds=0;
+  const f=fixture({fulfillment:{quote:async()=>({reference:"q",totalMicro:"1000000",expiresAt:Date.now()+120000})},escrow:{fund:async()=>({status:200,body:{state:"escrowed",escrowRef:"held"}}),release:async()=>{},refund:async()=>{refunds++;}},shipping:{label:async()=>({carrier:"Carrier",tracking:"outbound",labelUrl:"https://carrier.example/out"}),returnLabel:async()=>{labels++;return {carrier:"Carrier",tracking:"return",labelUrl:"https://carrier.example/return"};}}});
+  const p=f.product("seller",{kind:"physical",offerId:undefined}),c=f.cart(p.id),address={name:"B",line1:"Road",city:"Paris",postalCode:"75001",country:"FR"};const q=await f.m.shippingQuote(f.a,c.id,address),o=f.m.checkout(f.a,q.id,"return",address);await f.m.pay(f.a,o.id);
+  const dispute=f.m.openCase(f.a.orgId,o.items[0].id,{kind:"return",reason:"Wrong size"});await assert.rejects(f.m.returnLabel(f.a.orgId,dispute.id),/authorize/);
+  await f.m.resolveCase("reviewer",dispute.id,{action:"authorize_return",resolution:"Return approved"});await f.m.returnLabel(f.a.orgId,dispute.id);await f.m.returnLabel(f.a.orgId,dispute.id);assert.equal(labels,1);
+  assert.throws(()=>f.m.receiveReturn("other",dispute.id),/not found/);f.m.receiveReturn("seller",dispute.id);await f.m.resolveCase("reviewer",dispute.id,{action:"refund",resolution:"Returned item received"});assert.equal(refunds,1);assert.equal(f.m.order(f.a.orgId,o.id).items[0].paymentState,"refunded");
+});
+
+test("an uncertain committed payment can reconcile after its listing changes",async()=>{
+  let calls=0;const f=fixture({payment:async()=>++calls===1?{status:202,body:{state:"outcome_unknown"}}:{status:200,body:{ok:true,resource:{content:"already-paid"}}}});
+  const p=f.product(),o=f.order(p.id);await f.m.pay(f.a,o.id);f.offers.get("offer-seller")!.published=false;await f.m.pay(f.a,o.id);assert.equal(f.m.order(f.a.orgId,o.id).items[0].paymentState,"paid");
+});
+test("settlement without a digital resource does not falsely report delivery",async()=>{
+  const f=fixture({payment:async()=>({status:200,body:{ok:true}})}),p=f.product(),o=f.order(p.id);await f.m.pay(f.a,o.id);const item=f.m.order(f.a.orgId,o.id).items[0];assert.equal(item.paymentState,"paid");assert.equal(item.fulfillmentState,"pending");assert.throws(()=>f.m.delivery(f.a.orgId,item.id),/No digital delivery/);
 });
