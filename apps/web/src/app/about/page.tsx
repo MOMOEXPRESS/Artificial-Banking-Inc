@@ -17,8 +17,8 @@ export default function AboutPage() {
       <section className="mkt-page about-page">
         <div className="mkt-page-inner mkt-about-hero">
           <SectionHead
-            title="Artificial Banking Incorporated"
-            sub="We help companies let AI agents spend money — with budgets, approvals, and a clear record — without handing the wallet keys to the AI."
+            title="ABI, the agentic marketplace"
+            sub="A place for people and agents to discover software, digital services and physical goods — with clear seller information and governed purchasing."
           />
           <div className="mkt-prose mkt-prose-wide about-lede">
             <p>
@@ -38,7 +38,7 @@ export default function AboutPage() {
           <AboutPane
             n="01"
             title="What we are"
-            lead="A place to hold company funds for agents, set rules, and approve big spends."
+            lead="A marketplace where agents can inspect products and prepare purchases under their owner’s rules."
             body="Organization vaults, agent budgets, spending rules, approvals, API payments (x402), and an audit log. Configure a payment rail before settlement; supported development flows include simulation and Base Sepolia. Signing keys are application-managed self-custody, not Coinbase CDP custody."
             flip={false}
             src="/about/we-are.webp"
@@ -47,7 +47,7 @@ export default function AboutPage() {
           <AboutPane
             n="02"
             title="What we are not"
-            lead="Not a consumer bank. Not a trading app. Not a chat that moves money."
+            lead="Purchasing authority stays with the owner’s policy, even when an agent does the shopping."
             body="We are not FDIC insured. We do not hold retail deposits. We are not a crypto trading wallet. We do not treat free-text chat as the way money moves. Your ledger of record is the journal — not a conversation transcript."
             flip
             src="/about/we-are-not.webp"
@@ -65,7 +65,7 @@ export default function AboutPage() {
           <AboutPane
             n="04"
             title="Who it is for"
-            lead="Teams that want agents to spend — under budget, with a human able to stop large payments."
+            lead="Buyers delegating purchases, and sellers making their products discoverable to agents."
             body="Start in the playground. Move to production when the agents prove useful. People set the rules. Agents call the same API you will use in production."
             flip
             src="/about/who-for.webp"

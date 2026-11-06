@@ -5,6 +5,7 @@ import { randomUUID, createHash } from "node:crypto";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface CommerceDatabase {
   exec(sql: string): unknown;
+  transaction?<T>(fn: () => T): () => T;
   prepare(sql: string): { run(...args: any[]): { changes: number | bigint }; get(...args: any[]): any; all(...args: any[]): any[] };
 }
 export class CommerceError extends Error {
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS marketplace_cases (id TEXT PRIMARY KEY, item_id TEXT 
 CREATE UNIQUE INDEX IF NOT EXISTS marketplace_case_active ON marketplace_cases(item_id) WHERE state != 'closed';
 CREATE TABLE IF NOT EXISTS marketplace_case_messages (id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES marketplace_cases(id), actor_org TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS marketplace_events (id INTEGER PRIMARY KEY AUTOINCREMENT, aggregate_id TEXT NOT NULL, event TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS marketplace_tracking_events (event_id TEXT PRIMARY KEY, item_id TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS marketplace_preferences (buyer_org TEXT NOT NULL, agent_id TEXT NOT NULL, value_json TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(buyer_org, agent_id));
 `;
 
@@ -70,7 +72,10 @@ export function createMarketplace(db: CommerceDatabase, adapters: CommerceAdapte
   const get = (sql: string, ...args: any[]) => db.prepare(sql).get(...args);
   const all = (sql: string, ...args: any[]) => db.prepare(sql).all(...args);
   const run = (sql: string, ...args: any[]) => db.prepare(sql).run(...args);
-  const tx = <T>(fn: () => T): T => { db.exec("BEGIN IMMEDIATE"); try { const r = fn(); db.exec("COMMIT"); return r; } catch (e) { db.exec("ROLLBACK"); throw e; } };
+  const tx = <T>(fn: () => T): T => {
+    if (db.transaction) return db.transaction(fn)();
+    db.exec("BEGIN IMMEDIATE"); try { const r = fn(); db.exec("COMMIT"); return r; } catch (e) { db.exec("ROLLBACK"); throw e; }
+  };
   const event = (id: string, name: string, data: unknown) => run("INSERT INTO marketplace_events(aggregate_id,event,payload_json,created_at) VALUES (?,?,?,?)", id, name, json(data), iso());
   const ownedCart = (actor: CommerceActor, id: string) => get("SELECT * FROM marketplace_carts WHERE id=? AND buyer_org=? AND agent_id=?", id, actor.orgId, actor.agentId) ?? fail("NOT_FOUND", "Cart not found", 404);
   const ownedItem = (orgId: string, id: string, seller = false) => get(`SELECT i.*,o.buyer_org,o.agent_id,o.address_json FROM marketplace_order_items i JOIN marketplace_orders o ON o.id=i.order_id WHERE i.id=? AND ${seller ? "i.seller_org" : "o.buyer_org"}=?`, id, orgId) ?? fail("NOT_FOUND", "Order item not found", 404);
@@ -180,9 +185,11 @@ export function createMarketplace(db: CommerceDatabase, adapters: CommerceAdapte
     },
     async shippingQuote(actor: CommerceActor, cartId: string, input: Record<string, unknown>) {
       if (!adapters.fulfillment) return fail("SHIPPING_QUOTE_UNAVAILABLE", "An inclusive shipping/tax quote provider is not configured", 503);
+      if (!input || typeof input !== "object") return fail("ADDRESS_REQUIRED", "A shipping address is required", 400);
       const address: Record<string, string> = {};
       for (const field of ["name", "line1", "city", "postalCode", "country"]) address[field] = text(input[field], field === "country" ? 2 : 200);
       if (!/^[A-Z]{2}$/.test(address.country)) return fail("INVALID_INPUT", "Country must be an uppercase ISO code", 400);
+      if (!input || typeof input !== "object") return fail("ADDRESS_REQUIRED", "A shipping address is required", 400);
       const q = this.quote(actor, cartId);
       let expiresAt = Date.parse(q.expiresAt);
       for (const item of q.items) {
@@ -221,6 +228,7 @@ export function createMarketplace(db: CommerceDatabase, adapters: CommerceAdapte
       for(const item of order.items){
         const r=ownedItem(actor.orgId,item.id);if(["paid","escrowed","refunded","expired","cancelled","denied"].includes(r.payment_state))continue;
         const p=decode(r.snapshot_json);
+        if(r.payment_state==="unpaid"){available(r.product_id);if(!adapters.sellerReady?.(r.seller_org))return fail("VENDOR_NOT_READY","Vendor payout configuration changed");if(p.kind==="physical"&&p.shippingQuote?.expiresAt<=now())return fail("QUOTE_EXPIRED","Physical quote expired before payment");}
         // A crashed request reuses the SAME durable payment key; the governed adapter owns idempotency.
         const offer=p.offerId?adapters.offer?.(p.offerId):undefined;
         if(p.kind!=="physical" && (!offer || !offer.published || offer.orgId!==r.seller_org || offer.endpointUrl!==p.endpointUrl || offer.priceMicro!==p.priceMicro || offer.network!==p.network))return fail("OFFER_CHANGED","The bound offer changed; do not pay a different endpoint");
@@ -263,17 +271,37 @@ export function createMarketplace(db: CommerceDatabase, adapters: CommerceAdapte
       event(itemId, "shipping.label_created", {});
       return data;
     },
+    tracking(input: Record<string, unknown>) {
+      const eventId=text(input.eventId,200),itemId=text(input.itemId,100),tracking=text(input.tracking,200),state=text(input.state,30);
+      if(!["in_transit","delivered","exception","returned"].includes(state))return fail("INVALID_INPUT","Unknown shipment status",400);
+      return tx(()=>{
+        const old=get("SELECT payload_json FROM marketplace_tracking_events WHERE event_id=?",eventId);
+        if(old){if(old.payload_json!==json(input))return fail("EVENT_MISMATCH","Tracking event ID was reused with different data");return {replayed:true};}
+        const item=get("SELECT * FROM marketplace_order_items WHERE id=?",itemId);
+        if(!item?.shipping_json)return fail("NOT_FOUND","Shipment not found",404);
+        const shipping=decode(item.shipping_json);if(shipping.tracking!==tracking)return fail("SHIPMENT_MISMATCH","Tracking number does not match the order item");
+        const observed=Number(input.observedAt);if(!Number.isFinite(observed)||observed>now()+300000)return fail("INVALID_INPUT","Invalid tracking observation time",400);
+        run("INSERT INTO marketplace_tracking_events VALUES(?,?,?,?)",eventId,itemId,json(input),iso());
+        if(!shipping.observedAt||observed>=shipping.observedAt){shipping.state=state;shipping.observedAt=observed;run("UPDATE marketplace_order_items SET shipping_json=? WHERE id=?",json(shipping),itemId);}
+        // Carrier delivery is evidence, not buyer consent to release escrow.
+        event(itemId,"shipping.observed",{state,observedAt:observed});return {recorded:true,buyerConfirmationRequired:item.payment_state==="escrowed"};
+      });
+    },
     async confirm(orgId: string,itemId: string) {
       const r=ownedItem(orgId,itemId);if(!["paid","escrowed"].includes(r.payment_state)||!["shipped","delivered"].includes(r.fulfillment_state))return fail("NOT_READY","The item is not ready for delivery confirmation");
       if(get("SELECT id FROM marketplace_cases WHERE item_id=? AND state!='closed'",itemId))return fail("DISPUTED","Resolve the open case before confirming delivery");
-      if(r.payment_state==="escrowed"){if(!adapters.escrow||!r.escrow_ref)return fail("ESCROW_UNAVAILABLE","Escrow provider unavailable",503);await adapters.escrow.release(r.escrow_ref,`release:${itemId}`);}
+      if(r.payment_state==="escrowed"){
+        if(!adapters.escrow||!r.escrow_ref)return fail("ESCROW_UNAVAILABLE","Escrow provider unavailable",503);
+        tx(()=>{if(get("SELECT id FROM marketplace_cases WHERE item_id=? AND state!='closed'",itemId))return fail("DISPUTED","Resolve the open case first");const changed=run("UPDATE marketplace_order_items SET fulfillment_state='confirming' WHERE id=? AND fulfillment_state='shipped'",itemId);if(!changed.changes)return fail("DELIVERY_CONFIRMING","Delivery confirmation is already in progress");});
+        try{await adapters.escrow.release(r.escrow_ref,`release:${itemId}`);}catch(e){run("UPDATE marketplace_order_items SET fulfillment_state='shipped' WHERE id=? AND fulfillment_state='confirming'",itemId);throw e;}
+      }
       run("UPDATE marketplace_order_items SET fulfillment_state='delivered',payment_state='paid' WHERE id=?",itemId);event(itemId,"delivery.confirmed",{buyerOrg:orgId});return publicItem(ownedItem(orgId,itemId));
     },
     feedback(orgId: string,itemId: string,input: Record<string,any>,kind: "human"|"agent",agentId?: string) {
       const r=ownedItem(orgId,itemId);if(agentId&&r.agent_id!==agentId)return fail("NOT_FOUND","Item not found",404);if(r.payment_state!=="paid"||r.fulfillment_state!=="delivered")return fail("PURCHASE_REQUIRED","Feedback requires a paid, delivered purchase");const score=integer(input.score,1,5),body=text(input.body,2000);
       run("INSERT INTO marketplace_feedback VALUES(?,?,?,?,?,?,'published',?) ON CONFLICT(item_id,kind) DO UPDATE SET score=excluded.score,body=excluded.body",uid("feedback"),itemId,orgId,kind,score,body,iso());event(itemId,"feedback.saved",{kind});return this.quality(r.product_id);
     },
-    openCase(orgId: string,itemId: string,input: Record<string,any>) {const r=ownedItem(orgId,itemId);if(!["paid","escrowed"].includes(r.payment_state))return fail("PURCHASE_REQUIRED","A case needs a paid purchase");const kind=input.kind;if(!["return","dispute"].includes(kind))return fail("INVALID_INPUT","Choose return or dispute",400);const existing=get("SELECT id FROM marketplace_cases WHERE item_id=? AND state!='closed'",itemId);if(existing)return existing;const id=uid("case");run("INSERT INTO marketplace_cases VALUES(?,?,?,?,?,'open',?,NULL,?,?)",id,itemId,orgId,r.seller_org,kind,text(input.reason,2000),iso(),iso());event(itemId,"case.opened",{caseId:id,kind});return {id,state:"open"};},
+    openCase(orgId: string,itemId: string,input: Record<string,any>) {const r=ownedItem(orgId,itemId);if(r.fulfillment_state==="confirming")return fail("DELIVERY_CONFIRMING","Delivery confirmation is in progress; refresh its outcome first");if(!["paid","escrowed"].includes(r.payment_state))return fail("PURCHASE_REQUIRED","A case needs a paid purchase");const kind=input.kind;if(!["return","dispute"].includes(kind))return fail("INVALID_INPUT","Choose return or dispute",400);const existing=get("SELECT id FROM marketplace_cases WHERE item_id=? AND state!='closed'",itemId);if(existing)return existing;const id=uid("case");run("INSERT INTO marketplace_cases VALUES(?,?,?,?,?,'open',?,NULL,?,?)",id,itemId,orgId,r.seller_org,kind,text(input.reason,2000),iso(),iso());event(itemId,"case.opened",{caseId:id,kind});return {id,state:"open"};},
     cases(orgId: string) {return all("SELECT * FROM marketplace_cases WHERE buyer_org=? OR seller_org=? ORDER BY created_at DESC LIMIT 100",orgId,orgId).map(c=>({...c,messages:all("SELECT actor_org,message,created_at FROM marketplace_case_messages WHERE case_id=? ORDER BY created_at,id",c.id)}));},
     caseMessage(orgId: string,id: string,message: unknown) {const c=get("SELECT * FROM marketplace_cases WHERE id=? AND (buyer_org=? OR seller_org=?)",id,orgId,orgId);if(!c)return fail("NOT_FOUND","Case not found",404);if(c.state==="closed")return fail("CASE_CLOSED","This case is closed");run("INSERT INTO marketplace_case_messages VALUES(?,?,?,?,?)",uid("message"),id,orgId,text(message,4000),iso());return {ok:true};},
     async resolveCase(reviewerOrg: string,id: string,input: Record<string,any>) {const c=get("SELECT * FROM marketplace_cases WHERE id=?",id);if(!c)return fail("NOT_FOUND","Case not found",404);if([c.buyer_org,c.seller_org].includes(reviewerOrg))return fail("FORBIDDEN","A party cannot adjudicate its own case",403);if(c.state==="closed")return {state:"closed",resolution:c.resolution};const resolution=text(input.resolution,1000);const r=ownedItem(c.buyer_org,c.item_id);if(input.action==="refund"){if(!adapters.escrow||!r.escrow_ref||r.payment_state!=="escrowed")return fail("REFUND_UNAVAILABLE","Direct-settled purchases require a verified refund through the existing money workflow; a case cannot fabricate one",503);await adapters.escrow.refund(r.escrow_ref,`refund:${id}`);run("UPDATE marketplace_order_items SET payment_state='refunded' WHERE id=?",r.id);}else if(input.action!=="close")return fail("INVALID_INPUT","Choose close or refund",400);run("UPDATE marketplace_cases SET state='closed',resolution=?,updated_at=? WHERE id=?",resolution,iso(),id);event(c.item_id,"case.resolved",{caseId:id,reviewerOrg,action:input.action});return {state:"closed",resolution};},

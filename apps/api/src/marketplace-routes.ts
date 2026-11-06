@@ -1,8 +1,10 @@
 import type express from "express";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { CommerceError, createMarketplace, type CommerceActor, type CommerceAdapters } from "./marketplace.js";
 import { commerceDatabase, sellerStore, store, type OrgRow } from "./store.js";
 import { partnerRoute } from "./routes/partner-auth-routes.js";
 import { fetchNoRedirect } from "./outbound-url.js";
+import { marketplaceProviderAdapters } from "./marketplace-providers.js";
 
 type AgentAuth = CommerceActor & { scopes: string[] };
 type GuardianRoute = (handler: (org: OrgRow, req: express.Request, res: express.Response) => unknown, opts?: { ownerOnly?: boolean }) => express.RequestHandler;
@@ -15,6 +17,7 @@ export function registerMarketplaceRoutes(app: express.Express, deps: {
   adapters?: Pick<CommerceAdapters, "escrow" | "shipping" | "fulfillment">;
 }) {
   const market = () => createMarketplace(commerceDatabase(), {
+    ...marketplaceProviderAdapters(deps.payment),
     ...deps.adapters,
     payment: deps.payment,
     sellerReady: (id) => Boolean(store.getSellerProfile(id)?.payoutAddress),
@@ -43,6 +46,14 @@ export function registerMarketplaceRoutes(app: express.Express, deps: {
     if(!reviewers.includes(orgId))throw new CommerceError("FORBIDDEN","Marketplace reviewer role required",403);
   };
   app.get("/v1/marketplace/capabilities",safe((_req,res)=>res.json(market().capabilities())));
+  app.post("/v1/marketplace/tracking",safe((req,res)=>{
+    const secret=process.env.ABI_MARKETPLACE_TRACKING_SECRET,timestamp=req.header("x-abi-timestamp")??"",signature=req.header("x-abi-signature")??"";
+    if(!secret)return res.status(503).json({error:{code:"TRACKING_NOT_CONFIGURED"}});
+    if(!/^\d{10}$/.test(timestamp)||Math.abs(Date.now()/1000-Number(timestamp))>300||!/^\w{64}$/.test(signature))return res.status(401).json({error:{code:"INVALID_SIGNATURE"}});
+    const expected=createHmac("sha256",secret).update(`${timestamp}.${JSON.stringify(req.body)}`).digest("hex");
+    if(!timingSafeEqual(Buffer.from(signature),Buffer.from(expected)))return res.status(401).json({error:{code:"INVALID_SIGNATURE"}});
+    return res.json(market().tracking(req.body));
+  }));
   app.get("/v1/marketplace/products",safe((req,res)=>res.json(market().search(req.query))));
   app.get("/v1/marketplace/products/:id",safe((req,res)=>{
     const m=market(),value=m.product(String(req.params.id)),etag=`"${m.fingerprint(value.product)}"`;
@@ -65,7 +76,7 @@ export function registerMarketplaceRoutes(app: express.Express, deps: {
   app.get("/v1/marketplace/schema",safe((_req,res)=>res.json({
     $schema:"https://json-schema.org/draft/2020-12/schema",title:"ABI Marketplace Listing v1",type:"object",additionalProperties:false,
     required:["name","description","category","priceMicro","currency","stockLevel","kind","images","attributes"],
-    properties:{name:{type:"string",maxLength:200},description:{type:"string",maxLength:4000},category:{type:"string",maxLength:80},priceMicro:{type:"string",pattern:"^[0-9]+$",description:"USDC micro-units, six decimals"},currency:{const:"USDC"},stockLevel:{type:"integer",minimum:0},kind:{enum:["digital","physical","service"]},offerId:{type:"string"},images:{type:"array",maxItems:20,items:{type:"string",format:"uri",pattern:"^https://"}},attributes:{type:"object",properties:{colors:{type:"array",items:{type:"string"}},sizes:{type:"array",items:{type:"string"}},regions:{type:"array",items:{type:"string"}},deliveryDays:{type:"integer",minimum:0,maximum:365},useCases:{type:"array",items:{type:"string"}}}}}))); 
+    properties:{name:{type:"string",maxLength:200},description:{type:"string",maxLength:4000},category:{type:"string",maxLength:80},priceMicro:{type:"string",pattern:"^[0-9]+$",description:"USDC micro-units, six decimals"},currency:{const:"USDC"},stockLevel:{type:"integer",minimum:0},kind:{enum:["digital","physical","service"]},offerId:{type:"string"},images:{type:"array",maxItems:20,items:{type:"string",format:"uri",pattern:"^https://"}},attributes:{type:"object",properties:{colors:{type:"array",items:{type:"string"}},sizes:{type:"array",items:{type:"string"}},regions:{type:"array",items:{type:"string"}},deliveryDays:{type:"integer",minimum:0,maximum:365},useCases:{type:"array",items:{type:"string"}}}}}}))); 
   app.get("/v1/seller/marketplace/vendor",seller((org,_req,res)=>res.json(market().vendor(org,true))));
   app.put("/v1/seller/marketplace/vendor",seller((org,req,res)=>res.json(market().submitVendor(org,req.body))));
   app.get("/v1/seller/marketplace/products",seller((org,_req,res)=>res.json({products:market().inventory(org)})));

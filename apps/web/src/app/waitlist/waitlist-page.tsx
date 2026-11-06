@@ -8,11 +8,10 @@ export function WaitlistPage() {
   return (
     <MarketingShell active="waitlist">
       <section className="waitlist-page">
-        <span className="eyebrow">Artificial Banking Inc.</span>
-        <h1>Let AI agents pay for things — without losing control.</h1>
+        
+        <h1>Join the next way to buy and sell.</h1>
         <p>
-          ABI sits between your agents and company money. Every payment is checked against your
-          rules first, and anything big waits for a person. Join the waitlist for early access.
+          Discover products with your agent, or bring your catalog to ABI. Join the waitlist for early access to the agentic marketplace.
         </p>
         <WaitlistForm source="waitlist-page" autoFocus />
         <p className="waitlist-links">

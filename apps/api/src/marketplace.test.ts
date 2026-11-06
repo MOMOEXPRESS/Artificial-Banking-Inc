@@ -151,3 +151,12 @@ test("physical quotes bind shipping address and dispute blocks escrow release",a
   const o=f.m.checkout(f.a,q.id,"right",address);await f.m.pay(f.a,o.id);f.m.fulfill("seller",o.items[0].id,{state:"shipped",carrier:"Carrier",tracking:"track"});
   f.m.openCase(f.a.orgId,o.items[0].id,{kind:"dispute",reason:"Wrong goods"});await assert.rejects(f.m.confirm(f.a.orgId,o.items[0].id),/open case/);assert.equal(released,0);
 });
+
+test("carrier tracking is idempotent, rejects mismatches and never releases escrow",async()=>{
+  let released=0;const f=fixture({fulfillment:{quote:async()=>({reference:"q",totalMicro:"1000000",expiresAt:Date.now()+120000})},escrow:{fund:async()=>({status:200,body:{state:"escrowed",escrowRef:"held"}}),release:async()=>{released++;},refund:async()=>{}}});
+  const p=f.product("seller",{kind:"physical",offerId:undefined}),c=f.cart(p.id),address={name:"B",line1:"Road",city:"Paris",postalCode:"75001",country:"FR"};
+  const q=await f.m.shippingQuote(f.a,c.id,address),o=f.m.checkout(f.a,q.id,"track",address);await f.m.pay(f.a,o.id);const item=o.items[0];f.m.fulfill("seller",item.id,{state:"shipped",carrier:"Carrier",tracking:"TRACK"});
+  const event={eventId:"event-1",itemId:item.id,tracking:"TRACK",state:"delivered",observedAt:Date.now()};f.m.tracking(event);assert.equal(f.m.tracking(event).replayed,true);assert.equal(released,0);
+  assert.equal(f.m.order(f.a.orgId,o.id).items[0].fulfillmentState,"shipped");
+  assert.throws(()=>f.m.tracking({...event,state:"returned"}),/reused/);assert.throws(()=>f.m.tracking({...event,eventId:"event-2",tracking:"OTHER"}),/does not match/);
+});
