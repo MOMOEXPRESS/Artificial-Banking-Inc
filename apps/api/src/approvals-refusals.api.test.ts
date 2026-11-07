@@ -471,6 +471,16 @@ describe("x402 session budgets", () => {
   const payApi = (k: string, amountUsdc: string) =>
     call("/v1/agent/pay_api", k, { amountUsdc, destination: VENDOR, idempotencyKey: key() });
 
+  it("a key without a separate cap still inherits the agent's daily spending policy", async () => {
+    const { org, agent } = fixture({ hitlAboveUsdc: 100 });
+    const session = await mint(org.guardianKey, agent.agentId);
+    assert.equal(session.x402BudgetUsdc, undefined);
+    assert.equal((await payApi(session.token, "100")).status, 200);
+    const over = await payApi(session.token, "60");
+    assert.equal(over.status, 403);
+    assert.equal(over.body.denial?.rule_code, "daily_max");
+  });
+
   it("a session key cannot spend past its x402 budget", async () => {
     const { org, agent } = fixture();
     const session = await mint(org.guardianKey, agent.agentId, "5");

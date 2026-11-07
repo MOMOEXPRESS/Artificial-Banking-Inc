@@ -28,7 +28,9 @@ export function StudioNav({
   const controls = links.map(([view, label, icon]) => (
     <button
       key={view}
-      aria-current={active === view ? "page" : undefined}
+      aria-current={
+        active === view || (view === "overview" && active === "treasury") ? "page" : undefined
+      }
       onClick={() => onNavigate(view)}
     >
       <Icon name={icon} size={20} />
@@ -42,11 +44,11 @@ export function StudioNav({
           ABI
         </Link>
         <div className="studio-workspace-links">{controls}</div>
-        <div className="minimal-nav-end">
-          <Link href={seller ? "/console" : "/partners/login"}>
-            {seller ? "Buyer workspace" : "Sell on ABI"}
-          </Link>
-        </div>
+        {seller && (
+          <div className="minimal-nav-end">
+            <Link href="/console">Buyer workspace</Link>
+          </div>
+        )}
       </nav>
       <nav className="minimal-dock" aria-label="Workspace dock">
         {controls}

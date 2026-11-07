@@ -1,0 +1,8 @@
+{
+  "prompt": "Produce a production UI material asset extracted from the liquid-glass wallet card in the reference image. Output only a single empty rounded rectangular clear optical-glass card slab, straight-on front view, landscape aspect ratio 1.65:1, centered and filling almost the whole canvas with a small margin for its soft grounded shadow. Transparent PNG background with native alpha. The slab should be transparent through its center, lightly cool silver and pale blue at the optically thick edges; smooth beveled corners, precise silver-white curved refractive highlights around the perimeter, exceptionally clean professional finish. Match the reference card's clear liquid glass exactly. Leave the entire interior blank and translucent for semantic UI text and an actual brand logo to be overlaid later. Remove ALL text, logos, marks, symbols, currency labels, badges, numbers and the entire surrounding application. No opaque white background or solid gray rectangle, no smoke, no black card, no metal texture, no abstract swirls, no decorative objects or colorful reflections. A precise reusable transparent liquid-glass surface, not a screenshot. Resolution at least 1536 pixels wide.",
+  "source": "Generated image exec-fa715c44-21b6-4c45-9f5c-73d9baa3fb7d.png",
+  "reference": ".impeccable/mocks/abi-wallet-refinement/wallet-liquid-glass.png",
+  "transformation": "Converted PNG to WebP with ImageMagick quality 94; native alpha preserved. No UI text rasterized.",
+  "purpose": "Approved liquid-glass material plate; semantic text and actual ABI logo overlay.",
+  "approvedDirection": "User: Yes I approve this one, referring to wallet-liquid-glass.png"
+}

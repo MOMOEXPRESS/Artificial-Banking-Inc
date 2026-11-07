@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-07T18:16:29.037252+00:00",
-  "title": "Design System: ABI original vault and o11 hybrid",
+  "generatedAt": "2026-11-07T22:32:44.695737+00:00",
+  "title": "Design System: ABI liquid wallet and o11 console",
   "extensions": {
     "sourceAuthority": [
       "DESIGN.md",
@@ -12,12 +12,22 @@
       "apps/web/src/lib/minimal-workspace.tsx",
       "apps/web/src/lib/studio-nav.tsx",
       "apps/web/src/lib/spending-limits.tsx",
-      "apps/web/src/lib/seller-session.ts"
+      "apps/web/src/lib/seller-session.ts",
+      ".impeccable/briefs/abi-liquid-wallet.md",
+      "apps/web/src/lib/liquid-wallet-card.tsx",
+      "apps/web/src/lib/wallet-workspace.tsx",
+      "apps/web/src/lib/wallet-summary.ts",
+      "apps/web/src/lib/wallet-receive-validation.ts",
+      "apps/web/src/lib/treasury-view.tsx",
+      "apps/web/src/lib/settings-view.tsx",
+      "apps/web/src/app/liquid-wallet.css"
     ],
     "approvedReferences": [
-      ".impeccable/mocks/abi-o11-hybrid/overview-study.png"
+      ".impeccable/mocks/abi-o11-hybrid/overview-study.png",
+      ".impeccable/mocks/abi-wallet-refinement/wallet-liquid-glass.png",
+      ".impeccable/mocks/abi-wallet-refinement/wallet-liquid-glass.json"
     ],
-    "scope": "Original ABI console and vault card with o11 typography, placement and materials. Public-home structure retained with shared typography/chrome adaptation. Supersedes minimal-reference composition, IBM Plex body typography, navy rail and beige/green directions.",
+    "scope": "Approved clear liquid-glass wallet replaces charcoal card in Overview/Wallet; shared o11 Inter console and opaque gray content retained. Mobile reference supplies stacking only. Wallet replaces Treasury presentation; existing backend and analytics remain.",
     "colors": {
       "canvas": "#fafafa",
       "ink": "#262626",
@@ -55,9 +65,16 @@
     },
     "materials": {
       "content": "Opaque neutral content, forms, provider rows and dialogs.",
-      "glass": "Navigation, menus and the original charcoal/silver ABI vault card only.",
+      "glass": "Navigation, menus and clear liquid-glass ABI wallet card only; working content/dialogs remain opaque.",
       "navigationBlur": "24px",
-      "dockAndMenuBlur": "28px"
+      "dockAndMenuBlur": "28px",
+      "wallet": {
+        "asset": "apps/web/public/wallet/liquid-glass.webp",
+        "composition": "Authored alpha optical rim with semantic text and actual ABI ABMark; decorative layers hidden from accessibility APIs.",
+        "backdropBlur": "16px",
+        "aspectRatio": 1.94,
+        "watermarkOpacity": 0.13
+      }
     },
     "layout": {
       "viewMaxWidth": "1120px",
@@ -65,7 +82,10 @@
       "headerHeight": "72px",
       "overviewColumns": "1fr 1fr",
       "overviewGap": "30px",
-      "mobile": "At 760px: stacked overview, 62px header, hidden desktop links, 20px content side padding, dock max-width 420px and safe-area bottom placement. Floating dock also appears on desktop."
+      "mobile": "At 760px: stacked overview, 62px header, hidden desktop links, 20px content side padding, dock max-width 420px and safe-area bottom placement. Floating dock also appears on desktop.",
+      "walletColumns": "1fr 1.06fr",
+      "walletGap": "34px",
+      "walletMobile": "At 760px, stacked with 30px gap; balance metrics form one opaque gray strip, allocation/activity rows wrap."
     },
     "shadows": [
       {
@@ -82,6 +102,16 @@
         "name": "menu",
         "value": "inset 0 1px 0 #fff, 0 15px 45px #00000014",
         "purpose": "Glass account menu."
+      },
+      {
+        "name": "wallet",
+        "value": "0 13px 23px #26344617",
+        "purpose": "Ground clear wallet material."
+      },
+      {
+        "name": "wallet-hover",
+        "value": "0 17px 29px #26344620",
+        "purpose": "Interactive pointer hover with no reduced-motion preference."
       }
     ],
     "breakpoints": [
@@ -99,31 +129,42 @@
       "outlineOffset": "3px"
     },
     "navigation": {
-      "buyer": [
-        "Overview",
-        "Marketplace",
-        "Connect",
-        "Billing",
-        "Settings"
-      ],
-      "seller": [
-        "Overview",
-        "Inventory",
-        "Connect",
-        "Payouts",
-        "Settings"
-      ],
+      "buyer": ["Overview", "Marketplace", "Connect", "Billing", "Settings"],
+      "seller": ["Overview", "Inventory", "Connect", "Payouts", "Settings"],
       "removed": "More menu and standalone ledger/webhook navigation; legacy backend remains.",
-      "theme": "Interface pinned light; nonfunctional Theme menu removed."
+      "theme": "Interface pinned light; nonfunctional Theme menu removed.",
+      "wallet": "Overview full card and Wallet details open the retained internal treasury route, now presented as Wallet.",
+      "sellerEntry": "Sell on ABI removed from buyer header; seller entry retained in account menu."
     },
     "behavior": {
       "marketplace": "Published inventory only, provider/product segmentation, search and category tabs; no Demo/Live selector. Order content appears in the separate Purchases tab.",
-      "connect": "Dialog-based scoped key creation, one-time secret, replacement and revocation; no secret localStorage.",
+      "connect": "Dialog-based scoped key creation, one-time secret, replacement and revocation; no secret localStorage. New keys omit x402BudgetUsdc; read defaults, explicit pay, inherited agent allowance/spending/approval controls. Existing key-specific caps remain displayed and enforced.",
       "billing": "Overview and Spending limits; UTC calendar day/week/month windows, shared workspace cap, total caps expiring within 90 days, recurring opt-out. Existing budgets and approval controls apply. Connected-service writes unavailable. Editing a total window preserves its original start time.",
-      "sellerSession": "Only a definitive 401 ends the session. Transient network/429/5xx and malformed responses retain the session and offer retry. Separate buyer/seller identities, verification and MFA remain."
+      "sellerSession": "Only a definitive 401 ends the session. Transient network/429/5xx and malformed responses retain the session and offer retry. Separate buyer/seller identities, verification and MFA remain.",
+      "wallet": "Verified Receive; department/shared allocation; review-before-POST Move; actual pending/recent activity. Totals exclude agent aliases; unknown balances explicit. Failed/malformed receiving-profile refresh clears old details. Row-selected department/shared destination is preserved. Existing Cash/analytics code remains without a standalone Wallet analytics tab.",
+      "recovery": "Settings \u2192 Security and recovery with per-operation confirmations; existing custody, approval and server controls preserved."
     },
     "financialLimits": "USD card funding remains disabled pending operator configuration and usage/refund policy; separate from Base Sepolia USDC. No USD consumption or fiat-to-USDC conversion. Study/fixtures do not establish live funding, purchase, fulfillment or settlement.",
-    "evidenceLimits": "Source documentation, not rendering or deployment certification. Hybrid desktop/mobile captures and independent finish review must be assessed through actual revision-specific artifacts. Prior minimal-reference review does not certify this revision. Generated study content is illustrative."
+    "evidenceLimits": "Fresh finish verdict: ship after both findings resolved. Refreshed bounded confirmation: 14 screenshots and report.json; synthetic checks cover malformed successful response and 503 clearing the receiving profile, plus second-department/shared allocation destinations. Final build passes; lint zero errors/eight baseline warnings. No production release or live financial-operation certification. Launcher/detector/phase/spec automation unavailable; study values illustrative.",
+    "motion": [
+      {
+        "name": "wallet-highlight",
+        "value": "220ms ease-out",
+        "purpose": "Subtle mouse highlight, opacity 0.18 to 0.38 and interactive hover lift translateY(-2px); pointer tracking/transitions disabled with reduced motion."
+      }
+    ],
+    "reviewEvidence": {
+      "report": ".impeccable/review/liquid-wallet/report.json",
+      "captures": "14 local ignored captures: overview/wallet/receive/allocate/move-review/payment-key/recovery-review at 1440px and 390px; not committed.",
+      "browserLog": "/tmp/abi-wallet-browser-final.log",
+      "buildLog": "/tmp/abi-wallet-review-build.log",
+      "testLogs": {
+        "/tmp/abi-wallet-payment-tests2.log": 20,
+        "/tmp/abi-wallet-web-tests.log": 156,
+        "/tmp/abi-wallet-receive-tests.log": 2
+      },
+      "release": "Production deployment requires separate verification."
+    }
   },
   "components": [
     {
@@ -174,11 +215,11 @@
     }
   ],
   "narrative": {
-    "northStar": "ABI original vault and o11 hybrid",
-    "overview": "Original ABI identity and charcoal/silver vault card with self-hosted Inter, opaque neutral content and selective glass navigation/menus. Checklist beside the card on desktop, stacked on mobile. Public-home structure retained.",
+    "northStar": "ABI liquid wallet and o11 console",
+    "overview": "Actual ABI identity and approved clear liquid-glass wallet with self-hosted Inter, opaque neutral working content and selective glass navigation/menus. Overview full card opens Wallet; desktop summary places card left and balances/actions right, mobile stacks. Public-home structure retained.",
     "keyCharacteristics": [
       "Inter 400 body/controls and 500 headings.",
-      "Opaque light-gray working surfaces; glass reserved for navigation, menus and ABI vault.",
+      "Opaque light-gray working surfaces; glass reserved for navigation, menus and clear ABI wallet.",
       "Five role-specific destinations with no More or standalone ledger/webhook navigation.",
       "Equal commerce categories, published inventory and honest financial availability."
     ],
@@ -190,7 +231,7 @@
       }
     ],
     "dos": [
-      "Preserve actual ABI mark and VaultBankCard.",
+      "Preserve the actual ABI mark and semantic LiquidWalletCard content.",
       "Keep category labels legible and equally prominent.",
       "Distinguish USD credits, Base Sepolia USDC and live operational evidence.",
       "Preserve sessions on transient seller service errors and offer retry."
@@ -198,7 +239,9 @@
     "donts": [
       "Do not introduce study balances or invented provider data.",
       "Do not expose or persist credential secrets as decorative content.",
-      "Do not infer live funding, purchases, fulfillment or deployment from UI studies or fixtures."
+      "Do not infer live funding, purchases, fulfillment or deployment from UI studies or fixtures.",
+      "Do not imply card-network capability or duplicate agent aliases in wallet balances.",
+      "Do not offer an old receiving address as verified after malformed profile refresh."
     ]
   }
 }

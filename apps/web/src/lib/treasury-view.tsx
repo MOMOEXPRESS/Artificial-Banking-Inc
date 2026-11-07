@@ -29,6 +29,7 @@ import {
 } from "./wallet-profile";
 import { holdingNetwork, networkLabel } from "./network-names";
 import { AmountStepper } from "@/components/ui/amount-stepper";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 type Scope = "org" | "department" | "agent" | "shared";
 
@@ -162,6 +163,9 @@ export function TreasuryView({
   readOnly = false,
   initialTab,
   onTabChange,
+  embedded = false,
+  initialMoveIntent = "budget",
+  initialDestination,
 }: {
   gFetch: (path: string, init?: RequestInit) => Promise<Response>;
   busy: boolean;
@@ -169,6 +173,9 @@ export function TreasuryView({
   readOnly?: boolean;
   initialTab?: string | null;
   onTabChange?: (tab: TreasuryTab) => void;
+  embedded?: boolean;
+  initialMoveIntent?: "budget" | "custom";
+  initialDestination?: string | null;
 }) {
   const locked = busy || readOnly;
   const [wallets, setWallets] = useState<WalletsPayload | null>(null);
@@ -196,7 +203,12 @@ export function TreasuryView({
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
-  const [moveIntent, setMoveIntent] = useState<"budget" | "custom">("budget");
+  const [moveIntent, setMoveIntent] = useState<"budget" | "custom">(initialMoveIntent);
+  const [confirmation, setConfirmation] = useState<{
+    title: string;
+    description: string;
+    run: () => void;
+  } | null>(null);
   const [copied, setCopied] = useState(false);
   const [holdings, setHoldings] = useState<
     {
@@ -382,7 +394,11 @@ export function TreasuryView({
 
   useEffect(() => {
     if (!wallets || from || to) return;
-    applyIntent("budget");
+    if (initialDestination) {
+      const destination = allTargets.find((t) => t.key === initialDestination);
+      setFrom(allTargets.find((t) => t.kind === "org")?.key ?? "");
+      setTo(destination?.key ?? "");
+    } else if (initialMoveIntent === "budget") applyIntent("budget");
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once when wallets first arrive
   }, [wallets]);
 
@@ -508,97 +524,101 @@ export function TreasuryView({
 
   return (
     <div className="console-page treasury-page">
-      <div className="card treasury-hero">
-        <div className="card-head" style={{ marginBottom: 0 }}>
-          <div className="treasury-hero-copy">
-            <div className="treasury-hero-badge" aria-hidden>
-              <Icon name="vault" size={18} />
-            </div>
-            <div>
-              <h2 style={{ margin: 0 }}>Treasury</h2>
-              <div className="sub">
-                Fund · allocate · send · {wallets?.asset.symbol ?? "USDC"} on{" "}
-                {networkLabel(wallets?.asset.chain, "Base Sepolia")}
+      {!embedded && (
+        <>
+          <div className="card treasury-hero">
+            <div className="card-head" style={{ marginBottom: 0 }}>
+              <div className="treasury-hero-copy">
+                <div className="treasury-hero-badge" aria-hidden>
+                  <Icon name="vault" size={18} />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0 }}>Treasury</h2>
+                  <div className="sub">
+                    Fund · allocate · send · {wallets?.asset.symbol ?? "USDC"} on{" "}
+                    {networkLabel(wallets?.asset.chain, "Base Sepolia")}
+                  </div>
+                </div>
               </div>
+              <SegTabs
+                value={tab}
+                onValueChange={(v) => selectTab(v as typeof tab)}
+                items={
+                  [
+                    {
+                      value: "fund",
+                      label: (
+                        <span className="seg-label">
+                          <Icon name="vault" size={12} /> Vault
+                        </span>
+                      ),
+                    },
+                    {
+                      value: "wallets",
+                      label: (
+                        <span className="seg-label">
+                          <Icon name="layers" size={12} /> Budgets
+                        </span>
+                      ),
+                    },
+                    {
+                      value: "move",
+                      label: (
+                        <span className="seg-label">
+                          <Icon name="swap" size={12} /> Move
+                        </span>
+                      ),
+                    },
+                    {
+                      value: "analytics",
+                      label: (
+                        <span className="seg-label">
+                          <Icon name="chart" size={12} /> Cash
+                        </span>
+                      ),
+                    },
+                    {
+                      value: "recovery",
+                      label: (
+                        <span className="seg-label">
+                          <Icon name="key" size={12} /> Recovery
+                        </span>
+                      ),
+                    },
+                  ] as const
+                }
+              />
             </div>
           </div>
-          <SegTabs
-            value={tab}
-            onValueChange={(v) => selectTab(v as typeof tab)}
-            items={
-              [
-                {
-                  value: "fund",
-                  label: (
-                    <span className="seg-label">
-                      <Icon name="vault" size={12} /> Vault
-                    </span>
-                  ),
-                },
-                {
-                  value: "wallets",
-                  label: (
-                    <span className="seg-label">
-                      <Icon name="layers" size={12} /> Budgets
-                    </span>
-                  ),
-                },
-                {
-                  value: "move",
-                  label: (
-                    <span className="seg-label">
-                      <Icon name="swap" size={12} /> Move
-                    </span>
-                  ),
-                },
-                {
-                  value: "analytics",
-                  label: (
-                    <span className="seg-label">
-                      <Icon name="chart" size={12} /> Cash
-                    </span>
-                  ),
-                },
-                {
-                  value: "recovery",
-                  label: (
-                    <span className="seg-label">
-                      <Icon name="key" size={12} /> Recovery
-                    </span>
-                  ),
-                },
-              ] as const
-            }
-          />
-        </div>
-      </div>
 
-      <div className="grid g-4" style={{ marginBottom: 12 }}>
-        <Stat
-          label="Liquid total"
-          value={fmt(forecast?.totalLiquidUsdc)}
-          foot={
-            Number(forecast?.sharedAvailableUsdc ?? 0) > 0
-              ? "vault + group budgets + legacy pools"
-              : "vault + group budgets"
-          }
-        />
-        <Stat
-          label="Org vault"
-          value={fmt(wallets?.org?.availableUsdc)}
-          foot={vault ? `${vault.slice(0, 8)}…${vault.slice(-4)}` : "no address"}
-        />
-        <Stat
-          label="Group budgets"
-          value={fmt(forecast?.deptAvailableUsdc)}
-          foot="shared authority for connected agents"
-        />
-        <Stat
-          label="Connected agents"
-          value={String(wallets?.agents.length ?? 0)}
-          foot="agents use group budgets, not personal balances"
-        />
-      </div>
+          <div className="grid g-4" style={{ marginBottom: 12 }}>
+            <Stat
+              label="Liquid total"
+              value={fmt(forecast?.totalLiquidUsdc)}
+              foot={
+                Number(forecast?.sharedAvailableUsdc ?? 0) > 0
+                  ? "vault + group budgets + legacy pools"
+                  : "vault + group budgets"
+              }
+            />
+            <Stat
+              label="Org vault"
+              value={fmt(wallets?.org?.availableUsdc)}
+              foot={vault ? `${vault.slice(0, 8)}…${vault.slice(-4)}` : "no address"}
+            />
+            <Stat
+              label="Group budgets"
+              value={fmt(forecast?.deptAvailableUsdc)}
+              foot="shared authority for connected agents"
+            />
+            <Stat
+              label="Connected agents"
+              value={String(wallets?.agents.length ?? 0)}
+              foot="agents use group budgets, not personal balances"
+            />
+          </div>
+        </>
+      )}
 
       {tab === "fund" && (
         <div className="wallet-shell">
@@ -1291,31 +1311,36 @@ export function TreasuryView({
               <Button
                 disabled={locked || !from || !to || !amount.trim()}
                 onClick={() =>
-                  void act("Move funds", async () => {
-                    const f = allTargets.find((t) => t.key === from)!;
-                    const t = allTargets.find((x) => x.key === to)!;
-                    const res = await gFetch("/v1/guardian/wallets/move", {
-                      method: "POST",
-                      body: JSON.stringify({
-                        from: f.ref,
-                        to: t.ref,
-                        amountUsdc: amount.trim(),
-                        memo: `console_${moveIntent}`,
+                  setConfirmation({
+                    title: "Review move",
+                    description: `${amount} USDC · ${fromWallet?.short ?? "Source"} → ${toWallet?.short ?? "Destination"}. Existing approval rules apply.`,
+                    run: () =>
+                      void act("Move funds", async () => {
+                        const f = allTargets.find((t) => t.key === from)!;
+                        const t = allTargets.find((x) => x.key === to)!;
+                        const res = await gFetch("/v1/guardian/wallets/move", {
+                          method: "POST",
+                          body: JSON.stringify({
+                            from: f.ref,
+                            to: t.ref,
+                            amountUsdc: amount.trim(),
+                            memo: `console_${moveIntent}`,
+                          }),
+                        });
+                        const j = await res.json();
+                        if (!res.ok) throw new Error(j.error?.message ?? "Move failed");
+                        const moved = amount.trim();
+                        setAmount("");
+                        await refresh();
+                        return j.outcome === "review"
+                          ? `Waiting for guardian review — above the ${j.thresholdUsdc ?? ""} USDC approval threshold. Review it in the pending movements list.`
+                          : `Moved ${moved} USDC · ${f.short} → ${t.short}`;
                       }),
-                    });
-                    const j = await res.json();
-                    if (!res.ok) throw new Error(j.error?.message ?? "Move failed");
-                    const moved = amount.trim();
-                    setAmount("");
-                    await refresh();
-                    return j.outcome === "review"
-                      ? `Waiting for guardian review — above the ${j.thresholdUsdc ?? ""} USDC approval threshold. Approve it under Activity.`
-                      : `Moved ${moved} USDC · ${f.short} → ${t.short}`;
                   })
                 }
               >
                 <Icon name="swap" size={13} />{" "}
-                {moveIntent === "budget" ? "Fill budget" : "Execute move"}
+                {moveIntent === "budget" ? "Review allocation" : "Review move"}
               </Button>
               {fromWallet && toWallet && amount.trim() && (
                 <span className="move-summary faint">
@@ -1513,15 +1538,21 @@ export function TreasuryView({
                 size="sm"
                 disabled={locked}
                 onClick={() =>
-                  void act("Rotate vault key", async () => {
-                    const res = await gFetch("/v1/guardian/treasury/recovery/rotate-vault", {
-                      method: "POST",
-                      body: "{}",
-                    });
-                    const j = await res.json();
-                    if (!res.ok) throw new Error(j.error?.message ?? "Failed");
-                    await refresh();
-                    return `New vault address ${j.address}`;
+                  setConfirmation({
+                    title: "Rotate vault key",
+                    description:
+                      "This changes the vault signing material and receiving address. Review any outstanding deposits and update saved addresses after rotation. This action cannot be undone.",
+                    run: () =>
+                      void act("Rotate vault key", async () => {
+                        const res = await gFetch("/v1/guardian/treasury/recovery/rotate-vault", {
+                          method: "POST",
+                          body: "{}",
+                        });
+                        const j = await res.json();
+                        if (!res.ok) throw new Error(j.error?.message ?? "Failed");
+                        await refresh();
+                        return `New vault address ${j.address}`;
+                      }),
                   })
                 }
               >
@@ -1545,14 +1576,23 @@ export function TreasuryView({
                 size="sm"
                 disabled={locked || !rotateAgentId}
                 onClick={() =>
-                  void act("Rotate agent API key", async () => {
-                    const res = await gFetch(`/v1/guardian/agents/${rotateAgentId}/rotate-key`, {
-                      method: "POST",
-                      body: "{}",
-                    });
-                    const j = await res.json();
-                    if (!res.ok) throw new Error(j.error?.message ?? "Failed");
-                    return `New agent key (once): ${j.apiKey}`;
+                  setConfirmation({
+                    title: "Rotate agent API key",
+                    description:
+                      "This replaces the selected agent’s API key. Existing integrations using its previous key will stop working. Save the new key when it is revealed.",
+                    run: () =>
+                      void act("Rotate agent API key", async () => {
+                        const res = await gFetch(
+                          `/v1/guardian/agents/${rotateAgentId}/rotate-key`,
+                          {
+                            method: "POST",
+                            body: "{}",
+                          },
+                        );
+                        const j = await res.json();
+                        if (!res.ok) throw new Error(j.error?.message ?? "Failed");
+                        return `New agent key (once): ${j.apiKey}`;
+                      }),
                   })
                 }
               >
@@ -1585,6 +1625,31 @@ export function TreasuryView({
           </div>
         </div>
       )}
+      <Dialog
+        open={confirmation !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmation(null);
+        }}
+      >
+        <DialogContent className="wallet-confirm-dialog">
+          <DialogTitle>{confirmation?.title}</DialogTitle>
+          <DialogDescription>{confirmation?.description}</DialogDescription>
+          <div className="minimal-actions">
+            <button onClick={() => setConfirmation(null)}>Cancel</button>
+            <button
+              className="minimal-primary"
+              disabled={locked}
+              onClick={() => {
+                const current = confirmation;
+                setConfirmation(null);
+                current?.run();
+              }}
+            >
+              Confirm
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
