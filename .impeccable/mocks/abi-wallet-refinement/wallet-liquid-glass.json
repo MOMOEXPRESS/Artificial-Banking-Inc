@@ -1,0 +1,12 @@
+{
+  "approved": true,
+  "prompt": "Edit this ABI Wallet design mockup. Preserve the entire page layout, all typography, navigation, balances, controls, labels, whitespace and gray content rows. Change ONLY the ABI wallet card's visual material and its text contrast to a very clean, exceptionally professional LIQUID GLASS design. The user explicitly corrected smoked glass to liquid glass. Render the card as a single clear, translucent cool-silver glass slab with smooth generous optical edges, precisely controlled curved refractive highlights, gentle background distortion and subtle blue-white caustic reflections along its rim. This is elegant optical glass UI craft, understated and highly legible, rather than smoky black plastic, satin metal, wavy decoration or a busy collection of gradients. The card interior has a very light silver transparent wash; its ABI mark is finely etched and understated, not a chunky extruded ornament. Keep dark graphite crisp readable card text: ABI VAULT, Workspace wallet, GENERAL, USDC, BASE SEPOLIA. Use only the existing ABI identity; keep logo detail controlled, preserve all card content positions. Clean professional finish, fine silver perimeter, one soft grounded shadow, restrained dimension. No chips, contactless symbols, card number or payment-network branding. No excessive shine, neon, rainbow effects, opaque charcoal body or decorative swirls. Retain the small Design preview / illustrative state caption and all zero balances. Everything outside the wallet card remains exactly unchanged.",
+  "reference": ".impeccable/mocks/abi-wallet-refinement/wallet-desktop.png",
+  "purpose": "Revised card material at the user's request: clean professional liquid glass replaces smoked glass.",
+  "layoutApproval": "User chose option A with the desktop/mobile Wallet layout, then specified liquid glass rather than smoked glass.",
+  "notes": [
+    "All balances remain illustrative.",
+    "Generated monogram must be replaced with actual ABI mark in semantic implementation."
+  ],
+  "approvalEvidence": "User: Yes I approve this one"
+}

@@ -25,7 +25,7 @@ import { PageTour } from "../../lib/page-tour";
 import { WorkView, type Invoice, type InvoiceStats, type Run } from "../../lib/views";
 import { AgentsView } from "../../lib/agents-view";
 import { PaymentsView } from "../../lib/payments-view";
-import { TreasuryView } from "../../lib/treasury-view";
+import { WalletWorkspace } from "../../lib/wallet-workspace";
 import {
   KeyboardHelp,
   useConsoleShortcuts,
@@ -106,7 +106,7 @@ const NAV: { key: View; label: string; icon: string; group: string }[] = [
   { key: "chat", label: "Assistant", icon: "spark", group: "Home" },
   { key: "overview", label: "Overview", icon: "home", group: "Home" },
   { key: "insights", label: "Insights", icon: "spark", group: "Home" },
-  { key: "treasury", label: "Treasury", icon: "wallet", group: "Money" },
+  { key: "treasury", label: "Wallet", icon: "wallet", group: "Money" },
   { key: "payments", label: "Transactions", icon: "zap", group: "Money" },
   { key: "agents", label: "Agents", icon: "key", group: "Connections" },
   { key: "work", label: "Work", icon: "book", group: "Connections" },
@@ -932,7 +932,7 @@ export default function Console() {
         kind: "fund",
         tone: "info",
         title: `${broke.length} agent${broke.length > 1 ? "s have" : " has"} no funds`,
-        body: `${broke.map((b) => b.name).join(", ")} can't pay — fund them from a budget in Treasury → Move`,
+        body: `${broke.map((b) => b.name).join(", ")} can't pay — allocate funds to their allowance in Wallet`,
         goto: "treasury",
       });
     }
@@ -1539,7 +1539,7 @@ export default function Console() {
                     </div>
                   </section>
                 )}
-                {view !== "overview" && (
+                {view !== "overview" && view !== "treasury" && (
                   <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
                 )}
                 {view === "marketplace" && (
@@ -1578,13 +1578,14 @@ export default function Console() {
                   />
                 )}
                 {view === "treasury" && (
-                  <TreasuryView
+                  <WalletWorkspace
+                    org={org}
+                    onNavigate={(v, t) => setView(v, t)}
                     gFetch={gFetch}
                     busy={busy}
                     act={act}
                     readOnly={readOnly}
-                    initialTab={tabHint && TREASURY_TAB_SET.has(tabHint) ? tabHint : null}
-                    onTabChange={(t) => setTabHint(t)}
+                    initialAction={tabHint}
                   />
                 )}
                 {view === "agents" && (
@@ -1732,6 +1733,7 @@ export default function Console() {
                 )}
                 {view === "settings" && (
                   <SettingsView
+                    initialSection={tabHint}
                     setup={setup}
                     recon={recon}
                     prefs={prefs}

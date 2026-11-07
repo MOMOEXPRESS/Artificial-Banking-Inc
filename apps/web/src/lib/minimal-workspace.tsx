@@ -5,7 +5,7 @@ import { marketplaceJson } from "./marketplace-catalog";
 import { Icon } from "./ui";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { SpendingLimits } from "./spending-limits";
-import { VaultBankCard } from "./vault-bank-card";
+import { LiquidWalletCard } from "./liquid-wallet-card";
 type Fetcher = (path: string, init?: RequestInit) => Promise<Response>;
 type Props = { org: OrgView | null | undefined; onNavigate: (view: View, tab?: string) => void };
 const usd = (cents: number) =>
@@ -72,16 +72,11 @@ export function MinimalOverview({ org, onNavigate }: Props) {
             <strong>{org?.org.name ?? "General"}</strong>
             <span>{available} USDC available</span>
           </div>
-          <div className="reference-bank-card">
-            <VaultBankCard
-              address={null}
-              assetSymbol="USDC"
-              networkLabel={org?.network?.testnet === false ? "Base" : "Base Sepolia"}
-              orgName={org?.org.name}
-              copied={false}
-              onCopy={() => {}}
-            />
-          </div>
+          <LiquidWalletCard
+            name={org?.org.name}
+            network={org?.network?.testnet === false ? "Base" : "Base Sepolia"}
+            onOpen={() => onNavigate("treasury")}
+          />
           <div className="reference-card-caption">
             <span>Workspace vault</span>
             <button onClick={() => onNavigate("treasury")}>
@@ -159,7 +154,6 @@ export function MinimalConnect({
     [agent, setAgent] = useState(""),
     [label, setLabel] = useState("Shopping agent"),
     [pay, setPay] = useState(false),
-    [budget, setBudget] = useState("5"),
     [ttl, setTtl] = useState("24");
   const load = useCallback(async () => {
     try {
@@ -329,7 +323,6 @@ export function MinimalConnect({
                       label,
                       scopes: pay ? ["read", "pay"] : ["read"],
                       ttlHours: Number(ttl),
-                      ...(pay ? { x402BudgetUsdc: budget } : {}),
                     },
                   );
                 }}
@@ -392,16 +385,10 @@ export function MinimalConnect({
                     Allow payments
                   </label>
                   {pay && (
-                    <label>
-                      Lifetime x402 limit (USDC)
-                      <input
-                        required
-                        inputMode="decimal"
-                        pattern="[0-9]+([.][0-9]{1,6})?"
-                        value={budget}
-                        onChange={(e) => setBudget(e.target.value)}
-                      />
-                    </label>
+                    <p className="wallet-permission-note">
+                      <Icon name="shield" size={18} /> Uses this agent’s existing allowance,
+                      spending limits and approval rules. Manage them in Billing → Spending limits.
+                    </p>
                   )}
                 </div>
                 {!agents.length && <p>Create an active agent before issuing a key.</p>}
@@ -435,7 +422,8 @@ export function MinimalConnect({
                       </p>
                       {k.x402BudgetUsdc && (
                         <p>
-                          {k.x402SpentUsdc ?? "0"} / {k.x402BudgetUsdc} USDC used
+                          Existing key-specific cap: {k.x402SpentUsdc ?? "0"} / {k.x402BudgetUsdc}{" "}
+                          USDC used
                         </p>
                       )}
                     </div>

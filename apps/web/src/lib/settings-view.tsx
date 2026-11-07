@@ -10,6 +10,7 @@ import { NotificationEmailPanel } from "./notification-email-panel";
 import { Button } from "@/components/ui/button";
 import { AmountStepper } from "@/components/ui/amount-stepper";
 import { okJson } from "./api-response";
+import { TreasuryView } from "./treasury-view";
 import { networkLabel } from "./network-names";
 
 export type Setup = {
@@ -172,6 +173,7 @@ export function SettingsView({
   api,
   sellerUrl,
   actorRole = "owner",
+  initialSection,
   onGoto,
   onSignOut,
 }: {
@@ -193,6 +195,7 @@ export function SettingsView({
   api: string;
   sellerUrl: string;
   actorRole?: "owner" | "approver" | "viewer";
+  initialSection?: string | null;
   onGoto?: (view: string) => void;
   /** Shared sign-out (lib/sign-out.ts), used by Account access in Organization profile. */
   onSignOut: (everywhere: boolean) => void;
@@ -201,9 +204,9 @@ export function SettingsView({
   const [section, setSection] = useState<Section>("profile");
   // Deep links such as /console?view=settings&section=compliance.
   useEffect(() => {
-    const wanted = new URLSearchParams(window.location.search).get("section");
+    const wanted = initialSection ?? new URLSearchParams(window.location.search).get("section");
     if (wanted && SECTIONS.some((item) => item.key === wanted)) setSection(wanted as Section);
-  }, []);
+  }, [initialSection]);
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [quorum, setQuorum] = useState(1);
   const [newGuardian, setNewGuardian] = useState("");
@@ -1663,6 +1666,21 @@ export function SettingsView({
 
         {section === "security" && (
           <>
+            <section className="wallet-recovery-section">
+              <h2>Security and recovery</h2>
+              <p>
+                Manage vault and agent key recovery. Review the consequences before confirming a
+                rotation.
+              </p>
+              <TreasuryView
+                embedded
+                initialTab="recovery"
+                gFetch={gFetch}
+                act={act}
+                busy={busy}
+                readOnly={actorRole !== "owner"}
+              />
+            </section>
             {session.mode === "session" && (
               <div className="card">
                 <div className="card-head">

@@ -1,0 +1,13 @@
+{
+  "approved": false,
+  "prompt": "Create a precise UI design comparison sheet for ABI, landscape 1536x1024. Use the reference screenshot ONLY for the existing ABI identity, Inter typography, neutral white/gray app surfaces, restrained blue controls, and original charcoal ABI Vault card. This is a refinement, keep that established world. Present TWO equally sized cropped Overview UI studies side by side on #fafafa, labeled A / Smoked glass and B / Etched metal, small understated headings. Each study has a compact workspace row General, 0.00 USDC available, then a beautifully crafted 1.65:1 ABI Vault card, then a small Open wallet text action with arrow. Small note Design study • illustrative balance. A uses deep smoked charcoal, a large faint optically precise etched ABI monogram toward the right, subtle transparent dark layers and polished silver edge, a tiny restrained blue edge reflection. B uses satin graphite metal with precise fine brushed texture, embossed ABI mark, silver engraving, softer dimensional shadow; stay charcoal rather than bright white. Both have actual ABI geometric hexagon monogram from reference in upper left and ABI VAULT lettering, USDC small token badge upper right, workspace name GENERAL bottom left, BASE SEPOLIA bottom right with small label Network. Replace the old decorative card number with quiet text Workspace wallet; no card number, chip, network logo, contactless symbol or invented payment capability. Card is the dominant focal point, high craft material and legible compact typography. Under each show three small neutral icon-label actions Receive, Allocate, Move in one row, consistent thin outline icons. At bottom of sheet show tiny samples of matching outline icons wallet, agent connection, shield check and parcel, and a short caption Shared icon language. Keep ample whitespace. No purple, no neon glow, no seller CTA, no changes to ABI brand. Render clean UI, not a physical desk photograph or mood poster.",
+  "reference": ".impeccable/review/abi-o11-hybrid-confirm/overview-1440.png",
+  "purpose": "User-requested comp-first refinement; design selection pending",
+  "constraints": [
+    "Balances are illustrative, not account data",
+    "Retain actual ABI brand mark in implementation; generated monogram is illustrative",
+    "Core text and controls must remain semantic and accessible",
+    "Maintain actual server-enforced spending safeguards when keys inherit agent allowances",
+    "No source code or production changes authorized by these mockups alone"
+  ]
+}
