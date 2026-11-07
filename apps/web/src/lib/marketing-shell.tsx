@@ -8,7 +8,7 @@ import { Icon } from "./ui";
 /** Shared marketing chrome for Home / Docs / Pricing / About. */
 
 export type MarketingNavKey =
-  "home" | "landing" | "docs" | "pricing" | "about" | "console" | "partnerships" | "waitlist";
+  "marketplace" | "home" | "landing" | "docs" | "pricing" | "about" | "console" | "partnerships" | "waitlist";
 
 /** Public waitlist signup page. No account needed. */
 export const WAITLIST_HREF = "/waitlist";
@@ -24,7 +24,8 @@ export function MarketingShell({
   return (
     <div className="landing">
       <MarketingNav active={navActive} />
-      {children}
+      <a className="market-skip" href="#main-content">Skip to content</a>
+      <main id="main-content">{children}</main>
       <MarketingFooter />
       <CookieNotice />
     </div>
@@ -94,7 +95,8 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
         <Link href="/" aria-label="Artificial Banking Incorporated home" onClick={close}>
           <ABWordmark size={26} tone="#0a0a0c" />
         </Link>
-        <nav className="marketing-links">
+        <nav className="marketing-links" aria-label="Main navigation">
+          <Link href="/directory" className={current === "marketplace" ? "is-active" : undefined} onClick={close}>Marketplace</Link>
           <Link href="/" className={current === "home" ? "is-active" : undefined} onClick={close}>
             Home
           </Link>
@@ -183,8 +185,8 @@ export function MarketingFooter() {
         <div className="marketing-footer-brand">
           <ABWordmark size={28} tone="#fff" />
           <p>
-            Controls so AI agents can spend money — with budgets you set, approvals when it matters,
-            and a record you can show people.
+            A marketplace where agents find products and people stay in control.
+            Discover, buy and sell with budgets, approvals and a clear purchase record.
           </p>
         </div>
         <div className="marketing-footer-cols">
@@ -192,7 +194,9 @@ export function MarketingFooter() {
             title="Product"
             links={[
               ["Home", "/"],
-              ["Buyer console", "/console"],
+              ["Marketplace", "/directory"],
+              ["Buyer console", "/console?view=marketplace"],
+              ["Seller workspace", "/partners/login"],
               ["Partnerships", "/partnerships"],
               ["Partner login", "/partners/login"],
               ["Features", "/#features"],
@@ -260,15 +264,17 @@ export function SectionHead({
   eyebrow,
   title,
   sub,
+  level = 2,
 }: {
   eyebrow?: string;
   title: string;
   sub: string;
+  level?: 1 | 2;
 }) {
   return (
     <div className="section-head">
       {eyebrow && <span className="eyebrow">{eyebrow}</span>}
-      <h2>{title}</h2>
+      {level === 1 ? <h1>{title}</h1> : <h2>{title}</h2>}
       <p>{sub}</p>
     </div>
   );
@@ -279,10 +285,10 @@ export function MarketingCta() {
   return (
     <section className="cta-band">
       <div className="cta-open">
-        <h2>Try an agent that can spend — this afternoon.</h2>
+        <h2>Your next purchase starts with a good brief.</h2>
         <p>
-          The console is free while we&rsquo;re building. Bring an OpenAI, Anthropic, or any
-          pay-per-use API key. Your agent can start paying under your rules in a few minutes.
+          Explore seller listings, compare products and prepare a purchase with your agent.
+          Your existing spending rules govern every payment request.
         </p>
       </div>
       <div className="cta-lockup" aria-hidden>
@@ -303,3 +309,4 @@ export function MarketingCta() {
     </section>
   );
 }
+

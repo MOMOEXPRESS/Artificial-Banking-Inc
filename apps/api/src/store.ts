@@ -687,6 +687,9 @@ export function injectStoreDatabase(database: Database.Database): void {
   (globalThis as { __ABI_STORE_DB__?: Database.Database }).__ABI_STORE_DB__ = database;
 }
 
+/** Shared database for additive marketplace records; never exposes keys over HTTP. */
+export function commerceDatabase(): Database.Database { return db; }
+
 /** A13 — rehash any leftover plaintext secrets once at boot (idempotent). */
 function migrateSecretsAtRest(): void {
   const rehash = (table: string, column: string, prefix: string) => {

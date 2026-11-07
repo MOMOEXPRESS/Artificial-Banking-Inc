@@ -1,0 +1,11 @@
+{
+  "purpose": "AI-generated fictional product imagery for the isolated console demo",
+  "source": "image_gen",
+  "layout": "2 by 2 contact sheet, displayed using CSS image windows",
+  "products": [
+    "Forest green daypack",
+    "Chalk wireless headphones",
+    "Terracotta desk lamp",
+    "Slate notebook and SSD kit"
+  ]
+}

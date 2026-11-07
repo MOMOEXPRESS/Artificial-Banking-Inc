@@ -14,6 +14,7 @@ import { ABAppIcon, ABMark } from "../../lib/brand";
 import { showApprovalToast } from "../../lib/approval-toast";
 import { Icon, fmtUsd, relTime } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
+import { MarketplaceBuyer } from "../../lib/marketplace-buyer";
 import { ChatView } from "../../lib/chat-view";
 import { PolicyView, type Policy } from "../../lib/policy-view";
 import { SettingsView } from "../../lib/settings-view";
@@ -102,6 +103,7 @@ const API = browserApiBase();
 const SELLER = sellerUrl() ?? "";
 
 const NAV: { key: View; label: string; icon: string; group: string }[] = [
+  { key: "marketplace", label: "Marketplace", icon: "search", group: "Home" },
   { key: "overview", label: "Overview", icon: "home", group: "Home" },
   { key: "insights", label: "Insights", icon: "spark", group: "Home" },
   { key: "treasury", label: "Treasury", icon: "wallet", group: "Money" },
@@ -232,6 +234,7 @@ const VIEW_META: Partial<Record<View, { eyebrow: string; description: string; ic
 };
 
 const ALL_VIEWS = new Set<View>([
+  "marketplace",
   "overview",
   "treasury",
   "agents",
@@ -1517,6 +1520,8 @@ export default function Console() {
                 {view !== "overview" && (
                   <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
                 )}
+                {view === "marketplace" && <MarketplaceBuyer session={session} gFetch={gFetch} />}
+                {view === "overview" && <section className="card" aria-label="Marketplace tools"><h2>Shop and sell on ABI</h2><p>Explore listings, manage your shortlist and follow orders. Sellers manage inventory and fulfillment in their workspace.</p><div className="market-actions"><button onClick={() => setView("marketplace")}>Open marketplace</button><a href="/partners/login">Seller workspace</a><a href="/directory">Browse public listings</a><a href="/docs">Shopping and seller guide</a></div></section>}
                 {view === "overview" && (
                   <Overview
                     {...shared}

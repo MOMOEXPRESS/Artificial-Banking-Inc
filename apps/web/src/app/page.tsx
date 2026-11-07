@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { MarketingCta, MarketingShell, SectionHead } from "../lib/marketing-shell";
+import { MarketplaceCatalog } from "../lib/marketplace-catalog";
 import { AgentLogoMarquee } from "../lib/agent-logo-marquee";
 import { LandingMotion } from "../lib/landing-motion";
 import { Icon } from "../lib/ui";
@@ -20,6 +21,7 @@ export default function HomePage() {
     <MarketingShell active="home">
       <LandingMotion />
       <Hero />
+      <MarketplaceResources />
       <MetricsBand />
       <TrustStrip />
       <AgentLogoMarquee />
@@ -57,20 +59,19 @@ function Hero() {
       <div className="hero-inner">
         <div className="hero-copy">
           <h1>
-            Let AI agents pay for things — <em>without losing control.</em>
+            Let AI agents shop for you — <em>without losing control.</em>
           </h1>
           <p className="hero-sub">
-            ABI sits between an AI agent and company funds. Each agent receives a governed spending
-            budget from the organization vault. You set the rules; exceptions wait for a person.
-            Settlement runs on Base Sepolia testnet USDC: balances come only from on-chain deposits.
-            Mainnet and managed custody are not wired yet.
+            Discover software, digital services and physical goods in one marketplace.
+            Your agent checks seller listings, compares product details and prepares a purchase.
+            You set the budget and rules; exceptions wait for your approval.
           </p>
           <div className="hero-ctas">
             <Link className="btn-primary" href="/console">
               Open the console <Icon name="arrowRight" size={14} />
             </Link>
-            <Link className="btn-ghost" href="/waitlist?ref=home-hero">
-              Join the waitlist
+            <Link className="btn-ghost" href="/directory">
+              Explore the marketplace
             </Link>
           </div>
           <div className="hero-meta">
@@ -81,7 +82,7 @@ function Hero() {
             <div className="sep" />
             <div>
               <b>x402</b>
-              <span>pay APIs automatically</span>
+              <span>governed agent purchases</span>
             </div>
             <div className="sep" />
             <div>
@@ -108,7 +109,7 @@ function HeroGraphic() {
             <span className="hero-console-dot" />
             <span className="hero-console-dot" />
             <span className="hero-console-dot" />
-            <span>Console · Overview</span>
+            <span>Illustrative console · Marketplace</span>
           </div>
           <div className="hero-console-body">
             <div className="hero-console-rail">
@@ -122,23 +123,23 @@ function HeroGraphic() {
               <div className="hero-console-kpis">
                 <div className="hero-console-kpi">
                   <span>Treasury</span>
-                  <b>$12,480</b>
+                  <b>Set by you</b>
                 </div>
                 <div className="hero-console-kpi">
                   <span>Agents</span>
-                  <b>8 live</b>
+                  <b>Your agents</b>
                 </div>
                 <div className="hero-console-kpi">
                   <span>Approvals</span>
-                  <b>2 open</b>
+                  <b>Review first</b>
                 </div>
               </div>
               <div className="hero-console-card">
                 <div className="row">
-                  <span className="title">Recent activity</span>
-                  <span className="meta">live</span>
+                  <span className="title">Shopping activity</span>
+                  <span className="meta">example</span>
                 </div>
-                <p className="meta">ops-bot paid $1.20 · api.openai.com</p>
+                <p className="meta">Compare listings · check stock · review quote</p>
                 <div className="hero-console-pills">
                   <i className="ok">allowed</i>
                   <i className="warn">awaiting</i>
@@ -233,10 +234,10 @@ function PartnerLogo({ children, abbr }: { children: React.ReactNode; abbr: stri
 
 function MetricsBand() {
   const metrics = [
-    { label: "Rule check", value: "~0ms", sub: "in the mock rail" },
-    { label: "Approval ping", value: "55ms", sub: "local median" },
-    { label: "Console pages", value: "10", sub: "money, agents, records" },
-    { label: "Demo missions", value: "7", sub: "real API calls, real ledger" },
+    { label: "Discover", value: "Products", sub: "software, services and physical goods" },
+    { label: "Sell", value: "Inventory", sub: "listings, stock and product attributes" },
+    { label: "Buy", value: "Orders", sub: "quotes and per-vendor status" },
+    { label: "Stay in control", value: "Policies", sub: "budgets, approvals and receipts" },
   ];
   return (
     <section className="metrics-band section tight">
@@ -305,9 +306,9 @@ function HomeInterstitial({
 
 const PRODUCT_FRAMES = [
   {
-    title: "Overview",
-    sub: "Vault balance, agents, and money moves in one place.",
-    chips: ["$12.4k vault", "8 agents", "2 approvals"],
+    title: "Marketplace",
+    sub: "Search listings, inspect product facts and review an itemized quote.",
+    chips: ["live catalog", "stock and attributes", "buyer shortlist"],
   },
   {
     title: "Approvals",
@@ -315,9 +316,9 @@ const PRODUCT_FRAMES = [
     chips: ["$45 waiting", "needs you", "Telegram too"],
   },
   {
-    title: "Policy simulator",
-    sub: "Try your limits before agents spend for real.",
-    chips: ["allowlist", "daily cap", "quiet hours"],
+    title: "Seller inventory",
+    sub: "Manage product listings, availability, fulfillment and buyer cases.",
+    chips: ["product listings", "order items", "returns and disputes"],
   },
 ];
 
@@ -326,7 +327,7 @@ function ProductTour() {
     <section id="product" className="section product-tour">
       <SectionHead
         title="Peek at the product before you sign in"
-        sub="Three screens people actually use — balances, approvals, and testing your rules."
+        sub="Shopping and seller tools join balances, approvals and spending rules in the console."
       />
       <div className="product-frames">
         {PRODUCT_FRAMES.map((f) => (
@@ -441,8 +442,8 @@ function Features() {
     <div id="features" className="pane-stack">
       <section className="section pane-intro">
         <SectionHead
-          title="Wallets, rules, and a paper trail for AI spend"
-          sub="Give agents money they can use — with limits you set, approvals when it matters, and a record you can show finance."
+          title="A marketplace for agents. Controls for you."
+          sub="Find products, manage inventory and follow each purchase — with the same budgets, approvals and records underneath."
         />
       </section>
       {lead.map((f, i) => (
@@ -674,6 +675,28 @@ function Enterprise() {
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+
+/** Marketplace capabilities reuse ABI's original section and action-card grammar. */
+function MarketplaceResources() {
+  return (
+    <section id="marketplace" className="section marketplace-resources">
+      <SectionHead title="One marketplace. Your agent does the legwork."
+        sub="Search seller listings for software, digital goods, services and physical products. Check availability, compare details and keep every purchase under your rules." />
+      <form action="/directory" className="market-search" role="search" aria-label="Search marketplace">
+        <label className="market-visually-hidden" htmlFor="home-market-search">What are you looking for?</label>
+        <input id="home-market-search" name="q" placeholder="A gift for someone who likes hiking" maxLength={500} required />
+        <button type="submit" className="btn-primary">Find products</button>
+      </form>
+      <MarketplaceCatalog compact />
+      <div className="cta-action-row">
+        <Link className="cta-action-card" href="/console?view=marketplace"><strong>Buy with your agent</strong><span className="cta-action-sub">Shortlists, quotes, orders, delivery and purchase-backed reviews.</span></Link>
+        <Link className="cta-action-card" href="/partners/login?mode=signup"><strong>Sell on ABI</strong><span className="cta-action-sub">Vendor onboarding, inventory, listings, fulfillment and buyer cases.</span></Link>
+      </div>
+      <p className="market-fine">Base Sepolia testnet USDC. Physical checkout requires configured shipping and escrow providers. <Link href="/docs">Read the shopping and seller guide</Link>.</p>
     </section>
   );
 }

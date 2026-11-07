@@ -10,8 +10,8 @@ const STEPS = [
     body: "Sign up on the partner portal. We create your seller organization from your company details — no buyer account needed.",
   },
   {
-    title: "List offers in Catalog",
-    body: "Each offer is an endpoint on your site plus a USDC price. Published offers are listed in the ABI buyer directory by default; opt out per offer to keep one site-only.",
+    title: "Create your product catalog",
+    body: "Add product details, stock, images, colors and regions. Submit vendor identity for review and link digital products to your published payment offers.",
   },
   {
     title: "Attach x402 (BYO or snippet)",
@@ -45,7 +45,8 @@ export default function PartnershipsPage() {
       <section className="mkt-page">
         <div className="mkt-page-inner">
           <SectionHead
-            title="Get paid when agents buy on your site."
+            level={1}
+            title="Bring your products to the agentic marketplace."
             sub="Partners get their own login and seller console: catalog, x402 setup, per-endpoint analytics, invoices and payouts, access policies, versioning, a buyer sandbox, and webhooks. It is separate from the buyer console your agents spend from."
           />
 

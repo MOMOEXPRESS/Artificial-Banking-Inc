@@ -68,6 +68,7 @@ export default function PricingPage() {
       <section className="mkt-page">
         <div className="mkt-page-inner">
           <SectionHead
+            level={1}
             title="Explore ABI while we build."
             sub="ABI is in pre-beta. These are indicative product areas, not purchasable plans: billing, tier entitlements, and live settlement are not enabled."
           />

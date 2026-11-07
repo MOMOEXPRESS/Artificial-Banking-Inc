@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-07",
+  "title": "ABI original design with marketplace resources",
+  "extensions": {
+    "sourceAuthority": [
+      "apps/web/src/app/globals.css",
+      "apps/web/src/app/design-system.css",
+      "apps/web/src/app/marketplace.css"
+    ],
+    "userPin": "Original ABI design; marketplace resources preserved"
+  },
+  "components": [],
+  "narrative": {
+    "northStar": "Original ABI visual identity with agent commerce",
+    "overview": "Preserve original chrome, typography, light/dark tokens and section grammar. Marketplace demo and live workflows are clearly separated.",
+    "keyCharacteristics": [
+      "Original ABI branding",
+      "Familiar marketplace browsing",
+      "Governed purchases",
+      "Explicit fictional demo scenarios"
+    ]
+  }
+}

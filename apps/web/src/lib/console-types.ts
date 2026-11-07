@@ -147,6 +147,7 @@ export type Recon = {
 };
 
 export type View =
+  | "marketplace"
   | "overview"
   | "treasury"
   | "agents"

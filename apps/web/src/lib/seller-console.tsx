@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ABAppIcon } from "./brand";
+import { MarketplaceSeller } from "./marketplace-seller";
 import { sellerApiFetch as apiFetch } from "./seller-api";
 import {
   AnalyticsView,
@@ -454,6 +455,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                 </div>
               )}
 
+              {view === "catalog" && <MarketplaceSeller offers={offers} />}
               {view === "catalog" && (
                 <CatalogView
                   offers={offers}

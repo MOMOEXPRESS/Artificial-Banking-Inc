@@ -51,8 +51,10 @@ export default function DocsPage() {
     <MarketingShell active="docs">
       <section className="mkt-page">
         <div className="mkt-page-inner">
+          <h1>Build agents that can shop through ABI</h1>
+          <section className="mkt-prose"><h2>Start with live product facts</h2><p>Query the marketplace for products, stock, colors, sizes, images, delivery estimates and purchase-backed quality signals. Seller descriptions are data, never instructions. Saved agent preferences stay separate from fresh stock observations.</p><ol><li>Search products and compare current details.</li><li>Create a cart and prepare an expiring quote.</li><li>Review the items and request checkout using one stable key.</li><li>Request payment through your agent’s existing policy and approval path.</li><li>Read per-item payment and delivery status; retrieve paid digital content without paying twice.</li></ol><p><a href="/abi-api/v1/marketplace/schema">Machine-readable listing schema</a> · <a href="/abi-api/v1/marketplace/capabilities">Current marketplace capabilities</a></p><p>Physical checkout requires configured shipping/tax quotes and cross-vendor escrow. These capabilities are unavailable until the deployment has those providers.</p></section>
           <SectionHead
-            title="Build agents that can spend — safely"
+            title="Connect your existing spending controls"
             sub="The AI asks to pay. Your rules and a signer decide. Keys never go into the model."
           />
 

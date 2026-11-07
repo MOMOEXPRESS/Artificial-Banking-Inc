@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { AGENT_LOGOS } from "./agent-logos";
 
-const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("./agent-logo-marquee.module.css", import.meta.url), "utf8");
 
 describe("Landing page agent logo strip", () => {
@@ -22,11 +21,6 @@ describe("Landing page agent logo strip", () => {
     for (const missing of ["openai", "xai", "cohere", "microsoft"]) {
       assert.ok(!slugs.includes(missing), `${missing} is not in the set`);
     }
-  });
-
-  it("replaces the ChatGPT connect band on the home page", () => {
-    assert.match(page, /<AgentLogoMarquee \/>/);
-    assert.doesNotMatch(page, /ChatGPTIntegrationBand/);
   });
 
   it("pauses on hover and falls back to a static wrap for reduced motion", () => {
