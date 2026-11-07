@@ -114,3 +114,112 @@
 .studio-console .market-mode button{color:var(--color-fg)!important}.studio-console .market-mode button[aria-pressed="true"]{color:var(--color-seg-active-fg)!important}
 @media(max-width:1150px){.studio-review-bar{flex-wrap:wrap;gap:16px}.studio-review-bar dl{gap:6px 16px}.studio-review-bar>button{margin-left:auto}}
 @media(max-width:820px){.studio-review-bar{bottom:68px;padding:14px 12px;margin-inline:-12px;border:1px solid var(--color-border);border-radius:8px;gap:14px}.studio-review-bar>div{min-width:0}.studio-review-bar dl{min-width:100%;gap:6px 12px}.studio-review-bar>button{width:100%}.studio-comparison-table{margin-top:16px}}
+
+/* Agent credential lifecycle: keep access, duration, and spending distinct. */
+.agents-page .agent-access-guide {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin: 0 0 24px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.agents-page .agent-access-guide strong {
+  font-size: 14px;
+  color: var(--color-fg);
+}
+.agents-page .agent-access-guide p,
+.agents-page .agent-key-settings p {
+  margin: 6px 0 0;
+  color: var(--color-fg-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  max-width: 70ch;
+}
+.agents-page .agent-key-settings {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(150px, 220px);
+  align-items: center;
+  gap: 8px 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+.agents-page .agent-key-settings label {
+  font-weight: 600;
+  font-size: 13px;
+}
+.agents-page .agent-key-settings p {
+  grid-column: 1/-1;
+}
+.agents-page .agent-key-meta {
+  font-size: 12px;
+  color: var(--color-fg-muted);
+  line-height: 1.7;
+  margin-top: 6px;
+  white-space: normal;
+}
+.agents-page .agent-key-reveal {
+  margin-bottom: 20px;
+  border: 1px solid var(--color-border-strong);
+  padding: 20px;
+}
+.agents-page .agent-key-reveal h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+.agents-page .agent-key-reveal p {
+  margin: 0 0 12px;
+  color: var(--color-fg-muted);
+  line-height: 1.6;
+}
+.agents-page .agent-key-reveal > code {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  background: var(--color-surface-2);
+  margin-bottom: 16px;
+  user-select: all;
+}
+.agents-page .agent-key-reveal .row {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.agents-page .agent-profile-checks {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 16px 0;
+}
+.agents-page .agent-profile-checks label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 32px;
+}
+.agents-page .agent-profile-secret code {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  user-select: all;
+}
+.agents-page :is(button, input, select):focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 3px;
+}
+@media (max-width: 700px) {
+  .agents-page .agent-access-guide {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .agents-page .agent-key-settings {
+    grid-template-columns: 1fr;
+    padding: 16px;
+  }
+  .agents-page .agent-key-settings select {
+    width: 100%;
+    min-height: 44px;
+  }
+  .agents-page .agent-profile-checks label {
+    min-height: 44px;
+  }
+}

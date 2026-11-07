@@ -32,14 +32,20 @@ function identityOf(agent: {
   status: AgentIdentity["status"];
   profile: Record<string, unknown>;
   apiKey: string;
-}): AgentIdentity & { apiKeyLive: boolean } {
+  apiKeyExpiresAt?: string;
+  apiKeyHint?: string;
+}): AgentIdentity & { apiKeyLive: boolean; apiKeyExpiresAt?: string; apiKeyHint?: string } {
   return {
     id: agent.id,
     orgId: agent.orgId,
     name: agent.name,
     status: agent.status,
     profile: agent.profile,
-    apiKeyLive: agentApiKeyIsLive(agent.apiKey),
+    apiKeyLive:
+      agentApiKeyIsLive(agent.apiKey) &&
+      (!agent.apiKeyExpiresAt || new Date(agent.apiKeyExpiresAt).getTime() > Date.now()),
+    apiKeyExpiresAt: agent.apiKeyExpiresAt,
+    apiKeyHint: agent.apiKeyHint,
   };
 }
 
@@ -142,6 +148,13 @@ export function registerAgentRoutes(
         const body = z
           .object({
             name: z.string().min(1).max(80),
+            keyTtlHours: z
+              .number()
+              .int()
+              .min(1)
+              .max(24 * 365)
+              .nullable()
+              .default(24 * 90),
             budgetId: z.string().min(1).optional(),
             groupId: z.string().min(1).optional(),
             groupIds: z.array(z.string().min(1)).optional(),
@@ -176,7 +189,12 @@ export function registerAgentRoutes(
             return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: err } });
           }
         }
-        const { agentId, apiKey } = store.createAgent(org.id, body.name, budget.id);
+        const { agentId, apiKey } = store.createAgent(
+          org.id,
+          body.name,
+          budget.id,
+          body.keyTtlHours,
+        );
         for (const groupId of groupIds) store.addAgentToGroup(org.id, agentId, groupId);
         if (body.profile) store.setAgentProfile(agentId, body.profile);
         const agent = scopedStore(org.id).getAgent(agentId)!;
@@ -340,7 +358,18 @@ export function registerAgentRoutes(
             error: { code: "VALIDATION_ERROR", message: "Unarchive before rotating keys" },
           });
         }
-        const apiKey = store.rotateAgentKey(agent.id);
+        const body = z
+          .object({
+            keyTtlHours: z
+              .number()
+              .int()
+              .min(1)
+              .max(24 * 365)
+              .nullable()
+              .default(24 * 90),
+          })
+          .parse(req.body ?? {});
+        const apiKey = store.rotateAgentKey(agent.id, body.keyTtlHours);
         store.addFreeze(org.id, agent.id, "key rotated");
         res.json({
           agentId: agent.id,
