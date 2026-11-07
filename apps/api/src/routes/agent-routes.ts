@@ -774,11 +774,14 @@ export function registerAgentRoutes(
             x402BudgetMicro: parseUsdcToMicro(body.x402BudgetUsdc),
           }),
         });
-        res.status(201).json({
-          sessionKey: session,
-          mcpUrl: `${req.protocol}://${req.get("host")}/mcp/${session.token}`,
-          note: "Session token and developer-mode MCP URL are shown once. The MCP URL works on testnet only; revoke this session after testing.",
-        });
+        res
+          .set("Cache-Control", "no-store")
+          .status(201)
+          .json({
+            sessionKey: session,
+            mcpUrl: `${req.protocol}://${req.get("host")}/mcp/${session.token}`,
+            note: "Session token and developer-mode MCP URL are shown once. The MCP URL works on testnet only; revoke this session after testing.",
+          });
       },
       { ownerOnly: true },
     ),
@@ -793,6 +796,25 @@ export function registerAgentRoutes(
           return res.status(404).json({ error: { code: "NOT_FOUND", message: "session key" } });
         }
         res.json({ ok: true });
+      },
+      { ownerOnly: true },
+    ),
+  );
+
+  app.post(
+    "/v1/guardian/session-keys/:id/replace",
+    guardianRoute(
+      (org, req, res) => {
+        const key = store.replaceSessionKey(org.id, req.params.id);
+        if (!key)
+          return res
+            .status(404)
+            .json({ error: { code: "NOT_FOUND", message: "Active connection key not found" } });
+        res.setHeader("Cache-Control", "no-store");
+        return res.json({
+          sessionKey: key,
+          note: "Old secret is invalid. Permissions, expiry, allowance and spending history are unchanged. This secret is shown once.",
+        });
       },
       { ownerOnly: true },
     ),

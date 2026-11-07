@@ -6750,6 +6750,16 @@ export const store = {
     return row;
   },
 
+  replaceSessionKey(orgId: string, id: string): { id: string; token: string } | undefined {
+    const token = `pv_sess_${randomBytes(16).toString("hex")}`;
+    const r = db
+      .prepare(
+        "UPDATE session_keys SET token=? WHERE org_id=? AND id=? AND revoked_at IS NULL AND expires_at>?",
+      )
+      .run(hashSecret(token), orgId, id, nowIso());
+    return r.changes ? { id, token } : undefined;
+  },
+
   listSessionKeys(orgId: string, agentId?: string): Omit<SessionKeyRecord, "token">[] {
     const rows = agentId
       ? (db

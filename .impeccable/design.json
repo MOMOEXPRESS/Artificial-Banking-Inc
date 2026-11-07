@@ -1,145 +1,551 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-07T00:00:00Z",
-  "title": "Design System: ABI public identity and Assisted Shopping Studio",
+  "generatedAt": "2026-11-07T13:44:26.221439+00:00",
+  "title": "Design System: ABI minimalist marketplace",
   "extensions": {
     "sourceAuthority": [
       "DESIGN.md",
-      "apps/web/src/app/console-studio.css",
-      "apps/web/src/lib/studio-nav.tsx",
-      "apps/web/src/lib/marketplace-demo.tsx",
-      "apps/web/src/lib/marketplace-seller.tsx",
-      "apps/web/src/app/public-studio.css"
+      ".impeccable/briefs/minimal-marketplace.md",
+      "apps/web/src/app/minimal-workspace.css",
+      "apps/web/src/app/layout.tsx",
+      "apps/web/src/app/page.tsx",
+      "apps/web/src/lib/minimal-workspace.tsx",
+      "apps/web/src/lib/studio-nav.tsx"
     ],
-    "approvedReference": ".impeccable/mocks/console-redesign/02-assisted-shopping.webp",
-    "scope": "Current white/blue palette across .studio-console and .landing. Original public structure and content preserved; earlier public palette retained in DESIGN.md as historical baseline.",
+    "approvedReferences": [
+      ".impeccable/mocks/minimal-reference/overview.png",
+      ".impeccable/mocks/minimal-reference/catalog.png",
+      ".impeccable/mocks/minimal-reference/billing.png"
+    ],
+    "scope": "Current neutral/blue .studio-console and .landing, including the homepage. Supersedes navy-rail studio and beige/green directions. Explicit dark-theme console selector resolves to this light presentation.",
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Canvas",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "Ink Secondary",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Ink Muted",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "ink-faint": {
+        "role": "neutral",
+        "displayName": "Ink Faint",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "surface-2": {
+        "role": "neutral",
+        "displayName": "Surface 2",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "surface-3": {
+        "role": "neutral",
+        "displayName": "Surface 3",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "surface-hover": {
+        "role": "neutral",
+        "displayName": "Surface Hover",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Border",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "border-soft": {
+        "role": "neutral",
+        "displayName": "Border Soft",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Border Strong",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Accent",
+        "tonalRamp": [
+          "oklch(15% 0.15539 256.25)",
+          "oklch(26% 0.15539 256.25)",
+          "oklch(38% 0.15539 256.25)",
+          "oklch(49% 0.15539 256.25)",
+          "oklch(61% 0.15539 256.25)",
+          "oklch(72% 0.15539 256.25)",
+          "oklch(84% 0.15539 256.25)",
+          "oklch(95% 0.15539 256.25)"
+        ]
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Accent Hover",
+        "tonalRamp": [
+          "oklch(15% 0.13892 256.38)",
+          "oklch(26% 0.13892 256.38)",
+          "oklch(38% 0.13892 256.38)",
+          "oklch(49% 0.13892 256.38)",
+          "oklch(61% 0.13892 256.38)",
+          "oklch(72% 0.13892 256.38)",
+          "oklch(84% 0.13892 256.38)",
+          "oklch(95% 0.13892 256.38)"
+        ]
+      },
+      "accent-soft": {
+        "role": "primary",
+        "displayName": "Accent Soft",
+        "tonalRamp": [
+          "oklch(15% 0.01710 256.28)",
+          "oklch(26% 0.01710 256.28)",
+          "oklch(38% 0.01710 256.28)",
+          "oklch(49% 0.01710 256.28)",
+          "oklch(61% 0.01710 256.28)",
+          "oklch(72% 0.01710 256.28)",
+          "oklch(84% 0.01710 256.28)",
+          "oklch(95% 0.01710 256.28)"
+        ]
+      },
+      "checklist": {
+        "role": "neutral",
+        "displayName": "Checklist",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "row": {
+        "role": "neutral",
+        "displayName": "Row",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "allowance": {
+        "role": "neutral",
+        "displayName": "Allowance",
+        "tonalRamp": [
+          "oklch(15% 0.00288 264.54)",
+          "oklch(26% 0.00288 264.54)",
+          "oklch(38% 0.00288 264.54)",
+          "oklch(49% 0.00288 264.54)",
+          "oklch(61% 0.00288 264.54)",
+          "oklch(72% 0.00288 264.54)",
+          "oklch(84% 0.00288 264.54)",
+          "oklch(95% 0.00288 264.54)"
+        ]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "Card",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "control": {
+        "role": "neutral",
+        "displayName": "Control",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "control-hover": {
+        "role": "neutral",
+        "displayName": "Control Hover",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "field": {
+        "role": "neutral",
+        "displayName": "Field",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "selected-dock": {
+        "role": "neutral",
+        "displayName": "Selected Dock",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "footer": {
+        "role": "neutral",
+        "displayName": "Footer",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26% 0.00000 89.88)",
+          "oklch(38% 0.00000 89.88)",
+          "oklch(49% 0.00000 89.88)",
+          "oklch(61% 0.00000 89.88)",
+          "oklch(72% 0.00000 89.88)",
+          "oklch(84% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "success": {
+        "role": "semantic",
+        "displayName": "Success",
+        "tonalRamp": [
+          "oklch(15% 0.08429 158.61)",
+          "oklch(26% 0.08429 158.61)",
+          "oklch(38% 0.08429 158.61)",
+          "oklch(49% 0.08429 158.61)",
+          "oklch(61% 0.08429 158.61)",
+          "oklch(72% 0.08429 158.61)",
+          "oklch(84% 0.08429 158.61)",
+          "oklch(95% 0.08429 158.61)"
+        ]
+      },
+      "error-surface": {
+        "role": "semantic",
+        "displayName": "Error Surface",
+        "tonalRamp": [
+          "oklch(15% 0.01852 17.48)",
+          "oklch(26% 0.01852 17.48)",
+          "oklch(38% 0.01852 17.48)",
+          "oklch(49% 0.01852 17.48)",
+          "oklch(61% 0.01852 17.48)",
+          "oklch(72% 0.01852 17.48)",
+          "oklch(84% 0.01852 17.48)",
+          "oklch(95% 0.01852 17.48)"
+        ]
+      },
+      "error-text": {
+        "role": "semantic",
+        "displayName": "Error Text",
+        "tonalRamp": [
+          "oklch(15% 0.14926 20.83)",
+          "oklch(26% 0.14926 20.83)",
+          "oklch(38% 0.14926 20.83)",
+          "oklch(49% 0.14926 20.83)",
+          "oklch(61% 0.14926 20.83)",
+          "oklch(72% 0.14926 20.83)",
+          "oklch(84% 0.14926 20.83)",
+          "oklch(95% 0.14926 20.83)"
+        ]
+      },
+      "selection": {
+        "role": "semantic",
+        "displayName": "Selection",
+        "tonalRamp": [
+          "oklch(15% 0.03998 258.81)",
+          "oklch(26% 0.03998 258.81)",
+          "oklch(38% 0.03998 258.81)",
+          "oklch(49% 0.03998 258.81)",
+          "oklch(61% 0.03998 258.81)",
+          "oklch(72% 0.03998 258.81)",
+          "oklch(84% 0.03998 258.81)",
+          "oklch(95% 0.03998 258.81)"
+        ]
+      },
+      "selection-text": {
+        "role": "semantic",
+        "displayName": "Selection Text",
+        "tonalRamp": [
+          "oklch(15% 0.05867 259.54)",
+          "oklch(26% 0.05867 259.54)",
+          "oklch(38% 0.05867 259.54)",
+          "oklch(49% 0.05867 259.54)",
+          "oklch(61% 0.05867 259.54)",
+          "oklch(72% 0.05867 259.54)",
+          "oklch(84% 0.05867 259.54)",
+          "oklch(95% 0.05867 259.54)"
+        ]
+      }
+    },
+    "rampsProvenance": "Synthesized OKLCH lightness steps for documentation preview; ramps are not implementation tokens.",
     "shadows": [
       {
-        "name": "studio-elevated",
-        "value": "0 6px 24px #15294412",
-        "purpose": "Available console token; normal working panels remain flat."
+        "name": "selected-segment",
+        "value": "0 1px 4px #0002",
+        "purpose": "Selected segmented controls."
       },
       {
-        "name": "public-product-frame",
-        "value": "0 8px 28px #182b430d",
-        "purpose": "Scoped public hero and product frames."
-      },
-      {
-        "name": "studio-review-bar",
-        "value": "0 -4px 16px #15294408",
-        "purpose": "Sticky purchase review boundary."
+        "name": "floating-surface",
+        "value": "0 6px 24px #0001",
+        "purpose": "Mobile dock and cookie notice."
       }
     ],
     "motion": [
       {
-        "name": "studio-button",
+        "name": "button-state",
         "value": "background-color .15s ease-out, border-color .15s ease-out",
-        "purpose": "Control state transition; disabled for reduced motion."
-      },
-      {
-        "name": "studio-rail",
-        "value": "transform .18s ease-out",
-        "purpose": "Mobile navigation drawer; disabled for reduced motion."
+        "purpose": "Inherited console button state transition; disabled under reduced motion."
       }
     ],
     "breakpoints": [
       {
-        "name": "studio-compact-header",
-        "value": "1100px"
+        "name": "compact-header",
+        "value": "900px"
       },
       {
-        "name": "studio-narrow-workspace",
-        "value": "1150px"
-      },
-      {
-        "name": "studio-mobile",
-        "value": "820px"
-      },
-      {
-        "name": "studio-small-mobile",
-        "value": "520px"
-      },
-      {
-        "name": "studio-marketplace-toolbar",
-        "value": "1200px"
+        "name": "mobile-dock",
+        "value": "760px"
       }
     ],
-    "verification": "Source and approved reference inspected; launcher unavailable. No runtime or visual certification."
+    "focus": {
+      "outline": "2px solid #246bc4",
+      "outlineOffset": "3px"
+    },
+    "evidenceLimits": "Source extraction only for this documentation pass. Existing captures/synthetic fixtures do not establish live finance or physical fulfillment. Final screenshots after reviewer source fixes are pending. No launcher, detector, comp-spec, automated diff or build-state provenance available."
   },
   "components": [
     {
-      "name": "Studio primary action",
+      "name": "Primary button",
       "kind": "button",
-      "refersTo": "studio-button-primary",
-      "description": "Console-only source-derived representative snippet.",
-      "html": "<button class=\"ds-primary\">Review demo quote</button>",
-      "css": ".ds-primary{font-family:\"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif;font-size:14px;border-radius:6px;background:#315dd8;color:#fff;padding:10px 14px;border:1px solid transparent;min-height:42px;font-weight:600;transition:background-color .15s ease-out}.ds-primary:hover{background:#2448b2}.ds-primary:focus-visible{outline:2px solid #315dd8;outline-offset:3px}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+      "refersTo": "button-primary",
+      "description": "Restrained blue action; disabled when prerequisites are unavailable.",
+      "html": "<button class=\"ds-primary\">Connect your agent</button>",
+      "css": ".ds-primary{background:var(--color-accent,#246bc4);color:#fff;min-height:42px;border:0;border-radius:8px;padding:9px 16px;font:500 14px \"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif;transition:background-color .15s ease-out}.ds-primary:hover{background:var(--color-accent-hover,#1856a3)}.ds-primary:focus-visible{outline:2px solid var(--color-ring,#246bc4);outline-offset:3px}.ds-primary:disabled{opacity:.48;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
     },
     {
-      "name": "Studio shortlist action",
+      "name": "Secondary button",
       "kind": "button",
-      "refersTo": "",
-      "description": "Console-only source-derived representative snippet.",
-      "html": "<button class=\"ds-outline\">Add to shortlist</button>",
-      "css": ".ds-outline{font-family:\"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif;font-size:14px;border-radius:6px;background:transparent;color:#315dd8;border:1px solid #315dd8;padding:10px 14px;min-height:42px}.ds-outline:hover{background:#e8efff}.ds-outline:focus-visible{outline:2px solid #315dd8;outline-offset:3px}"
+      "refersTo": "button-secondary",
+      "description": "Quiet supporting action.",
+      "html": "<button class=\"ds-secondary\">View activity</button>",
+      "css": ".ds-secondary{background:#ededed;color:var(--color-ink,#252525);min-height:42px;border:0;border-radius:8px;padding:9px 16px;font:500 14px \"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif}.ds-secondary:hover{background:#e0e0e0}.ds-secondary:focus-visible{outline:2px solid var(--color-ring,#246bc4);outline-offset:3px}"
     },
     {
-      "name": "Studio field",
+      "name": "Text field",
       "kind": "input",
-      "refersTo": "",
-      "description": "Console-only source-derived representative snippet.",
-      "html": "<label class=\"ds-label\">Shopping brief<textarea class=\"ds-field\" rows=\"3\">Find a daypack under budget.</textarea></label>",
-      "css": ".ds-label{font:12px \"IBM Plex Sans\",sans-serif;color:#53647a}.ds-field{font-family:\"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif;font-size:14px;border-radius:6px;display:block;padding:10px;border:1px solid #aab8cb;background:#fff;color:#182b43}.ds-field:focus-visible{outline:2px solid #315dd8;outline-offset:3px}"
+      "refersTo": "field",
+      "description": "Neutral filled field with visible keyboard focus.",
+      "html": "<label class=\"ds-label\">Agent name<input class=\"ds-field\" placeholder=\"Shopping agent\" /></label>",
+      "css": ".ds-label{display:flex;flex-direction:column;gap:7px;font:14px \"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif;color:var(--color-ink,#252525)}.ds-field{background:#eee;border:1px solid transparent;border-radius:8px;min-height:42px;padding:10px 12px;font:15px \"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif;color:var(--color-ink,#252525);caret-color:var(--color-accent,#246bc4)}.ds-field:focus-visible{outline:2px solid var(--color-ring,#246bc4);outline-offset:3px}"
     },
     {
-      "name": "Studio selected filter",
+      "name": "Category controls",
       "kind": "chip",
-      "refersTo": "",
-      "description": "Console-only source-derived representative snippet.",
-      "html": "<button class=\"ds-filter\" aria-pressed=\"true\">Outdoors</button>",
-      "css": ".ds-filter{font:12px \"IBM Plex Sans\",sans-serif;background:#e8efff;color:#234dbd;border:1px solid #315dd8;border-radius:6px;min-height:36px;padding:7px 10px}.ds-filter:hover{background:#e5edf9}.ds-filter:focus-visible{outline:2px solid #315dd8;outline-offset:3px}"
+      "refersTo": "category-selected",
+      "description": "Equal commerce categories; selected dark treatment preserves contrast.",
+      "html": "<div class=\"ds-categories\"><button aria-pressed=\"true\">Tools &amp; APIs</button><button aria-pressed=\"false\">Software</button><button aria-pressed=\"false\">Physical goods</button></div>",
+      "css": ".ds-categories{display:flex;gap:10px;flex-wrap:wrap}.ds-categories button{flex:1;min-width:120px;border:0;border-radius:8px;padding:12px 18px;background:#ededed;color:#444;font:500 14px \"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif}.ds-categories button[aria-pressed=\"true\"]{background:#252525;color:#fff}.ds-categories button:hover{background:#e0e0e0}.ds-categories button[aria-pressed=\"true\"]:hover{background:#252525}.ds-categories button:focus-visible{outline:2px solid var(--color-ring,#246bc4);outline-offset:3px}"
     },
     {
-      "name": "Studio workspace navigation",
-      "kind": "nav",
-      "refersTo": "",
-      "description": "Console-only source-derived representative snippet.",
-      "html": "<nav class=\"ds-nav\" aria-label=\"Workspace\"><a href=\"#shopping\" aria-current=\"page\">Shopping</a><a href=\"#orders\">Orders</a></nav>",
-      "css": ".ds-nav{display:flex;gap:8px;background:#fff;font:14px \"IBM Plex Sans\",sans-serif}.ds-nav a{padding:8px 12px;border-radius:7px;text-decoration:none;color:#182b43;min-height:24px}.ds-nav a[aria-current]{background:#e8efff;color:#234dbd}.ds-nav a:hover{background:#e5edf9}.ds-nav a:focus-visible{outline:2px solid #315dd8;outline-offset:3px}"
-    },
-    {
-      "name": "Studio container",
+      "name": "Checklist row",
       "kind": "card",
-      "refersTo": "studio-panel",
-      "description": "Console-only source-derived representative snippet.",
-      "html": "<section class=\"ds-panel\"><h3>Your products</h3><p>Manage listings and availability.</p></section>",
-      "css": ".ds-panel{font:14px \"IBM Plex Sans\",sans-serif;background:#fff;color:#182b43;border:1px solid #dce3ed;border-radius:10px;padding:24px;box-shadow:none}.ds-panel h3{font-size:17px;line-height:1.4}"
+      "refersTo": "checklist-row",
+      "description": "Compact Overview setup row.",
+      "html": "<div class=\"ds-checklist\"><span class=\"ds-check\" aria-hidden=\"true\"></span><span>Connect your agent</span></div>",
+      "css": ".ds-checklist{display:flex;align-items:center;gap:18px;min-height:66px;padding:14px 18px;border-radius:14px;background:#f1f1f1;color:var(--color-ink,#252525);font:15px/1.55 \"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif}.ds-check{width:20px;height:20px;border:1px solid #ccc;border-radius:6px;background:var(--color-canvas,#fafafa);flex:none}"
+    },
+    {
+      "name": "Desktop destinations",
+      "kind": "nav",
+      "refersTo": "button-secondary",
+      "description": "Five buyer destinations; role-specific seller labels are documented in DESIGN.md. This preview omits routing and the separate More control.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Workspace\"><button aria-current=\"page\">Overview</button><button>Catalog</button><button>Connect</button><button>Billing</button><button>Settings</button></nav>",
+      "css": ".ds-nav{display:flex;gap:5px;overflow:auto;background:var(--color-canvas,#fafafa);padding:12px}.ds-nav button{border:0;background:transparent;color:#626262;border-radius:7px;padding:9px 13px;font:400 14px \"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif}.ds-nav button[aria-current]{background:#ededed;color:#252525}.ds-nav button:hover{background:#ededed}.ds-nav button:focus-visible{outline:2px solid var(--color-ring,#246bc4);outline-offset:3px}"
+    },
+    {
+      "name": "Catalog row",
+      "kind": "card",
+      "refersTo": "catalog-row",
+      "description": "Neutral horizontal catalog result; preview is a structural placeholder, not inventory.",
+      "html": "<article class=\"ds-product\"><div class=\"ds-image\" aria-hidden=\"true\"></div><div><h3>Listing title</h3><p>Actual seller and availability appear here.</p></div></article>",
+      "css": ".ds-product{display:flex;align-items:center;gap:24px;background:#f0f0f0;border:0;border-radius:14px;padding:20px;color:var(--color-ink,#252525);font-family:\"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif}.ds-image{width:84px;height:84px;flex:none;border-radius:10px;background:#e5e5e5}.ds-product h3{font-size:19px;font-weight:500;margin:0}.ds-product p{font-size:13px;color:#626262;margin:4px 0}@media(max-width:760px){.ds-product{gap:16px;padding:16px}.ds-image{width:64px;height:64px}}"
     }
   ],
   "narrative": {
-    "northStar": "Assisted Shopping Studio",
-    "overview": "The user expanded the approved blue console direction to home pages. Public layouts and content remain; white/cool-blue surfaces, navy text and cobalt actions now connect public pages with buyer and seller workspaces. Shopping includes a semantic comparison table, demo photographic guide imagery and a sticky purchase review; seller Orders opens the synchronized inventory order-items panel.",
+    "northStar": "ABI minimalist marketplace",
+    "overview": "The approved o11-inspired direction uses a near-white field, quiet neutral rows, readable dark text and restrained blue actions. ABI keeps its wordmark and self-hosted IBM Plex family. The approved minimal-reference overview, catalog and billing studies plus .impeccable/briefs/minimal-marketplace.md define the chosen world; current source defines actual controls and values. Earlier navy-rail Assisted Shopping Studio and beige/green directions are superseded.",
     "keyCharacteristics": [
-      "Open comparison surfaces",
-      "Inspectably simulated shopping progress",
-      "Inventory-first seller workspace",
-      "Explicit demo/live distinction"
+      "Flat tonal surfaces and thin dividers.",
+      "Five clear destinations with advanced controls retained under More.",
+      "Equal category prominence and visible buyer/seller entry points.",
+      "Compact task hierarchy, inspectable balances and honest unavailable states."
     ],
     "rules": [
       {
-        "name": "Scoped shared identity",
-        "body": "Use .studio-console and .landing overrides; retain public layouts and original brand assets. Historical public colors are superseded by the latest user-approved white/blue treatment.",
+        "name": "The Neutral Ground Rule",
+        "body": "Keep working surfaces neutral; reserve blue for actions and meaningful state.",
         "section": "colors"
       }
     ],
     "dos": [
-      "Do preserve factual backend data and clear demo labeling.",
-      "Do retain dark-theme and mobile mappings.",
-      "Do use white/blue public surfaces, cobalt actions and navy footer while preserving public structure and content."
+      "Do use the neutral palette and restrained blue actions across .studio-console and .landing.",
+      "Do keep all three category labels legible and equally visible.",
+      "Do preserve both roles\u2019 advanced destinations under More and native keyboard/focus semantics.",
+      "Do distinguish simulated demo facts, actual listing data, USD credits and Base Sepolia USDC."
     ],
     "donts": [
-      "Don't infer licenses or live capabilities from the comp.",
-      "Don't claim runtime or visual certification from source inspection."
+      "Don\u2019t restore the superseded navy rail or blue-tinted working canvas.",
+      "Don\u2019t expose or persist credentials as decorative billing content.",
+      "Don\u2019t infer live card payments, physical fulfillment or production readiness from the approved studies or synthetic captures."
     ]
   }
 }

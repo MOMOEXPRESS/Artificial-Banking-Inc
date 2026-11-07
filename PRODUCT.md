@@ -6,22 +6,27 @@
 web
 
 ## Users
-Buyers and sellers have equal priority (confirmed by the user). Buyers delegate purchasing to agents; sellers offer digital software, services, and physical goods.
+Buyers and sellers have equal priority. Buyers delegate discovery and purchasing to agents; sellers offer tools and API services, software and digital products, and physical goods.
 
 ## Product Purpose
-Reposition ABI as an agentic marketplace covering digital and physical purchases. Replace the financial infrastructure framing across all pages and sections.
+ABI is an agentic marketplace for tools, software and physical goods. Shopping and seller inventory lead the experience; governed spending and inspectable approvals support both journeys.
 
 ## Capabilities and Constraints
-The existing Next.js frontend includes marketing pages, a buyer console, approvals, and a seller workspace. Governed spending, budgets, policies, and testnet payments are existing capabilities. Source inspection confirms a products table and guardian create/read API, alongside a separate published API-offer directory, seller offer management, and hosted digital responses. Physical ordering, shipping, fulfillment, and live purchases must be treated as proposed capabilities until implementations are verified. The user explicitly requires the wallet infrastructure, x402 middleware and stablecoin settlement to remain untouched. Existing escrow requires a same-organization payee, so cross-vendor buyer-confirmed escrow is not established. The current Assistant is read-only for money; shopping tools must be added above existing controls. Do not invent vendors, partnerships, pricing, adoption, or production readiness.
+The Next.js frontend includes public discovery, buyer and seller workspaces, approvals and explicitly simulated demo shopping. The API includes marketplace product search/details, vendor and inventory management, quotes/orders, per-item payment and fulfillment states, shipping/fulfillment adapter boundaries, returns/disputes and purchase feedback. Existing published API offers and hosted digital responses remain available. These implemented workflows do not establish configured production shipping, physical fulfillment, real inventory, or successful live purchases. Provider capability and actual listing state determine availability; keep unavailable and empty states truthful.
+
+Preserve existing wallets, x402 middleware, ledger and stablecoin settlement. The current settlement deployment uses Base Sepolia. Do not relabel transactions as completed physical orders or infer cross-vendor escrow readiness from an interface. Connect exposes scoped credentials with read/payment permissions and finite lifetimes; replacement and revocation use existing server controls. Secrets are one-time delivery and may be used within the current tab; never persist them to localStorage.
+
+Card-funded USD credits are a separate account from USDC and agent allowances. The card-funding backend includes hosted Stripe Checkout/setup, signed webhook processing, a durable credit journal, reversals and guarded auto-top-up. Production funding remains disabled until Stripe credentials/webhooks/configuration AND a defined credit-usage and cancellation/refund policy are established. A provider credential alone is insufficient. No USD-credit consumption or fiat-to-USDC conversion exists. Checkout redirects alone never credit funds. See docs/card-funding.md for contracts and operational limits.
 
 ## Brand Commitments
-ABI remains the product name. Buyers and sellers have equal product priority; marketplace shopping and seller inventory are the immediate UI priority. The user selected exactly the blue Assisted Shopping Studio console study and confirmed implementation. They then explicitly requested that homepage/public pages match the console white/blue look. Current visual authority is DESIGN.md: cool white surfaces, navy text/navigation and cobalt actions. The earlier beige/green preference is historical and superseded. Familiar Shopify, Amazon and Etsy commerce patterns remain reference points; eBay is excluded. Legal entity naming remains factual.
+ABI retains its name, wordmark and self-hosted IBM Plex family. The user approved the o11-inspired minimalist neutral/blue direction in .impeccable/mocks/minimal-reference/{overview,catalog,billing}.png and its prompt/approval sidecars on 2026-11-07, including homepage and public-surface adaptation. Current authority is .impeccable/briefs/minimal-marketplace.md and the source-extracted DESIGN.md: near-white canvas, quiet gray rows, near-black text and restrained blue actions. Buyers use Overview, Catalog, Connect, Billing and Settings in the desktop header and floating mobile dock; sellers retain their inventory/orders/connect/payouts/settings equivalents. More preserves advanced controls for both roles. Tools & APIs, Software and Physical goods receive equal prominence. Earlier beige/green and navy-rail Assisted Shopping Studio directions are superseded. Legal entity naming remains factual.
 
 ## Evidence on Hand
-Source: MOMOEXPRESS/Artificial-Banking-Inc, production marketplace baseline 6e64ce458e1863a6a2f5c7dd3e061c64b70ca645, followed by the approved blue studio redesign. Prior context comes from repository documentation; past chat memory is unavailable in this session.
+Source: MOMOEXPRESS/Artificial-Banking-Inc and current implementation. Approval is recorded in the minimal-reference sidecars and surface brief. docs/research/o11-reference-study.md records public reference research; its pre-approval study status is historical and superseded by the approved sidecars/brief. Reference screenshots and generated studies establish presentation, not live provider behavior. Existing browser captures and synthetic fixtures are bounded UI evidence; final captures after reviewer fixes are pending. No Impeccable launcher, detector, comp-spec, automated region diff or build-state provenance is available; do not claim corresponding certification.
 
 ## Product Principles
-- Buyer and seller journeys receive equal design attention.
-- Agent purchasing should be comprehensible and inspectable.
-- Controls support the shopping experience.
-- Clearly distinguish marketplace concepts from available testnet functionality.
+- Give buyers and sellers equal design attention and the three commerce categories equal prominence.
+- Make agent permissions, budgets, approvals and purchase states comprehensible and inspectable.
+- Preserve existing financial controls and distinguish USD credits from testnet USDC.
+- Keep demo behavior, configured capabilities and live operational evidence clearly identified.
+- Do not invent vendors, partnerships, prices, adoption or production readiness.

@@ -1,131 +1,198 @@
 ---
-name: ABI public identity and Assisted Shopping Studio
-description: Shared white and blue ABI identity across public pages and buyer and seller consoles.
+name: ABI minimalist marketplace
+description: Neutral working surfaces and restrained blue actions across the ABI marketplace.
 colors:
-  canvas: "#f4f5f7"
-  ink: "#101115"
-  surface-solid: "#ffffff"
-  surface-2: "#f8f9fa"
-  surface-3: "#eff1f3"
-  fg: "#111216"
-  muted: "#5f6470"
-  accent: "#3873ae"
-  accent-hover: "#2d5f92"
-  studio-canvas: "#f5f7fa"
-  studio-ink: "#182b43"
-  studio-muted: "#53647a"
-  studio-surface: "#ffffff"
-  studio-surface-2: "#f5f7fb"
-  studio-border: "#dce3ed"
-  studio-border-strong: "#aab8cb"
-  studio-accent: "#315dd8"
-  studio-accent-hover: "#2448b2"
-  studio-accent-soft: "#e8efff"
-  studio-selected-text: "#234dbd"
-  studio-rail: "#142236"
-  studio-dark-canvas: "#101a29"
-  studio-dark-surface: "#172438"
-  studio-dark-ink: "#edf3ff"
-  studio-dark-muted: "#b2c0d5"
-  studio-dark-border: "#354760"
-  studio-dark-ring: "#9bb8ff"
+  canvas: "#fafafa"
+  ink: "#252525"
+  ink-secondary: "#444"
+  ink-muted: "#626262"
+  ink-faint: "#686868"
+  surface: "#fff"
+  surface-2: "#f2f2f2"
+  surface-3: "#eaeaea"
+  surface-hover: "#e5e5e5"
+  border: "#dedede"
+  border-soft: "#ececec"
+  border-strong: "#aaa"
+  accent: "#246bc4"
+  accent-hover: "#1856a3"
+  accent-soft: "#e9f1fc"
+  checklist: "#f1f1f1"
+  row: "#f0f0f0"
+  allowance: "#f0f1f3"
+  card: "#f3f3f3"
+  control: "#ededed"
+  control-hover: "#e0e0e0"
+  field: "#eee"
+  selected-dock: "#e8e8e8"
+  footer: "#f4f4f4"
+  success: "#276747"
+  error-surface: "#fbeaea"
+  error-text: "#992731"
+  selection: "#d4e5ff"
+  selection-text: "#182a47"
 typography:
-  body:
+  display:
     fontFamily: "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
-    fontSize: "14.5px"
-  studio-headline:
+    fontSize: "clamp(42px, 5.3vw, 72px)"
+    fontWeight: 500
+    lineHeight: 1.08
+    letterSpacing: "-0.035em"
+  headline:
     fontFamily: "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
-    fontSize: "28px"
+    fontSize: "34px"
+    fontWeight: 500
     lineHeight: 1.25
     letterSpacing: "-0.025em"
-  studio-title:
-    fontSize: "22px"
+  section:
+    fontFamily: "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
+    fontSize: "23px"
+    fontWeight: 500
     lineHeight: 1.3
     letterSpacing: "-0.015em"
-  studio-label:
-    fontSize: "12px"
+  body:
+    fontFamily: "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
+    fontSize: "15px"
+    lineHeight: 1.55
+  label:
+    fontFamily: "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 500
+  note:
+    fontFamily: "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
+    fontSize: "13px"
+    lineHeight: 1.6
 rounded:
-  sm: "6px"
-  md: "8px"
-  lg: "12px"
-  studio-panel: "10px"
+  check: "6px"
+  nav: "7px"
+  control: "8px"
+  tabs: "9px"
+  image: "10px"
+  dock-item: "12px"
+  empty: "13px"
+  row: "14px"
+  dock: "18px"
 spacing:
-  studio-sm: "8px"
-  studio-md: "16px"
-  studio-lg: "24px"
-  studio-gutter: "28px"
+  compact: "8px"
+  row-gap: "12px"
+  medium: "16px"
+  row: "20px"
+  large: "24px"
+  section: "28px"
+  wide: "48px"
 components:
-  studio-button-primary:
-    backgroundColor: "{colors.studio-accent}"
-    textColor: "#ffffff"
-    rounded: "{rounded.sm}"
-    padding: "10px 14px"
-  studio-button-primary-hover:
-    backgroundColor: "{colors.studio-accent-hover}"
-  studio-panel:
-    backgroundColor: "{colors.studio-surface}"
-    rounded: "{rounded.studio-panel}"
+  button-primary:
+    backgroundColor: "{colors.accent}"
+    textColor: "{colors.surface}"
+    rounded: "{rounded.control}"
+    padding: "9px 16px"
+    height: "42px"
+    typography: "{typography.label}"
+  button-primary-hover:
+    backgroundColor: "{colors.accent-hover}"
+  button-secondary:
+    backgroundColor: "{colors.control}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.control}"
+    padding: "9px 16px"
+  field:
+    backgroundColor: "{colors.field}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.control}"
+    padding: "10px 12px"
+  checklist-row:
+    backgroundColor: "{colors.checklist}"
+    rounded: "{rounded.row}"
+    padding: "14px 18px"
+  catalog-row:
+    backgroundColor: "{colors.row}"
+    rounded: "{rounded.row}"
+    padding: "20px"
+  category-selected:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.surface}"
+    rounded: "{rounded.control}"
 ---
-# Design System: ABI
+
+# Design System: ABI minimalist marketplace
 
 ## Overview
 
-**Creative North Star: Assisted Shopping Studio.**
+**Creative North Star: "ABI minimalist marketplace"**
 
-Current authority: after approving blue option 2 for the buyer/seller console, the user explicitly expanded the direction to “give the home pages the same sort of blue look to match the console side white/blue”. Public `.landing` pages now use `public-studio.css`, imported after `console-studio.css`, for white/cool-blue surfaces, navy text, cobalt actions and a navy footer. Original page layouts, content, wordmark, fonts and section rhythms remain. The historical specification below records the earlier pin; its original public palette and exclusion of public recoloring are superseded by this latest instruction. Unprefixed color tokens document the retained underlying base; `studio-*` tokens describe the current shared visual overrides.
+The approved o11-inspired direction uses a near-white field, quiet neutral rows, readable dark text and restrained blue actions. ABI keeps its wordmark and self-hosted IBM Plex family. The approved minimal-reference overview, catalog and billing studies plus .impeccable/briefs/minimal-marketplace.md define the chosen world; current source defines actual controls and values. Earlier navy-rail Assisted Shopping Studio and beige/green directions are superseded.
 
-Historical baseline, pinned on 2026-11-07 before the later white/blue expansion: preserve the original hero, product frames, section rhythms, navigation, official wordmark, self-hosted IBM Plex fonts and public-facing chrome. The console chrome is superseded by the approved studio scope below. Marketplace additions inherit globals.css and design-system.css; marketplace.css must not override root colors, shared navigation, footer or theme tokens.
-
-Homepage copy describes the agent marketplace. Live catalog, buyer/seller entry points and guides join the original sections. The earlier public-system baseline placed the console on its original overview with a marketplace entry; the approved console replacement below supersedes that console direction. the Marketplace view has explicit Demo and Live modes. Search, category filters and product grids follow the earlier marketplace mockup, adapted to the incumbent console dimensions and selected light/dark theme.
-
-Demo sellers, ratings, stock and photos are fictional and visibly labeled. Scenarios simulate shortlist, quote, owner approval, digital delivery, physical escrow confirmation and review. Demo code never calls inventory, wallet or settlement APIs. Live mode retains the durable backend workflows. Product links open live mode directly.
-
-Source authority: original base commit 27035954bb52ac6f5f1d0dbd91b86740bd9e537a, globals.css, design-system.css, marketing-shell.tsx, brand.tsx and marketplace components. The generated product contact sheet is demonstration imagery, not live inventory. Public catalog empty states remain truthful. Physical checkout stays unavailable until real shipping and escrow providers are configured.
-
-
-The user approved blue option 2, Assisted Shopping Studio, on 2026-11-07 and confirmed the entire buyer/seller console, prioritizing shopping and inventory. This initially replaced console visual authority only; the later explicit user instruction also applies the matching white/blue palette to public and marketing `.landing` surfaces while preserving their layouts and content. Approval evidence: `.impeccable/mocks/console-redesign/02-assisted-shopping.webp` and its `.webp.json` sidecar. The source implementation, rather than generated screenshot facts, defines actual controls and behavior.
-
-**Key Characteristics:** calm operational density, open comparison surfaces, navy navigation, restrained cobalt actions, inspectable demo progress and equally considered buyer/seller workspaces.
+**Key Characteristics:**
+- Flat tonal surfaces and thin dividers.
+- Five clear destinations with advanced controls retained under More.
+- Equal category prominence and visible buyer/seller entry points.
+- Compact task hierarchy, inspectable balances and honest unavailable states.
 
 ## Colors
 
-Unprefixed frontmatter tokens retain the historical underlying public palette. Current `studio-*` colors apply through scoped `.studio-console` and `.landing` overrides; do not promote these to unscoped root overrides. The console pairs cool canvas and white surfaces with navy text, steel secondary text, cobalt actions and pale-blue selection. Status colors remain semantic. Dark mode is explicitly implemented under `[data-theme="dark"] .studio-console`; consult `console-studio.css` for the complete theme mapping. The rail remains deep navy.
+The frontmatter preserves the implemented CSS color strings. Primary blue serves actions, caret and focus; soft blue distinguishes key disclosure and informative states. Neutral canvas, row, field and divider tokens do the structural work. Muted and secondary ink remain readable; selected category controls pair dark ink with white lettering. Success and error colors communicate actual state.
+
+**The Neutral Ground Rule.** Keep working surfaces neutral; reserve blue for actions and meaningful state.
 
 ## Typography
 
-Retain self-hosted IBM Plex and the incumbent sans stack. Console headings use 28px/1.25, section headings 22px/1.3 and tertiary headings 17px/1.4. Product titles use 19px, product prices 18px, ordinary shopping controls 14px and quiet labels 12px. The final `.studio-marketplace` heading uses 26px on desktop and 24px at 820px. Use fixed UI hierarchy and readable product details rather than oversized marketing typography.
+IBM Plex Sans is self-hosted through next/font/local (400, 500, 600, 700). The source stack uses --font-sans with IBM Plex Sans, Segoe UI, system-ui and sans-serif fallbacks. IBM Plex Mono is self-hosted at 400/500 for code and credentials, through the existing mono stack. Do not introduce remote font dependencies.
+
+The frontmatter records the homepage display and console hierarchy. Console page headings inherit 1.25 line-height; section headings inherit 1.3. Body copy is limited to 72ch on minimal pages. Notes use the smaller, quieter role; numeric balances use tabular figures. At 760px page headings become 29px and the homepage display becomes 48px. Billing balances use 40px/1.15 on desktop and 29px on mobile; overview balance figures use 28px then 22px.
 
 ## Layout
 
-Desktop console uses a 76px icon rail and a shared horizontal header containing ABI, Buy/Sell, workspace tasks and retained account controls. Scroll content has 28px gutters and a 1600px maximum view. Shopping uses a 300px brief/progress column beside results, with two product columns and purchase review below. The brief adapts the comp's 340px dimension. The final `.studio-review-bar` is sticky at bottom 0, with a thin border, a subtle upward shadow and tabular totals; at 820px it sits above mobile navigation at bottom 68px and wraps into a full-width action. A semantic, horizontally scrollable comparison table aligns product attributes. Demo/Live controls sit beside the page title on wide screens and return to normal flow at 1200px. The catalog toolbar combines search with a category select.
+Desktop uses a single content column with a horizontal workspace header, not a rail. Header height is 76px with a 1180px alignment reference. Console view maximum is 1120px; minimal task pages are 1000px. Scroll padding is 20px 40px 80px. Homepage content is 1120px with 24px side padding; its hero uses 1.25fr/1fr columns and a 64px gap. Homepage categories form three equal columns.
 
-Seller navigation exposes Inventory, Orders, Payouts and Integrations. Orders routes to the inventory order-items panel, with parent/panel state synchronized. Inventory separates Products, Order items, Returns & disputes and Vendor identity. Opening the editor adds a 340px right column; existing payment offers remain a separate disclosure. Buyer navigation exposes Shopping, Orders, Assistant, Agents and Approvals. Do not invent routes from screenshot labels.
+Buyer destinations are Overview, Catalog, Connect, Billing and Settings. Seller equivalents are Inventory, Orders, Connect, Payouts and Settings. More remains available for both roles. At 900px the navigation spacing tightens; at 760px desktop destinations hide and a floating five-destination dock appears. The dock is at most 440px wide (94% viewport), with safe-area-aware bottom placement and 58px minimum item heights. Header becomes 62px, console padding becomes 12px 20px 120px, forms/allowances stack and homepage sections become one column. Desktop navigation may scroll horizontally above 760px.
 
-At 1150px gutters become 24px, the brief becomes 260px and the inventory editor moves below its table. At 820px the brief and results stack, rail navigation becomes a labeled drawer, the header splits into two rows and the brief form uses two columns. At 520px product cards, progress and editor fields become one column; category controls scroll horizontally. Preserve existing table scrolling and mobile navigation.
+Overview-specific compact rows use 66px minimum height and 14px 18px padding, 28px section margins, and a 36px/28px workspace strip margin. Preserve setup, balance and allowance reading order. Catalog uses horizontal result rows with 84px images (64px mobile), not a decorative tile wall. Billing retains two separate currency columns; activity rows reflow on mobile.
 
 ## Elevation & Depth
 
-Console panels are flat white or dark-theme surfaces with thin dividers: cards, orders and onboarding explicitly have no shadow or backdrop blur. The available elevated token is `0 6px 24px #15294412`; do not apply it indiscriminately to working panels. Public product frames use `0 8px 28px #182b430d`; their light chrome and thin borders match the studio palette. The sticky console review bar uses `0 -4px 16px #15294408`. Public halo/glow decorations are disabled by the scoped stylesheet.
+Flat tonal separation is the default. Working cards, catalog rows and purchase review have no shadow. Selected segmented controls use `0 1px 4px #0002`. Mobile dock and cookie notice use `0 6px 24px #0001`. There is no glass or backdrop blur in the current navigation. Do not reuse superseded blue-studio elevation values.
 
 ## Shapes
 
-Console controls use 6px corners; cards and order containers use 10px; product images and workspace task buttons use 7px; rail buttons use 8px. Thin borders and open column boundaries establish structure without nested decorative cards.
+Quiet rounded rectangles organize rows, controls and disclosure. The frontmatter records actual radii: modest controls, softer rows and a larger mobile-dock silhouette. Dividers are thin and neutral. Product imagery remains square and clipped; repeated outline icons support labels without decorative effects.
 
 ## Components
 
-Primary marketplace actions use cobalt, white text, 10px 14px padding, 14px semibold type and a 42px minimum height. Product shortlist actions use an outlined cobalt treatment. Category filters and section tabs use neutral surfaces with pale-blue selected backgrounds and visible borders; preserve `aria-pressed` and `aria-current` semantics. Workspace navigation combines icon and label; desktop rail labels remain accessible when visually hidden.
+### Buttons
 
-Inputs use solid surfaces, strong borders and 6px corners. Interactive elements receive a 2px focus outline with a 3px offset. Buttons transition background and border over 150ms ease-out; rail transforms use 180ms ease-out; reduced motion disables these transitions. Disabled controls retain their disabled semantics and use 0.55 opacity.
+Primary actions use blue with white text; secondary actions use neutral control surfaces. Minimal-page buttons have a 42px minimum height, 9px 16px padding and medium-weight labels. Blue hover uses accent-hover; neutral hover uses control-hover. Disabled minimal-page buttons use 0.48 opacity and a not-allowed cursor. Focus is a 2px blue outline offset by 3px. Existing console button transitions use 150ms ease-out for background/border; reduced motion disables transitions.
 
-Shopping brief, simulated progress, open product facts, semantic comparison table and sticky purchase review form the signature composition. The generated photographic `demo-trail-guide.webp` and its prompt JSON are demo imagery, not licensed product evidence. Progress is a local demonstration, not evidence of autonomous live purchasing. Inventory tables use 14px text, 12px headers and 16px 12px cell padding; selected rows use the accent-soft surface. Editor details stay progressively disclosed.
+### Inputs / Fields
+
+Neutral filled fields use transparent borders, 8px corners and a 42px minimum height. Minimal-page inputs/selects use 10px 12px padding and 15px type. Search uses surface-3, 10px corners, a 56px minimum height and 16px text. Blue caret and visible focus remain. Checkboxes retain native semantics and blue accent.
+
+### Chips
+
+Category controls remain equal in width and prominence. Unselected labels use secondary ink on neutral controls; selected labels use white on dark ink. Preserve aria-pressed and the explicit important-text override required by inherited marketplace styles. Secondary filters remain in a disclosure.
+
+### Cards / Containers
+
+Checklist and allowance rows use quiet gray fills and 14px corners. Allowances use 20px padding in Overview; catalog rows use 20px on desktop and 16px on mobile. Key disclosure uses soft blue; error surfaces use error text on error-surface. Do not equate an unavailable affordance with a configured service.
+
+### Navigation
+
+Desktop header combines ABI, five text destinations, a buyer/seller entry and More. Active desktop destinations have a neutral fill and dark text; the mobile dock pairs outline icons and labels with a neutral selected state. Preserve aria-current. More retains buyer Assistant, Agents & allowances, USDC treasury, Payments & approvals, Activity, Agent work, Policies, Ledger, API playground and Webhooks; seller More retains Overview, Directory, Versions, Sandbox, Analytics, Activity, Access policies, Webhooks and Developers.
+
+### Currency and credential disclosures
+
+Billing presents USD credits and USDC settlement separately. Funding and saved-card/auto-top-up actions remain disabled until server readiness, including Stripe setup and a defined usage/refund policy. Connect owns scoped-key administration and one-time secret delivery. No USD consumption or fiat-to-USDC conversion is implemented; the existing settlement deployment remains Base Sepolia.
 
 ## Do's and Don'ts
 
-- Do preserve the original public hero structure, sections, content, wordmark, fonts and navigation while using the current white/blue `.landing` palette, cobalt buttons and navy footer.
-- Do scope console overrides beneath `.studio-console` and retain both light and dark mappings. Scope public palette overrides beneath `.landing`; the current public stylesheet defines the white/blue presentation without a separate public dark mapping.
-- Do keep fictional sellers, photos, stock, reviews, progress and checkout visibly labeled as demo data. Demo code must not call payment or inventory APIs.
-- Do preserve live backend facts and existing wallet, x402 and stablecoin settlement boundaries.
-- Don't infer licenses, provider capabilities, production readiness, prices or live inventory from the generated comp.
-- Don't treat the comp as a guarantee of physical checkout, fulfillment or cross-vendor escrow. Existing implementation and configured providers determine availability.
+### Do:
+- Do use the neutral palette and restrained blue actions across .studio-console and .landing.
+- Do keep all three category labels legible and equally visible.
+- Do preserve both roles’ advanced destinations under More and native keyboard/focus semantics.
+- Do distinguish simulated demo facts, actual listing data, USD credits and Base Sepolia USDC.
 
-Documentation is extracted from source and the approved reference. No browser/runtime or visual certification is claimed; the launcher was unavailable during this handoff.
+### Don't:
+- Don’t restore the superseded navy rail or blue-tinted working canvas.
+- Don’t expose or persist credentials as decorative billing content.
+- Don’t infer live card payments, physical fulfillment or production readiness from the approved studies or synthetic captures.
+
+Source extraction: apps/web/src/app/minimal-workspace.css, app/layout.tsx, app/page.tsx, lib/minimal-workspace.tsx and lib/studio-nav.tsx, with inherited typography/state rules from globals.css and console-studio.css. This document records source and approved direction; it does not certify rendering. No launcher/detector, comp-spec, automated diff or build-state provenance is available. Final screenshots after the reviewer fixes are pending.

@@ -14,6 +14,7 @@ import { ABAppIcon, ABMark } from "../../lib/brand";
 import { showApprovalToast } from "../../lib/approval-toast";
 import { Icon, fmtUsd, relTime } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
+import { MinimalOverview, MinimalConnect, MinimalBilling } from "../../lib/minimal-workspace";
 import { StudioNav } from "../../lib/studio-nav";
 import { MarketplaceBuyer } from "../../lib/marketplace-buyer";
 import { ChatView } from "../../lib/chat-view";
@@ -236,6 +237,8 @@ const VIEW_META: Partial<Record<View, { eyebrow: string; description: string; ic
 };
 
 const ALL_VIEWS = new Set<View>([
+  "connect",
+  "billing",
   "marketplace",
   "overview",
   "treasury",
@@ -320,6 +323,8 @@ function navGroupOf(view: View): string {
 }
 
 function viewLabelOf(view: View): string {
+  if (view === "connect") return "Connect";
+  if (view === "billing") return "Billing";
   if (view === "settings") return "Settings";
   if (view === "waitlist") return "Waitlist";
   if (view === "approvals") return "Approvals";
@@ -345,7 +350,7 @@ export default function Console() {
   const [prefs, setPrefs] = useState<Prefs>({ autoJump: true });
   const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [view, setViewState] = useState<View>("marketplace");
+  const [view, setViewState] = useState<View>("overview");
   const [tabHint, setTabHint] = useState<string | null>(null);
   const [org, setOrg] = useState<OrgView | null>(null);
   const [budgetOpsSetup, setBudgetOpsSetup] = useState<{ orgId: string; ready: boolean } | null>(
@@ -1087,7 +1092,9 @@ export default function Console() {
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className={`app studio-console ${railOpen ? "rail-open" : ""} ${railCollapsed ? "nav-collapsed" : ""}`}>
+      <div
+        className={`app studio-console ${railOpen ? "rail-open" : ""} ${railCollapsed ? "nav-collapsed" : ""}`}
+      >
         <button
           type="button"
           className="rail-burger"
@@ -1201,209 +1208,145 @@ export default function Console() {
         </Sidebar>
 
         <main className="main">
-          <div className="studio-shell-header"><StudioNav active={view === "marketplace" && tabHint === "orders" ? "orders" : view} onNavigate={(v,t) => setView(v as View,t)} />
-          <header className="topbar">
-            <div className="topbar-title-block">
-              <nav className="crumb" aria-label="Breadcrumb">
-                <span className="crumb-group">{groupLabel}</span>
-                <span className="crumb-sep" aria-hidden>
-                  /
-                </span>
-                <span className="crumb-current">{viewLabel}</span>
-                {navContext ? (
-                  <>
-                    <span className="crumb-sep" aria-hidden>
-                      /
-                    </span>
-                    <span className="crumb-drill">{navContext}</span>
-                  </>
-                ) : null}
-              </nav>
-              <h1>{viewLabel}</h1>
-            </div>
-            <div className="spacer" />
-            <button
-              type="button"
-              className="environment-chip live"
-              onClick={() => setView("settings")}
-              aria-label="Open environment settings"
-            >
-              <i />
-              <span>{org?.network?.testnet === false ? "Live" : "Live · testnet"}</span>
-              <Icon name="arrowRight" size={12} />
-            </button>
-            <button
-              type="button"
-              className="search search-btn"
-              onClick={() => setPaletteOpen(true)}
-              aria-label="Open command palette"
-            >
-              <Icon name="search" />
-              <span className="search-placeholder">Command palette…</span>
-              <kbd className="search-kbd">⌘K</kbd>
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button type="button" className="user-chip" aria-label="Account menu">
-                  <div className="avatar">{(org?.org?.name ?? "PV").slice(0, 2).toUpperCase()}</div>
-                  <div className="who">
-                    <b>{org?.org?.name ?? "Loading…"}</b>
-                    <span>
-                      {org?.actor?.role === "viewer"
-                        ? "Viewer · read-only"
-                        : org?.actor?.role === "approver"
-                          ? "Approver · " + (org?.network?.testnet === false ? "live" : "testnet")
-                          : connected
-                            ? "Owner · " + (org?.network?.testnet === false ? "live" : "testnet")
-                            : "reconnecting…"}
-                      {org?.org?.status === "frozen" ? " · FROZEN" : ""}
-                    </span>
-                  </div>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{org?.org?.name ?? "Organization"}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setView("settings")}>Settings</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setPaletteOpen(true)}>
-                  Command palette
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => help.setOpen(true)}>
-                  Keyboard shortcuts
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => theme.toggle()}>
-                  Theme: {theme.resolved === "dark" ? "Dark" : "Light"} (toggle)
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => void signOut(false)}>Log out</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Popover open={notifOpen} onOpenChange={setNotifOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  className="icon-btn"
-                  aria-label={`Notifications${pending.length ? ` (${pending.length} approval${pending.length === 1 ? "" : "s"} waiting)` : ""}${feed.unreadCount ? ` (${feed.unreadCount} unread)` : ""}`}
-                  data-testid="notifications-bell"
-                >
-                  <Icon name="bell" />
-                  {pending.length > 0 ? (
-                    <span className="bell-count" data-testid="bell-approval-count">
-                      {pending.length > 99 ? "99+" : pending.length}
-                    </span>
-                  ) : (
-                    (visibleAlerts.length > 0 || feed.unreadCount > 0) && <span className="ping" />
-                  )}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-[min(360px,calc(100vw-24px))] p-0">
-                <div className="notif-head">
-                  <span>Needs attention ({visibleAlerts.length})</span>
-                  {visibleAlerts.length > 0 && (
-                    <Button
-                      type="button"
-                      variant="bare"
-                      size="sm"
-                      onClick={() => {
-                        setDismissedAlerts((prev) => {
-                          const next = new Set(prev);
-                          for (const a of visibleAlerts) next.add(a.id);
-                          return next;
-                        });
-                        setNotifOpen(false);
-                      }}
-                    >
-                      Clear
-                    </Button>
-                  )}
-                </div>
-                <ScrollArea className="max-h-[70vh]">
-                  {visibleAlerts.length === 0 ? (
-                    <div
-                      style={{ padding: 26, textAlign: "center", fontSize: 12.5 }}
-                      className="muted"
-                    >
-                      All clear. Nothing is waiting on you.
+          <div className="studio-shell-header">
+            <StudioNav
+              active={view === "marketplace" && tabHint === "orders" ? "orders" : view}
+              onNavigate={(v, t) => setView(v as View, t)}
+            />
+            <header className="topbar">
+              <div className="topbar-title-block">
+                <nav className="crumb" aria-label="Breadcrumb">
+                  <span className="crumb-group">{groupLabel}</span>
+                  <span className="crumb-sep" aria-hidden>
+                    /
+                  </span>
+                  <span className="crumb-current">{viewLabel}</span>
+                  {navContext ? (
+                    <>
+                      <span className="crumb-sep" aria-hidden>
+                        /
+                      </span>
+                      <span className="crumb-drill">{navContext}</span>
+                    </>
+                  ) : null}
+                </nav>
+                <h1>{viewLabel}</h1>
+              </div>
+              <div className="spacer" />
+              <button
+                type="button"
+                className="environment-chip live"
+                onClick={() => setView("settings")}
+                aria-label="Open environment settings"
+              >
+                <i />
+                <span>{org?.network?.testnet === false ? "Live" : "Live · testnet"}</span>
+                <Icon name="arrowRight" size={12} />
+              </button>
+              <button
+                type="button"
+                className="search search-btn"
+                onClick={() => setPaletteOpen(true)}
+                aria-label="Open command palette"
+              >
+                <Icon name="search" />
+                <span className="search-placeholder">Command palette…</span>
+                <kbd className="search-kbd">⌘K</kbd>
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="user-chip" aria-label="Account menu">
+                    <div className="avatar">
+                      {(org?.org?.name ?? "PV").slice(0, 2).toUpperCase()}
                     </div>
-                  ) : (
-                    visibleAlerts.slice(0, 8).map((al) => (
-                      <button
-                        key={al.id}
-                        className="notif-item"
-                        onClick={() => {
-                          if (al.kind === "fund") setView("treasury", "move");
-                          else setView(al.goto);
-                          setNotifOpen(false);
-                        }}
-                      >
-                        <span
-                          className="ico"
-                          style={{
-                            background:
-                              al.tone === "bad"
-                                ? "var(--red-soft)"
-                                : al.tone === "warn"
-                                  ? "var(--orange-soft)"
-                                  : "var(--accent-soft)",
-                            color:
-                              al.tone === "bad"
-                                ? "var(--red)"
-                                : al.tone === "warn"
-                                  ? "var(--orange)"
-                                  : "var(--accent)",
-                          }}
-                        >
-                          <Icon
-                            name={
-                              al.kind === "approval"
-                                ? "check"
-                                : al.kind === "drift"
-                                  ? "alert"
-                                  : "zap"
-                            }
-                            size={15}
-                          />
-                        </span>
-                        <span className="body">
-                          <b>{al.title}</b>
-                          <span>{al.body}</span>
-                        </span>
-                      </button>
-                    ))
-                  )}
-                  <div
-                    className="notif-head notif-history-head"
-                    data-testid="notifications-history"
+                    <div className="who">
+                      <b>{org?.org?.name ?? "Loading…"}</b>
+                      <span>
+                        {org?.actor?.role === "viewer"
+                          ? "Viewer · read-only"
+                          : org?.actor?.role === "approver"
+                            ? "Approver · " + (org?.network?.testnet === false ? "live" : "testnet")
+                            : connected
+                              ? "Owner · " + (org?.network?.testnet === false ? "live" : "testnet")
+                              : "reconnecting…"}
+                        {org?.org?.status === "frozen" ? " · FROZEN" : ""}
+                      </span>
+                    </div>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>{org?.org?.name ?? "Organization"}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setView("settings")}>Settings</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setPaletteOpen(true)}>
+                    Command palette
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => help.setOpen(true)}>
+                    Keyboard shortcuts
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => theme.toggle()}>
+                    Theme: {theme.resolved === "dark" ? "Dark" : "Light"} (toggle)
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void signOut(false)}>Log out</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Popover open={notifOpen} onOpenChange={setNotifOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className="icon-btn"
+                    aria-label={`Notifications${pending.length ? ` (${pending.length} approval${pending.length === 1 ? "" : "s"} waiting)` : ""}${feed.unreadCount ? ` (${feed.unreadCount} unread)` : ""}`}
+                    data-testid="notifications-bell"
                   >
-                    <span>Recent{feed.unreadCount > 0 ? ` · ${feed.unreadCount} unread` : ""}</span>
-                    {feed.unreadCount > 0 && (
+                    <Icon name="bell" />
+                    {pending.length > 0 ? (
+                      <span className="bell-count" data-testid="bell-approval-count">
+                        {pending.length > 99 ? "99+" : pending.length}
+                      </span>
+                    ) : (
+                      (visibleAlerts.length > 0 || feed.unreadCount > 0) && (
+                        <span className="ping" />
+                      )
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-[min(360px,calc(100vw-24px))] p-0">
+                  <div className="notif-head">
+                    <span>Needs attention ({visibleAlerts.length})</span>
+                    {visibleAlerts.length > 0 && (
                       <Button
                         type="button"
                         variant="bare"
                         size="sm"
-                        onClick={() => void markRead()}
+                        onClick={() => {
+                          setDismissedAlerts((prev) => {
+                            const next = new Set(prev);
+                            for (const a of visibleAlerts) next.add(a.id);
+                            return next;
+                          });
+                          setNotifOpen(false);
+                        }}
                       >
-                        Mark all read
+                        Clear
                       </Button>
                     )}
                   </div>
-                  {history.length === 0 ? (
-                    <div
-                      style={{ padding: 18, textAlign: "center", fontSize: 12.5 }}
-                      className="muted"
-                    >
-                      No notifications yet. Payments, refusals, approvals, keys, policy changes and
-                      runs show up here.
-                    </div>
-                  ) : (
-                    history.slice(0, 15).map((n) => {
-                      const target = linkView(n.link);
-                      return (
+                  <ScrollArea className="max-h-[70vh]">
+                    {visibleAlerts.length === 0 ? (
+                      <div
+                        style={{ padding: 26, textAlign: "center", fontSize: 12.5 }}
+                        className="muted"
+                      >
+                        All clear. Nothing is waiting on you.
+                      </div>
+                    ) : (
+                      visibleAlerts.slice(0, 8).map((al) => (
                         <button
-                          key={`n_${n.id}`}
-                          className={`notif-item${n.readAt ? " is-read" : " is-unread"}`}
+                          key={al.id}
+                          className="notif-item"
                           onClick={() => {
-                            void markRead(n);
-                            if (target) setView(target as View);
+                            if (al.kind === "fund") setView("treasury", "move");
+                            else setView(al.goto);
                             setNotifOpen(false);
                           }}
                         >
@@ -1411,56 +1354,131 @@ export default function Console() {
                             className="ico"
                             style={{
                               background:
-                                n.severity === "bad"
+                                al.tone === "bad"
                                   ? "var(--red-soft)"
-                                  : n.severity === "warn"
+                                  : al.tone === "warn"
                                     ? "var(--orange-soft)"
                                     : "var(--accent-soft)",
                               color:
-                                n.severity === "bad"
+                                al.tone === "bad"
                                   ? "var(--red)"
-                                  : n.severity === "warn"
+                                  : al.tone === "warn"
                                     ? "var(--orange)"
                                     : "var(--accent)",
                             }}
                           >
                             <Icon
                               name={
-                                n.kind.startsWith("approval")
+                                al.kind === "approval"
                                   ? "check"
-                                  : n.severity === "bad"
+                                  : al.kind === "drift"
                                     ? "alert"
-                                    : "bell"
+                                    : "zap"
                               }
                               size={15}
                             />
                           </span>
                           <span className="body">
-                            <b>{n.title}</b>
-                            <span>
-                              {n.body ? `${n.body} · ` : ""}
-                              {relTime(n.createdAt)}
-                            </span>
+                            <b>{al.title}</b>
+                            <span>{al.body}</span>
                           </span>
                         </button>
-                      );
-                    })
-                  )}
-                </ScrollArea>
-              </PopoverContent>
-            </Popover>
-            <button
-              type="button"
-              className="icon-btn topbar-logout"
-              aria-label="Log out"
-              title="Log out"
-              data-testid="topbar-logout"
-              onClick={() => void signOut(false)}
-            >
-              <Icon name="logout" />
-              <span className="topbar-logout-label">Log out</span>
-            </button>
-          </header></div>
+                      ))
+                    )}
+                    <div
+                      className="notif-head notif-history-head"
+                      data-testid="notifications-history"
+                    >
+                      <span>
+                        Recent{feed.unreadCount > 0 ? ` · ${feed.unreadCount} unread` : ""}
+                      </span>
+                      {feed.unreadCount > 0 && (
+                        <Button
+                          type="button"
+                          variant="bare"
+                          size="sm"
+                          onClick={() => void markRead()}
+                        >
+                          Mark all read
+                        </Button>
+                      )}
+                    </div>
+                    {history.length === 0 ? (
+                      <div
+                        style={{ padding: 18, textAlign: "center", fontSize: 12.5 }}
+                        className="muted"
+                      >
+                        No notifications yet. Payments, refusals, approvals, keys, policy changes
+                        and runs show up here.
+                      </div>
+                    ) : (
+                      history.slice(0, 15).map((n) => {
+                        const target = linkView(n.link);
+                        return (
+                          <button
+                            key={`n_${n.id}`}
+                            className={`notif-item${n.readAt ? " is-read" : " is-unread"}`}
+                            onClick={() => {
+                              void markRead(n);
+                              if (target) setView(target as View);
+                              setNotifOpen(false);
+                            }}
+                          >
+                            <span
+                              className="ico"
+                              style={{
+                                background:
+                                  n.severity === "bad"
+                                    ? "var(--red-soft)"
+                                    : n.severity === "warn"
+                                      ? "var(--orange-soft)"
+                                      : "var(--accent-soft)",
+                                color:
+                                  n.severity === "bad"
+                                    ? "var(--red)"
+                                    : n.severity === "warn"
+                                      ? "var(--orange)"
+                                      : "var(--accent)",
+                              }}
+                            >
+                              <Icon
+                                name={
+                                  n.kind.startsWith("approval")
+                                    ? "check"
+                                    : n.severity === "bad"
+                                      ? "alert"
+                                      : "bell"
+                                }
+                                size={15}
+                              />
+                            </span>
+                            <span className="body">
+                              <b>{n.title}</b>
+                              <span>
+                                {n.body ? `${n.body} · ` : ""}
+                                {relTime(n.createdAt)}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </ScrollArea>
+                </PopoverContent>
+              </Popover>
+              <button
+                type="button"
+                className="icon-btn topbar-logout"
+                aria-label="Log out"
+                title="Log out"
+                data-testid="topbar-logout"
+                onClick={() => void signOut(false)}
+              >
+                <Icon name="logout" />
+                <span className="topbar-logout-label">Log out</span>
+              </button>
+            </header>
+          </div>
 
           <div className="scroll">
             {banner && view !== "approvals" && (
@@ -1523,27 +1541,62 @@ export default function Console() {
                 {view !== "overview" && (
                   <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
                 )}
-                {view === "marketplace" && <MarketplaceBuyer session={session} gFetch={gFetch} initialTab={tabHint === "orders" ? "orders" : "shop"} />}
-                {view === "overview" && <section className="card" aria-label="Marketplace tools"><h2>Shop and sell on ABI</h2><p>Explore listings, manage your shortlist and follow orders. Sellers manage inventory and fulfillment in their workspace.</p><div className="market-actions"><button onClick={() => setView("marketplace")}>Open marketplace</button><a href="/partners/login">Seller workspace</a><a href="/directory">Browse public listings</a><a href="/docs">Shopping and seller guide</a></div></section>}
-                {view === "overview" && (
-                  <Overview
-                    {...shared}
-                    budgetOpsReady={
-                      budgetOpsSetup && budgetOpsSetup.orgId === org?.org?.id
-                        ? budgetOpsSetup.ready
-                        : null
-                    }
-                    metrics={metrics}
-                    decisions={decisions}
-                    approvals={approvals}
-                    escrows={escrows}
-                    policy={policy}
+                {view === "marketplace" && (
+                  <MarketplaceBuyer
                     session={session}
-                    updateSession={updateSession}
-                    alerts={alerts}
-                    summary={summary}
-                    invStats={invStats}
+                    gFetch={gFetch}
+                    initialTab={tabHint === "orders" ? "orders" : "shop"}
                   />
+                )}
+                {view === "overview" && (
+                  <MinimalOverview org={org} onNavigate={(v) => setView(v)} />
+                )}
+                {view === "connect" && (
+                  <MinimalConnect
+                    onKeyRevealed={(entry) =>
+                      updateSession({
+                        agentKeys: [
+                          ...session.agentKeys.filter((k) => k.agentId !== entry.agentId),
+                          entry,
+                        ],
+                      })
+                    }
+                    org={org}
+                    gFetch={gFetch}
+                    readOnly={readOnly}
+                    onNavigate={(v) => setView(v)}
+                  />
+                )}
+                {view === "billing" && (
+                  <MinimalBilling
+                    org={org}
+                    gFetch={gFetch}
+                    readOnly={readOnly}
+                    onNavigate={(v) => setView(v)}
+                  />
+                )}
+                {view === "overview" && (
+                  <details className="minimal-advanced">
+                    <summary>Detailed treasury overview</summary>
+                    <Overview
+                      {...shared}
+                      budgetOpsReady={
+                        budgetOpsSetup && budgetOpsSetup.orgId === org?.org?.id
+                          ? budgetOpsSetup.ready
+                          : null
+                      }
+                      metrics={metrics}
+                      decisions={decisions}
+                      approvals={approvals}
+                      escrows={escrows}
+                      policy={policy}
+                      session={session}
+                      updateSession={updateSession}
+                      alerts={alerts}
+                      summary={summary}
+                      invStats={invStats}
+                    />
+                  </details>
                 )}
                 {view === "treasury" && (
                   <TreasuryView

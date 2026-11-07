@@ -53,3 +53,27 @@ describe("agent credential lifecycle", () => {
     assert.equal(store.getAgentByKey(a.apiKey), undefined);
   });
 });
+
+it("replaces a session secret within its tenant while preserving lifetime and allowance", () => {
+  const org = store.createOrg("Session replacement", 0n),
+    other = store.createOrg("Other tenant", 0n);
+  const agent = store.createAgent(org.id, "Shopping agent");
+  const old = store.createSessionKey({
+    orgId: org.id,
+    agentId: agent.agentId,
+    scopes: ["read", "pay"],
+    ttlHours: 24,
+    x402BudgetMicro: 5_000_000n,
+  });
+  assert.equal(store.replaceSessionKey(other.id, old.id), undefined);
+  const replacement = store.replaceSessionKey(org.id, old.id)!;
+  assert.ok(replacement.token);
+  assert.equal(store.getSessionByToken(old.token!), undefined);
+  assert.ok(store.getSessionByToken(replacement.token));
+  const listed = store.listSessionKeys(org.id).find((k) => k.id === old.id)!;
+  assert.equal(listed.expiresAt, old.expiresAt);
+  assert.deepEqual(listed.scopes, ["read", "pay"]);
+  assert.equal(listed.x402BudgetUsdc, "5");
+  store.revokeSessionKey(org.id, old.id);
+  assert.equal(store.replaceSessionKey(org.id, old.id), undefined);
+});

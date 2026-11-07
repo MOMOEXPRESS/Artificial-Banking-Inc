@@ -35,6 +35,17 @@ function markRun(job: JobDefinition, now: number): void {
   if (job.intervalMs > ALARM_TICK_MS) store.setJobState(`last-run:${job.name}`, String(now));
 }
 
+const CARD_FUNDING_JOB: JobDefinition = {
+  name: "card-funding",
+  intervalMs: 60000,
+  leaseMs: 60000,
+  run: async () => {
+    if (process.env.ABI_CARD_FUNDING_ENABLED !== "1") return;
+    const { runCardFundingJobs } = await import("../card-funding-routes.js");
+    await runCardFundingJobs();
+  },
+};
+
 const WEBHOOK_RETRY_JOB: JobDefinition = {
   name: "webhook-retries",
   intervalMs: 30_000,
@@ -54,7 +65,9 @@ const WEBHOOK_RETRY_JOB: JobDefinition = {
  */
 export const ALARM_RPC_BUDGET = Number(process.env.ABI_ALARM_RPC_BUDGET ?? 35);
 
-export async function runAlarmJobs(jobs: JobDefinition[] = [...JOBS, WEBHOOK_RETRY_JOB]): Promise<{
+export async function runAlarmJobs(
+  jobs: JobDefinition[] = [...JOBS, WEBHOOK_RETRY_JOB, CARD_FUNDING_JOB],
+): Promise<{
   ran: string[];
   skipped: string[];
 }> {
