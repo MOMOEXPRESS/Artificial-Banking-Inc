@@ -149,8 +149,32 @@ export interface CategoryCap {
   blocked?: boolean;
 }
 
+/** Resolve a calendar budget without changing the stored limit or its expiry. */
+export function resolveBudgetWindow(window: BudgetWindow, now = Date.now()): BudgetWindow {
+  if (!window.period) return window;
+  const d = new Date(now);
+  d.setUTCHours(0, 0, 0, 0);
+  if (window.period === "week") d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  if (window.period === "month") d.setUTCDate(1);
+  const start = d.getTime(),
+    end = new Date(start);
+  if (window.period === "day") end.setUTCDate(end.getUTCDate() + 1);
+  if (window.period === "week") end.setUTCDate(end.getUTCDate() + 7);
+  if (window.period === "month") end.setUTCMonth(end.getUTCMonth() + 1);
+  return {
+    ...window,
+    startsAtMs: Math.max(start, window.startsAtMs ?? start),
+    endsAtMs: Math.min(end.getTime() - 1, window.endsAtMs ?? Infinity),
+  };
+}
+
 /** A budget with a start, an end, and a total it may never exceed. */
 export interface BudgetWindow {
+  /** Calendar periods reset in UTC; omitted retains the explicit legacy window. */
+  period?: "day" | "week" | "month";
+  scope?: "agent" | "workspace";
+  allowRecurringPurchases?: boolean;
+
   /** Epoch ms. Spending before this is refused. Omitted means "already open". */
   startsAtMs?: number;
   /** Epoch ms. Spending after this is refused. Omitted means "never expires". */
@@ -586,8 +610,18 @@ export function evaluatePolicy(
   // budget is a spending ceiling of zero, not a soft signal.
   if (rules.budgetWindow) {
     const now = rules.nowMs ?? Date.now();
-    const { startsAtMs, endsAtMs, totalMaxMicro, label } = rules.budgetWindow;
+    const { startsAtMs, endsAtMs, totalMaxMicro, label } = resolveBudgetWindow(
+      rules.budgetWindow,
+      now,
+    );
     const name = label ? `Budget "${label}"` : "This budget";
+    if (rules.budgetWindow.allowRecurringPurchases === false && intent.recurring)
+      return {
+        outcome: "deny",
+        ruleIds: ["recurring_purchases_disabled"],
+        reasons: ["Recurring purchases are disabled by the spending limit"],
+        policyVersion,
+      };
     if (startsAtMs !== undefined && now < startsAtMs) {
       return {
         outcome: "deny",

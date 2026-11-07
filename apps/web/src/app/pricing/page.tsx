@@ -58,7 +58,11 @@ const CAPABILITIES = [
   ["x402 and mock payment rails", "Development rails; live behavior depends on provider setup"],
   ["Base Sepolia settlement", "Testnet support; requires RPC and signer configuration"],
   ["Coinbase CDP custody", "Not connected"],
-  ["Billing, plan gates, and paid support", "Not enabled"],
+  [
+    "Card-funded USD credits and capped auto top-up",
+    "Implemented; disabled until provider configuration and a credit-usage policy are established",
+  ],
+  ["Subscription plan gates and paid support", "Not enabled"],
   ["Compliance screening, SSO, and SCIM", "Roadmap; not available as a service"],
 ];
 

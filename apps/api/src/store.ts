@@ -262,6 +262,8 @@ export interface AgentRow {
   name: string;
   status: AgentStatus;
   apiKey: string;
+  apiKeyExpiresAt?: string;
+  apiKeyHint?: string;
   /** The single budget this agent is authorized to spend from. Groups are labels only. */
   budgetId?: string;
   /** Extensible profile for groups, ownership, reputation, runtime metadata. */
@@ -688,7 +690,9 @@ export function injectStoreDatabase(database: Database.Database): void {
 }
 
 /** Shared database for additive marketplace records; never exposes keys over HTTP. */
-export function commerceDatabase(): Database.Database { return db; }
+export function commerceDatabase(): Database.Database {
+  return db;
+}
 
 /** A13 — rehash any leftover plaintext secrets once at boot (idempotent). */
 function migrateSecretsAtRest(): void {
@@ -1577,6 +1581,8 @@ for (const migration of [
   "ALTER TABLE agent_groups ADD COLUMN budget_id TEXT",
   "ALTER TABLE agent_groups ADD COLUMN auto_fund_json TEXT",
   "ALTER TABLE agents ADD COLUMN budget_id TEXT",
+  "ALTER TABLE agents ADD COLUMN api_key_expires_at TEXT",
+  "ALTER TABLE agents ADD COLUMN api_key_hint TEXT",
   // Treasury approval threshold: withdrawals above it park in treasury_moves
   // for guardian review (kind = 'withdraw', destination = where it goes).
   "ALTER TABLE treasury_moves ADD COLUMN kind TEXT",
@@ -2320,6 +2326,8 @@ function rowToAgent(r: Row): AgentRow {
     name: r.name,
     status: r.status,
     apiKey: r.api_key,
+    apiKeyExpiresAt: (r.api_key_expires_at as string | null) ?? undefined,
+    apiKeyHint: (r.api_key_hint as string | null) ?? undefined,
     budgetId: (r.budget_id as string | null) ?? undefined,
     profile,
   };
@@ -3328,7 +3336,12 @@ export const store = {
   },
 
   // ---------------------------------------------------------------- agents
-  createAgent(orgId: string, name: string, budgetId?: string): { agentId: string; apiKey: string } {
+  createAgent(
+    orgId: string,
+    name: string,
+    budgetId?: string,
+    keyTtlHours: number | null = null,
+  ): { agentId: string; apiKey: string } {
     const agentId = id("agt");
     const apiKey = `pv_agent_${randomBytes(12).toString("hex")}`;
     const apiKeyHash = hashSecret(apiKey);
@@ -3342,6 +3355,7 @@ export const store = {
       db.prepare(
         "INSERT INTO accounts (id, org_id, kind, agent_id, balance_micro) VALUES (?, ?, 'agent_held', ?, '0')",
       ).run(`agent:${agentId}:held`, orgId, agentId);
+      this.setAgentKeyMetadata(agentId, apiKey, keyTtlHours);
     });
     tx();
     return { agentId, apiKey };
@@ -3361,6 +3375,10 @@ export const store = {
       if (r && !isHashedSecret(String(r.api_key))) {
         db.prepare("UPDATE agents SET api_key = ? WHERE id = ?").run(hashed, r.id);
       }
+    }
+    if (r?.api_key_expires_at) {
+      const expires = new Date(String(r.api_key_expires_at)).getTime();
+      if (!Number.isFinite(expires) || expires <= Date.now()) return undefined;
     }
     return r ? rowToAgent(r) : undefined;
   },
@@ -3486,9 +3504,25 @@ export const store = {
    * Use when a key may have leaked — the agent keeps its identity, balance and
    * history, but anything holding the old key is locked out at once.
    */
-  rotateAgentKey(agentId: string): string {
+  setAgentKeyMetadata(agentId: string, apiKey: string, ttlHours: number | null): void {
+    if (ttlHours !== null && (!Number.isInteger(ttlHours) || ttlHours < 1 || ttlHours > 24 * 365)) {
+      throw new Error("Key expiration must be between 1 hour and 365 days");
+    }
+    const expiresAt =
+      ttlHours === null ? null : new Date(Date.now() + ttlHours * 3600_000).toISOString();
+    db.prepare("UPDATE agents SET api_key_expires_at = ?, api_key_hint = ? WHERE id = ?").run(
+      expiresAt,
+      `pv_agent_…${apiKey.slice(-4)}`,
+      agentId,
+    );
+  },
+
+  rotateAgentKey(agentId: string, keyTtlHours: number | null = 24 * 90): string {
     const apiKey = `pv_agent_${randomBytes(12).toString("hex")}`;
-    db.prepare("UPDATE agents SET api_key = ? WHERE id = ?").run(hashSecret(apiKey), agentId);
+    db.transaction(() => {
+      db.prepare("UPDATE agents SET api_key = ? WHERE id = ?").run(hashSecret(apiKey), agentId);
+      this.setAgentKeyMetadata(agentId, apiKey, keyTtlHours);
+    })();
     return apiKey;
   },
 
@@ -4884,13 +4918,17 @@ export const store = {
    * they are attributed through the agent that made them.
    */
   orgSpentLast24h(orgId: string): MicroUsdc {
+    return this.orgSpentSince(orgId, Date.now() - 24 * 60 * 60 * 1000);
+  },
+  /** Shared period usage from the same reservation-aware events as existing caps. */
+  orgSpentSince(orgId: string, sinceMs: number): MicroUsdc {
     const rows = db
       .prepare(
         `SELECT p.amount_micro FROM pay_events p
          LEFT JOIN agents a ON a.id = p.agent_id
          WHERE COALESCE(p.org_id, a.org_id) = ? AND p.at_ms >= ?`,
       )
-      .all(orgId, Date.now() - 24 * 60 * 60 * 1000) as Row[];
+      .all(orgId, sinceMs) as Row[];
     return rows.reduce((acc, r) => acc + parseMicroColumn(r.amount_micro), 0n);
   },
 
@@ -6714,6 +6752,16 @@ export const store = {
       input.x402BudgetMicro !== undefined ? input.x402BudgetMicro.toString() : null,
     );
     return row;
+  },
+
+  replaceSessionKey(orgId: string, id: string): { id: string; token: string } | undefined {
+    const token = `pv_sess_${randomBytes(16).toString("hex")}`;
+    const r = db
+      .prepare(
+        "UPDATE session_keys SET token=? WHERE org_id=? AND id=? AND revoked_at IS NULL AND expires_at>?",
+      )
+      .run(hashSecret(token), orgId, id, nowIso());
+    return r.changes ? { id, token } : undefined;
   },
 
   listSessionKeys(orgId: string, agentId?: string): Omit<SessionKeyRecord, "token">[] {

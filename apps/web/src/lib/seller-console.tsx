@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ABAppIcon } from "./brand";
+import { inspectSellerSession } from "./seller-session";
+import { StudioNav } from "./studio-nav";
 import { MarketplaceSeller } from "./marketplace-seller";
 import { sellerApiFetch as apiFetch } from "./seller-api";
 import {
@@ -36,7 +38,6 @@ import {
 import { SellerSettingsView, type SellerProfile } from "./seller-settings";
 import { toast } from "./toast";
 import { Icon } from "./ui";
-import { useTheme } from "./theme-provider";
 
 export type SellerView =
   | "overview"
@@ -61,7 +62,7 @@ type Offer = SellerOffer;
 
 const NAV: { key: SellerView; label: string; icon: string; group: string }[] = [
   { key: "overview", label: "Overview", icon: "home", group: "Home" },
-  { key: "catalog", label: "Catalog", icon: "book", group: "Sell" },
+  { key: "catalog", label: "Inventory", icon: "book", group: "Sell" },
   { key: "integrations", label: "Integrations", icon: "zap", group: "Sell" },
   { key: "directory", label: "Directory", icon: "search", group: "Sell" },
   { key: "versions", label: "Versions", icon: "layers", group: "Sell" },
@@ -86,13 +87,13 @@ const MOBILE_NAV: { key: SellerView; label: string; icon: string }[] = [
 const VIEW_META: Record<SellerView, { eyebrow: string; title: string; description: string }> = {
   overview: {
     eyebrow: "Seller · Overview",
-    title: "Get paid by agents on your site.",
+    title: "Your seller workspace.",
     description:
       "Catalog what you sell, attach x402 on your endpoints, and watch inbound USDC settle to your wallet.",
   },
   catalog: {
     eyebrow: "Sell · Catalog",
-    title: "Offers agents can purchase.",
+    title: "Listings and inventory.",
     description:
       "Each offer is a paid URL and a price. ABI can host it, or point it at your own server. Published offers are listed in the buyer directory unless you opt out.",
   },
@@ -172,10 +173,16 @@ function viewFromPath(pathname: string): SellerView | null {
 }
 
 export function SellerConsole({ initialView = "overview" }: { initialView?: SellerView }) {
-  const theme = useTheme();
+  const [sessionError, setSessionError] = useState("");
+  const [inventory, setInventory] = useState<
+    { id: string; state?: string; name: string; stockLevel: number }[]
+  >([]);
   const [partner, setPartner] = useState<Partner | null>(null);
   const [activeSeller, setActiveSeller] = useState<SellerOrg | null>(null);
-  const [view, setViewState] = useState<SellerView>(initialView);
+  const [inventoryPanel, setInventoryPanel] = useState("products");
+  const [view, setViewState] = useState<SellerView>(
+    initialView === "webhooks" ? "settings" : initialView,
+  );
   const [railOpen, setRailOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [folderOpen, setFolderOpen] = useState<Record<string, boolean>>({
@@ -191,6 +198,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
 
   const setView = useCallback((next: SellerView) => {
+    if (next === "webhooks") next = "settings";
     setViewState(next);
     if (typeof window !== "undefined" && window.location.pathname !== viewPath(next)) {
       window.history.pushState({ view: next }, "", viewPath(next));
@@ -207,11 +215,16 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
   }, []);
 
   const refreshSeller = useCallback(async () => {
-    const [profileRes, offersRes, activityRes] = await Promise.all([
+    const [profileRes, offersRes, activityRes, productsRes] = await Promise.all([
       apiFetch("/v1/seller/profile"),
       apiFetch("/v1/seller/offers"),
       apiFetch("/v1/seller/activity"),
+      apiFetch("/v1/seller/marketplace/products"),
     ]);
+    if (productsRes.ok) {
+      const d = await productsRes.json();
+      setInventory(d.products ?? []);
+    }
     if (profileRes.ok) {
       const body = (await profileRes.json()) as { profile: SellerProfile };
       setProfile(body.profile);
@@ -230,11 +243,15 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
   }, []);
 
   const refreshMe = useCallback(async (): Promise<boolean> => {
-    const me = await apiFetch("/v1/partner/auth/me").catch(() => null);
-    if (!me?.ok) return false;
-    const body = (await me.json()) as { partner: Partner; org: SellerOrg | null };
-    setPartner(body.partner);
-    setActiveSeller(body.org);
+    const result = await inspectSellerSession(apiFetch);
+    if (result.status === "unauthorized") return false;
+    if (result.status === "unavailable") {
+      setSessionError(result.message);
+      throw Error(result.message);
+    }
+    setSessionError("");
+    setPartner(result.partner);
+    setActiveSeller(result.org);
     return true;
   }, []);
 
@@ -247,8 +264,17 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
         window.location.replace("/partners/login");
         return;
       }
-      await refreshSeller();
-    })();
+      try {
+        await refreshSeller();
+      } catch {
+        setSessionError(
+          "Your session is active, but the seller workspace could not load. Try again.",
+        );
+      }
+    })().catch((e) => {
+      if (!cancelled)
+        setSessionError(e instanceof Error ? e.message : "Seller service unavailable. Try again.");
+    });
     return () => {
       cancelled = true;
     };
@@ -264,11 +290,40 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
     goToLogin();
   }
 
-  if (!partner) return null;
+  if (!partner)
+    return (
+      <main className="reference-auth reference-session-state">
+        <h1>Seller workspace</h1>
+        {sessionError ? (
+          <>
+            <p role="alert">{sessionError}</p>
+            <button
+              onClick={() => {
+                setSessionError("");
+                void refreshMe()
+                  .then((ok) => {
+                    if (!ok) window.location.assign("/partners/login");
+                    else return refreshSeller();
+                  })
+                  .catch((e) =>
+                    setSessionError(
+                      e instanceof Error ? e.message : "Could not load workspace. Try again.",
+                    ),
+                  );
+              }}
+            >
+              Try again
+            </button>
+            <Link href="/partners/login">Go to sign in</Link>
+          </>
+        ) : (
+          <p role="status">Opening your seller workspace…</p>
+        )}
+      </main>
+    );
 
   const meta = VIEW_META[view];
-  const published = offers.filter((o) => o.status === "published").length;
-  const verified = offers.filter((o) => o.status === "verified" || o.status === "published").length;
+  const published = inventory.filter((o) => o.state === "published").length;
   const earned = activity
     .reduce((sum, r) => sum + Number.parseFloat(r.amountUsdc || "0"), 0)
     .toFixed(2);
@@ -276,7 +331,9 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className={`app ${railOpen ? "rail-open" : ""} ${railCollapsed ? "nav-collapsed" : ""}`}>
+      <div
+        className={`app studio-console studio-seller ${railOpen ? "rail-open" : ""} ${railCollapsed ? "nav-collapsed" : ""}`}
+      >
         <button
           type="button"
           className="rail-burger"
@@ -371,42 +428,49 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
         </Sidebar>
 
         <main className="main">
-          <header className="topbar">
-            <div className="topbar-title-block">
-              <nav className="crumb" aria-label="Breadcrumb">
-                <span className="crumb-group">Seller</span>
-                <span className="crumb-sep" aria-hidden>
-                  /
-                </span>
-                <span className="crumb-current">{viewLabel}</span>
-              </nav>
-              <h1>{viewLabel}</h1>
-            </div>
-            <div className="spacer" />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button type="button" className="user-chip" aria-label="Account menu">
-                  <div className="avatar">
-                    {(activeSeller?.name ?? "SL").slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className="who">
-                    <b>{activeSeller?.name ?? "Seller"}</b>
-                    <span>{partner.email}</span>
-                  </div>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{activeSeller?.name ?? "Seller"}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setView("settings")}>Settings</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => theme.toggle()}>
-                  Theme: {theme.resolved === "dark" ? "Dark" : "Light"}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => void signOut()}>Log out</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </header>
+          <div className="studio-shell-header">
+            <StudioNav
+              seller
+              active={view === "catalog" && inventoryPanel === "orders" ? "orders" : view}
+              onNavigate={(v, t) => {
+                setInventoryPanel(t ?? "products");
+                setView(v as SellerView);
+              }}
+            />
+            <header className="topbar">
+              <div className="topbar-title-block">
+                <nav className="crumb" aria-label="Breadcrumb">
+                  <span className="crumb-group">Seller</span>
+                  <span className="crumb-sep" aria-hidden>
+                    /
+                  </span>
+                  <span className="crumb-current">{viewLabel}</span>
+                </nav>
+                <h1>{viewLabel}</h1>
+              </div>
+              <div className="spacer" />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="user-chip" aria-label="Account menu">
+                    <div className="avatar">
+                      {(activeSeller?.name ?? "SL").slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="who">
+                      <b>{activeSeller?.name ?? "Seller"}</b>
+                      <span>{partner.email}</span>
+                    </div>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>{activeSeller?.name ?? "Seller"}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setView("settings")}>Settings</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void signOut()}>Log out</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </header>
+          </div>
 
           <div className="scroll">
             <section className="view">
@@ -419,33 +483,52 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
 
               {view === "overview" && (
                 <div className="seller-overview">
+                  <header className="reference-seller-heading">
+                    <h1>Your seller workspace</h1>
+                    <p>Manage your listings, inventory and orders.</p>
+                  </header>
+                  {sessionError && (
+                    <p className="minimal-error" role="alert">
+                      {sessionError}
+                      <button
+                        onClick={() =>
+                          void refreshSeller()
+                            .then(() => setSessionError(""))
+                            .catch(() => setSessionError("Could not load inventory. Try again."))
+                        }
+                      >
+                        Try again
+                      </button>
+                    </p>
+                  )}
                   <div className="seller-stats">
                     <Stat
                       label="Payout wallet"
                       value={profile?.payoutAddress ? "Set" : "Missing"}
                     />
-                    <Stat label="Offers" value={offers.length} />
-                    <Stat label="Verified / published" value={`${verified} / ${published}`} />
+                    <Stat label="Product listings" value={inventory.length} />
+                    <Stat label="Published" value={published} />
                     <Stat label="Earned (USDC)" value={earned} />
                   </div>
                   <div className="card">
-                    <h3 style={{ marginTop: 0 }}>How agents pay you</h3>
+                    <h2 style={{ marginTop: 0 }}>Get ready to sell</h2>
                     <ol className="muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
                       <li>Set the wallet that receives USDC in Settings → Payout.</li>
                       <li>
-                        Add an offer. ABI can host it for you, or your own server returns the x402
-                        challenge.
+                        Add your tools, software or physical products in Inventory. Include clear
+                        attributes, images and current stock.
                       </li>
                       <li>
-                        Verify the unpaid 402, then publish. It appears in the buyer directory.
+                        Complete seller verification, then publish eligible listings to the
+                        marketplace.
                       </li>
                       <li>
-                        A buyer agent pays within its org’s policy. USDC settles on-chain to your
-                        wallet and the sale shows under Activity.
+                        Follow purchases and fulfillment in Inventory → Orders. Payment and delivery
+                        remain subject to the configured providers.
                       </li>
                     </ol>
                     <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
-                      <Button onClick={() => setView("catalog")}>Open catalog</Button>
+                      <Button onClick={() => setView("catalog")}>Manage inventory</Button>
                       <Button variant="secondary" onClick={() => setView("settings")}>
                         Payout settings
                       </Button>
@@ -455,17 +538,26 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                 </div>
               )}
 
-              {view === "catalog" && <MarketplaceSeller offers={offers} />}
               {view === "catalog" && (
-                <CatalogView
+                <MarketplaceSeller
                   offers={offers}
-                  defaultNetwork={profile?.network ?? "base-sepolia"}
-                  onOffersChanged={refreshSeller}
-                  onIntegrate={(id) => {
-                    setSelectedOfferId(id);
-                    setView("integrations");
-                  }}
+                  initialPanel={inventoryPanel}
+                  onPanelChange={setInventoryPanel}
                 />
+              )}
+              {view === "catalog" && (
+                <details className="studio-legacy-offers">
+                  <summary>Payment offers & API endpoints</summary>
+                  <CatalogView
+                    offers={offers}
+                    defaultNetwork={profile?.network ?? "base-sepolia"}
+                    onOffersChanged={refreshSeller}
+                    onIntegrate={(id) => {
+                      setSelectedOfferId(id);
+                      setView("integrations");
+                    }}
+                  />
+                </details>
               )}
 
               {view === "integrations" && (

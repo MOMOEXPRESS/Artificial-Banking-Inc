@@ -9,12 +9,14 @@ const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
 const DialogPortal = DialogPrimitive.Portal;
 const DialogClose = DialogPrimitive.Close;
+const DialogDescription = DialogPrimitive.Description;
 
 const DialogOverlay = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Overlay>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
+    data-slot="dialog-overlay"
     ref={ref}
     className={cn(
       "fixed inset-0 z-[80] bg-black/60 data-[state=open]:animate-in data-[state=closed]:animate-out",
@@ -71,6 +73,7 @@ export {
   DialogOverlay,
   DialogTrigger,
   DialogClose,
+  DialogDescription,
   DialogContent,
   DialogHeader,
   DialogTitle,

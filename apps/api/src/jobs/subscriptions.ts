@@ -42,6 +42,7 @@ export async function runDueSubscriptions(): Promise<{ charged: number; parked: 
       {
         agentId: sub.agentId,
         orgId: sub.orgId,
+        recurring: sub.kind !== "one_shot",
         tool: "pay_api",
         amountMicro: sub.amountMicro,
         destination: sub.vendor,

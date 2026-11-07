@@ -60,7 +60,9 @@ function fixture(scopes: string[]) {
 
 async function connect(token: string) {
   const client = new Client({ name: "abi-test-client", version: "1.0.0" });
-  const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp/${token}`));
+  const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+    requestInit: { headers: { authorization: `Bearer ${token}` } },
+  });
   await client.connect(transport);
   return { client, transport };
 }

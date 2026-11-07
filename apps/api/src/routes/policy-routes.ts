@@ -96,6 +96,11 @@ export function policyView(template: ReturnType<typeof store.getPolicyTemplate>)
               ? null
               : formatMicroToUsdc(template.budgetWindow.totalMaxMicro),
           label: template.budgetWindow.label ?? null,
+          ...(template.budgetWindow.period ? { period: template.budgetWindow.period } : {}),
+          ...(template.budgetWindow.scope ? { scope: template.budgetWindow.scope } : {}),
+          ...(template.budgetWindow.allowRecurringPurchases !== undefined
+            ? { allowRecurringPurchases: template.budgetWindow.allowRecurringPurchases }
+            : {}),
         }
       : null,
     counterpartyRiskReviewAbove: template.counterpartyRiskReviewAbove ?? null,
@@ -142,6 +147,23 @@ const budgetWindowSchema = z
     endsAt: z.string().datetime().nullable().optional(),
     totalMaxUsdc: z.string().nullable().optional(),
     label: z.string().max(80).optional(),
+    period: z.enum(["day", "week", "month", "total"]).optional(),
+    scope: z.enum(["agent", "workspace"]).optional(),
+    allowRecurringPurchases: z.boolean().optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (
+      v.scope === "workspace" &&
+      (!v.period || v.period === "total") &&
+      (!v.startsAt ||
+        !v.endsAt ||
+        Date.parse(v.endsAt) - Date.parse(v.startsAt) > 90 * 86400000 ||
+        Date.parse(v.endsAt) <= Date.parse(v.startsAt))
+    )
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A total workspace limit requires a valid window of at most 90 days.",
+      });
   })
   .nullable()
   .optional();
@@ -174,6 +196,11 @@ function toBudgetWindow(input: BudgetWindowInput) {
     ...(input.endsAt ? { endsAtMs: Date.parse(input.endsAt) } : {}),
     ...(input.totalMaxUsdc ? { totalMaxMicro: parseUsdcToMicro(input.totalMaxUsdc) } : {}),
     ...(input.label ? { label: input.label } : {}),
+    ...(input.period && input.period !== "total" ? { period: input.period } : {}),
+    ...(input.scope ? { scope: input.scope } : {}),
+    ...(input.allowRecurringPurchases !== undefined
+      ? { allowRecurringPurchases: input.allowRecurringPurchases }
+      : {}),
   };
 }
 

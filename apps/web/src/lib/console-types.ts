@@ -147,6 +147,8 @@ export type Recon = {
 };
 
 export type View =
+  | "connect"
+  | "billing"
   | "marketplace"
   | "overview"
   | "treasury"

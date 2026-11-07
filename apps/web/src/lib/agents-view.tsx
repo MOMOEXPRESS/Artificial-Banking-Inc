@@ -14,6 +14,8 @@ type AgentRow = {
   status: "active" | "frozen" | "archived";
   profile?: Record<string, unknown>;
   apiKeyLive?: boolean;
+  apiKeyExpiresAt?: string;
+  apiKeyHint?: string;
   availableUsdc?: string;
   heldUsdc?: string;
   spent24hUsdc?: string;
@@ -100,6 +102,13 @@ export function AgentsView({
   const [analytics, setAnalytics] = useState<Record<string, unknown> | null>(null);
   const [tab, setTab] = useState<"roster" | "groups" | "sessions" | "freezes">("roster");
 
+  const [keyTtl, setKeyTtl] = useState("2160");
+  const [sessionTtl, setSessionTtl] = useState("24");
+  const [secret, setSecret] = useState<{ name: string; key: string } | null>(null);
+  const revealKey = (entry: { agentId: string; name: string; key: string }) => {
+    setSecret({ name: entry.name, key: entry.key });
+    onKeyRevealed?.(entry);
+  };
   const [newName, setNewName] = useState("");
   const [newGroupId, setNewGroupId] = useState("");
   const [newBudgetId, setNewBudgetId] = useState("");
@@ -111,11 +120,7 @@ export function AgentsView({
   const [ownerId, setOwnerId] = useState("owner");
   const [editGroupIds, setEditGroupIds] = useState<string[]>([]);
   const [sessionLabel, setSessionLabel] = useState("");
-  const [sessionScopes, setSessionScopes] = useState<Array<"read" | "pay" | "escrow">>([
-    "read",
-    "pay",
-    "escrow",
-  ]);
+  const [sessionScopes, setSessionScopes] = useState<Array<"read" | "pay" | "escrow">>(["read"]);
   const [revealedSession, setRevealedSession] = useState<string | null>(null);
   const [revealedMcpUrl, setRevealedMcpUrl] = useState<string | null>(null);
 
@@ -178,6 +183,8 @@ export function AgentsView({
   const loadDetail = useCallback(
     async (id: string) => {
       setSelected(id);
+      setRevealedSession(null);
+      setRevealedMcpUrl(null);
       const agentName = agents.find((a) => a.id === id)?.name;
       onContextChange?.(agentName ?? id.slice(0, 8));
       const [d, an] = await Promise.all([
@@ -211,13 +218,14 @@ export function AgentsView({
         method: "POST",
         body: JSON.stringify({
           name: newName.trim(),
+          keyTtlHours: keyTtl === "never" ? null : Number(keyTtl),
           budgetId: newBudgetId,
           groupIds: newGroupId ? [newGroupId] : [],
         }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error?.message ?? JSON.stringify(d.error));
-      onKeyRevealed?.({ agentId: d.agentId, name: newName.trim(), key: d.apiKey });
+      revealKey({ agentId: d.agentId, name: newName.trim(), key: d.apiKey });
       setNewName("");
       await refresh();
       return "API connection created — save its API key now.";
@@ -243,9 +251,9 @@ export function AgentsView({
     <div className="console-page agents-page">
       <div className="card-head" style={{ marginBottom: 16 }}>
         <div>
-          <h2 style={{ margin: 0 }}>API</h2>
+          <h2 style={{ margin: 0 }}>Agent connections</h2>
           <div className="sub">
-            API keys and sessions, with agent identities linked to budgets and audit history
+            Manage connection credentials, delegated access, and spending freezes.
           </div>
         </div>
         <SegTabs
@@ -255,13 +263,61 @@ export function AgentsView({
             [
               { value: "roster", label: "API keys" },
               { value: "groups", label: "Agent groups" },
-              { value: "sessions", label: "Sessions" },
+              { value: "sessions", label: "Scoped sessions" },
               { value: "freezes", label: "Freezes" },
             ] as const
           }
         />
       </div>
 
+      <div className="agent-access-guide">
+        <div>
+          <strong>API key</strong>
+          <p>
+            A developer credential for one agent identity. Store it in your service’s secret
+            manager.
+          </p>
+        </div>
+        <div>
+          <strong>Scoped session</strong>
+          <p>
+            Time-limited access for API or MCP clients. Choose exactly which actions it can request.
+          </p>
+        </div>
+        <div>
+          <strong>Spending controls</strong>
+          <p>
+            Budgets, policies, and approvals still apply. A freeze blocks spending across that
+            agent’s credentials.
+          </p>
+        </div>
+      </div>
+      {secret && (
+        <section className="card agent-key-reveal" aria-label="New API key" role="status">
+          <h3>Save the key for {secret.name}</h3>
+          <p>
+            This secret is shown here once. Keep it out of prompts, source code, and shared
+            screenshots.
+          </p>
+          <code>{secret.key}</code>
+          <div className="row">
+            <Button
+              size="sm"
+              onClick={() =>
+                void act("Copy API key", async () => {
+                  await navigator.clipboard.writeText(secret.key);
+                  return "API key copied.";
+                })
+              }
+            >
+              Copy API key
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setSecret(null)}>
+              I’ve saved it
+            </Button>
+          </div>
+        </section>
+      )}
       {tab === "roster" && (
         <div className="grid g-main fill">
           <div className="card api-keys-card">
@@ -276,10 +332,30 @@ export function AgentsView({
                 </div>
               </div>
             </div>
+            <div className="agent-key-settings">
+              <label htmlFor="agent-key-expiration">New key expiration</label>
+              <select
+                id="agent-key-expiration"
+                value={keyTtl}
+                disabled={locked}
+                onChange={(e) => setKeyTtl(e.target.value)}
+              >
+                <option value="24">24 hours</option>
+                <option value="168">7 days</option>
+                <option value="720">30 days</option>
+                <option value="2160">90 days (recommended)</option>
+                <option value="8760">365 days</option>
+                <option value="never">Until revoked</option>
+              </select>
+              <p>
+                Applies to creation and rotation. Primary keys allow agent reads, payment requests,
+                and escrow requests. Use a scoped session for narrower access.
+              </p>
+            </div>
             <div className="agent-create-controls api-keys-create">
               <input
-                placeholder="Connection name (e.g. research service)"
-                aria-label="Connection name"
+                placeholder="Agent name (e.g. research service)"
+                aria-label="Agent name"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
               />
@@ -345,7 +421,7 @@ export function AgentsView({
                       <th>Status</th>
                       <th>Group</th>
                       <th>Assigned budget</th>
-                      <th className="num">24h</th>
+                      <th className="num">Spent · 24h</th>
                       <th>API key</th>
                       <th className="akc-actions-head" />
                     </tr>
@@ -381,8 +457,20 @@ export function AgentsView({
                         <td className="akc-key-cell" data-label="API key">
                           <span className={`akc-key ${a.apiKeyLive ? "is-live" : "is-revoked"}`}>
                             <Icon name="key" size={12} />
-                            {a.apiKeyLive ? "live" : "revoked"}
+                            {a.apiKeyLive
+                              ? "Active"
+                              : a.apiKeyExpiresAt &&
+                                  new Date(a.apiKeyExpiresAt).getTime() <= Date.now()
+                                ? "Expired"
+                                : "Revoked"}
                           </span>
+                          <div className="agent-key-meta">
+                            <code>{a.apiKeyHint ?? "Secret hidden"}</code>
+                            <br />
+                            {a.apiKeyExpiresAt
+                              ? `Expires ${new Date(a.apiKeyExpiresAt).toLocaleDateString()}`
+                              : "Until revoked"}
+                          </div>
                         </td>
                         <td className="akc-actions-cell">
                           <div
@@ -436,17 +524,22 @@ export function AgentsView({
                                   void act("Rotate key", async () => {
                                     const res = await gFetch(
                                       `/v1/guardian/agents/${a.id}/rotate-key`,
-                                      { method: "POST" },
+                                      {
+                                        method: "POST",
+                                        body: JSON.stringify({
+                                          keyTtlHours: keyTtl === "never" ? null : Number(keyTtl),
+                                        }),
+                                      },
                                     );
                                     const d = await res.json();
                                     if (!res.ok) throw new Error(JSON.stringify(d.error));
-                                    onKeyRevealed?.({
+                                    revealKey({
                                       agentId: a.id,
                                       name: `${a.name} (rotated)`,
                                       key: d.apiKey,
                                     });
                                     await refresh();
-                                    return "Key rotated.";
+                                    return "Key rotated. The old key no longer works; agent status and spending controls are unchanged.";
                                   })
                                 }
                               >
@@ -665,7 +758,7 @@ export function AgentsView({
                               );
                               const d = await res.json();
                               if (!res.ok) throw new Error(JSON.stringify(d.error));
-                              onKeyRevealed?.({
+                              revealKey({
                                 agentId: selected!,
                                 name: `${rename} (restored)`,
                                 key: d.apiKey,
@@ -738,8 +831,8 @@ export function AgentsView({
 
                     <details className="agent-profile-section">
                       <summary>
-                        <span>Session keys</span>
-                        <span className="faint">24h · scoped</span>
+                        <span>Scoped session access</span>
+                        <span className="faint">API / MCP</span>
                       </summary>
                       <div className="agent-profile-section-body">
                         <div className="field agent-profile-field">
@@ -752,6 +845,26 @@ export function AgentsView({
                             placeholder="console"
                           />
                         </div>
+                        <div className="field agent-profile-field">
+                          <label htmlFor="agent-session-duration">Session duration</label>
+                          <select
+                            id="agent-session-duration"
+                            value={sessionTtl}
+                            disabled={locked || selectedAgent?.status !== "active"}
+                            onChange={(e) => setSessionTtl(e.target.value)}
+                          >
+                            <option value="1">1 hour</option>
+                            <option value="8">8 hours</option>
+                            <option value="24">24 hours</option>
+                            <option value="72">3 days</option>
+                            <option value="168">7 days</option>
+                            <option value="720">30 days</option>
+                          </select>
+                        </div>
+                        <p className="sub">
+                          Session expiration is independent of the API key. Only selected actions
+                          are permitted; every payment request still passes spending policies.
+                        </p>
                         <div className="agent-profile-checks" role="group" aria-label="Scopes">
                           {(["read", "pay", "escrow"] as const).map((scope) => (
                             <label key={scope}>
@@ -767,7 +880,13 @@ export function AgentsView({
                                   )
                                 }
                               />
-                              {scope}
+                              {
+                                {
+                                  read: "View balances and activity",
+                                  pay: "Request payments",
+                                  escrow: "Request escrow actions",
+                                }[scope]
+                              }
                             </label>
                           ))}
                         </div>
@@ -779,14 +898,14 @@ export function AgentsView({
                             sessionScopes.length === 0
                           }
                           onClick={() =>
-                            void act("Mint session", async () => {
+                            void act("Create scoped session", async () => {
                               const res = await gFetch(
                                 `/v1/guardian/agents/${selected}/session-keys`,
                                 {
                                   method: "POST",
                                   body: JSON.stringify({
                                     label: sessionLabel.trim() || "console",
-                                    ttlHours: 24,
+                                    ttlHours: Number(sessionTtl),
                                     scopes: sessionScopes,
                                   }),
                                 },
@@ -802,15 +921,25 @@ export function AgentsView({
                             })
                           }
                         >
-                          Mint 24h session
+                          Create scoped session
                         </Button>
                       </div>
                     </details>
 
                     {revealedSession && (
                       <div className="agent-profile-secret">
-                        <div className="muted">Session token (once)</div>
+                        <div className="muted">Session token — save it now</div>
                         <code className="mono">{revealedSession}</code>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setRevealedSession(null);
+                            setRevealedMcpUrl(null);
+                          }}
+                        >
+                          Dismiss secret
+                        </Button>
                         {revealedMcpUrl && (
                           <>
                             <div className="muted" style={{ marginTop: 10 }}>
@@ -1310,7 +1439,7 @@ export function AgentsView({
         <div className="card">
           <div className="card-head">
             <div>
-              <h2>Session keys</h2>
+              <h2>Scoped sessions</h2>
               <div className="sub">
                 Short-lived <code>pv_sess_…</code> tokens — scopes enforced on agent API routes;
                 revoked on freeze/archive
@@ -1318,7 +1447,10 @@ export function AgentsView({
             </div>
           </div>
           {sessions.length === 0 ? (
-            <Empty icon="zap">No session keys. Open an agent detail and mint a 24h session.</Empty>
+            <Empty icon="zap">
+              No sessions yet. In API keys, select an agent and open Scoped session access to choose
+              its permissions and duration.
+            </Empty>
           ) : (
             <table>
               <thead>
@@ -1356,9 +1488,15 @@ export function AgentsView({
                             disabled={locked}
                             onClick={() =>
                               void act("Revoke session", async () => {
-                                await gFetch(`/v1/guardian/session-keys/${s.id}/revoke`, {
-                                  method: "POST",
-                                });
+                                const res = await gFetch(
+                                  `/v1/guardian/session-keys/${s.id}/revoke`,
+                                  {
+                                    method: "POST",
+                                  },
+                                );
+                                const d = await res.json();
+                                if (!res.ok)
+                                  throw new Error(d.error?.message ?? "Could not revoke session");
                                 await refresh();
                               })
                             }
@@ -1381,12 +1519,15 @@ export function AgentsView({
           <div className="card-head">
             <div>
               <h2>Freeze audit</h2>
-              <div className="sub">Kill-switch events, rotations, revokes, archives</div>
+              <div className="sub">
+                Freeze and credential history. Freezing revokes existing sessions; key rotation
+                never unfreezes an agent.
+              </div>
             </div>
           </div>
           {freezes.length === 0 ? (
             <p className="faint" style={{ margin: "8px 0 4px", fontSize: 13 }}>
-              No freeze events yet. Freeze an agent from the Roster tab.
+              No freeze events yet. Freeze an agent from the API keys tab.
             </p>
           ) : (
             <table>
