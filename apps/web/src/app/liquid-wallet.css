@@ -1,4 +1,4 @@
-/* Approved clear liquid-glass wallet. Content remains semantic over an authored material. */
+/* Optical glass, at ISO/IEC 7810 ID-1 bank-card proportions (85.60 × 53.98). */
 .studio-console .liquid-wallet-card {
   position: relative;
   isolation: isolate;
@@ -7,28 +7,66 @@
   align-items: stretch;
   justify-content: flex-start;
   width: 100%;
-  aspect-ratio: 1.94;
+  max-width: 460px;
+  aspect-ratio: 85.6 / 53.98;
+  min-height: 0;
+  margin-inline: auto;
   padding: 27px 30px;
   border: 0 !important;
-  border-radius: 22px;
-  background: #e6ebf16b !important;
+  border-radius: 22px !important;
+  background: #ffffff52 !important;
   color: #222832 !important;
-  box-shadow: 0 13px 23px #26344617;
+  box-shadow:
+    0 18px 32px -14px #26344629,
+    0 4px 10px -4px #26344612,
+    inset 0 1.5px 1px #ffffffed,
+    inset 1px 0 1px #ffffffa8,
+    inset 0 -1px 1px #7b9abb42,
+    inset -1px 0 1px #a9bfd547;
   text-align: left;
   font: inherit;
   text-decoration: none;
   transition:
     box-shadow 220ms ease-out,
     transform 220ms ease-out;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(20px) saturate(125%);
+  -webkit-backdrop-filter: blur(20px) saturate(125%);
 }
 .liquid-card-material {
   position: absolute;
   z-index: -1;
-  inset: -6% -3.5% -8%;
-  background: url("/wallet/liquid-glass.webp") center / 100% 100% no-repeat;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  background:
+    radial-gradient(ellipse at 0% 100%, #b9d9ef38, transparent 57%),
+    radial-gradient(ellipse at 100% 0%, #e3f2ff45, transparent 55%);
   pointer-events: none;
+}
+.liquid-card-material::before,
+.liquid-card-material::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+.liquid-card-material::before {
+  inset: 1px;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1px #ffffff80,
+    inset 0 0 12px 2px #ffffff59;
+}
+.liquid-card-material::after {
+  inset: -70% -40%;
+  transform: rotate(-28deg);
+  background: linear-gradient(
+    90deg,
+    transparent 35%,
+    #ffffff12 44%,
+    #ffffff6b 49%,
+    #ffffff1a 54%,
+    transparent 66%
+  );
 }
 .liquid-wallet-card::after {
   content: "";
@@ -101,7 +139,6 @@
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .studio-console button.liquid-wallet-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 17px 29px #26344620;
   }
   .liquid-wallet-card:hover::after {
     opacity: 0.38;
@@ -559,7 +596,7 @@
   padding: 27px 30px !important;
 }
 .liquid-card-watermark {
-  opacity: 0.13;
+  opacity: 0.07;
 }
 .wallet-workspace .minimal-page-heading h1 {
   margin: 0 !important;

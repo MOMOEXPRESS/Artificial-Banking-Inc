@@ -14,7 +14,7 @@ colors:
   nav-glass: "#fafafad9"
   dock-glass: "#fafafaa6"
   menu-glass: "#fafafae6"
-  wallet-glass: "#e6ebf16b"
+  wallet-glass: "#ffffff52"
   wallet-ink: "#222832"
   wallet-token: "#ffffffb0"
 typography:
@@ -101,7 +101,7 @@ Content, provider rows, seller forms and spending controls are opaque. Glass is 
 
 ## Liquid-glass wallet component
 
-The authored alpha material at apps/web/public/wallet/liquid-glass.webp supplies the optical rim and cool silver-blue reflections. A translucent wash, 16px backdrop blur, 22px corners and 1.94 aspect ratio define the card; text remains semantic above the material. Use the wallet tokens in frontmatter. Desktop padding is 27px 30px; mobile uses 22px 23px. The grounded shadow is 0 13px 23px #26344617. Brand text uses 17px/500 and 0.16em tracking, stepping to 15px/0.12em on mobile. The actual ABI watermark has final opacity 0.13.
+The wallet uses transparent CSS optical-glass layers rather than the former metallic-looking image material. A clear white wash, 20px backdrop blur with 125% saturation, thin inset highlights and soft diagonal reflections define the surface. The card uses the standard ID-1 bank-card ratio, 85.60 / 53.98 (approximately 1.586), with a 460px maximum width and 22px corners; text remains semantic above the material. Use the wallet tokens in frontmatter. Desktop padding is 27px 30px; mobile uses 22px 23px. Layered, softly offset shadows ground the glass without a thick chrome rim. Brand text uses 17px/500 and 0.16em tracking, stepping to 15px/0.12em on mobile. The actual ABI watermark has final opacity 0.07. The original image asset is retained as historical material and is no longer rendered by the component.
 
 Mouse movement updates only a subtle radial highlight. Hover-capable devices with no reduced-motion preference lift an interactive card by 2px and adjust its shadow, using 220ms ease-out. Reduced motion disables transitions and pointer tracking; touch has no pointer-follow effect. Keyboard focus uses a visible 3px blue outline with 7px offset. Working rows and confirmation/action dialogs stay opaque.
 
