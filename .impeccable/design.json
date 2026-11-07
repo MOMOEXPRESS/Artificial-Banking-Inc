@@ -1,24 +1,204 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-07",
-  "title": "ABI original design with marketplace resources",
+  "generatedAt": "2026-11-07T18:16:29.037252+00:00",
+  "title": "Design System: ABI original vault and o11 hybrid",
   "extensions": {
     "sourceAuthority": [
-      "apps/web/src/app/globals.css",
-      "apps/web/src/app/design-system.css",
-      "apps/web/src/app/marketplace.css"
+      "DESIGN.md",
+      ".impeccable/briefs/abi-o11-hybrid.md",
+      "apps/web/src/app/reference-console.css",
+      "apps/web/src/app/minimal-workspace.css",
+      "apps/web/src/app/layout.tsx",
+      "apps/web/src/lib/minimal-workspace.tsx",
+      "apps/web/src/lib/studio-nav.tsx",
+      "apps/web/src/lib/spending-limits.tsx",
+      "apps/web/src/lib/seller-session.ts"
     ],
-    "userPin": "Original ABI design; marketplace resources preserved"
+    "approvedReferences": [
+      ".impeccable/mocks/abi-o11-hybrid/overview-study.png"
+    ],
+    "scope": "Original ABI console and vault card with o11 typography, placement and materials. Public-home structure retained with shared typography/chrome adaptation. Supersedes minimal-reference composition, IBM Plex body typography, navy rail and beige/green directions.",
+    "colors": {
+      "canvas": "#fafafa",
+      "ink": "#262626",
+      "secondary": "#525252",
+      "content": "#f4f4f4",
+      "field": "#e5e5e5",
+      "checklist": "#f1f1f1",
+      "accent": "#2878c9",
+      "accentHover": "#1d67b1",
+      "navGlass": "#fafafad9",
+      "dockGlass": "#fafafaa6",
+      "menuGlass": "#fafafae6"
+    },
+    "typography": {
+      "body": {
+        "family": "Inter, system-ui, sans-serif",
+        "size": "14px",
+        "weight": 400,
+        "lineHeight": 1.45
+      },
+      "heading": {
+        "size": "28px",
+        "weight": 500,
+        "lineHeight": 1.2
+      },
+      "section": {
+        "size": "21px",
+        "weight": 500
+      },
+      "control": {
+        "size": "13px",
+        "weight": 400
+      },
+      "fontSource": "Official self-hosted inter-variable.woff2, weights 100\u2013900, SIL OFL in fonts/OFL-Inter.txt; next/font/local. IBM Plex Mono remains self-hosted at 400/500 for code/credentials."
+    },
+    "materials": {
+      "content": "Opaque neutral content, forms, provider rows and dialogs.",
+      "glass": "Navigation, menus and the original charcoal/silver ABI vault card only.",
+      "navigationBlur": "24px",
+      "dockAndMenuBlur": "28px"
+    },
+    "layout": {
+      "viewMaxWidth": "1120px",
+      "taskPageMaxWidth": "1080px",
+      "headerHeight": "72px",
+      "overviewColumns": "1fr 1fr",
+      "overviewGap": "30px",
+      "mobile": "At 760px: stacked overview, 62px header, hidden desktop links, 20px content side padding, dock max-width 420px and safe-area bottom placement. Floating dock also appears on desktop."
+    },
+    "shadows": [
+      {
+        "name": "selected-segment",
+        "value": "0 1px 4px #0002",
+        "purpose": "Selected segmented controls."
+      },
+      {
+        "name": "dock",
+        "value": "inset 0 1px 0 #fff, 0 10px 32px #00000012",
+        "purpose": "Glass workspace dock."
+      },
+      {
+        "name": "menu",
+        "value": "inset 0 1px 0 #fff, 0 15px 45px #00000014",
+        "purpose": "Glass account menu."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-header",
+        "value": "900px"
+      },
+      {
+        "name": "mobile-stack",
+        "value": "760px"
+      }
+    ],
+    "focus": {
+      "outline": "2px solid #2878c9",
+      "outlineOffset": "3px"
+    },
+    "navigation": {
+      "buyer": [
+        "Overview",
+        "Marketplace",
+        "Connect",
+        "Billing",
+        "Settings"
+      ],
+      "seller": [
+        "Overview",
+        "Inventory",
+        "Connect",
+        "Payouts",
+        "Settings"
+      ],
+      "removed": "More menu and standalone ledger/webhook navigation; legacy backend remains.",
+      "theme": "Interface pinned light; nonfunctional Theme menu removed."
+    },
+    "behavior": {
+      "marketplace": "Published inventory only, provider/product segmentation, search and category tabs; no Demo/Live selector. Order content appears in the separate Purchases tab.",
+      "connect": "Dialog-based scoped key creation, one-time secret, replacement and revocation; no secret localStorage.",
+      "billing": "Overview and Spending limits; UTC calendar day/week/month windows, shared workspace cap, total caps expiring within 90 days, recurring opt-out. Existing budgets and approval controls apply. Connected-service writes unavailable. Editing a total window preserves its original start time.",
+      "sellerSession": "Only a definitive 401 ends the session. Transient network/429/5xx and malformed responses retain the session and offer retry. Separate buyer/seller identities, verification and MFA remain."
+    },
+    "financialLimits": "USD card funding remains disabled pending operator configuration and usage/refund policy; separate from Base Sepolia USDC. No USD consumption or fiat-to-USDC conversion. Study/fixtures do not establish live funding, purchase, fulfillment or settlement.",
+    "evidenceLimits": "Source documentation, not rendering or deployment certification. Hybrid desktop/mobile captures and independent finish review must be assessed through actual revision-specific artifacts. Prior minimal-reference review does not certify this revision. Generated study content is illustrative."
   },
-  "components": [],
+  "components": [
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Restrained blue action, visibly disabled when prerequisites are unavailable.",
+      "html": "<button class=\"ds-primary\">Connect your agent</button>",
+      "css": ".ds-primary{background:#2878c9;color:#fff;min-height:36px;border:0;border-radius:6px;padding:8px 13px;font:400 13px Inter,system-ui,sans-serif}.ds-primary:disabled{opacity:.45;cursor:not-allowed}.ds-primary:focus-visible{outline:2px solid #2878c9;outline-offset:3px}"
+    },
+    {
+      "name": "Text field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "Opaque neutral field with visible focus; dialog fields become 16px on mobile.",
+      "html": "<label class=\"ds-label\">Agent name<input class=\"ds-field\" /></label>",
+      "css": ".ds-label{display:grid;gap:9px;color:#262626;font:400 14px Inter,system-ui,sans-serif}.ds-field{background:#e5e5e5;color:#262626;border:0;border-radius:7px;min-height:38px;padding:10px 12px;font:400 14px Inter,system-ui,sans-serif}.ds-field:focus-visible{outline:2px solid #2878c9;outline-offset:3px}"
+    },
+    {
+      "name": "Category controls",
+      "kind": "chip",
+      "description": "Underlined neutral categories with equal prominence and aria-pressed state.",
+      "html": "<div class=\"ds-categories\"><button aria-pressed=\"true\">Tools &amp; APIs</button><button aria-pressed=\"false\">Software</button><button aria-pressed=\"false\">Physical goods</button></div>",
+      "css": ".ds-categories{display:flex;gap:24px;overflow:auto;border-bottom:1px solid #dedede}.ds-categories button{white-space:nowrap;border:0;border-bottom:2px solid transparent;background:none;color:#525252;padding:11px 2px;font:400 13px Inter,system-ui,sans-serif}.ds-categories button[aria-pressed=\"true\"]{border-bottom-color:#262626;color:#262626}"
+    },
+    {
+      "name": "Checklist row",
+      "kind": "card",
+      "refersTo": "content-row",
+      "description": "Opaque setup row beside the ABI vault on desktop; overview stacks on mobile.",
+      "html": "<div class=\"ds-checklist\">Connect your agent</div>",
+      "css": ".ds-checklist{display:flex;align-items:center;gap:14px;min-height:84px;padding:17px 16px;border-radius:12px;background:#f1f1f1;color:#262626;font:400 14px Inter,system-ui,sans-serif}@media(max-width:760px){.ds-checklist{min-height:66px;padding:13px 12px;gap:9px}}"
+    },
+    {
+      "name": "Desktop destinations",
+      "kind": "nav",
+      "description": "Five buyer destinations; seller substitutes Inventory and Payouts. No More menu. Floating dock shares these destinations.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Workspace\"><button aria-current=\"page\">Overview</button><button>Marketplace</button><button>Connect</button><button>Billing</button><button>Settings</button></nav>",
+      "css": ".ds-nav{display:flex;gap:5px;background:#fafafad9;backdrop-filter:blur(24px) saturate(125%);padding:12px}.ds-nav button{border:0;background:none;color:#525252;border-radius:7px;padding:8px 14px;font:400 13px Inter,system-ui,sans-serif}.ds-nav button[aria-current]{background:#e9e9e9;color:#262626}"
+    },
+    {
+      "name": "Provider row",
+      "kind": "card",
+      "refersTo": "content-row",
+      "description": "Structural preview only; published provider data supplies real titles and availability.",
+      "html": "<article class=\"ds-provider\"><h3>Provider name</h3><p>Actual availability appears here.</p></article>",
+      "css": ".ds-provider{background:#f4f4f4;color:#262626;border:0;border-radius:12px;padding:20px 24px;min-height:90px;font-family:Inter,system-ui,sans-serif}.ds-provider h3{font-size:16px;font-weight:400;margin:0}.ds-provider p{font-size:13px;color:#626262}"
+    }
+  ],
   "narrative": {
-    "northStar": "Original ABI visual identity with agent commerce",
-    "overview": "Preserve original chrome, typography, light/dark tokens and section grammar. Marketplace demo and live workflows are clearly separated.",
+    "northStar": "ABI original vault and o11 hybrid",
+    "overview": "Original ABI identity and charcoal/silver vault card with self-hosted Inter, opaque neutral content and selective glass navigation/menus. Checklist beside the card on desktop, stacked on mobile. Public-home structure retained.",
     "keyCharacteristics": [
-      "Original ABI branding",
-      "Familiar marketplace browsing",
-      "Governed purchases",
-      "Explicit fictional demo scenarios"
+      "Inter 400 body/controls and 500 headings.",
+      "Opaque light-gray working surfaces; glass reserved for navigation, menus and ABI vault.",
+      "Five role-specific destinations with no More or standalone ledger/webhook navigation.",
+      "Equal commerce categories, published inventory and honest financial availability."
+    ],
+    "rules": [
+      {
+        "name": "Selective glass",
+        "body": "Keep working content opaque and reserve glass for navigation, menus and the ABI card.",
+        "section": "materials"
+      }
+    ],
+    "dos": [
+      "Preserve actual ABI mark and VaultBankCard.",
+      "Keep category labels legible and equally prominent.",
+      "Distinguish USD credits, Base Sepolia USDC and live operational evidence.",
+      "Preserve sessions on transient seller service errors and offer retry."
+    ],
+    "donts": [
+      "Do not introduce study balances or invented provider data.",
+      "Do not expose or persist credential secrets as decorative content.",
+      "Do not infer live funding, purchases, fulfillment or deployment from UI studies or fixtures."
     ]
   }
 }

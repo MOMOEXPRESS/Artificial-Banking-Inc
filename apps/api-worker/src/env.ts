@@ -7,6 +7,9 @@
 
 const STRING_KEYS = [
   "CHAIN",
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
+  "ABI_CARD_FUNDING_ENABLED",
   "ABI_MARKETPLACE_REVIEWER_ORGS",
   "ABI_MARKETPLACE_PROVIDER_URL",
   "ABI_MARKETPLACE_PROVIDER_TOKEN",
@@ -65,4 +68,3 @@ export function applyWorkerEnv(env: Env): void {
   delete process.env.SMTP_USER;
   delete process.env.SMTP_PASS;
 }
-

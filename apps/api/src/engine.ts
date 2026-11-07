@@ -23,6 +23,7 @@ import {
 import {
   evaluatePolicy,
   resolvePolicy,
+  resolveBudgetWindow,
   type DenialLimits,
   type PolicyRules,
 } from "@policyvault/policy";
@@ -176,10 +177,14 @@ export function rulesFor(
   const agent = scopedStore(orgId).getAgent(agentId)!;
   const org = store.getOrg(orgId)!;
   const { effective } = resolvedPolicyFor(agentId, orgId);
+  const activeBudgetWindow = effective.budgetWindow
+    ? resolveBudgetWindow(effective.budgetWindow)
+    : undefined;
   const orgAgentIds = store.listAgents(orgId).map((a) => a.id);
   const funding = agentFundingContext(agentId, orgId);
   return {
     ...effective,
+    budgetWindow: activeBudgetWindow,
     knownCounterparties: [
       ...store.knownCounterparties(orgId),
       // same-org agents are never "new counterparties" for internal moves
@@ -215,7 +220,9 @@ export function rulesFor(
     windowSpentMicro:
       effective.budgetWindow?.totalMaxMicro === undefined
         ? undefined
-        : store.spentSince(agentId, effective.budgetWindow.startsAtMs ?? 0),
+        : activeBudgetWindow?.scope === "workspace"
+          ? store.orgSpentSince(orgId, activeBudgetWindow.startsAtMs ?? 0)
+          : store.spentSince(agentId, activeBudgetWindow?.startsAtMs ?? 0),
     // P6-T3: graduated counterparty risk, where the allowlist is binary.
     counterpartyStats:
       effective.counterpartyRiskReviewAbove === undefined || !destination
@@ -1507,6 +1514,9 @@ export async function resolveApproval(
     {
       agentId: approval.agentId,
       orgId: approval.orgId,
+      recurring:
+        !!approval.subscriptionId &&
+        store.getSubscription(approval.subscriptionId, approval.orgId)?.kind !== "one_shot",
       tool: approval.tool as IntentTool,
       amountMicro: approval.amountMicro,
       destination: approval.destination,

@@ -1,0 +1,4 @@
+Inter variable font, by Rasmus Andersson / the Inter project.
+Source: https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/InterVariable.woff2
+License: SIL Open Font License 1.1; see OFL-Inter.txt.
+Fetched 2026-11-07. Self-hosted to avoid external font requests.

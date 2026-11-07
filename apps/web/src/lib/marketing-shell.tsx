@@ -8,7 +8,15 @@ import { Icon } from "./ui";
 /** Shared marketing chrome for Home / Docs / Pricing / About. */
 
 export type MarketingNavKey =
-  "marketplace" | "home" | "landing" | "docs" | "pricing" | "about" | "console" | "partnerships" | "waitlist";
+  | "marketplace"
+  | "home"
+  | "landing"
+  | "docs"
+  | "pricing"
+  | "about"
+  | "console"
+  | "partnerships"
+  | "waitlist";
 
 /** Public waitlist signup page. No account needed. */
 export const WAITLIST_HREF = "/waitlist";
@@ -24,7 +32,9 @@ export function MarketingShell({
   return (
     <div className="landing">
       <MarketingNav active={navActive} />
-      <a className="market-skip" href="#main-content">Skip to content</a>
+      <a className="market-skip" href="#main-content">
+        Skip to content
+      </a>
       <main id="main-content">{children}</main>
       <MarketingFooter />
       <CookieNotice />
@@ -96,7 +106,13 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
           <ABWordmark size={26} tone="#0a0a0c" />
         </Link>
         <nav className="marketing-links" aria-label="Main navigation">
-          <Link href="/directory" className={current === "marketplace" ? "is-active" : undefined} onClick={close}>Marketplace</Link>
+          <Link
+            href="/directory"
+            className={current === "marketplace" ? "is-active" : undefined}
+            onClick={close}
+          >
+            Marketplace
+          </Link>
           <Link href="/" className={current === "home" ? "is-active" : undefined} onClick={close}>
             Home
           </Link>
@@ -183,10 +199,10 @@ export function MarketingFooter() {
     <footer className="marketing-footer">
       <div className="marketing-footer-inner">
         <div className="marketing-footer-brand">
-          <ABWordmark size={28} tone="#fff" />
+          <ABWordmark size={28} tone="#252525" />
           <p>
-            A marketplace where agents find products and people stay in control.
-            Discover, buy and sell with budgets, approvals and a clear purchase record.
+            A marketplace where agents find products and people stay in control. Discover, buy and
+            sell with budgets, approvals and a clear purchase record.
           </p>
         </div>
         <div className="marketing-footer-cols">
@@ -287,8 +303,8 @@ export function MarketingCta() {
       <div className="cta-open">
         <h2>Your next purchase starts with a good brief.</h2>
         <p>
-          Explore seller listings, compare products and prepare a purchase with your agent.
-          Your existing spending rules govern every payment request.
+          Explore seller listings, compare products and prepare a purchase with your agent. Your
+          existing spending rules govern every payment request.
         </p>
       </div>
       <div className="cta-lockup" aria-hidden>
@@ -309,4 +325,3 @@ export function MarketingCta() {
     </section>
   );
 }
-

@@ -95,6 +95,7 @@ import { registerNotificationRoutes } from "./routes/notification-routes.js";
 import { registerWaitlistRoutes } from "./waitlist.js";
 import { registerComplianceRoutes } from "./compliance-routes.js";
 import { registerListingsRoutes } from "./listings-routes.js";
+import { registerCardFundingRoutes } from "./card-funding-routes.js";
 import { registerMarketplaceRoutes } from "./marketplace-routes.js";
 import { actionEventsMiddleware } from "./action-events.js";
 import { startScheduler } from "./jobs/scheduler.js";
@@ -163,6 +164,7 @@ app.use(
     crossOriginEmbedderPolicy: false,
   }),
 );
+app.use("/v1/billing/webhook", express.raw({ type: "application/json", limit: "1mb" }));
 app.use(express.json({ limit: "1mb" }));
 app.use(requestLogMiddleware);
 app.use(actionEventsMiddleware());
@@ -674,6 +676,7 @@ registerNotificationRoutes(app, { guardianRoute });
 registerWaitlistRoutes(app, { guardianRoute });
 registerComplianceRoutes(app, { guardianRoute });
 registerListingsRoutes(app, { guardianRoute });
+registerCardFundingRoutes(app, { guardianRoute });
 registerMarketplaceRoutes(app, {
   guardianRoute,
   authAgent,
@@ -682,15 +685,26 @@ registerMarketplaceRoutes(app, {
     let body: Record<string, unknown> = {};
     // Capture the existing governed route result; no alternative payment path.
     const response = {
-      status(code: number) { status = code; return this; },
-      json(value: Record<string, unknown>) { body = value; return this; },
+      status(code: number) {
+        status = code;
+        return this;
+      },
+      json(value: Record<string, unknown>) {
+        body = value;
+        return this;
+      },
     } as express.Response;
     const micro = BigInt(payment.priceMicro);
     await handleIntent(response, {
-      orgId: actor.orgId, agentId: actor.agentId, sessionId: actor.sessionId,
-      tool: "pay_api", destination: payment.endpointUrl,
-      amountMicro: micro, amountUsdc: formatMicroToUsdc(micro),
-      idempotencyKey: payment.idempotencyKey, jobId: payment.orderId,
+      orgId: actor.orgId,
+      agentId: actor.agentId,
+      sessionId: actor.sessionId,
+      tool: "pay_api",
+      destination: payment.endpointUrl,
+      amountMicro: micro,
+      amountUsdc: formatMicroToUsdc(micro),
+      idempotencyKey: payment.idempotencyKey,
+      jobId: payment.orderId,
       memo: `Marketplace order ${payment.orderId}`,
     });
     return { status, body };

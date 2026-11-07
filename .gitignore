@@ -29,3 +29,6 @@ contracts/.env
 archive/**/node_modules/
 archive/**/dist/
 docs/archive/**/node_modules/
+
+# Local rendered design-review evidence; approved mockups remain versioned.
+.impeccable/review/

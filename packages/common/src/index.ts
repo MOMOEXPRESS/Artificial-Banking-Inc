@@ -86,6 +86,8 @@ export type WebhookEventName =
   | "treasury.onchain_deposit";
 
 export interface MoneyIntent {
+  /** Set by the server for scheduled recurring charges. */
+  recurring?: boolean;
   agentId: string;
   orgId: string;
   tool: IntentTool;

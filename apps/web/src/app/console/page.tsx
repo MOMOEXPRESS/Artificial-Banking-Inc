@@ -14,14 +14,15 @@ import { ABAppIcon, ABMark } from "../../lib/brand";
 import { showApprovalToast } from "../../lib/approval-toast";
 import { Icon, fmtUsd, relTime } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
+import { MinimalOverview, MinimalConnect, MinimalBilling } from "../../lib/minimal-workspace";
+import { StudioNav } from "../../lib/studio-nav";
 import { MarketplaceBuyer } from "../../lib/marketplace-buyer";
 import { ChatView } from "../../lib/chat-view";
 import { PolicyView, type Policy } from "../../lib/policy-view";
 import { SettingsView } from "../../lib/settings-view";
 import { loadTabAgentKeys, mergeAgentKeys, saveTabAgentKeys } from "../../lib/agent-keys-tab";
 import { PageTour } from "../../lib/page-tour";
-import { hasBudgetOpsSetup } from "../../lib/overview-setup";
-import { WorkView, type Invoice, type InvoiceStats, type Run, type Summary } from "../../lib/views";
+import { WorkView, type Invoice, type InvoiceStats, type Run } from "../../lib/views";
 import { AgentsView } from "../../lib/agents-view";
 import { PaymentsView } from "../../lib/payments-view";
 import { TreasuryView } from "../../lib/treasury-view";
@@ -34,7 +35,6 @@ import {
 import { ConsoleCommandPalette } from "../../lib/command-palette";
 import { toast } from "../../lib/toast";
 import { useStepUp } from "../../lib/step-up";
-import { useTheme } from "../../lib/theme-provider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -78,7 +78,6 @@ import {
 } from "../../lib/console-types";
 import { emptyMissionState, type MissionState } from "../../lib/playground-view";
 import { Login } from "../../lib/login-view";
-import { Overview } from "../../lib/overview-view";
 import { Playground } from "../../lib/playground-view";
 import { Ledger } from "../../lib/ledger-view";
 import { Webhooks } from "../../lib/webhooks-view";
@@ -104,17 +103,16 @@ const SELLER = sellerUrl() ?? "";
 
 const NAV: { key: View; label: string; icon: string; group: string }[] = [
   { key: "marketplace", label: "Marketplace", icon: "search", group: "Home" },
+  { key: "chat", label: "Assistant", icon: "spark", group: "Home" },
   { key: "overview", label: "Overview", icon: "home", group: "Home" },
   { key: "insights", label: "Insights", icon: "spark", group: "Home" },
   { key: "treasury", label: "Treasury", icon: "wallet", group: "Money" },
   { key: "payments", label: "Transactions", icon: "zap", group: "Money" },
-  { key: "ledger", label: "Ledger", icon: "list", group: "Money" },
-  { key: "agents", label: "API", icon: "key", group: "Connections" },
+  { key: "agents", label: "Agents", icon: "key", group: "Connections" },
   { key: "work", label: "Work", icon: "book", group: "Connections" },
   { key: "approvals", label: "Approvals", icon: "check", group: "Controls" },
   { key: "policy", label: "Policies", icon: "sliders", group: "Controls" },
   { key: "playground", label: "Playground", icon: "play", group: "Developers" },
-  { key: "webhooks", label: "Webhooks", icon: "zap", group: "Developers" },
 ];
 
 /** Shown only to waitlist admins (GET /v1/guardian/waitlist/access). */
@@ -130,7 +128,7 @@ const NAV_GROUPS = ["Home", "Money", "Connections", "Controls", "Developers"] as
 const MOBILE_NAV: { key: View; label: string; icon: string }[] = [
   { key: "overview", label: "Home", icon: "home" },
   { key: "treasury", label: "Money", icon: "wallet" },
-  { key: "agents", label: "API", icon: "key" },
+  { key: "agents", label: "Agents", icon: "key" },
   { key: "approvals", label: "Approvals", icon: "check" },
 ];
 
@@ -234,6 +232,8 @@ const VIEW_META: Partial<Record<View, { eyebrow: string; description: string; ic
 };
 
 const ALL_VIEWS = new Set<View>([
+  "connect",
+  "billing",
   "marketplace",
   "overview",
   "treasury",
@@ -292,7 +292,13 @@ function readConsoleQuery(): { view: View | null; tab: string | null } {
   const viewRaw = params.get("view");
   const tabRaw = params.get("tab");
   return {
-    view: isView(viewRaw) ? viewRaw : null,
+    view: isView(viewRaw)
+      ? viewRaw === "webhooks"
+        ? "settings"
+        : viewRaw === "ledger"
+          ? "billing"
+          : viewRaw
+      : null,
     tab: tabRaw && tabRaw.trim() ? tabRaw.trim() : null,
   };
 }
@@ -318,6 +324,8 @@ function navGroupOf(view: View): string {
 }
 
 function viewLabelOf(view: View): string {
+  if (view === "connect") return "Connect";
+  if (view === "billing") return "Billing";
   if (view === "settings") return "Settings";
   if (view === "waitlist") return "Waitlist";
   if (view === "approvals") return "Approvals";
@@ -346,9 +354,6 @@ export default function Console() {
   const [view, setViewState] = useState<View>("overview");
   const [tabHint, setTabHint] = useState<string | null>(null);
   const [org, setOrg] = useState<OrgView | null>(null);
-  const [budgetOpsSetup, setBudgetOpsSetup] = useState<{ orgId: string; ready: boolean } | null>(
-    null,
-  );
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [escrows, setEscrows] = useState<Escrow[]>([]);
@@ -361,7 +366,6 @@ export default function Console() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [setup, setSetup] = useState<Setup | null>(null);
   const [recon, setRecon] = useState<Recon | null>(null);
-  const [summary, setSummary] = useState<Summary | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invStats, setInvStats] = useState<InvoiceStats | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -399,7 +403,6 @@ export default function Console() {
     Developers: true,
   });
   const help = useKeyboardHelp();
-  const theme = useTheme();
 
   // Mission state lives in the shell so a run survives navigating between
   // views — the agent keeps working while you go approve something.
@@ -508,6 +511,8 @@ export default function Console() {
   }, []);
 
   const setView = useCallback((v: View, tab?: string) => {
+    if (v === "webhooks") v = "settings";
+    if (v === "ledger") v = "billing";
     setViewState(v);
     if (tab !== undefined) {
       setTabHint(tab);
@@ -724,8 +729,6 @@ export default function Console() {
           "/v1/guardian/approvals",
           "/v1/guardian/activity?limit=80",
           "/v1/guardian/escrows",
-          "/v1/guardian/budgets",
-          "/v1/guardian/agent-groups",
           "/v1/guardian/notifications?limit=20",
         ].map((p) => gFetch(p)),
       );
@@ -745,7 +748,7 @@ export default function Console() {
       // Non-2xx bodies (429 rate limit, 5xx, proxy errors) become null and are
       // never stored: an `{ error }` body saved as `org` crashed the header
       // (`org.org.name`) and took the whole console into the error boundary.
-      const [o, ap, a, es, bu, gr, nf] = await Promise.all(res.map((r) => okJson(r)));
+      const [o, ap, a, es, nf] = await Promise.all(res.map((r) => okJson(r)));
       if (nf) {
         const next = parseFeed(nf);
         setIfChanged("notifications", next, setFeed);
@@ -776,11 +779,6 @@ export default function Console() {
         setOrgLoad((s) => (s.failures ? { failures: 0, startedAt: Date.now(), last: [] } : s));
       }
       if (o?.org?.id) {
-        setBudgetOpsSetup(
-          Array.isArray(bu?.budgets) && Array.isArray(gr?.groups)
-            ? { orgId: o.org.id, ready: hasBudgetOpsSetup(bu.budgets, gr.groups) }
-            : null,
-        );
         setIfChanged("org", o, setOrg);
         setLoading(false);
       }
@@ -808,19 +806,17 @@ export default function Console() {
           "/v1/guardian/webhooks/deliveries",
           "/v1/guardian/metrics",
           "/v1/guardian/setup",
-          "/v1/guardian/summary",
           "/v1/guardian/invoices",
           "/v1/guardian/runs",
         ].map((p) => gFetch(p)),
       );
-      const [jo, po, wh, de, me, st, su, inv, rn] = await Promise.all(res.map((r) => okJson(r)));
+      const [jo, po, wh, de, me, st, inv, rn] = await Promise.all(res.map((r) => okJson(r)));
       if (jo) setIfChanged("journals", jo.journals ?? [], setJournals);
       if (po?.policy) setIfChanged("policy", po.policy, setPolicy);
       if (wh) setIfChanged("webhooks", wh.webhooks ?? [], setWebhooks);
       if (de) setIfChanged("deliveries", de.deliveries ?? [], setDeliveries);
       if (me) setIfChanged("metrics", me.metrics ?? null, setMetrics);
       if (st) setIfChanged("setup", st.setup ?? null, setSetup);
-      if (su) setIfChanged("summary", su.summary ?? null, setSummary);
       if (inv) {
         setIfChanged("invoices", inv.invoices ?? [], setInvoices);
         setIfChanged("invStats", inv.stats ?? null, setInvStats);
@@ -1085,7 +1081,9 @@ export default function Console() {
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className={`app ${railOpen ? "rail-open" : ""} ${railCollapsed ? "nav-collapsed" : ""}`}>
+      <div
+        className={`app studio-console ${railOpen ? "rail-open" : ""} ${railCollapsed ? "nav-collapsed" : ""}`}
+      >
         <button
           type="button"
           className="rail-burger"
@@ -1112,8 +1110,8 @@ export default function Console() {
             >
               <ABAppIcon size={38} />
               <span>
-                <b>Artificial Banking</b>
-                <small>Financial operations</small>
+                <b>ABI</b>
+                <small>Agent marketplace</small>
               </span>
             </Link>
             <button
@@ -1199,208 +1197,157 @@ export default function Console() {
         </Sidebar>
 
         <main className="main">
-          <header className="topbar">
-            <div className="topbar-title-block">
-              <nav className="crumb" aria-label="Breadcrumb">
-                <span className="crumb-group">{groupLabel}</span>
-                <span className="crumb-sep" aria-hidden>
-                  /
-                </span>
-                <span className="crumb-current">{viewLabel}</span>
-                {navContext ? (
-                  <>
-                    <span className="crumb-sep" aria-hidden>
-                      /
-                    </span>
-                    <span className="crumb-drill">{navContext}</span>
-                  </>
-                ) : null}
-              </nav>
-              <h1>{viewLabel}</h1>
-            </div>
-            <div className="spacer" />
-            <button
-              type="button"
-              className="environment-chip live"
-              onClick={() => setView("settings")}
-              aria-label="Open environment settings"
-            >
-              <i />
-              <span>{org?.network?.testnet === false ? "Live" : "Live · testnet"}</span>
-              <Icon name="arrowRight" size={12} />
-            </button>
-            <button
-              type="button"
-              className="search search-btn"
-              onClick={() => setPaletteOpen(true)}
-              aria-label="Open command palette"
-            >
-              <Icon name="search" />
-              <span className="search-placeholder">Command palette…</span>
-              <kbd className="search-kbd">⌘K</kbd>
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button type="button" className="user-chip" aria-label="Account menu">
-                  <div className="avatar">{(org?.org?.name ?? "PV").slice(0, 2).toUpperCase()}</div>
-                  <div className="who">
-                    <b>{org?.org?.name ?? "Loading…"}</b>
-                    <span>
-                      {org?.actor?.role === "viewer"
-                        ? "Viewer · read-only"
-                        : org?.actor?.role === "approver"
-                          ? "Approver · " + (org?.network?.testnet === false ? "live" : "testnet")
-                          : connected
-                            ? "Owner · " + (org?.network?.testnet === false ? "live" : "testnet")
-                            : "reconnecting…"}
-                      {org?.org?.status === "frozen" ? " · FROZEN" : ""}
-                    </span>
-                  </div>
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>{org?.org?.name ?? "Organization"}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setView("settings")}>Settings</DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setPaletteOpen(true)}>
-                  Command palette
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => help.setOpen(true)}>
-                  Keyboard shortcuts
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => theme.toggle()}>
-                  Theme: {theme.resolved === "dark" ? "Dark" : "Light"} (toggle)
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => void signOut(false)}>Log out</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Popover open={notifOpen} onOpenChange={setNotifOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  className="icon-btn"
-                  aria-label={`Notifications${pending.length ? ` (${pending.length} approval${pending.length === 1 ? "" : "s"} waiting)` : ""}${feed.unreadCount ? ` (${feed.unreadCount} unread)` : ""}`}
-                  data-testid="notifications-bell"
-                >
-                  <Icon name="bell" />
-                  {pending.length > 0 ? (
-                    <span className="bell-count" data-testid="bell-approval-count">
-                      {pending.length > 99 ? "99+" : pending.length}
-                    </span>
-                  ) : (
-                    (visibleAlerts.length > 0 || feed.unreadCount > 0) && <span className="ping" />
-                  )}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-[min(360px,calc(100vw-24px))] p-0">
-                <div className="notif-head">
-                  <span>Needs attention ({visibleAlerts.length})</span>
-                  {visibleAlerts.length > 0 && (
-                    <Button
-                      type="button"
-                      variant="bare"
-                      size="sm"
-                      onClick={() => {
-                        setDismissedAlerts((prev) => {
-                          const next = new Set(prev);
-                          for (const a of visibleAlerts) next.add(a.id);
-                          return next;
-                        });
-                        setNotifOpen(false);
-                      }}
-                    >
-                      Clear
-                    </Button>
-                  )}
-                </div>
-                <ScrollArea className="max-h-[70vh]">
-                  {visibleAlerts.length === 0 ? (
-                    <div
-                      style={{ padding: 26, textAlign: "center", fontSize: 12.5 }}
-                      className="muted"
-                    >
-                      All clear. Nothing is waiting on you.
+          <div className="studio-shell-header">
+            <StudioNav
+              active={view === "marketplace" && tabHint === "orders" ? "orders" : view}
+              onNavigate={(v, t) => setView(v as View, t)}
+            />
+            <header className="topbar">
+              <div className="topbar-title-block">
+                <nav className="crumb" aria-label="Breadcrumb">
+                  <span className="crumb-group">{groupLabel}</span>
+                  <span className="crumb-sep" aria-hidden>
+                    /
+                  </span>
+                  <span className="crumb-current">{viewLabel}</span>
+                  {navContext ? (
+                    <>
+                      <span className="crumb-sep" aria-hidden>
+                        /
+                      </span>
+                      <span className="crumb-drill">{navContext}</span>
+                    </>
+                  ) : null}
+                </nav>
+                <h1>{viewLabel}</h1>
+              </div>
+              <div className="spacer" />
+              <button
+                type="button"
+                className="environment-chip live"
+                onClick={() => setView("settings")}
+                aria-label="Open environment settings"
+              >
+                <i />
+                <span>{org?.network?.testnet === false ? "Live" : "Live · testnet"}</span>
+                <Icon name="arrowRight" size={12} />
+              </button>
+              <button
+                type="button"
+                className="search search-btn"
+                onClick={() => setPaletteOpen(true)}
+                aria-label="Open command palette"
+              >
+                <Icon name="search" />
+                <span className="search-placeholder">Command palette…</span>
+                <kbd className="search-kbd">⌘K</kbd>
+              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="user-chip" aria-label="Account menu">
+                    <div className="avatar">
+                      {(org?.org?.name ?? "PV").slice(0, 2).toUpperCase()}
                     </div>
-                  ) : (
-                    visibleAlerts.slice(0, 8).map((al) => (
-                      <button
-                        key={al.id}
-                        className="notif-item"
-                        onClick={() => {
-                          if (al.kind === "fund") setView("treasury", "move");
-                          else setView(al.goto);
-                          setNotifOpen(false);
-                        }}
-                      >
-                        <span
-                          className="ico"
-                          style={{
-                            background:
-                              al.tone === "bad"
-                                ? "var(--red-soft)"
-                                : al.tone === "warn"
-                                  ? "var(--orange-soft)"
-                                  : "var(--accent-soft)",
-                            color:
-                              al.tone === "bad"
-                                ? "var(--red)"
-                                : al.tone === "warn"
-                                  ? "var(--orange)"
-                                  : "var(--accent)",
-                          }}
-                        >
-                          <Icon
-                            name={
-                              al.kind === "approval"
-                                ? "check"
-                                : al.kind === "drift"
-                                  ? "alert"
-                                  : "zap"
-                            }
-                            size={15}
-                          />
-                        </span>
-                        <span className="body">
-                          <b>{al.title}</b>
-                          <span>{al.body}</span>
-                        </span>
-                      </button>
-                    ))
-                  )}
-                  <div
-                    className="notif-head notif-history-head"
-                    data-testid="notifications-history"
+                    <div className="who">
+                      <b>{org?.org?.name ?? "Loading…"}</b>
+                      <span>
+                        {org?.actor?.role === "viewer"
+                          ? "Viewer · read-only"
+                          : org?.actor?.role === "approver"
+                            ? "Approver · " + (org?.network?.testnet === false ? "live" : "testnet")
+                            : connected
+                              ? "Owner · " + (org?.network?.testnet === false ? "live" : "testnet")
+                              : "reconnecting…"}
+                        {org?.org?.status === "frozen" ? " · FROZEN" : ""}
+                      </span>
+                    </div>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>{org?.org?.name ?? "Organization"}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => setView("settings")}>
+                    Preferences
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setView("overview")}>
+                    Workspace
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      window.location.href = "/partners/login";
+                    }}
                   >
-                    <span>Recent{feed.unreadCount > 0 ? ` · ${feed.unreadCount} unread` : ""}</span>
-                    {feed.unreadCount > 0 && (
+                    Sell on ABI
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setView("connect")}>
+                    Getting started
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setPaletteOpen(true)}>
+                    Command palette
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => help.setOpen(true)}>
+                    Keyboard shortcuts
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void signOut(false)}>Log out</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Popover open={notifOpen} onOpenChange={setNotifOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    className="icon-btn"
+                    aria-label={`Notifications${pending.length ? ` (${pending.length} approval${pending.length === 1 ? "" : "s"} waiting)` : ""}${feed.unreadCount ? ` (${feed.unreadCount} unread)` : ""}`}
+                    data-testid="notifications-bell"
+                  >
+                    <Icon name="bell" />
+                    {pending.length > 0 ? (
+                      <span className="bell-count" data-testid="bell-approval-count">
+                        {pending.length > 99 ? "99+" : pending.length}
+                      </span>
+                    ) : (
+                      (visibleAlerts.length > 0 || feed.unreadCount > 0) && (
+                        <span className="ping" />
+                      )
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-[min(360px,calc(100vw-24px))] p-0">
+                  <div className="notif-head">
+                    <span>Needs attention ({visibleAlerts.length})</span>
+                    {visibleAlerts.length > 0 && (
                       <Button
                         type="button"
                         variant="bare"
                         size="sm"
-                        onClick={() => void markRead()}
+                        onClick={() => {
+                          setDismissedAlerts((prev) => {
+                            const next = new Set(prev);
+                            for (const a of visibleAlerts) next.add(a.id);
+                            return next;
+                          });
+                          setNotifOpen(false);
+                        }}
                       >
-                        Mark all read
+                        Clear
                       </Button>
                     )}
                   </div>
-                  {history.length === 0 ? (
-                    <div
-                      style={{ padding: 18, textAlign: "center", fontSize: 12.5 }}
-                      className="muted"
-                    >
-                      No notifications yet. Payments, refusals, approvals, keys, policy changes and
-                      runs show up here.
-                    </div>
-                  ) : (
-                    history.slice(0, 15).map((n) => {
-                      const target = linkView(n.link);
-                      return (
+                  <ScrollArea className="max-h-[70vh]">
+                    {visibleAlerts.length === 0 ? (
+                      <div
+                        style={{ padding: 26, textAlign: "center", fontSize: 12.5 }}
+                        className="muted"
+                      >
+                        All clear. Nothing is waiting on you.
+                      </div>
+                    ) : (
+                      visibleAlerts.slice(0, 8).map((al) => (
                         <button
-                          key={`n_${n.id}`}
-                          className={`notif-item${n.readAt ? " is-read" : " is-unread"}`}
+                          key={al.id}
+                          className="notif-item"
                           onClick={() => {
-                            void markRead(n);
-                            if (target) setView(target as View);
+                            if (al.kind === "fund") setView("treasury", "move");
+                            else setView(al.goto);
                             setNotifOpen(false);
                           }}
                         >
@@ -1408,56 +1355,131 @@ export default function Console() {
                             className="ico"
                             style={{
                               background:
-                                n.severity === "bad"
+                                al.tone === "bad"
                                   ? "var(--red-soft)"
-                                  : n.severity === "warn"
+                                  : al.tone === "warn"
                                     ? "var(--orange-soft)"
                                     : "var(--accent-soft)",
                               color:
-                                n.severity === "bad"
+                                al.tone === "bad"
                                   ? "var(--red)"
-                                  : n.severity === "warn"
+                                  : al.tone === "warn"
                                     ? "var(--orange)"
                                     : "var(--accent)",
                             }}
                           >
                             <Icon
                               name={
-                                n.kind.startsWith("approval")
+                                al.kind === "approval"
                                   ? "check"
-                                  : n.severity === "bad"
+                                  : al.kind === "drift"
                                     ? "alert"
-                                    : "bell"
+                                    : "zap"
                               }
                               size={15}
                             />
                           </span>
                           <span className="body">
-                            <b>{n.title}</b>
-                            <span>
-                              {n.body ? `${n.body} · ` : ""}
-                              {relTime(n.createdAt)}
-                            </span>
+                            <b>{al.title}</b>
+                            <span>{al.body}</span>
                           </span>
                         </button>
-                      );
-                    })
-                  )}
-                </ScrollArea>
-              </PopoverContent>
-            </Popover>
-            <button
-              type="button"
-              className="icon-btn topbar-logout"
-              aria-label="Log out"
-              title="Log out"
-              data-testid="topbar-logout"
-              onClick={() => void signOut(false)}
-            >
-              <Icon name="logout" />
-              <span className="topbar-logout-label">Log out</span>
-            </button>
-          </header>
+                      ))
+                    )}
+                    <div
+                      className="notif-head notif-history-head"
+                      data-testid="notifications-history"
+                    >
+                      <span>
+                        Recent{feed.unreadCount > 0 ? ` · ${feed.unreadCount} unread` : ""}
+                      </span>
+                      {feed.unreadCount > 0 && (
+                        <Button
+                          type="button"
+                          variant="bare"
+                          size="sm"
+                          onClick={() => void markRead()}
+                        >
+                          Mark all read
+                        </Button>
+                      )}
+                    </div>
+                    {history.length === 0 ? (
+                      <div
+                        style={{ padding: 18, textAlign: "center", fontSize: 12.5 }}
+                        className="muted"
+                      >
+                        No notifications yet. Payments, refusals, approvals, keys, policy changes
+                        and runs show up here.
+                      </div>
+                    ) : (
+                      history.slice(0, 15).map((n) => {
+                        const target = linkView(n.link);
+                        return (
+                          <button
+                            key={`n_${n.id}`}
+                            className={`notif-item${n.readAt ? " is-read" : " is-unread"}`}
+                            onClick={() => {
+                              void markRead(n);
+                              if (target) setView(target as View);
+                              setNotifOpen(false);
+                            }}
+                          >
+                            <span
+                              className="ico"
+                              style={{
+                                background:
+                                  n.severity === "bad"
+                                    ? "var(--red-soft)"
+                                    : n.severity === "warn"
+                                      ? "var(--orange-soft)"
+                                      : "var(--accent-soft)",
+                                color:
+                                  n.severity === "bad"
+                                    ? "var(--red)"
+                                    : n.severity === "warn"
+                                      ? "var(--orange)"
+                                      : "var(--accent)",
+                              }}
+                            >
+                              <Icon
+                                name={
+                                  n.kind.startsWith("approval")
+                                    ? "check"
+                                    : n.severity === "bad"
+                                      ? "alert"
+                                      : "bell"
+                                }
+                                size={15}
+                              />
+                            </span>
+                            <span className="body">
+                              <b>{n.title}</b>
+                              <span>
+                                {n.body ? `${n.body} · ` : ""}
+                                {relTime(n.createdAt)}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </ScrollArea>
+                </PopoverContent>
+              </Popover>
+              <button
+                type="button"
+                className="icon-btn topbar-logout"
+                aria-label="Log out"
+                title="Log out"
+                data-testid="topbar-logout"
+                onClick={() => void signOut(false)}
+              >
+                <Icon name="logout" />
+                <span className="topbar-logout-label">Log out</span>
+              </button>
+            </header>
+          </div>
 
           <div className="scroll">
             {banner && view !== "approvals" && (
@@ -1520,26 +1542,39 @@ export default function Console() {
                 {view !== "overview" && (
                   <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
                 )}
-                {view === "marketplace" && <MarketplaceBuyer session={session} gFetch={gFetch} />}
-                {view === "overview" && <section className="card" aria-label="Marketplace tools"><h2>Shop and sell on ABI</h2><p>Explore listings, manage your shortlist and follow orders. Sellers manage inventory and fulfillment in their workspace.</p><div className="market-actions"><button onClick={() => setView("marketplace")}>Open marketplace</button><a href="/partners/login">Seller workspace</a><a href="/directory">Browse public listings</a><a href="/docs">Shopping and seller guide</a></div></section>}
-                {view === "overview" && (
-                  <Overview
-                    {...shared}
-                    budgetOpsReady={
-                      budgetOpsSetup && budgetOpsSetup.orgId === org?.org?.id
-                        ? budgetOpsSetup.ready
-                        : null
-                    }
-                    metrics={metrics}
-                    decisions={decisions}
-                    approvals={approvals}
-                    escrows={escrows}
-                    policy={policy}
+                {view === "marketplace" && (
+                  <MarketplaceBuyer
                     session={session}
-                    updateSession={updateSession}
-                    alerts={alerts}
-                    summary={summary}
-                    invStats={invStats}
+                    gFetch={gFetch}
+                    initialTab={tabHint === "orders" ? "orders" : "shop"}
+                  />
+                )}
+                {view === "overview" && (
+                  <MinimalOverview org={org} onNavigate={(v, t) => setView(v, t)} />
+                )}
+                {view === "connect" && (
+                  <MinimalConnect
+                    onKeyRevealed={(entry) =>
+                      updateSession({
+                        agentKeys: [
+                          ...session.agentKeys.filter((k) => k.agentId !== entry.agentId),
+                          entry,
+                        ],
+                      })
+                    }
+                    org={org}
+                    gFetch={gFetch}
+                    readOnly={readOnly}
+                    onNavigate={(v, t) => setView(v, t)}
+                  />
+                )}
+                {view === "billing" && (
+                  <MinimalBilling
+                    initialTab={tabHint}
+                    org={org}
+                    gFetch={gFetch}
+                    readOnly={readOnly}
+                    onNavigate={(v, t) => setView(v, t)}
                   />
                 )}
                 {view === "treasury" && (

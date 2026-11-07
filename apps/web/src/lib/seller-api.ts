@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "./load-state";
 import { browserApiBase } from "./browser-api";
 
 const API = browserApiBase();
@@ -17,7 +18,12 @@ export async function sellerApiFetch(path: string, init: RequestInit = {}) {
     const csrf = readPartnerCsrf(document.cookie);
     if (csrf) headers.set("x-abi-csrf", csrf);
   }
-  return fetch(`${API}${path}`, { ...init, headers, credentials: "include", cache: "no-store" });
+  return fetchWithTimeout(`${API}${path}`, {
+    ...init,
+    headers,
+    credentials: "include",
+    cache: "no-store",
+  });
 }
 
 export async function sellerApiError(res: Response, fallback: string): Promise<string> {
