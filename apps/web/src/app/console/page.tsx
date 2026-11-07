@@ -14,6 +14,7 @@ import { ABAppIcon, ABMark } from "../../lib/brand";
 import { showApprovalToast } from "../../lib/approval-toast";
 import { Icon, fmtUsd, relTime } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
+import { StudioNav } from "../../lib/studio-nav";
 import { MarketplaceBuyer } from "../../lib/marketplace-buyer";
 import { ChatView } from "../../lib/chat-view";
 import { PolicyView, type Policy } from "../../lib/policy-view";
@@ -104,12 +105,13 @@ const SELLER = sellerUrl() ?? "";
 
 const NAV: { key: View; label: string; icon: string; group: string }[] = [
   { key: "marketplace", label: "Marketplace", icon: "search", group: "Home" },
+  { key: "chat", label: "Assistant", icon: "spark", group: "Home" },
   { key: "overview", label: "Overview", icon: "home", group: "Home" },
   { key: "insights", label: "Insights", icon: "spark", group: "Home" },
   { key: "treasury", label: "Treasury", icon: "wallet", group: "Money" },
   { key: "payments", label: "Transactions", icon: "zap", group: "Money" },
   { key: "ledger", label: "Ledger", icon: "list", group: "Money" },
-  { key: "agents", label: "API", icon: "key", group: "Connections" },
+  { key: "agents", label: "Agents", icon: "key", group: "Connections" },
   { key: "work", label: "Work", icon: "book", group: "Connections" },
   { key: "approvals", label: "Approvals", icon: "check", group: "Controls" },
   { key: "policy", label: "Policies", icon: "sliders", group: "Controls" },
@@ -130,7 +132,7 @@ const NAV_GROUPS = ["Home", "Money", "Connections", "Controls", "Developers"] as
 const MOBILE_NAV: { key: View; label: string; icon: string }[] = [
   { key: "overview", label: "Home", icon: "home" },
   { key: "treasury", label: "Money", icon: "wallet" },
-  { key: "agents", label: "API", icon: "key" },
+  { key: "agents", label: "Agents", icon: "key" },
   { key: "approvals", label: "Approvals", icon: "check" },
 ];
 
@@ -343,7 +345,7 @@ export default function Console() {
   const [prefs, setPrefs] = useState<Prefs>({ autoJump: true });
   const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [view, setViewState] = useState<View>("overview");
+  const [view, setViewState] = useState<View>("marketplace");
   const [tabHint, setTabHint] = useState<string | null>(null);
   const [org, setOrg] = useState<OrgView | null>(null);
   const [budgetOpsSetup, setBudgetOpsSetup] = useState<{ orgId: string; ready: boolean } | null>(
@@ -1085,7 +1087,7 @@ export default function Console() {
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className={`app ${railOpen ? "rail-open" : ""} ${railCollapsed ? "nav-collapsed" : ""}`}>
+      <div className={`app studio-console ${railOpen ? "rail-open" : ""} ${railCollapsed ? "nav-collapsed" : ""}`}>
         <button
           type="button"
           className="rail-burger"
@@ -1112,8 +1114,8 @@ export default function Console() {
             >
               <ABAppIcon size={38} />
               <span>
-                <b>Artificial Banking</b>
-                <small>Financial operations</small>
+                <b>ABI</b>
+                <small>Agent marketplace</small>
               </span>
             </Link>
             <button
@@ -1199,6 +1201,7 @@ export default function Console() {
         </Sidebar>
 
         <main className="main">
+          <div className="studio-shell-header"><StudioNav active={view === "marketplace" && tabHint === "orders" ? "orders" : view} onNavigate={(v,t) => setView(v as View,t)} />
           <header className="topbar">
             <div className="topbar-title-block">
               <nav className="crumb" aria-label="Breadcrumb">
@@ -1457,7 +1460,7 @@ export default function Console() {
               <Icon name="logout" />
               <span className="topbar-logout-label">Log out</span>
             </button>
-          </header>
+          </header></div>
 
           <div className="scroll">
             {banner && view !== "approvals" && (
@@ -1520,7 +1523,7 @@ export default function Console() {
                 {view !== "overview" && (
                   <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
                 )}
-                {view === "marketplace" && <MarketplaceBuyer session={session} gFetch={gFetch} />}
+                {view === "marketplace" && <MarketplaceBuyer session={session} gFetch={gFetch} initialTab={tabHint === "orders" ? "orders" : "shop"} />}
                 {view === "overview" && <section className="card" aria-label="Marketplace tools"><h2>Shop and sell on ABI</h2><p>Explore listings, manage your shortlist and follow orders. Sellers manage inventory and fulfillment in their workspace.</p><div className="market-actions"><button onClick={() => setView("marketplace")}>Open marketplace</button><a href="/partners/login">Seller workspace</a><a href="/directory">Browse public listings</a><a href="/docs">Shopping and seller guide</a></div></section>}
                 {view === "overview" && (
                   <Overview

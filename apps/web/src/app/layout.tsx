@@ -10,6 +10,7 @@ import "./design-system.css";
 import "./legal.css";
 import "./compliance.css";
 import "./marketplace.css";
+import "./console-studio.css";
 
 // Self-hosted (OFL, see fonts/OFL-IBM-Plex.txt) so builds never depend on a
 // Google Fonts fetch, which flaked in CI.

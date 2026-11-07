@@ -1,24 +1,129 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-07",
-  "title": "ABI original design with marketplace resources",
+  "generatedAt": "2026-11-07T00:00:00Z",
+  "title": "Design System: ABI public identity and Assisted Shopping Studio",
   "extensions": {
     "sourceAuthority": [
-      "apps/web/src/app/globals.css",
-      "apps/web/src/app/design-system.css",
-      "apps/web/src/app/marketplace.css"
+      "DESIGN.md",
+      "apps/web/src/app/console-studio.css",
+      "apps/web/src/lib/studio-nav.tsx",
+      "apps/web/src/lib/marketplace-demo.tsx",
+      "apps/web/src/lib/marketplace-seller.tsx"
     ],
-    "userPin": "Original ABI design; marketplace resources preserved"
+    "approvedReference": ".impeccable/mocks/console-redesign/02-assisted-shopping.webp",
+    "scope": "Console replacement only; original public specification preserved.",
+    "shadows": [
+      {
+        "name": "studio-elevated",
+        "value": "0 6px 24px #15294412",
+        "purpose": "Available console token; normal working panels remain flat."
+      }
+    ],
+    "motion": [
+      {
+        "name": "studio-button",
+        "value": "background-color .15s ease-out, border-color .15s ease-out",
+        "purpose": "Control state transition; disabled for reduced motion."
+      },
+      {
+        "name": "studio-rail",
+        "value": "transform .18s ease-out",
+        "purpose": "Mobile navigation drawer; disabled for reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "studio-compact-header",
+        "value": "1100px"
+      },
+      {
+        "name": "studio-narrow-workspace",
+        "value": "1150px"
+      },
+      {
+        "name": "studio-mobile",
+        "value": "820px"
+      },
+      {
+        "name": "studio-small-mobile",
+        "value": "520px"
+      }
+    ],
+    "verification": "Source and approved reference inspected; launcher unavailable. No runtime or visual certification."
   },
-  "components": [],
+  "components": [
+    {
+      "name": "Studio primary action",
+      "kind": "button",
+      "refersTo": "studio-button-primary",
+      "description": "Console-only source-derived representative snippet.",
+      "html": "<button class=\"ds-primary\">Review demo quote</button>",
+      "css": ".ds-primary{font-family:\"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif;font-size:14px;border-radius:6px;background:#315dd8;color:#fff;padding:10px 14px;border:1px solid transparent;min-height:42px;font-weight:600;transition:background-color .15s ease-out}.ds-primary:hover{background:#2448b2}.ds-primary:focus-visible{outline:2px solid #315dd8;outline-offset:3px}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none}}"
+    },
+    {
+      "name": "Studio shortlist action",
+      "kind": "button",
+      "refersTo": "",
+      "description": "Console-only source-derived representative snippet.",
+      "html": "<button class=\"ds-outline\">Add to shortlist</button>",
+      "css": ".ds-outline{font-family:\"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif;font-size:14px;border-radius:6px;background:transparent;color:#315dd8;border:1px solid #315dd8;padding:10px 14px;min-height:42px}.ds-outline:hover{background:#e8efff}.ds-outline:focus-visible{outline:2px solid #315dd8;outline-offset:3px}"
+    },
+    {
+      "name": "Studio field",
+      "kind": "input",
+      "refersTo": "",
+      "description": "Console-only source-derived representative snippet.",
+      "html": "<label class=\"ds-label\">Shopping brief<textarea class=\"ds-field\" rows=\"3\">Find a daypack under budget.</textarea></label>",
+      "css": ".ds-label{font:12px \"IBM Plex Sans\",sans-serif;color:#53647a}.ds-field{font-family:\"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif;font-size:14px;border-radius:6px;display:block;padding:10px;border:1px solid #aab8cb;background:#fff;color:#182b43}.ds-field:focus-visible{outline:2px solid #315dd8;outline-offset:3px}"
+    },
+    {
+      "name": "Studio selected filter",
+      "kind": "chip",
+      "refersTo": "",
+      "description": "Console-only source-derived representative snippet.",
+      "html": "<button class=\"ds-filter\" aria-pressed=\"true\">Outdoors</button>",
+      "css": ".ds-filter{font:12px \"IBM Plex Sans\",sans-serif;background:#e8efff;color:#234dbd;border:1px solid #315dd8;border-radius:6px;min-height:36px;padding:7px 10px}.ds-filter:hover{background:#e5edf9}.ds-filter:focus-visible{outline:2px solid #315dd8;outline-offset:3px}"
+    },
+    {
+      "name": "Studio workspace navigation",
+      "kind": "nav",
+      "refersTo": "",
+      "description": "Console-only source-derived representative snippet.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Workspace\"><a href=\"#shopping\" aria-current=\"page\">Shopping</a><a href=\"#orders\">Orders</a></nav>",
+      "css": ".ds-nav{display:flex;gap:8px;background:#fff;font:14px \"IBM Plex Sans\",sans-serif}.ds-nav a{padding:8px 12px;border-radius:7px;text-decoration:none;color:#182b43;min-height:24px}.ds-nav a[aria-current]{background:#e8efff;color:#234dbd}.ds-nav a:hover{background:#e5edf9}.ds-nav a:focus-visible{outline:2px solid #315dd8;outline-offset:3px}"
+    },
+    {
+      "name": "Studio container",
+      "kind": "card",
+      "refersTo": "studio-panel",
+      "description": "Console-only source-derived representative snippet.",
+      "html": "<section class=\"ds-panel\"><h3>Your products</h3><p>Manage listings and availability.</p></section>",
+      "css": ".ds-panel{font:14px \"IBM Plex Sans\",sans-serif;background:#fff;color:#182b43;border:1px solid #dce3ed;border-radius:10px;padding:24px;box-shadow:none}.ds-panel h3{font-size:17px;line-height:1.4}"
+    }
+  ],
   "narrative": {
-    "northStar": "Original ABI visual identity with agent commerce",
-    "overview": "Preserve original chrome, typography, light/dark tokens and section grammar. Marketplace demo and live workflows are clearly separated.",
+    "northStar": "Assisted Shopping Studio (console only)",
+    "overview": "Original public ABI identity remains intact. The approved blue console uses open comparison surfaces, navy navigation and restrained cobalt actions for buyer and seller work.",
     "keyCharacteristics": [
-      "Original ABI branding",
-      "Familiar marketplace browsing",
-      "Governed purchases",
-      "Explicit fictional demo scenarios"
+      "Open comparison surfaces",
+      "Inspectably simulated shopping progress",
+      "Inventory-first seller workspace",
+      "Explicit demo/live distinction"
+    ],
+    "rules": [
+      {
+        "name": "Console boundary",
+        "body": "Studio overrides remain beneath .studio-console; public visual authority is preserved.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do preserve factual backend data and clear demo labeling.",
+      "Do retain dark-theme and mobile mappings."
+    ],
+    "donts": [
+      "Don't infer licenses or live capabilities from the comp.",
+      "Don't claim runtime or visual certification from source inspection."
     ]
   }
 }

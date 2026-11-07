@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ABAppIcon } from "./brand";
+import { StudioNav } from "./studio-nav";
 import { MarketplaceSeller } from "./marketplace-seller";
 import { sellerApiFetch as apiFetch } from "./seller-api";
 import {
@@ -61,7 +62,7 @@ type Offer = SellerOffer;
 
 const NAV: { key: SellerView; label: string; icon: string; group: string }[] = [
   { key: "overview", label: "Overview", icon: "home", group: "Home" },
-  { key: "catalog", label: "Catalog", icon: "book", group: "Sell" },
+  { key: "catalog", label: "Inventory", icon: "book", group: "Sell" },
   { key: "integrations", label: "Integrations", icon: "zap", group: "Sell" },
   { key: "directory", label: "Directory", icon: "search", group: "Sell" },
   { key: "versions", label: "Versions", icon: "layers", group: "Sell" },
@@ -175,6 +176,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
   const theme = useTheme();
   const [partner, setPartner] = useState<Partner | null>(null);
   const [activeSeller, setActiveSeller] = useState<SellerOrg | null>(null);
+  const [inventoryPanel,setInventoryPanel]=useState("products");
   const [view, setViewState] = useState<SellerView>(initialView);
   const [railOpen, setRailOpen] = useState(false);
   const [railCollapsed, setRailCollapsed] = useState(false);
@@ -276,7 +278,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className={`app ${railOpen ? "rail-open" : ""} ${railCollapsed ? "nav-collapsed" : ""}`}>
+      <div className={`app studio-console studio-seller ${railOpen ? "rail-open" : ""} ${railCollapsed ? "nav-collapsed" : ""}`}>
         <button
           type="button"
           className="rail-burger"
@@ -371,6 +373,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
         </Sidebar>
 
         <main className="main">
+          <div className="studio-shell-header"><StudioNav seller active={view === "catalog" && inventoryPanel === "orders" ? "orders" : view} onNavigate={(v,t) => {setInventoryPanel(t ?? "products");setView(v as SellerView);}} />
           <header className="topbar">
             <div className="topbar-title-block">
               <nav className="crumb" aria-label="Breadcrumb">
@@ -406,7 +409,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                 <DropdownMenuItem onSelect={() => void signOut()}>Log out</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-          </header>
+          </header></div>
 
           <div className="scroll">
             <section className="view">
@@ -455,9 +458,9 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                 </div>
               )}
 
-              {view === "catalog" && <MarketplaceSeller offers={offers} />}
+              {view === "catalog" && <MarketplaceSeller offers={offers} initialPanel={inventoryPanel} />}
               {view === "catalog" && (
-                <CatalogView
+                <details className="studio-legacy-offers"><summary>Payment offers & API endpoints</summary><CatalogView
                   offers={offers}
                   defaultNetwork={profile?.network ?? "base-sepolia"}
                   onOffersChanged={refreshSeller}
@@ -465,7 +468,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                     setSelectedOfferId(id);
                     setView("integrations");
                   }}
-                />
+                /></details>
               )}
 
               {view === "integrations" && (
