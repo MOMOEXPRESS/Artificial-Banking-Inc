@@ -1,6 +1,6 @@
 ---
 name: ABI public identity and Assisted Shopping Studio
-description: Original public ABI identity with the approved blue buyer and seller console.
+description: Shared white and blue ABI identity across public pages and buyer and seller consoles.
 colors:
   canvas: "#f4f5f7"
   ink: "#101115"
@@ -70,9 +70,11 @@ components:
 
 ## Overview
 
-**Creative North Star: Assisted Shopping Studio (console only).**
+**Creative North Star: Assisted Shopping Studio.**
 
-The user pinned the original ABI design on 2026-11-07. Preserve the original hero, product frames, section rhythms, navigation, official wordmark, self-hosted IBM Plex fonts and public-facing chrome. The console chrome is superseded by the approved studio scope below. Marketplace additions inherit globals.css and design-system.css; marketplace.css must not override root colors, shared navigation, footer or theme tokens.
+Current authority: after approving blue option 2 for the buyer/seller console, the user explicitly expanded the direction to “give the home pages the same sort of blue look to match the console side white/blue”. Public `.landing` pages now use `public-studio.css`, imported after `console-studio.css`, for white/cool-blue surfaces, navy text, cobalt actions and a navy footer. Original page layouts, content, wordmark, fonts and section rhythms remain. The historical specification below records the earlier pin; its original public palette and exclusion of public recoloring are superseded by this latest instruction. Unprefixed color tokens document the retained underlying base; `studio-*` tokens describe the current shared visual overrides.
+
+Historical baseline, pinned on 2026-11-07 before the later white/blue expansion: preserve the original hero, product frames, section rhythms, navigation, official wordmark, self-hosted IBM Plex fonts and public-facing chrome. The console chrome is superseded by the approved studio scope below. Marketplace additions inherit globals.css and design-system.css; marketplace.css must not override root colors, shared navigation, footer or theme tokens.
 
 Homepage copy describes the agent marketplace. Live catalog, buyer/seller entry points and guides join the original sections. The earlier public-system baseline placed the console on its original overview with a marketplace entry; the approved console replacement below supersedes that console direction. the Marketplace view has explicit Demo and Live modes. Search, category filters and product grids follow the earlier marketplace mockup, adapted to the incumbent console dimensions and selected light/dark theme.
 
@@ -81,29 +83,29 @@ Demo sellers, ratings, stock and photos are fictional and visibly labeled. Scena
 Source authority: original base commit 27035954bb52ac6f5f1d0dbd91b86740bd9e537a, globals.css, design-system.css, marketing-shell.tsx, brand.tsx and marketplace components. The generated product contact sheet is demonstration imagery, not live inventory. Public catalog empty states remain truthful. Physical checkout stays unavailable until real shipping and escrow providers are configured.
 
 
-The user approved blue option 2, Assisted Shopping Studio, on 2026-11-07 and confirmed the entire buyer/seller console, prioritizing shopping and inventory. This is a scoped replacement of console visual authority; public and marketing pages retain the original specification above. Approval evidence: `.impeccable/mocks/console-redesign/02-assisted-shopping.webp` and its `.webp.json` sidecar. The source implementation, rather than generated screenshot facts, defines actual controls and behavior.
+The user approved blue option 2, Assisted Shopping Studio, on 2026-11-07 and confirmed the entire buyer/seller console, prioritizing shopping and inventory. This initially replaced console visual authority only; the later explicit user instruction also applies the matching white/blue palette to public and marketing `.landing` surfaces while preserving their layouts and content. Approval evidence: `.impeccable/mocks/console-redesign/02-assisted-shopping.webp` and its `.webp.json` sidecar. The source implementation, rather than generated screenshot facts, defines actual controls and behavior.
 
 **Key Characteristics:** calm operational density, open comparison surfaces, navy navigation, restrained cobalt actions, inspectable demo progress and equally considered buyer/seller workspaces.
 
 ## Colors
 
-Unprefixed frontmatter tokens retain the original public palette. `studio-*` tokens apply only inside `.studio-console`; never promote these console colors to public root tokens. The console pairs cool canvas and white surfaces with navy text, steel secondary text, cobalt actions and pale-blue selection. Status colors remain semantic. Dark mode is explicitly implemented under `[data-theme="dark"] .studio-console`; consult `console-studio.css` for the complete theme mapping. The rail remains deep navy.
+Unprefixed frontmatter tokens retain the historical underlying public palette. Current `studio-*` colors apply through scoped `.studio-console` and `.landing` overrides; do not promote these to unscoped root overrides. The console pairs cool canvas and white surfaces with navy text, steel secondary text, cobalt actions and pale-blue selection. Status colors remain semantic. Dark mode is explicitly implemented under `[data-theme="dark"] .studio-console`; consult `console-studio.css` for the complete theme mapping. The rail remains deep navy.
 
 ## Typography
 
-Retain self-hosted IBM Plex and the incumbent sans stack. Console headings use 28px/1.25, section headings 22px/1.3 and tertiary headings 17px/1.4. Product titles use 19px, product prices 18px, ordinary shopping controls 14px and quiet labels 12px. At 820px the shopping heading becomes 25px. Use fixed UI hierarchy and readable product details rather than oversized marketing typography.
+Retain self-hosted IBM Plex and the incumbent sans stack. Console headings use 28px/1.25, section headings 22px/1.3 and tertiary headings 17px/1.4. Product titles use 19px, product prices 18px, ordinary shopping controls 14px and quiet labels 12px. The final `.studio-marketplace` heading uses 26px on desktop and 24px at 820px. Use fixed UI hierarchy and readable product details rather than oversized marketing typography.
 
 ## Layout
 
-Desktop console uses a 76px icon rail and a shared horizontal header containing ABI, Buy/Sell, workspace tasks and retained account controls. Scroll content has 28px gutters and a 1600px maximum view. Shopping uses a 300px brief/progress column beside results, with two product columns and purchase review below. This intentionally adapts the comp's 340px brief and sticky review to source constraints: the implemented review is in normal flow.
+Desktop console uses a 76px icon rail and a shared horizontal header containing ABI, Buy/Sell, workspace tasks and retained account controls. Scroll content has 28px gutters and a 1600px maximum view. Shopping uses a 300px brief/progress column beside results, with two product columns and purchase review below. The brief adapts the comp's 340px dimension. The final `.studio-review-bar` is sticky at bottom 0, with a thin border, a subtle upward shadow and tabular totals; at 820px it sits above mobile navigation at bottom 68px and wraps into a full-width action. A semantic, horizontally scrollable comparison table aligns product attributes. Demo/Live controls sit beside the page title on wide screens and return to normal flow at 1200px. The catalog toolbar combines search with a category select.
 
-Seller navigation exposes Inventory, Orders & activity, Payouts and Integrations. Inventory separates Products, Order items, Returns & disputes and Vendor identity. Opening the editor adds a 340px right column; existing payment offers remain a separate disclosure. Buyer navigation exposes Shopping, Orders, Assistant, Agents and Approvals. Do not invent routes from screenshot labels.
+Seller navigation exposes Inventory, Orders, Payouts and Integrations. Orders routes to the inventory order-items panel, with parent/panel state synchronized. Inventory separates Products, Order items, Returns & disputes and Vendor identity. Opening the editor adds a 340px right column; existing payment offers remain a separate disclosure. Buyer navigation exposes Shopping, Orders, Assistant, Agents and Approvals. Do not invent routes from screenshot labels.
 
 At 1150px gutters become 24px, the brief becomes 260px and the inventory editor moves below its table. At 820px the brief and results stack, rail navigation becomes a labeled drawer, the header splits into two rows and the brief form uses two columns. At 520px product cards, progress and editor fields become one column; category controls scroll horizontally. Preserve existing table scrolling and mobile navigation.
 
 ## Elevation & Depth
 
-Console panels are flat white or dark-theme surfaces with thin dividers: cards, orders and onboarding explicitly have no shadow or backdrop blur. The available elevated token is `0 6px 24px #15294412`; do not apply it indiscriminately to working panels. Public depth remains governed by the original global styles.
+Console panels are flat white or dark-theme surfaces with thin dividers: cards, orders and onboarding explicitly have no shadow or backdrop blur. The available elevated token is `0 6px 24px #15294412`; do not apply it indiscriminately to working panels. Public product frames use `0 8px 28px #182b430d`; their light chrome and thin borders match the studio palette. The sticky console review bar uses `0 -4px 16px #15294408`. Public halo/glow decorations are disabled by the scoped stylesheet.
 
 ## Shapes
 
@@ -115,12 +117,12 @@ Primary marketplace actions use cobalt, white text, 10px 14px padding, 14px semi
 
 Inputs use solid surfaces, strong borders and 6px corners. Interactive elements receive a 2px focus outline with a 3px offset. Buttons transition background and border over 150ms ease-out; rail transforms use 180ms ease-out; reduced motion disables these transitions. Disabled controls retain their disabled semantics and use 0.55 opacity.
 
-Shopping brief, simulated progress, open product facts and purchase review form the signature composition. Progress is a local demonstration, not evidence of autonomous live purchasing. Inventory tables use 14px text, 12px headers and 16px 12px cell padding; selected rows use the accent-soft surface. Editor details stay progressively disclosed.
+Shopping brief, simulated progress, open product facts, semantic comparison table and sticky purchase review form the signature composition. The generated photographic `demo-trail-guide.webp` and its prompt JSON are demo imagery, not licensed product evidence. Progress is a local demonstration, not evidence of autonomous live purchasing. Inventory tables use 14px text, 12px headers and 16px 12px cell padding; selected rows use the accent-soft surface. Editor details stay progressively disclosed.
 
 ## Do's and Don'ts
 
-- Do preserve the original public hero, sections, wordmark, fonts, navigation and theme authority.
-- Do scope console overrides beneath `.studio-console` and retain both light and dark mappings.
+- Do preserve the original public hero structure, sections, content, wordmark, fonts and navigation while using the current white/blue `.landing` palette, cobalt buttons and navy footer.
+- Do scope console overrides beneath `.studio-console` and retain both light and dark mappings. Scope public palette overrides beneath `.landing`; the current public stylesheet defines the white/blue presentation without a separate public dark mapping.
 - Do keep fictional sellers, photos, stock, reviews, progress and checkout visibly labeled as demo data. Demo code must not call payment or inventory APIs.
 - Do preserve live backend facts and existing wallet, x402 and stablecoin settlement boundaries.
 - Don't infer licenses, provider capabilities, production readiness, prices or live inventory from the generated comp.

@@ -458,7 +458,7 @@ export function SellerConsole({ initialView = "overview" }: { initialView?: Sell
                 </div>
               )}
 
-              {view === "catalog" && <MarketplaceSeller offers={offers} initialPanel={inventoryPanel} />}
+              {view === "catalog" && <MarketplaceSeller offers={offers} initialPanel={inventoryPanel} onPanelChange={setInventoryPanel} />}
               {view === "catalog" && (
                 <details className="studio-legacy-offers"><summary>Payment offers & API endpoints</summary><CatalogView
                   offers={offers}

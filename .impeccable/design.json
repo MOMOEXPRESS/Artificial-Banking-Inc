@@ -8,15 +8,26 @@
       "apps/web/src/app/console-studio.css",
       "apps/web/src/lib/studio-nav.tsx",
       "apps/web/src/lib/marketplace-demo.tsx",
-      "apps/web/src/lib/marketplace-seller.tsx"
+      "apps/web/src/lib/marketplace-seller.tsx",
+      "apps/web/src/app/public-studio.css"
     ],
     "approvedReference": ".impeccable/mocks/console-redesign/02-assisted-shopping.webp",
-    "scope": "Console replacement only; original public specification preserved.",
+    "scope": "Current white/blue palette across .studio-console and .landing. Original public structure and content preserved; earlier public palette retained in DESIGN.md as historical baseline.",
     "shadows": [
       {
         "name": "studio-elevated",
         "value": "0 6px 24px #15294412",
         "purpose": "Available console token; normal working panels remain flat."
+      },
+      {
+        "name": "public-product-frame",
+        "value": "0 8px 28px #182b430d",
+        "purpose": "Scoped public hero and product frames."
+      },
+      {
+        "name": "studio-review-bar",
+        "value": "0 -4px 16px #15294408",
+        "purpose": "Sticky purchase review boundary."
       }
     ],
     "motion": [
@@ -47,6 +58,10 @@
       {
         "name": "studio-small-mobile",
         "value": "520px"
+      },
+      {
+        "name": "studio-marketplace-toolbar",
+        "value": "1200px"
       }
     ],
     "verification": "Source and approved reference inspected; launcher unavailable. No runtime or visual certification."
@@ -102,8 +117,8 @@
     }
   ],
   "narrative": {
-    "northStar": "Assisted Shopping Studio (console only)",
-    "overview": "Original public ABI identity remains intact. The approved blue console uses open comparison surfaces, navy navigation and restrained cobalt actions for buyer and seller work.",
+    "northStar": "Assisted Shopping Studio",
+    "overview": "The user expanded the approved blue console direction to home pages. Public layouts and content remain; white/cool-blue surfaces, navy text and cobalt actions now connect public pages with buyer and seller workspaces. Shopping includes a semantic comparison table, demo photographic guide imagery and a sticky purchase review; seller Orders opens the synchronized inventory order-items panel.",
     "keyCharacteristics": [
       "Open comparison surfaces",
       "Inspectably simulated shopping progress",
@@ -112,14 +127,15 @@
     ],
     "rules": [
       {
-        "name": "Console boundary",
-        "body": "Studio overrides remain beneath .studio-console; public visual authority is preserved.",
+        "name": "Scoped shared identity",
+        "body": "Use .studio-console and .landing overrides; retain public layouts and original brand assets. Historical public colors are superseded by the latest user-approved white/blue treatment.",
         "section": "colors"
       }
     ],
     "dos": [
       "Do preserve factual backend data and clear demo labeling.",
-      "Do retain dark-theme and mobile mappings."
+      "Do retain dark-theme and mobile mappings.",
+      "Do use white/blue public surfaces, cobalt actions and navy footer while preserving public structure and content."
     ],
     "donts": [
       "Don't infer licenses or live capabilities from the comp.",

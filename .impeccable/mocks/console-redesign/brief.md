@@ -12,3 +12,5 @@ Launcher and build-phase commands were attempted but unavailable. Concepts are m
 
 ## Approved direction
 User selected exactly option 2 with the blue palette and confirmed implementation. Approved reference: 02-assisted-shopping.webp. Implement the narrow navy rail, horizontal workspace navigation, shopping brief/progress column and comparison workspace. Seller inventory, order review and ancillary console views use the same spacing, controls and token system. Existing payment and API behavior remains authoritative.
+
+Latest scope extension: user requested homepage/public pages match the console white/blue look. public-studio.css now applies that palette and control treatment to .landing, preserving section structure and content. This explicitly supersedes the earlier preserve-public-colors boundary. Reviewed console additions include a photographic guide product image, semantic comparison table, sticky review bar and synchronized seller panel navigation.
