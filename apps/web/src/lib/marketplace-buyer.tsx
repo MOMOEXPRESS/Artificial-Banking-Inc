@@ -4,11 +4,12 @@ import { MarketplaceCatalog, marketplaceJson, marketPrice, type MarketplaceProdu
 import type { Session } from "./console-types";
 import type { GuardianFetch } from "./flows/client";
 import { browserApiBase } from "./browser-api";
+import { MarketplaceDemo } from "./marketplace-demo";
 import { MarketplaceCases } from "./marketplace-cases";
 type Item={id:string;product:MarketplaceProduct;quantity:number;paymentState:string;fulfillmentState:string;shipping?:{carrier:string;tracking:string}};
 type Order={id:string;items:Item[]};
 type Quote={id:string;totalMicro:string;expiresAt:string;items:(MarketplaceProduct&{quantity:number;lineTotalMicro:string})[];shippingAndTax?:string};
-export function MarketplaceBuyer({session,gFetch}:{session:Session;gFetch:GuardianFetch}){
+function LiveMarketplaceBuyer({session,gFetch}:{session:Session;gFetch:GuardianFetch}){
   const [agent,setAgent]=useState(session.agentKeys[0]?.agentId??""),[shortlist,setShortlist]=useState<MarketplaceProduct[]>([]),[orders,setOrders]=useState<Order[]>([]),[quote,setQuote]=useState<Quote|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(""),[delivery,setDelivery]=useState(""),[error,setError]=useState("");
   const [shippingAddress,setShippingAddress]=useState({name:"",line1:"",city:"",postalCode:"",country:""});
   const load=useCallback(async()=>{setOrders((await marketplaceJson(await gFetch("/v1/guardian/marketplace/orders"))).orders);},[gFetch]);
@@ -38,4 +39,9 @@ function MarketplaceItemFeedback({item,gFetch}:{item:Item;gFetch:GuardianFetch})
   if(!["paid","escrowed"].includes(item.paymentState))return null;
   const submit=async(path:string,body:unknown)=>{setBusy(true);try{await marketplaceJson(await gFetch(`/v1/guardian/marketplace/items/${item.id}/${path}`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}));setMessage("Saved. The record stays linked to this purchase.");}catch(e){setMessage(e instanceof Error?e.message:"Request failed");}finally{setBusy(false);}};
   return <details className="market-feedback"><summary>Review or get help with this item</summary>{message&&<p role="status">{message}</p>}{item.fulfillmentState==="delivered"&&<form onSubmit={e=>{e.preventDefault();const d=new FormData(e.currentTarget);void submit("review",{score:Number(d.get("score")),body:d.get("body")});}}><label>Purchase rating<select name="score"><option value="5">5 / 5</option><option value="4">4 / 5</option><option value="3">3 / 5</option><option value="2">2 / 5</option><option value="1">1 / 5</option></select></label><label>Your review<textarea name="body" required maxLength={2000}/></label><button disabled={busy}>Save human review</button></form>}<form onSubmit={e=>{e.preventDefault();const d=new FormData(e.currentTarget);void submit("cases",{kind:d.get("kind"),reason:d.get("reason")});}}><label>Help needed<select name="kind"><option value="dispute">Open a dispute</option><option value="return">Request a return</option></select></label><label>What happened?<textarea name="reason" required maxLength={2000}/></label><button disabled={busy}>Open a case</button></form></details>;
+}
+
+export function MarketplaceBuyer({session,gFetch}:{session:Session;gFetch:GuardianFetch}) {
+  const [mode,setMode]=useState<"demo"|"live">(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).has("product") ? "live" : "demo");
+  return <><div className="market-mode" role="group" aria-label="Marketplace mode"><button aria-pressed={mode === "demo"} onClick={() => setMode("demo")}>Demo marketplace</button><button aria-pressed={mode === "live"} onClick={() => setMode("live")}>Live listings & orders</button></div>{mode === "demo" ? <MarketplaceDemo/> : <LiveMarketplaceBuyer session={session} gFetch={gFetch}/>}</>;
 }

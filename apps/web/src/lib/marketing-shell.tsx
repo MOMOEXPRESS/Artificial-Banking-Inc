@@ -8,7 +8,7 @@ import { Icon } from "./ui";
 /** Shared marketing chrome for Home / Docs / Pricing / About. */
 
 export type MarketingNavKey =
-  "home" | "landing" | "marketplace" | "docs" | "pricing" | "about" | "console" | "partnerships" | "waitlist";
+  "marketplace" | "home" | "landing" | "docs" | "pricing" | "about" | "console" | "partnerships" | "waitlist";
 
 /** Public waitlist signup page. No account needed. */
 export const WAITLIST_HREF = "/waitlist";
@@ -23,8 +23,8 @@ export function MarketingShell({
   const navActive = active === "landing" ? "home" : active;
   return (
     <div className="landing">
-      <a className="market-skip" href="#main-content">Skip to content</a>
       <MarketingNav active={navActive} />
+      <a className="market-skip" href="#main-content">Skip to content</a>
       <main id="main-content">{children}</main>
       <MarketingFooter />
       <CookieNotice />
@@ -95,9 +95,8 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
         <Link href="/" aria-label="Artificial Banking Incorporated home" onClick={close}>
           <ABWordmark size={26} tone="#0a0a0c" />
         </Link>
-        <form action="/directory" className="market-header-search" role="search"><label className="sr-only" htmlFor="header-market-search">Search products, software and services</label><input id="header-market-search" name="q" type="search" placeholder="Search products, software and services"/><button type="submit">Search</button></form>
-        <nav className="marketing-links">
-          <Link href="/directory" aria-current={current === "marketplace" ? "page" : undefined} className={current === "marketplace" ? "is-active" : undefined} onClick={close}>Marketplace</Link>
+        <nav className="marketing-links" aria-label="Main navigation">
+          <Link href="/directory" className={current === "marketplace" ? "is-active" : undefined} onClick={close}>Marketplace</Link>
           <Link href="/" className={current === "home" ? "is-active" : undefined} onClick={close}>
             Home
           </Link>
@@ -106,7 +105,7 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
             className={current === "console" ? "is-active" : undefined}
             onClick={close}
           >
-            Buy with an agent
+            Console
           </Link>
           <Link
             href="/docs"
@@ -127,7 +126,7 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
             className={current === "partnerships" ? "is-active" : undefined}
             onClick={close}
           >
-            Sell on ABI
+            Partnerships
           </Link>
           <Link
             href="/about"
@@ -175,7 +174,6 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
           </button>
         </div>
       </div>
-      <nav className="market-categories" aria-label="Product categories"><a href="/directory">All products</a><a href="/directory?kind=digital">Software & digital goods</a><a href="/directory?kind=service">Data & services</a><a href="/directory?kind=physical">Physical goods</a><Link href="/partners/login?mode=signup">Become a seller</Link></nav>
     </header>
   );
 }
@@ -187,8 +185,8 @@ export function MarketingFooter() {
         <div className="marketing-footer-brand">
           <ABWordmark size={28} tone="#fff" />
           <p>
-            A marketplace for agent-assisted purchases: software, digital services and physical goods.
-            Buyers set the budget. Sellers make their products discoverable.
+            A marketplace where agents find products and people stay in control.
+            Discover, buy and sell with budgets, approvals and a clear purchase record.
           </p>
         </div>
         <div className="marketing-footer-cols">
@@ -197,7 +195,8 @@ export function MarketingFooter() {
             links={[
               ["Home", "/"],
               ["Marketplace", "/directory"],
-              ["Buyer console", "/console"],
+              ["Buyer console", "/console?view=marketplace"],
+              ["Seller workspace", "/partners/login"],
               ["Partnerships", "/partnerships"],
               ["Partner login", "/partners/login"],
               ["Features", "/#features"],
@@ -272,11 +271,10 @@ export function SectionHead({
   sub: string;
   level?: 1 | 2;
 }) {
-  const Heading = level === 1 ? "h1" : "h2";
   return (
     <div className="section-head">
       {eyebrow && <span className="eyebrow">{eyebrow}</span>}
-      <Heading>{title}</Heading>
+      {level === 1 ? <h1>{title}</h1> : <h2>{title}</h2>}
       <p>{sub}</p>
     </div>
   );
@@ -311,3 +309,4 @@ export function MarketingCta() {
     </section>
   );
 }
+

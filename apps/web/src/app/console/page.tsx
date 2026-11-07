@@ -343,7 +343,7 @@ export default function Console() {
   const [prefs, setPrefs] = useState<Prefs>({ autoJump: true });
   const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [view, setViewState] = useState<View>("marketplace");
+  const [view, setViewState] = useState<View>("overview");
   const [tabHint, setTabHint] = useState<string | null>(null);
   const [org, setOrg] = useState<OrgView | null>(null);
   const [budgetOpsSetup, setBudgetOpsSetup] = useState<{ orgId: string; ready: boolean } | null>(
@@ -1521,6 +1521,7 @@ export default function Console() {
                   <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
                 )}
                 {view === "marketplace" && <MarketplaceBuyer session={session} gFetch={gFetch} />}
+                {view === "overview" && <section className="card" aria-label="Marketplace tools"><h2>Shop and sell on ABI</h2><p>Explore listings, manage your shortlist and follow orders. Sellers manage inventory and fulfillment in their workspace.</p><div className="market-actions"><button onClick={() => setView("marketplace")}>Open marketplace</button><a href="/partners/login">Seller workspace</a><a href="/directory">Browse public listings</a><a href="/docs">Shopping and seller guide</a></div></section>}
                 {view === "overview" && (
                   <Overview
                     {...shared}

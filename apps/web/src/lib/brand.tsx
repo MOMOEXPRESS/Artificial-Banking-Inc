@@ -96,8 +96,8 @@ export function ABWordmark({ size = 30, tone = "currentColor" }: { size?: number
         draggable={false}
       />
       <div>
-        <div className="wordmark-name">ABI</div>
-        <div className="wordmark-sub">AGENTIC MARKETPLACE</div>
+        <div className="wordmark-name">ARTIFICIAL BANKING</div>
+        <div className="wordmark-sub">INCORPORATED</div>
       </div>
     </div>
   );

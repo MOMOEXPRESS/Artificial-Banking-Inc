@@ -81,3 +81,9 @@ A return case must be independently authorized through the reviewer resolve rout
 ## Source review
 
 A fresh Impeccable source review identified product handoff, itemized quote review, error recovery, case visibility and header navigation gaps. Its verdict pass scored those P1 source fixes resolved. Seller price input now uses exact decimal USDC conversion rather than exposing micro-units; payment offers are selected by title. Vendor names are enriched from existing seller profiles. Rendered desktop/mobile fidelity, authenticated production workflows and provider operation remain unverified; the source verdict is not a visual or production certification.
+
+## Console demonstration and deployment
+
+The Marketplace tab defaults to a clearly labeled fictional demo catalog. Four shopping scenarios exercise a hiking gift, owner approval, immediate digital delivery and an in-stock desk alternative. The demo never invokes payment, inventory or fulfillment APIs and resets on unmount. Live listings and durable orders remain available in the adjacent mode; product deep links open live mode directly.
+
+The public homepage and console preserve ABI’s original design. Cloudflare now has an `ABI API production` build trigger for the existing `abi-api` Worker, targeting `apps/api-worker/wrangler.toml` explicitly and preserving dashboard variables with `--keep-vars`. The existing SQLite Durable Object and secrets are retained. Vercel hosts the web console and proxies to that Worker. The earlier failed Vercel build came from unknown JSON response types in marketplace API tests; the corrected commit passed the complete build.
