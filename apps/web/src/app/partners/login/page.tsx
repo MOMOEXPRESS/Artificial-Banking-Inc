@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ABLockup } from "../../../lib/brand";
+import { fetchWithTimeout } from "../../../lib/load-state";
+import { inspectSellerSession } from "../../../lib/seller-session";
 import { browserApiBase } from "../../../lib/browser-api";
 import { PASSWORD_RULES_HINT, newPasswordProblem } from "../../../lib/password-rules";
 import { Icon } from "../../../lib/ui";
@@ -12,7 +14,7 @@ const API = browserApiBase();
 type Mode = "signin" | "signup";
 
 async function post(path: string, body: unknown) {
-  const res = await fetch(`${API}${path}`, {
+  const res = await fetchWithTimeout(`${API}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     credentials: "include",
@@ -28,7 +30,9 @@ async function post(path: string, body: unknown) {
   return {
     ok: res.ok,
     code: json?.error?.code,
-    error: json?.error?.message,
+    error:
+      json?.error?.message ??
+      (!res.ok ? `The sign-in service returned ${res.status}. Please try again.` : undefined),
     verificationRequired: Boolean(json?.verificationRequired),
     devVerificationToken: json?.devVerificationToken,
     devResetToken: json?.devResetToken,
@@ -194,7 +198,11 @@ export default function PartnerLoginPage() {
           return;
         }
         if (result.code === "EMAIL_NOT_VERIFIED") setPendingVerify({ email: email.trim() });
-        setError(result.error ?? (mode === "signin" ? "Could not sign in" : "Could not sign up"));
+        setError(
+          result.code === "UNAUTHORIZED"
+            ? "Seller email or password not recognized. Buyer accounts use a separate sign-in; create a seller account here with the same email, or reset your seller password."
+            : (result.error ?? (mode === "signin" ? "Could not sign in" : "Could not sign up")),
+        );
         return;
       }
       if (result.verificationRequired) {
@@ -203,6 +211,17 @@ export default function PartnerLoginPage() {
           note: result.note,
           devToken: result.devVerificationToken,
         });
+        return;
+      }
+      const session = await inspectSellerSession((path) =>
+        fetchWithTimeout(`${API}${path}`, { credentials: "include", cache: "no-store" }),
+      );
+      if (session.status !== "authenticated") {
+        setError(
+          session.status === "unauthorized"
+            ? "The browser did not retain your seller session. Allow cookies for ABI, then sign in again."
+            : session.message,
+        );
         return;
       }
       window.location.assign("/seller");
@@ -222,7 +241,7 @@ export default function PartnerLoginPage() {
         : Boolean(email.trim() && password && name.trim() && companyName.trim());
 
   return (
-    <div className="login-wrap is-ready">
+    <div className="login-wrap reference-auth is-ready">
       <Link href="/partnerships" className="login-back">
         <Icon name="arrowLeft" size={14} />
         Back to Partnerships
@@ -230,7 +249,7 @@ export default function PartnerLoginPage() {
 
       <div className="login-reveal">
         <div className="login-brand-beat">
-          <ABLockup size={160} tone="#fff" />
+          <ABLockup size={160} tone="#262626" />
         </div>
 
         <form
@@ -241,12 +260,10 @@ export default function PartnerLoginPage() {
             if (canSubmit && !busy) void submit();
           }}
         >
-          <p className="eyebrow" style={{ margin: "0 0 6px" }}>
-            Partner portal
-          </p>
+          <h1>Seller workspace</h1>
           <p className="login-sub">
-            Sell to AI agents on your own site. Partner accounts are separate from the buyer console
-            — sign up here and we create your seller organization for you.
+            List your tools, software and physical products. Seller accounts are separate from buyer
+            accounts; you can use the same email to create yours.
           </p>
 
           <div

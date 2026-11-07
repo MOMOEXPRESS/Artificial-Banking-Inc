@@ -13,16 +13,13 @@ import "./marketplace.css";
 import "./console-studio.css";
 import "./public-studio.css";
 import "./minimal-workspace.css";
+import "./reference-console.css";
 
-// Self-hosted (OFL, see fonts/OFL-IBM-Plex.txt) so builds never depend on a
-// Google Fonts fetch, which flaked in CI.
-const plexSans = localFont({
-  src: [
-    { path: "./fonts/ibm-plex-sans-latin-400-normal.woff2", weight: "400", style: "normal" },
-    { path: "./fonts/ibm-plex-sans-latin-500-normal.woff2", weight: "500", style: "normal" },
-    { path: "./fonts/ibm-plex-sans-latin-600-normal.woff2", weight: "600", style: "normal" },
-    { path: "./fonts/ibm-plex-sans-latin-700-normal.woff2", weight: "700", style: "normal" },
-  ],
+// Self-hosted Inter (SIL OFL; fonts/OFL-Inter.txt) matches the supplied reference.
+const interSans = localFont({
+  src: "./fonts/inter-variable.woff2",
+  weight: "100 900",
+  style: "normal",
   variable: "--font-sans",
   display: "swap",
 });
@@ -93,7 +90,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html
       lang="en"
       data-theme="light"
-      className={`${plexSans.variable} ${plexMono.variable}`}
+      className={`${interSans.variable} ${plexMono.variable}`}
       suppressHydrationWarning
     >
       <body>

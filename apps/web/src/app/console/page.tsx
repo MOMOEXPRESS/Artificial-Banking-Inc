@@ -22,8 +22,7 @@ import { PolicyView, type Policy } from "../../lib/policy-view";
 import { SettingsView } from "../../lib/settings-view";
 import { loadTabAgentKeys, mergeAgentKeys, saveTabAgentKeys } from "../../lib/agent-keys-tab";
 import { PageTour } from "../../lib/page-tour";
-import { hasBudgetOpsSetup } from "../../lib/overview-setup";
-import { WorkView, type Invoice, type InvoiceStats, type Run, type Summary } from "../../lib/views";
+import { WorkView, type Invoice, type InvoiceStats, type Run } from "../../lib/views";
 import { AgentsView } from "../../lib/agents-view";
 import { PaymentsView } from "../../lib/payments-view";
 import { TreasuryView } from "../../lib/treasury-view";
@@ -36,7 +35,6 @@ import {
 import { ConsoleCommandPalette } from "../../lib/command-palette";
 import { toast } from "../../lib/toast";
 import { useStepUp } from "../../lib/step-up";
-import { useTheme } from "../../lib/theme-provider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -80,7 +78,6 @@ import {
 } from "../../lib/console-types";
 import { emptyMissionState, type MissionState } from "../../lib/playground-view";
 import { Login } from "../../lib/login-view";
-import { Overview } from "../../lib/overview-view";
 import { Playground } from "../../lib/playground-view";
 import { Ledger } from "../../lib/ledger-view";
 import { Webhooks } from "../../lib/webhooks-view";
@@ -111,13 +108,11 @@ const NAV: { key: View; label: string; icon: string; group: string }[] = [
   { key: "insights", label: "Insights", icon: "spark", group: "Home" },
   { key: "treasury", label: "Treasury", icon: "wallet", group: "Money" },
   { key: "payments", label: "Transactions", icon: "zap", group: "Money" },
-  { key: "ledger", label: "Ledger", icon: "list", group: "Money" },
   { key: "agents", label: "Agents", icon: "key", group: "Connections" },
   { key: "work", label: "Work", icon: "book", group: "Connections" },
   { key: "approvals", label: "Approvals", icon: "check", group: "Controls" },
   { key: "policy", label: "Policies", icon: "sliders", group: "Controls" },
   { key: "playground", label: "Playground", icon: "play", group: "Developers" },
-  { key: "webhooks", label: "Webhooks", icon: "zap", group: "Developers" },
 ];
 
 /** Shown only to waitlist admins (GET /v1/guardian/waitlist/access). */
@@ -297,7 +292,13 @@ function readConsoleQuery(): { view: View | null; tab: string | null } {
   const viewRaw = params.get("view");
   const tabRaw = params.get("tab");
   return {
-    view: isView(viewRaw) ? viewRaw : null,
+    view: isView(viewRaw)
+      ? viewRaw === "webhooks"
+        ? "settings"
+        : viewRaw === "ledger"
+          ? "billing"
+          : viewRaw
+      : null,
     tab: tabRaw && tabRaw.trim() ? tabRaw.trim() : null,
   };
 }
@@ -353,9 +354,6 @@ export default function Console() {
   const [view, setViewState] = useState<View>("overview");
   const [tabHint, setTabHint] = useState<string | null>(null);
   const [org, setOrg] = useState<OrgView | null>(null);
-  const [budgetOpsSetup, setBudgetOpsSetup] = useState<{ orgId: string; ready: boolean } | null>(
-    null,
-  );
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [escrows, setEscrows] = useState<Escrow[]>([]);
@@ -368,7 +366,6 @@ export default function Console() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [setup, setSetup] = useState<Setup | null>(null);
   const [recon, setRecon] = useState<Recon | null>(null);
-  const [summary, setSummary] = useState<Summary | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invStats, setInvStats] = useState<InvoiceStats | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -406,7 +403,6 @@ export default function Console() {
     Developers: true,
   });
   const help = useKeyboardHelp();
-  const theme = useTheme();
 
   // Mission state lives in the shell so a run survives navigating between
   // views — the agent keeps working while you go approve something.
@@ -515,6 +511,8 @@ export default function Console() {
   }, []);
 
   const setView = useCallback((v: View, tab?: string) => {
+    if (v === "webhooks") v = "settings";
+    if (v === "ledger") v = "billing";
     setViewState(v);
     if (tab !== undefined) {
       setTabHint(tab);
@@ -731,8 +729,6 @@ export default function Console() {
           "/v1/guardian/approvals",
           "/v1/guardian/activity?limit=80",
           "/v1/guardian/escrows",
-          "/v1/guardian/budgets",
-          "/v1/guardian/agent-groups",
           "/v1/guardian/notifications?limit=20",
         ].map((p) => gFetch(p)),
       );
@@ -752,7 +748,7 @@ export default function Console() {
       // Non-2xx bodies (429 rate limit, 5xx, proxy errors) become null and are
       // never stored: an `{ error }` body saved as `org` crashed the header
       // (`org.org.name`) and took the whole console into the error boundary.
-      const [o, ap, a, es, bu, gr, nf] = await Promise.all(res.map((r) => okJson(r)));
+      const [o, ap, a, es, nf] = await Promise.all(res.map((r) => okJson(r)));
       if (nf) {
         const next = parseFeed(nf);
         setIfChanged("notifications", next, setFeed);
@@ -783,11 +779,6 @@ export default function Console() {
         setOrgLoad((s) => (s.failures ? { failures: 0, startedAt: Date.now(), last: [] } : s));
       }
       if (o?.org?.id) {
-        setBudgetOpsSetup(
-          Array.isArray(bu?.budgets) && Array.isArray(gr?.groups)
-            ? { orgId: o.org.id, ready: hasBudgetOpsSetup(bu.budgets, gr.groups) }
-            : null,
-        );
         setIfChanged("org", o, setOrg);
         setLoading(false);
       }
@@ -815,19 +806,17 @@ export default function Console() {
           "/v1/guardian/webhooks/deliveries",
           "/v1/guardian/metrics",
           "/v1/guardian/setup",
-          "/v1/guardian/summary",
           "/v1/guardian/invoices",
           "/v1/guardian/runs",
         ].map((p) => gFetch(p)),
       );
-      const [jo, po, wh, de, me, st, su, inv, rn] = await Promise.all(res.map((r) => okJson(r)));
+      const [jo, po, wh, de, me, st, inv, rn] = await Promise.all(res.map((r) => okJson(r)));
       if (jo) setIfChanged("journals", jo.journals ?? [], setJournals);
       if (po?.policy) setIfChanged("policy", po.policy, setPolicy);
       if (wh) setIfChanged("webhooks", wh.webhooks ?? [], setWebhooks);
       if (de) setIfChanged("deliveries", de.deliveries ?? [], setDeliveries);
       if (me) setIfChanged("metrics", me.metrics ?? null, setMetrics);
       if (st) setIfChanged("setup", st.setup ?? null, setSetup);
-      if (su) setIfChanged("summary", su.summary ?? null, setSummary);
       if (inv) {
         setIfChanged("invoices", inv.invoices ?? [], setInvoices);
         setIfChanged("invStats", inv.stats ?? null, setInvStats);
@@ -1277,15 +1266,27 @@ export default function Console() {
                 <DropdownMenuContent align="end">
                   <DropdownMenuLabel>{org?.org?.name ?? "Organization"}</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => setView("settings")}>Settings</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setView("settings")}>
+                    Preferences
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setView("overview")}>
+                    Workspace
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      window.location.href = "/partners/login";
+                    }}
+                  >
+                    Sell on ABI
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setView("connect")}>
+                    Getting started
+                  </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => setPaletteOpen(true)}>
                     Command palette
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => help.setOpen(true)}>
                     Keyboard shortcuts
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => theme.toggle()}>
-                    Theme: {theme.resolved === "dark" ? "Dark" : "Light"} (toggle)
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => void signOut(false)}>Log out</DropdownMenuItem>
@@ -1549,7 +1550,7 @@ export default function Console() {
                   />
                 )}
                 {view === "overview" && (
-                  <MinimalOverview org={org} onNavigate={(v) => setView(v)} />
+                  <MinimalOverview org={org} onNavigate={(v, t) => setView(v, t)} />
                 )}
                 {view === "connect" && (
                   <MinimalConnect
@@ -1564,39 +1565,17 @@ export default function Console() {
                     org={org}
                     gFetch={gFetch}
                     readOnly={readOnly}
-                    onNavigate={(v) => setView(v)}
+                    onNavigate={(v, t) => setView(v, t)}
                   />
                 )}
                 {view === "billing" && (
                   <MinimalBilling
+                    initialTab={tabHint}
                     org={org}
                     gFetch={gFetch}
                     readOnly={readOnly}
-                    onNavigate={(v) => setView(v)}
+                    onNavigate={(v, t) => setView(v, t)}
                   />
-                )}
-                {view === "overview" && (
-                  <details className="minimal-advanced">
-                    <summary>Detailed treasury overview</summary>
-                    <Overview
-                      {...shared}
-                      budgetOpsReady={
-                        budgetOpsSetup && budgetOpsSetup.orgId === org?.org?.id
-                          ? budgetOpsSetup.ready
-                          : null
-                      }
-                      metrics={metrics}
-                      decisions={decisions}
-                      approvals={approvals}
-                      escrows={escrows}
-                      policy={policy}
-                      session={session}
-                      updateSession={updateSession}
-                      alerts={alerts}
-                      summary={summary}
-                      invStats={invStats}
-                    />
-                  </details>
                 )}
                 {view === "treasury" && (
                   <TreasuryView

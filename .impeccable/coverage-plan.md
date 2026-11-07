@@ -1,38 +1,40 @@
-# Marketplace redesign coverage
+# ABI hybrid coverage
 
-Current authority: user-approved minimal-reference overview/catalog/billing studies and .impeccable/briefs/minimal-marketplace.md (2026-11-07), with source-extracted DESIGN.md and .impeccable/design.json. Homepage/public adaptation is approved; push/deploy is authorized. Earlier beige/green composition and navy-rail Assisted Shopping Studio are superseded. Authorization is not deployment evidence; this document does not certify a release.
+Current authority: .impeccable/briefs/abi-o11-hybrid.md, the approved .impeccable/mocks/abi-o11-hybrid/overview-study.png and source-extracted DESIGN.md/.impeccable/design.json. User steering selected the original ABI vault/card with o11 typography, materials and placement, and authorized production deployment. Authorization is not release evidence. Previous minimal-reference, navy-rail and beige/green directions are superseded.
 
 ## Shared system
-Neutral near-white canvas, quiet gray rows, dark text, restrained blue actions and retained self-hosted IBM Plex/ABI branding. Desktop header has five destinations; mobile has a floating five-destination dock at 760px. Preserve focus, native semantics, reduced motion, loading/empty/error/unavailable states, authentication and policy contracts. Existing dark-theme console selection receives the same light neutral overrides; no separate current dark palette is asserted.
+Self-hosted official Inter variable under SIL OFL replaces IBM Plex body typography; IBM Plex Mono remains for code. Use #fafafa canvas, #262626 ink, #525252 secondary, opaque #f4f4f4 content and #e5e5e5 inputs with restrained blue actions. Glass is reserved for navigation, menus and the original ABI card. The desktop header and floating five-destination dock share navigation; at 760px desktop links hide and the dock contracts. Preserve focus, native semantics, reduced motion/transparency, loading/empty/error/unavailable states and authentication/policy contracts. The interface is pinned light and the nonfunctional Theme menu is removed.
 
 ## Public routes
 | Route | Coverage / truth |
 | --- | --- |
-| / | Minimalist homepage implemented: marketplace proposition, equal Tools & APIs / Software / Physical goods entries, real catalog component, agent controls and seller invitation |
-| /directory, /products/[id] | Source-backed catalog/details; search and kind/category filters, real listing availability and capability boundaries |
-| /about, /partnerships, /pricing | Shared neutral public chrome; factual marketplace, seller and availability messaging |
-| /docs | Buyer/seller/developer workflows; retain accurate technical contracts |
-| /waitlist, /partners/login, /console/signup | Preserve existing submission, seller authentication and buyer signup behavior |
+| / | Existing homepage structure retained; shared Inter typography and glass navigation adapted; equal Tools & APIs / Software / Physical goods, real catalog component and seller invitation |
+| /directory, /products/[id] | Source-backed discovery/details, actual listing availability and capability boundaries |
+| /about, /partnerships, /pricing | Shared public chrome and factual marketplace/seller/availability messaging |
+| /docs | Accurate buyer/seller/developer workflows and technical contracts |
+| /waitlist, /partners/login, /console/signup | Preserve submission and distinct seller/buyer authentication; seller login receives current neutral styling |
 | /approvals | Preserve verification and approval semantics |
 | /terms, /privacy, /cookies | Readable legal content and factual entity naming |
-| error, global-error, not-found | Existing recovery paths; not independently recertified in this documentation pass |
+| error, global-error, not-found | Existing recovery paths; coverage requires route-specific evidence |
 
-Shared CSS reaches public .landing surfaces; the homepage has the new composition. Do not infer a separately redesigned or browser-verified composition for every route from shared styling alone.
+Shared CSS does not establish a separately redesigned or browser-verified composition for every public route.
 
 ## Buyer workspace
-Overview, Catalog, Connect, Billing, Settings are the primary destinations. Overview exposes factual setup, workspace USDC and allowances. Catalog preserves equal categories, actual filters/results, shortlist and explicit Demo/Live separation. Connect manages scoped credentials, finite lifetimes, one-time secrets, replacement and revocation. Billing separates USD credit liability from Base Sepolia USDC. Settings retains supported controls.
+Overview, Marketplace, Connect, Billing and Settings are the five destinations. Overview places the setup checklist beside the original ABI card on desktop, with workspace row above the card, then stacks on mobile. Account identifiers, balances and agent rows must be factual. Marketplace uses published provider/product inventory, search and equal category tabs without a Demo/Live selector; order content appears in the separate Purchases tab. Connect provides a dialog for one-time scoped-key creation, replacement and revocation. Never persist secrets to localStorage.
 
-More retains Assistant, Agents & allowances, USDC treasury, Payments & approvals, Activity, Agent work, Policies, Ledger, API playground and Webhooks. Existing advanced features are preserved, not certified by a minimalist screenshot. Credential secrets are not persisted to localStorage.
+Billing has Overview and Spending limits. Calendar day/week/month windows use UTC boundaries; workspace caps are shared across agents. Total caps expire within 90 days because event retention is bounded; editing preserves the existing total-window start. Existing per-purchase/daily limits, agent budgets and approval policies remain effective. Recurring opt-out is enforced; connected-service write actions remain explicitly unavailable. USD credits remain separate from Base Sepolia USDC.
 
-## Seller workspace
-Inventory, Orders, Connect, Payouts and Settings are the primary destinations. Orders opens the inventory orders panel. More retains Overview, Directory, Versions, Sandbox, Analytics, Activity, Access policies, Webhooks and Developers. Inventory includes product and order management plus returns/disputes and vendor identity. Existing offer/payment API contracts remain; seller coverage is not implied by buyer-only captures.
+There is no More menu or standalone ledger/webhook navigation. Legacy wallet, x402, settlement, financial and audit backend code remains internally available.
+
+## Seller workspace and authentication
+Overview, Inventory, Connect, Payouts and Settings are the primary destinations. Inventory retains product/order management, returns/disputes and vendor identity. Seller overview, forms and controls use Inter and opaque neutral materials. A definitive session-check 401 ends the session; network/429/5xx and malformed responses preserve it and offer retry. Buyer/seller identity realms remain distinct, and email verification/MFA must not be bypassed. Buyer screenshots do not establish seller coverage.
 
 ## Capability boundary
-Marketplace API/source includes products, vendor/inventory management, quotes/orders, stock and per-item payment/delivery states, provider adapters, returns/disputes and feedback. Backend workflows exist. Actual live physical fulfillment, shipping, escrow and transactions still depend on configured providers, listing state and operational verification. Do not label the implemented backend as wholly future scope or imply all physical fulfillment is live. Demo facts and progress remain simulated; UI evidence is not inventory or settlement evidence.
+Marketplace API/source includes products, vendors/inventory, quotes/orders, stock and per-item payment/delivery states, adapter boundaries, returns/disputes and feedback. Actual shipping, physical fulfillment, escrow and transactions depend on configured providers, listing state and operational verification. UI fixtures and study content do not establish real inventory, live purchases or settlement.
 
-Existing wallets, x402, ledger and stablecoin settlement are preserved; the current settlement deployment is Base Sepolia. Card funding is a separate USD account with hosted Stripe payment/setup, signed webhook journal/reversals and guarded auto-top-up. It stays disabled until Stripe credentials/webhooks/config AND a defined credit-usage/cancellation/refund policy are ready. No USD-credit consumption or fiat-to-USDC conversion exists. Provider credentials and redirect success alone are insufficient. See docs/card-funding.md.
+Wallets, x402, ledger and Base Sepolia stablecoin settlement remain. Card funding is a separate USD account with hosted Stripe payment/setup, signed webhook journal/reversals and guarded auto-top-up. It remains disabled until credentials/webhooks/config AND a defined credit-usage/cancellation/refund policy are ready. Redirect success and provider credentials alone are insufficient. No USD consumption or fiat-to-USDC conversion exists. See docs/card-funding.md.
 
-## Verification
-Approved mock sidecars and the brief establish visual direction. Existing desktop/mobile captures cover home, overview, catalog, connect and billing at 1440 and 390px; console captures show the independently scrolling pane’s first viewport. Browser fixtures are synthetic and establish presentation/key-flow evidence only. Financial checks belong to separate API/unit tests; do not claim live card collection or live provider purchases from fixtures.
+## Verification coverage
+The hybrid brief requires bounded rendered desktop/mobile evidence and independent finish review. Required surfaces include public home, buyer overview, Marketplace, Connect/key dialog, Billing/spending-limit dialog and seller overview/inventory/authentication recovery. Include narrow-screen stacking, dock clearance, focus, dialogs and honest empty/unavailable states. Review calendar/total limit controls, recurring opt-out and disabled service writes against actual contracts. Session-error behavior requires distinguishing 401 from transient failure.
 
-.impeccable/review/minimal-reference/finish-review.md identified category-label contrast, Overview first-viewport density and documentation drift. Source fixes for contrast/density are applied; this pass refreshes PRODUCT.md, DESIGN.md, .impeccable/design.json and this plan. Final screenshots confirming the source fixes are pending at this documentation handoff. No launcher/detector, comp-spec, automated region diff or build-state provenance is available; no corresponding certification is asserted. Run available checks and use the final browser report for the eventual verification outcome rather than promoting approval into a passed check.
+This documentation pass records source behavior and required coverage; it does not assert these review steps passed. Use the actual hybrid capture/review artifacts for results. Previous minimal-reference captures and review cover only the earlier revision. Synthetic fixtures establish presentation and bounded flow behavior; API/unit checks and operational evidence establish their separate contracts. Deployment status must be reported from actual deployment evidence.

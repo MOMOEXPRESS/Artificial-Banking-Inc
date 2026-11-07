@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   MarketplaceCatalog,
@@ -9,7 +10,6 @@ import {
 import type { Session } from "./console-types";
 import type { GuardianFetch } from "./flows/client";
 import { browserApiBase } from "./browser-api";
-import { MarketplaceDemo } from "./marketplace-demo";
 import { MarketplaceCases } from "./marketplace-cases";
 type Item = {
   id: string;
@@ -36,6 +36,8 @@ function LiveMarketplaceBuyer({
   gFetch: GuardianFetch;
   initialTab: "shop" | "orders";
 }) {
+  const [tab, setTab] = useState(initialTab);
+  useEffect(() => setTab(initialTab), [initialTab]);
   const [agent, setAgent] = useState(session.agentKeys[0]?.agentId ?? ""),
     [shortlist, setShortlist] = useState<MarketplaceProduct[]>([]),
     [orders, setOrders] = useState<Order[]>([]),
@@ -154,11 +156,19 @@ function LiveMarketplaceBuyer({
   }
   return (
     <div className="market-workspace">
-      <h1>Catalog</h1>
-      <p>
-        Find products, prepare a shortlist and review purchases. Your existing budget and approval
-        rules still apply.
-      </p>
+      <nav className="reference-subnav" aria-label="Marketplace views">
+        <button aria-current={tab === "shop" ? "page" : undefined} onClick={() => setTab("shop")}>
+          Catalog
+        </button>
+        <button
+          aria-current={tab === "orders" ? "page" : undefined}
+          onClick={() => setTab("orders")}
+        >
+          Purchases
+        </button>
+        <Link href="/docs">Resources</Link>
+      </nav>
+      <h1 className="sr-only">Marketplace</h1>
       {error && (
         <p role="alert" className="market-notice">
           {error}
@@ -166,7 +176,7 @@ function LiveMarketplaceBuyer({
       )}
       {message && <p role="status">{message}</p>}
       {delivery && <pre className="market-delivery">{delivery}</pre>}
-      <div hidden={initialTab === "orders"}>
+      <div hidden={tab === "orders"}>
         <MarketplaceCatalog
           onSelect={(p) => {
             setShortlist((items) => (items.some((i) => i.id === p.id) ? items : [...items, p]));
@@ -276,7 +286,7 @@ function LiveMarketplaceBuyer({
           )}
         </section>
       </div>
-      <section>
+      <section hidden={tab !== "orders"}>
         <div className="market-section-heading">
           <h2>Your orders</h2>
           <button disabled={busy} onClick={() => void act(load)}>
@@ -376,7 +386,7 @@ function LiveMarketplaceBuyer({
           <p>No orders yet. Your purchases will stay here across sessions.</p>
         )}
       </section>
-      <MarketplaceCases request={caseRequest} />
+      {tab === "orders" && <MarketplaceCases request={caseRequest} />}
     </div>
   );
 }
@@ -464,25 +474,9 @@ export function MarketplaceBuyer({
   gFetch: GuardianFetch;
   initialTab?: "shop" | "orders";
 }) {
-  const [mode, setMode] = useState<"demo" | "live">("live");
-  useEffect(() => {
-    if (initialTab === "orders") setMode("live");
-  }, [initialTab]);
   return (
     <div className="studio-marketplace">
-      <div className="market-mode" role="group" aria-label="Marketplace mode">
-        <button aria-pressed={mode === "demo"} onClick={() => setMode("demo")}>
-          Demo marketplace
-        </button>
-        <button aria-pressed={mode === "live"} onClick={() => setMode("live")}>
-          Live listings & orders
-        </button>
-      </div>
-      {mode === "demo" ? (
-        <MarketplaceDemo />
-      ) : (
-        <LiveMarketplaceBuyer session={session} gFetch={gFetch} initialTab={initialTab} />
-      )}
+      <LiveMarketplaceBuyer session={session} gFetch={gFetch} initialTab={initialTab} />
     </div>
   );
 }

@@ -3,112 +3,132 @@ import { useCallback, useEffect, useState } from "react";
 import type { AgentKey, OrgView, View } from "./console-types";
 import { marketplaceJson } from "./marketplace-catalog";
 import { Icon } from "./ui";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { SpendingLimits } from "./spending-limits";
+import { VaultBankCard } from "./vault-bank-card";
 type Fetcher = (path: string, init?: RequestInit) => Promise<Response>;
-type Props = { org: OrgView | null | undefined; onNavigate: (view: View) => void };
+type Props = { org: OrgView | null | undefined; onNavigate: (view: View, tab?: string) => void };
 const usd = (cents: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 function usdc(value?: string) {
   return value ?? "0.00";
 }
 export function MinimalOverview({ org, onNavigate }: Props) {
-  const agents = org?.agents ?? [];
-  const available = org?.balances.find((b) => b.kind === "org_available")?.usdc;
+  const agents = org?.agents ?? [],
+    available = org?.balances.find((b) => b.kind === "org_available")?.usdc ?? "0.00";
   return (
-    <section className="minimal-page minimal-overview">
+    <section className="minimal-page reference-overview">
       <header className="minimal-page-heading">
-        <div>
-          <h1>Your workspace</h1>
-          <p>Everything your agents need, with you in control.</p>
-        </div>
-        <button className="minimal-primary" onClick={() => onNavigate("connect")}>
-          <Icon name="key" size={16} />
-          Connect an agent
-        </button>
+        <h1>Overview</h1>
       </header>
-      <section className="minimal-section">
-        <h2>Get started</h2>
-        <ol className="minimal-checklist">
-          <li>
-            <span className="minimal-check" aria-label={agents.length ? "Complete" : "Incomplete"}>
-              {agents.length ? <Icon name="check" size={16} /> : null}
-            </span>
-            <span>Connect your agent</span>
-            <button onClick={() => onNavigate("connect")}>Connect</button>
-          </li>
-          <li>
-            <span className="minimal-check" />
-            <span>Find a tool, software or product</span>
-            <button className="minimal-primary" onClick={() => onNavigate("marketplace")}>
-              Explore catalog
+      <div className="reference-overview-grid">
+        <section className="reference-start">
+          <h2>Get started</h2>
+          <ol className="minimal-checklist">
+            {[
+              [
+                "Connect your agent",
+                "Link an agent to your workspace.",
+                "Connect",
+                "connect",
+                "key",
+              ],
+              [
+                "Find your first product",
+                "Tools, software and physical goods.",
+                "Browse",
+                "marketplace",
+                "search",
+              ],
+              [
+                "Set a spending limit",
+                "Decide what your agents can spend.",
+                "Add limit",
+                "billing",
+                "shield",
+              ],
+            ].map(([title, description, action, view, icon]) => (
+              <li key={title}>
+                <span className="reference-step-icon">
+                  <Icon name={icon} size={21} />
+                </span>
+                <div>
+                  <strong>{title}</strong>
+                  <span>{description}</span>
+                </div>
+                <button
+                  onClick={() =>
+                    onNavigate(view as View, view === "billing" ? "limits" : undefined)
+                  }
+                >
+                  {action}
+                </button>
+              </li>
+            ))}
+          </ol>
+        </section>
+        <section className="reference-vault" aria-label="ABI workspace vault">
+          <div className="reference-workspace-row">
+            <strong>{org?.org.name ?? "General"}</strong>
+            <span>{available} USDC available</span>
+          </div>
+          <div className="reference-bank-card">
+            <VaultBankCard
+              address={null}
+              assetSymbol="USDC"
+              networkLabel={org?.network?.testnet === false ? "Base" : "Base Sepolia"}
+              orgName={org?.org.name}
+              copied={false}
+              onCopy={() => {}}
+            />
+          </div>
+          <div className="reference-card-caption">
+            <span>Workspace vault</span>
+            <button onClick={() => onNavigate("treasury")}>
+              Wallet details <Icon name="arrowRight" size={15} />
             </button>
-          </li>
-          <li>
-            <span className="minimal-check" />
-            <span>Set a budget before your first purchase</span>
-            <button onClick={() => onNavigate("agents")}>Set limits</button>
-          </li>
-        </ol>
-      </section>
-      <section className="minimal-workspace-summary">
-        <div>
-          <h2>{org?.org.name ?? "General"}</h2>
-          <p>Your agent workspace</p>
-        </div>
-        <button className="minimal-balance" onClick={() => onNavigate("treasury")}>
-          <strong>{usdc(available)} USDC</strong>
-          <span>
-            View settlement funds <Icon name="arrowRight" size={16} />
-          </span>
-        </button>
-      </section>
+          </div>
+        </section>
+      </div>
       <section className="minimal-section">
         <div className="minimal-section-heading">
-          <h2>Agents & allowances</h2>
-          <button onClick={() => onNavigate("agents")}>Manage agents</button>
+          <h2>Agent allowances</h2>
+          <button onClick={() => onNavigate("billing", "limits")}>Manage limits</button>
         </div>
         {agents.length ? (
-          <div className="minimal-allowances">
+          <div className="reference-agent-rows">
             {agents.map((a) => (
-              <article className="minimal-allowance" key={a.id}>
-                <Icon name="key" size={24} />
+              <article key={a.id}>
+                <Icon name="key" size={21} />
                 <div>
                   <h3>{a.name}</h3>
-                  <p>{a.budget?.name ?? "No budget assigned"}</p>
+                  <p>{a.budget?.name ?? "No allowance assigned"}</p>
                 </div>
-                <strong>{usdc(a.availableUsdc)} USDC available</strong>
+                <strong>{a.availableUsdc ?? "0.00"} USDC available</strong>
                 <span>{a.status}</span>
+                <button onClick={() => onNavigate("agents")}>Manage</button>
               </article>
             ))}
           </div>
         ) : (
-          <div className="minimal-empty">
-            <h3>Your first agent starts here</h3>
-            <p>Create an agent, assign its spending rules, then issue a scoped API key.</p>
-            <button onClick={() => onNavigate("agents")}>Create an agent</button>
+          <div className="reference-empty-row">
+            <Icon name="layers" size={24} />
+            <div>
+              <h3>No allowances yet</h3>
+              <p>Connect an agent and assign a budget to get started.</p>
+            </div>
+            <button onClick={() => onNavigate("agents")}>Create allowance</button>
           </div>
         )}
-        <p className="minimal-note">
-          Allowances are spending permissions. They are separate from payment cards.
-        </p>
       </section>
-      <section className="minimal-section">
-        <div className="minimal-section-heading">
-          <h2>Purchases & activity</h2>
-          <button onClick={() => onNavigate("marketplace")}>Open marketplace</button>
-        </div>
-        <div className="minimal-link-rows">
-          <button onClick={() => onNavigate("payments")}>
-            <Icon name="list" size={20} />
-            <span>Payments, approvals and receipts</span>
-            <Icon name="arrowRight" size={18} />
-          </button>
-          <button onClick={() => onNavigate("insights")}>
-            <Icon name="book" size={20} />
-            <span>Workspace activity</span>
-            <Icon name="arrowRight" size={18} />
-          </button>
-        </div>
-      </section>
+      <div className="reference-overview-links">
+        <button onClick={() => onNavigate("marketplace", "orders")}>
+          Purchases <Icon name="arrowRight" size={16} />
+        </button>
+        <button onClick={() => onNavigate("chat")}>
+          Assistant <Icon name="arrowRight" size={16} />
+        </button>
+      </div>
     </section>
   );
 }
@@ -129,6 +149,7 @@ export function MinimalConnect({
   onNavigate,
   onKeyRevealed,
 }: Props & { gFetch: Fetcher; readOnly: boolean; onKeyRevealed?: (entry: AgentKey) => void }) {
+  const [keyDialog, setKeyDialog] = useState(false);
   const [keys, setKeys] = useState<KeyRow[]>([]),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -167,6 +188,7 @@ export function MinimalConnect({
       );
       if (data.sessionKey?.token) {
         setSecret(data.sessionKey.token);
+        setKeyDialog(false);
         const metadata = data.sessionKey.agentId
           ? data.sessionKey
           : keys.find((k) => k.id === data.sessionKey.id);
@@ -282,83 +304,113 @@ export function MinimalConnect({
         </>
       ) : (
         <>
-          <form
-            className="minimal-section minimal-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void action(
-                `/v1/guardian/agents/${encodeURIComponent(agent || agents[0]?.id || "")}/session-keys`,
-                {
-                  label,
-                  scopes: pay ? ["read", "pay"] : ["read"],
-                  ttlHours: Number(ttl),
-                  ...(pay ? { x402BudgetUsdc: budget } : {}),
-                },
-              );
+          <button
+            className="minimal-primary"
+            disabled={readOnly}
+            onClick={() => setKeyDialog(true)}
+          >
+            Create key
+          </button>
+          <Dialog
+            open={keyDialog}
+            onOpenChange={(v) => {
+              if (!busy) setKeyDialog(v);
             }}
           >
-            <h2>Create a scoped key</h2>
-            <p>
-              Read-only by default. Payment access uses the agent’s existing policy and allowance.
-            </p>
-            <div className="minimal-form-grid">
-              <label>
-                Agent
-                <select
-                  required
-                  value={agent || agents[0]?.id || ""}
-                  onChange={(e) => setAgent(e.target.value)}
-                >
-                  <option value="" disabled>
-                    Select an active agent
-                  </option>
-                  {agents.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Key name
-                <input
-                  required
-                  maxLength={80}
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                />
-              </label>
-              <label>
-                Expires in
-                <select value={ttl} onChange={(e) => setTtl(e.target.value)}>
-                  <option value="1">1 hour</option>
-                  <option value="24">24 hours</option>
-                  <option value="168">7 days</option>
-                  <option value="720">30 days</option>
-                </select>
-              </label>
-              <label className="minimal-checkbox">
-                <input type="checkbox" checked={pay} onChange={(e) => setPay(e.target.checked)} />
-                Allow payments
-              </label>
-              {pay && (
-                <label>
-                  Lifetime x402 limit (USDC)
-                  <input
-                    required
-                    inputMode="decimal"
-                    pattern="[0-9]+([.][0-9]{1,6})?"
-                    value={budget}
-                    onChange={(e) => setBudget(e.target.value)}
-                  />
-                </label>
-              )}
-            </div>
-            {!agents.length && <p>Create an active agent before issuing a key.</p>}
-            <button className="minimal-primary" disabled={busy || readOnly || !agents.length}>
-              Create key
-            </button>
-          </form>
+            <DialogContent className="reference-dialog reference-key-dialog">
+              {" "}
+              <form
+                className="minimal-section minimal-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void action(
+                    `/v1/guardian/agents/${encodeURIComponent(agent || agents[0]?.id || "")}/session-keys`,
+                    {
+                      label,
+                      scopes: pay ? ["read", "pay"] : ["read"],
+                      ttlHours: Number(ttl),
+                      ...(pay ? { x402BudgetUsdc: budget } : {}),
+                    },
+                  );
+                }}
+              >
+                <DialogTitle>Create API key</DialogTitle>
+                <DialogDescription>
+                  Choose an agent, permissions and an expiry. Its existing allowance still applies.
+                </DialogDescription>
+                {error && (
+                  <p role="alert" className="minimal-error">
+                    {error}
+                  </p>
+                )}
+                <p>
+                  Read-only by default. Payment access uses the agent’s existing policy and
+                  allowance.
+                </p>
+                <div className="minimal-form-grid">
+                  <label>
+                    Agent
+                    <select
+                      required
+                      value={agent || agents[0]?.id || ""}
+                      onChange={(e) => setAgent(e.target.value)}
+                    >
+                      <option value="" disabled>
+                        Select an active agent
+                      </option>
+                      {agents.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Key name
+                    <input
+                      required
+                      maxLength={80}
+                      value={label}
+                      onChange={(e) => setLabel(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Expires in
+                    <select value={ttl} onChange={(e) => setTtl(e.target.value)}>
+                      <option value="1">1 hour</option>
+                      <option value="24">24 hours</option>
+                      <option value="168">7 days</option>
+                      <option value="720">30 days</option>
+                    </select>
+                  </label>
+                  <label className="minimal-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={pay}
+                      onChange={(e) => setPay(e.target.checked)}
+                    />
+                    Allow payments
+                  </label>
+                  {pay && (
+                    <label>
+                      Lifetime x402 limit (USDC)
+                      <input
+                        required
+                        inputMode="decimal"
+                        pattern="[0-9]+([.][0-9]{1,6})?"
+                        value={budget}
+                        onChange={(e) => setBudget(e.target.value)}
+                      />
+                    </label>
+                  )}
+                </div>
+                {!agents.length && <p>Create an active agent before issuing a key.</p>}
+                <button className="minimal-primary" disabled={busy || readOnly || !agents.length}>
+                  Create key
+                </button>
+              </form>
+            </DialogContent>
+          </Dialog>
           <section className="minimal-section">
             <div className="minimal-section-heading">
               <h2>API keys</h2>
@@ -443,7 +495,9 @@ export function MinimalBilling({
   gFetch,
   readOnly,
   onNavigate,
-}: Props & { gFetch: Fetcher; readOnly: boolean }) {
+  initialTab,
+}: Props & { gFetch: Fetcher; readOnly: boolean; initialTab?: string | null }) {
+  const [tab, setTab] = useState(initialTab === "limits" ? "limits" : "overview");
   const [data, setData] = useState<Billing | null>(null),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -530,171 +584,184 @@ export function MinimalBilling({
           Refresh activity
         </button>
       </header>
-      {error && (
-        <p role="alert" className="minimal-error">
-          {error}
-        </p>
+      <div className="minimal-tabs reference-billing-tabs" role="group" aria-label="Billing views">
+        <button aria-pressed={tab === "overview"} onClick={() => setTab("overview")}>
+          Overview
+        </button>
+        <button aria-pressed={tab === "limits"} onClick={() => setTab("limits")}>
+          Spending limits
+        </button>
+      </div>
+      {tab === "limits" && (
+        <SpendingLimits gFetch={gFetch} readOnly={readOnly || org?.actor?.role === "approver"} />
       )}
-      {notice && <p role="status">{notice}</p>}
-      {!data && !error && <p role="status">Loading billing…</p>}
-      {data && (
-        <>
-          {!data.cardFundingAvailable && (
-            <p className="minimal-notice">
-              Card funding is not configured for this deployment. Your existing USDC wallet and
-              settlement controls remain available.
-            </p>
-          )}
-          <section className="minimal-balances">
-            <div>
-              <p>Card-funded credits · USD</p>
-              <strong>{usd(data.creditCents)}</strong>
-              {data.debtCents > 0 && <p>Amount to resolve: {usd(data.debtCents)}</p>}
-              <p className="minimal-note">
-                Separate credit account. These credits do not fund USDC purchases.
+      <div hidden={tab !== "overview"}>
+        {error && (
+          <p role="alert" className="minimal-error">
+            {error}
+          </p>
+        )}
+        {notice && <p role="status">{notice}</p>}
+        {!data && !error && <p role="status">Loading billing…</p>}
+        {data && (
+          <>
+            {!data.cardFundingAvailable && (
+              <p className="minimal-notice">
+                Card funding is not configured for this deployment. Your existing USDC wallet and
+                settlement controls remain available.
               </p>
-            </div>
-            <div>
-              <p>Settlement funds · USDC</p>
-              <strong>{usdc(org?.balances.find((b) => b.kind === "org_available")?.usdc)}</strong>
-              <button onClick={() => onNavigate("treasury")}>Manage USDC wallet</button>
-            </div>
-          </section>
-          <section className="minimal-section">
-            <h2>Add credits</h2>
-            <p>
-              Credits appear only after a verified payment. Card details are entered on the payment
-              provider’s hosted page.
-            </p>
-            <div className="minimal-actions">
-              <label>
-                Amount (USD)
-                <input
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  disabled={busy || !data.cardFundingAvailable || readOnly}
-                />
-              </label>
-              <button
-                className="minimal-primary"
-                disabled={busy || readOnly || !data.cardFundingAvailable}
-                onClick={() => void checkout(false)}
-              >
-                Add credits
-              </button>
-            </div>
-          </section>
-          <section className="minimal-section">
-            <div className="minimal-section-heading">
-              <h2>Auto top-up</h2>
-              <label className="minimal-checkbox">
-                <input
-                  type="checkbox"
-                  checked={settings?.enabled ?? false}
-                  disabled={
-                    busy ||
-                    readOnly ||
-                    (!settings?.enabled && (!data.cardFundingAvailable || !data.method))
-                  }
-                  onChange={(e) =>
-                    settings && setSettings({ ...settings, enabled: e.target.checked })
-                  }
-                />
-                Enabled
-              </label>
-            </div>
-            <p>
-              Charge your saved card when credits fall below your threshold. Pending payments count
-              toward the monthly cap.
-            </p>
-            {settings && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void save();
-                }}
-              >
-                <div className="minimal-form-grid">
-                  {[
-                    ["thresholdCents", "When below (USD)", 1],
-                    ["amountCents", "Add (USD)", 5],
-                    ["monthlyCapCents", "Monthly cap (USD)", 5],
-                  ].map(([k, l, min]) => (
-                    <label key={String(k)}>
-                      {l}
-                      <input
-                        type="number"
-                        min={Number(min)}
-                        max={k === "monthlyCapCents" ? 10000 : 1000}
-                        step="0.01"
-                        value={(settings[k as keyof typeof settings] as number) / 100}
-                        disabled={busy || readOnly || !data.cardFundingAvailable}
-                        onChange={(e) =>
-                          setSettings({
-                            ...settings,
-                            [k]: Math.round(Number(e.target.value) * 100),
-                          })
-                        }
-                      />
-                    </label>
+            )}
+            <section className="minimal-balances">
+              <div>
+                <p>Card-funded credits · USD</p>
+                <strong>{usd(data.creditCents)}</strong>
+                {data.debtCents > 0 && <p>Amount to resolve: {usd(data.debtCents)}</p>}
+                <p className="minimal-note">
+                  Separate credit account. These credits do not fund USDC purchases.
+                </p>
+              </div>
+              <div>
+                <p>Settlement funds · USDC</p>
+                <strong>{usdc(org?.balances.find((b) => b.kind === "org_available")?.usdc)}</strong>
+                <button onClick={() => onNavigate("treasury")}>Manage USDC wallet</button>
+              </div>
+            </section>
+            <section className="minimal-section">
+              <h2>Add credits</h2>
+              <p>
+                Credits appear only after a verified payment. Card details are entered on the
+                payment provider’s hosted page.
+              </p>
+              <div className="minimal-actions">
+                <label>
+                  Amount (USD)
+                  <input
+                    inputMode="decimal"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    disabled={busy || !data.cardFundingAvailable || readOnly}
+                  />
+                </label>
+                <button
+                  className="minimal-primary"
+                  disabled={busy || readOnly || !data.cardFundingAvailable}
+                  onClick={() => void checkout(false)}
+                >
+                  Add credits
+                </button>
+              </div>
+            </section>
+            <section className="minimal-section">
+              <div className="minimal-section-heading">
+                <h2>Auto top-up</h2>
+                <label className="minimal-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={settings?.enabled ?? false}
+                    disabled={
+                      busy ||
+                      readOnly ||
+                      (!settings?.enabled && (!data.cardFundingAvailable || !data.method))
+                    }
+                    onChange={(e) =>
+                      settings && setSettings({ ...settings, enabled: e.target.checked })
+                    }
+                  />
+                  Enabled
+                </label>
+              </div>
+              <p>
+                Charge your saved card when credits fall below your threshold. Pending payments
+                count toward the monthly cap.
+              </p>
+              {settings && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void save();
+                  }}
+                >
+                  <div className="minimal-form-grid">
+                    {[
+                      ["thresholdCents", "When below (USD)", 1],
+                      ["amountCents", "Add (USD)", 5],
+                      ["monthlyCapCents", "Monthly cap (USD)", 5],
+                    ].map(([k, l, min]) => (
+                      <label key={String(k)}>
+                        {l}
+                        <input
+                          type="number"
+                          min={Number(min)}
+                          max={k === "monthlyCapCents" ? 10000 : 1000}
+                          step="0.01"
+                          value={(settings[k as keyof typeof settings] as number) / 100}
+                          disabled={busy || readOnly || !data.cardFundingAvailable}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              [k]: Math.round(Number(e.target.value) * 100),
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <button
+                    disabled={
+                      busy || readOnly || (!data.cardFundingAvailable && !data.autoTopup.enabled)
+                    }
+                  >
+                    Save auto top-up
+                  </button>
+                </form>
+              )}
+              <p className="minimal-note">
+                Add a verified card before enabling. Additional authentication or a failed payment
+                pauses auto top-up.
+              </p>
+            </section>
+            <section className="minimal-section">
+              <div className="minimal-section-heading">
+                <h2>Payment method</h2>
+                <button
+                  disabled={busy || readOnly || !data.cardFundingAvailable}
+                  onClick={() => void checkout(true)}
+                >
+                  {data.method ? "Replace card" : "Add card"}
+                </button>
+              </div>
+              <div className="minimal-empty">{data.method?.label ?? "No saved card."}</div>
+            </section>
+            <section className="minimal-section">
+              <h2>Funding activity</h2>
+              {data.activity.length ? (
+                <div className="minimal-activity">
+                  {data.activity.map((a) => (
+                    <div key={a.id}>
+                      <span>
+                        {a.kind === "auto"
+                          ? "Auto top-up"
+                          : a.kind === "setup"
+                            ? "Card verification"
+                            : "Card funding"}
+                        <small>{new Date(a.createdAt).toLocaleString()}</small>
+                      </span>
+                      <span>{a.kind === "setup" ? "—" : usd(a.amountCents)}</span>
+                      <span>{a.status}</span>
+                    </div>
                   ))}
                 </div>
-                <button
-                  disabled={
-                    busy || readOnly || (!data.cardFundingAvailable && !data.autoTopup.enabled)
-                  }
-                >
-                  Save auto top-up
-                </button>
-              </form>
-            )}
-            <p className="minimal-note">
-              Add a verified card before enabling. Additional authentication or a failed payment
-              pauses auto top-up.
-            </p>
-          </section>
-          <section className="minimal-section">
-            <div className="minimal-section-heading">
-              <h2>Payment method</h2>
-              <button
-                disabled={busy || readOnly || !data.cardFundingAvailable}
-                onClick={() => void checkout(true)}
-              >
-                {data.method ? "Replace card" : "Add card"}
-              </button>
-            </div>
-            <div className="minimal-empty">{data.method?.label ?? "No saved card."}</div>
-          </section>
-          <section className="minimal-section">
-            <h2>Funding activity</h2>
-            {data.activity.length ? (
-              <div className="minimal-activity">
-                {data.activity.map((a) => (
-                  <div key={a.id}>
-                    <span>
-                      {a.kind === "auto"
-                        ? "Auto top-up"
-                        : a.kind === "setup"
-                          ? "Card verification"
-                          : "Card funding"}
-                      <small>{new Date(a.createdAt).toLocaleString()}</small>
-                    </span>
-                    <span>{a.kind === "setup" ? "—" : usd(a.amountCents)}</span>
-                    <span>{a.status}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p>No funding activity yet.</p>
-            )}
-            <p className="minimal-note">
-              An uncertain payment stays pending until confirmed. Refresh activity before starting
-              another payment.
-            </p>
-          </section>
-        </>
-      )}
+              ) : (
+                <p>No funding activity yet.</p>
+              )}
+              <p className="minimal-note">
+                An uncertain payment stays pending until confirmed. Refresh activity before starting
+                another payment.
+              </p>
+            </section>
+          </>
+        )}
+      </div>
     </section>
   );
 }

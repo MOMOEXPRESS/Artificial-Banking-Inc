@@ -1,198 +1,108 @@
 ---
-name: ABI minimalist marketplace
-description: Neutral working surfaces and restrained blue actions across the ABI marketplace.
+name: ABI original vault and o11 hybrid
+description: Original ABI vault identity with Inter typography, opaque neutral content and selective glass chrome.
 colors:
   canvas: "#fafafa"
-  ink: "#252525"
-  ink-secondary: "#444"
-  ink-muted: "#626262"
-  ink-faint: "#686868"
-  surface: "#fff"
-  surface-2: "#f2f2f2"
-  surface-3: "#eaeaea"
-  surface-hover: "#e5e5e5"
-  border: "#dedede"
-  border-soft: "#ececec"
-  border-strong: "#aaa"
-  accent: "#246bc4"
-  accent-hover: "#1856a3"
-  accent-soft: "#e9f1fc"
+  ink: "#262626"
+  ink-secondary: "#525252"
+  surface: "#f4f4f4"
+  field: "#e5e5e5"
+  accent: "#2878c9"
+  accent-hover: "#1d67b1"
+  border: "#e5e5e5"
   checklist: "#f1f1f1"
-  row: "#f0f0f0"
-  allowance: "#f0f1f3"
-  card: "#f3f3f3"
-  control: "#ededed"
-  control-hover: "#e0e0e0"
-  field: "#eee"
-  selected-dock: "#e8e8e8"
-  footer: "#f4f4f4"
-  success: "#276747"
-  error-surface: "#fbeaea"
-  error-text: "#992731"
-  selection: "#d4e5ff"
-  selection-text: "#182a47"
+  nav-glass: "#fafafad9"
+  dock-glass: "#fafafaa6"
+  menu-glass: "#fafafae6"
 typography:
-  display:
-    fontFamily: "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
-    fontSize: "clamp(42px, 5.3vw, 72px)"
-    fontWeight: 500
-    lineHeight: 1.08
-    letterSpacing: "-0.035em"
   headline:
-    fontFamily: "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
-    fontSize: "34px"
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "28px"
     fontWeight: 500
-    lineHeight: 1.25
+    lineHeight: 1.2
     letterSpacing: "-0.025em"
   section:
-    fontFamily: "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
-    fontSize: "23px"
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "21px"
     fontWeight: 500
-    lineHeight: 1.3
-    letterSpacing: "-0.015em"
   body:
-    fontFamily: "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
-    fontSize: "15px"
-    lineHeight: 1.55
-  label:
-    fontFamily: "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
+    fontFamily: "Inter, system-ui, sans-serif"
     fontSize: "14px"
-    fontWeight: 500
-  note:
-    fontFamily: "IBM Plex Sans, Segoe UI, system-ui, sans-serif"
+    fontWeight: 400
+    lineHeight: 1.45
+  label:
+    fontFamily: "Inter, system-ui, sans-serif"
     fontSize: "13px"
-    lineHeight: 1.6
+    fontWeight: 400
 rounded:
-  check: "6px"
-  nav: "7px"
-  control: "8px"
-  tabs: "9px"
-  image: "10px"
-  dock-item: "12px"
-  empty: "13px"
-  row: "14px"
-  dock: "18px"
+  control: "6px"
+  field: "7px"
+  row: "12px"
+  dialog: "16px"
+  dock: "17px"
 spacing:
   compact: "8px"
   row-gap: "12px"
   medium: "16px"
   row: "20px"
   large: "24px"
-  section: "28px"
-  wide: "48px"
+  overview-gap: "30px"
 components:
   button-primary:
     backgroundColor: "{colors.accent}"
-    textColor: "{colors.surface}"
+    textColor: "#fff"
     rounded: "{rounded.control}"
-    padding: "9px 16px"
-    height: "42px"
+    padding: "8px 13px"
+    height: "36px"
     typography: "{typography.label}"
-  button-primary-hover:
-    backgroundColor: "{colors.accent-hover}"
-  button-secondary:
-    backgroundColor: "{colors.control}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.control}"
-    padding: "9px 16px"
   field:
     backgroundColor: "{colors.field}"
     textColor: "{colors.ink}"
-    rounded: "{rounded.control}"
-    padding: "10px 12px"
-  checklist-row:
-    backgroundColor: "{colors.checklist}"
+    rounded: "{rounded.field}"
+    height: "38px"
+  content-row:
+    backgroundColor: "{colors.surface}"
     rounded: "{rounded.row}"
-    padding: "14px 18px"
-  catalog-row:
-    backgroundColor: "{colors.row}"
-    rounded: "{rounded.row}"
-    padding: "20px"
-  category-selected:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.surface}"
-    rounded: "{rounded.control}"
 ---
 
-# Design System: ABI minimalist marketplace
+# Design System: ABI original vault and o11 hybrid
 
-## Overview
+## Authority and identity
 
-**Creative North Star: "ABI minimalist marketplace"**
+The current direction combines the original ABI console and VaultBankCard with the supplied o11 reference typography, neutral forms, placement and layering. Authority is .impeccable/briefs/abi-o11-hybrid.md and the approved overview-study.png in .impeccable/mocks/abi-o11-hybrid. The study is illustrative; use the actual ABI mark, vault component and factual account data. It supersedes the earlier minimal-reference composition and IBM Plex body typography, navy-rail studio and beige/green directions. The public-home structure remains, with shared typography and chrome adapted.
 
-The approved o11-inspired direction uses a near-white field, quiet neutral rows, readable dark text and restrained blue actions. ABI keeps its wordmark and self-hosted IBM Plex family. The approved minimal-reference overview, catalog and billing studies plus .impeccable/briefs/minimal-marketplace.md define the chosen world; current source defines actual controls and values. Earlier navy-rail Assisted Shopping Studio and beige/green directions are superseded.
+## Typography and color
 
-**Key Characteristics:**
-- Flat tonal surfaces and thin dividers.
-- Five clear destinations with advanced controls retained under More.
-- Equal category prominence and visible buyer/seller entry points.
-- Compact task hierarchy, inspectable balances and honest unavailable states.
+Official Inter variable is self-hosted through next/font/local at weights 100–900, with SIL OFL in apps/web/src/app/fonts/OFL-Inter.txt. Body and controls use 400; headings use 500. The stack is --font-sans, Inter, system-ui, sans-serif. IBM Plex Mono remains self-hosted at 400/500 for code and credentials. No remote font dependency is needed.
 
-## Colors
+Console body is 14px/1.45; page headings are 28px/1.2 with -0.025em tracking, sections 21px, subheadings 16px and controls generally 13px. Mobile page headings become 24px and sections 19px. Dialog fields use 16px on mobile. Paragraphs use 1.55 line-height. The frontmatter records the principal current roles; inherited components may retain more specific source values.
 
-The frontmatter preserves the implemented CSS color strings. Primary blue serves actions, caret and focus; soft blue distinguishes key disclosure and informative states. Neutral canvas, row, field and divider tokens do the structural work. Muted and secondary ink remain readable; selected category controls pair dark ink with white lettering. Success and error colors communicate actual state.
+Use #fafafa ground, #262626 ink, #525252 secondary text, opaque #f4f4f4 content and #e5e5e5 fields. Checklist and workspace rows retain #f1f1f1. Blue #2878c9 marks primary actions, focus and caret; #1d67b1 is the accent-hover token. Neutral surfaces and understated separators provide structure. Category selection uses a dark underline and dark text on the same neutral background.
 
-**The Neutral Ground Rule.** Keep working surfaces neutral; reserve blue for actions and meaningful state.
+## Layout and materials
 
-## Typography
+The desktop workspace has a 72px horizontal header and a centered floating five-destination dock. Content views reach 1120px; minimal task pages reach 1080px. At 760px, desktop links hide, the header is 62px, content has 20px side padding and 112px bottom clearance, and the dock fits within a 420px maximum and safe-area-aware bottom placement. The dock is also present on desktop. Preserve keyboard focus, aria-current, native form semantics, loading/error/empty states and reduced motion.
 
-IBM Plex Sans is self-hosted through next/font/local (400, 500, 600, 700). The source stack uses --font-sans with IBM Plex Sans, Segoe UI, system-ui and sans-serif fallbacks. IBM Plex Mono is self-hosted at 400/500 for code and credentials, through the existing mono stack. Do not introduce remote font dependencies.
+Overview uses two equal desktop columns with a 30px gap: setup checklist on the left, workspace row and original card on the right. It stacks at 760px. Checklist rows are at least 84px on desktop and 66px on mobile. Agent rows follow beneath. The original charcoal/silver ABI card retains its metallic gradients, inset highlight, subtle shadow and blur; it represents the vault, not a card-network product.
 
-The frontmatter records the homepage display and console hierarchy. Console page headings inherit 1.25 line-height; section headings inherit 1.3. Body copy is limited to 72ch on minimal pages. Notes use the smaller, quieter role; numeric balances use tabular figures. At 760px page headings become 29px and the homepage display becomes 48px. Billing balances use 40px/1.15 on desktop and 29px on mobile; overview balance figures use 28px then 22px.
+Content, provider rows, seller forms and spending controls are opaque. Glass is reserved for navigation, account menus and the vault card. Header glass uses #fafafad9 with 24px blur; the dock uses #fafafaa6 with 28px blur, white inset highlights and a subtle shadow. Account menus use #fafafae6 and 28px blur. Reduced-transparency preferences make the designated navigation surfaces opaque. Dialogs use opaque #fafafa, bounded viewport height, internal scrolling and an overlay; they are not glass content cards.
 
-## Layout
+## Navigation and workspaces
 
-Desktop uses a single content column with a horizontal workspace header, not a rail. Header height is 76px with a 1180px alignment reference. Console view maximum is 1120px; minimal task pages are 1000px. Scroll padding is 20px 40px 80px. Homepage content is 1120px with 24px side padding; its hero uses 1.25fr/1fr columns and a 64px gap. Homepage categories form three equal columns.
+Buyer navigation is Overview, Marketplace, Connect, Billing and Settings. Seller navigation is Overview, Inventory, Connect, Payouts and Settings. Both retain a visible role-switch entry. There is no More menu or standalone ledger/webhook destination. Existing financial, settlement and audit backend code remains internally available. The interface is pinned light; the nonfunctional Theme menu has been removed.
 
-Buyer destinations are Overview, Catalog, Connect, Billing and Settings. Seller equivalents are Inventory, Orders, Connect, Payouts and Settings. More remains available for both roles. At 900px the navigation spacing tightens; at 760px desktop destinations hide and a floating five-destination dock appears. The dock is at most 440px wide (94% viewport), with safe-area-aware bottom placement and 58px minimum item heights. Header becomes 62px, console padding becomes 12px 20px 120px, forms/allowances stack and homepage sections become one column. Desktop navigation may scroll horizontally above 760px.
+Marketplace provides provider/product segmentation, search, category tabs and understated provider/result rows from published inventory. Tools & APIs, Software and Physical goods have equal prominence. There is no Demo/Live selector; the Purchases tab owns order content. Catalog result images are 52px squares in the current console, and provider rows use opaque #f4f4f4 with 12px corners. Never substitute invented vendors or study balances for actual data.
 
-Overview-specific compact rows use 66px minimum height and 14px 18px padding, 28px section margins, and a 36px/28px workspace strip margin. Preserve setup, balance and allowance reading order. Catalog uses horizontal result rows with 84px images (64px mobile), not a decorative tile wall. Billing retains two separate currency columns; activity rows reflow on mobile.
+Connect centers setup and scoped-key administration. Creation opens a dialog; secrets have one-time delivery, replacement and revocation retain existing controls, and secrets must not persist in localStorage. Fields use neutral fills, 7px corners and visible blue focus. Principal console buttons use 6px corners and a 36px minimum height; dialog actions use at least 38px. Disabled controls remain visibly unavailable.
 
-## Elevation & Depth
+Billing separates Overview and Spending limits. Limits use UTC calendar day/week/month windows, a shared workspace cap or a total window expiring within 90 days, per-purchase controls, approval rules and recurring-purchase opt-out. Editing a total window preserves its original start time. Existing daily limits and agent budgets remain in force. Connected-service write actions are explicitly unavailable rather than enabled decorative switches.
 
-Flat tonal separation is the default. Working cards, catalog rows and purchase review have no shadow. Selected segmented controls use `0 1px 4px #0002`. Mobile dock and cookie notice use `0 6px 24px #0001`. There is no glass or backdrop blur in the current navigation. Do not reuse superseded blue-studio elevation values.
+Seller overview, inventory, connection, payout and settings surfaces share the same typography and opaque materials. Seller authentication ends a session only on a definitive 401. Network/429/5xx and malformed-response errors retain the session and provide recovery. Buyer/seller identity realms, verification and MFA remain separate and enforced.
 
-## Shapes
+## Financial truth and evidence
 
-Quiet rounded rectangles organize rows, controls and disclosure. The frontmatter records actual radii: modest controls, softer rows and a larger mobile-dock silhouette. Dividers are thin and neutral. Product imagery remains square and clipped; repeated outline icons support labels without decorative effects.
+USD card credits and Base Sepolia USDC settlement remain distinct. Card funding, saved-card and auto-top-up actions stay gated until operator configuration and usage/refund policy are ready. Checkout redirects do not establish credits; no USD consumption or fiat-to-USDC conversion is implemented. The interface and study do not prove live funding, purchases, shipping or fulfillment.
 
-## Components
+This document records current source and approved direction. It does not certify rendering or deployment. Hybrid desktop/mobile captures and independent finish review must be evaluated through their own artifacts; older minimal-reference reviews apply only to that prior revision. Synthetic fixtures demonstrate bounded presentation and behavior.
 
-### Buttons
-
-Primary actions use blue with white text; secondary actions use neutral control surfaces. Minimal-page buttons have a 42px minimum height, 9px 16px padding and medium-weight labels. Blue hover uses accent-hover; neutral hover uses control-hover. Disabled minimal-page buttons use 0.48 opacity and a not-allowed cursor. Focus is a 2px blue outline offset by 3px. Existing console button transitions use 150ms ease-out for background/border; reduced motion disables transitions.
-
-### Inputs / Fields
-
-Neutral filled fields use transparent borders, 8px corners and a 42px minimum height. Minimal-page inputs/selects use 10px 12px padding and 15px type. Search uses surface-3, 10px corners, a 56px minimum height and 16px text. Blue caret and visible focus remain. Checkboxes retain native semantics and blue accent.
-
-### Chips
-
-Category controls remain equal in width and prominence. Unselected labels use secondary ink on neutral controls; selected labels use white on dark ink. Preserve aria-pressed and the explicit important-text override required by inherited marketplace styles. Secondary filters remain in a disclosure.
-
-### Cards / Containers
-
-Checklist and allowance rows use quiet gray fills and 14px corners. Allowances use 20px padding in Overview; catalog rows use 20px on desktop and 16px on mobile. Key disclosure uses soft blue; error surfaces use error text on error-surface. Do not equate an unavailable affordance with a configured service.
-
-### Navigation
-
-Desktop header combines ABI, five text destinations, a buyer/seller entry and More. Active desktop destinations have a neutral fill and dark text; the mobile dock pairs outline icons and labels with a neutral selected state. Preserve aria-current. More retains buyer Assistant, Agents & allowances, USDC treasury, Payments & approvals, Activity, Agent work, Policies, Ledger, API playground and Webhooks; seller More retains Overview, Directory, Versions, Sandbox, Analytics, Activity, Access policies, Webhooks and Developers.
-
-### Currency and credential disclosures
-
-Billing presents USD credits and USDC settlement separately. Funding and saved-card/auto-top-up actions remain disabled until server readiness, including Stripe setup and a defined usage/refund policy. Connect owns scoped-key administration and one-time secret delivery. No USD consumption or fiat-to-USDC conversion is implemented; the existing settlement deployment remains Base Sepolia.
-
-## Do's and Don'ts
-
-### Do:
-- Do use the neutral palette and restrained blue actions across .studio-console and .landing.
-- Do keep all three category labels legible and equally visible.
-- Do preserve both roles’ advanced destinations under More and native keyboard/focus semantics.
-- Do distinguish simulated demo facts, actual listing data, USD credits and Base Sepolia USDC.
-
-### Don't:
-- Don’t restore the superseded navy rail or blue-tinted working canvas.
-- Don’t expose or persist credentials as decorative billing content.
-- Don’t infer live card payments, physical fulfillment or production readiness from the approved studies or synthetic captures.
-
-Source extraction: apps/web/src/app/minimal-workspace.css, app/layout.tsx, app/page.tsx, lib/minimal-workspace.tsx and lib/studio-nav.tsx, with inherited typography/state rules from globals.css and console-studio.css. This document records source and approved direction; it does not certify rendering. No launcher/detector, comp-spec, automated diff or build-state provenance is available. The independent reviewer opened the 10 settled desktop/mobile recaptures and scored all three requested fixes resolved (contrast, first-viewport allowances and current documentation). This verdict covers the scored fixes only; no automated fidelity or live financial certification is asserted.
+Sources: apps/web/src/app/reference-console.css (loaded after minimal-workspace.css), app/layout.tsx, lib/studio-nav.tsx, lib/minimal-workspace.tsx, lib/spending-limits.tsx, lib/seller-session.ts and the original VaultBankCard component. Inherited layout and state rules remain in minimal-workspace.css, globals.css and console-studio.css.

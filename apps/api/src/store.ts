@@ -4918,13 +4918,17 @@ export const store = {
    * they are attributed through the agent that made them.
    */
   orgSpentLast24h(orgId: string): MicroUsdc {
+    return this.orgSpentSince(orgId, Date.now() - 24 * 60 * 60 * 1000);
+  },
+  /** Shared period usage from the same reservation-aware events as existing caps. */
+  orgSpentSince(orgId: string, sinceMs: number): MicroUsdc {
     const rows = db
       .prepare(
         `SELECT p.amount_micro FROM pay_events p
          LEFT JOIN agents a ON a.id = p.agent_id
          WHERE COALESCE(p.org_id, a.org_id) = ? AND p.at_ms >= ?`,
       )
-      .all(orgId, Date.now() - 24 * 60 * 60 * 1000) as Row[];
+      .all(orgId, sinceMs) as Row[];
     return rows.reduce((acc, r) => acc + parseMicroColumn(r.amount_micro), 0n);
   },
 

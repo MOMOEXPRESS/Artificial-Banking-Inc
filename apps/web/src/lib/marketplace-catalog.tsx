@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
+import { Icon } from "./ui";
 import { browserApiBase } from "./browser-api";
 export type MarketplaceProduct = {
   id: string;
@@ -49,6 +50,14 @@ export function MarketplaceCatalog({
     [region, setRegion] = useState(""),
     [inStock, setInStock] = useState(false),
     [page, setPage] = useState(0);
+  const [mode, setMode] = useState(compact ? "products" : "providers"),
+    [vendor, setVendor] = useState(""),
+    [category, setCategory] = useState("");
+  const [providers, setProviders] = useState<
+      { id: string; name: string; count: number; kinds: string[] }[]
+    >([]),
+    [providerTotal, setProviderTotal] = useState(0),
+    [categories, setCategories] = useState<{ name: string; count: number }[]>([]);
   const [products, setProducts] = useState<MarketplaceProduct[]>([]),
     [total, setTotal] = useState(0),
     [loading, setLoading] = useState(true),
@@ -73,6 +82,8 @@ export function MarketplaceCatalog({
       offset: String(page * 12),
     });
     if (kind) q.set("kind", kind);
+    if (vendor) q.set("vendorId", vendor);
+    if (category) q.set("category", category);
     if (color) q.set("color", color);
     if (region) q.set("region", region);
     if (inStock) q.set("inStock", "true");
@@ -80,6 +91,9 @@ export function MarketplaceCatalog({
       .then(marketplaceJson)
       .then((v) => {
         setProducts(v.products);
+        setProviders(v.providers ?? []);
+        setProviderTotal(v.totalProviders ?? 0);
+        setCategories(v.categories ?? []);
         setTotal(v.total);
       })
       .catch((e) => {
@@ -89,14 +103,17 @@ export function MarketplaceCatalog({
         if (!c.signal.aborted) setLoading(false);
       });
     return () => c.abort();
-  }, [submitted, kind, color, region, inStock, page, compact]);
+  }, [submitted, kind, color, region, inStock, page, compact, vendor, category]);
   function search(e: FormEvent) {
     e.preventDefault();
     setPage(0);
     setSubmitted(query);
   }
   return (
-    <section className="market-catalog" aria-label="Marketplace products">
+    <section
+      className={compact ? "market-catalog" : "market-catalog reference-catalog"}
+      aria-label="Marketplace products"
+    >
       <div className="market-section-heading">
         <div>
           <h2>{compact ? "Explore the marketplace" : "Browse products and services"}</h2>
@@ -107,6 +124,52 @@ export function MarketplaceCatalog({
         </div>
         {compact && <Link href="/directory">View all products</Link>}
       </div>
+      {!compact && (
+        <>
+          <h2 className="reference-catalog-title">
+            {loading
+              ? "Explore the marketplace"
+              : `${total.toLocaleString()} listings for your agents`}
+          </h2>
+          <div
+            className="minimal-tabs reference-catalog-switch"
+            role="group"
+            aria-label="Browse marketplace"
+          >
+            <button
+              aria-pressed={mode === "providers"}
+              onClick={() => {
+                setMode("providers");
+                setVendor("");
+                setPage(0);
+              }}
+            >
+              Providers
+            </button>
+            <button
+              aria-pressed={mode === "products"}
+              onClick={() => {
+                setMode("products");
+                setPage(0);
+              }}
+            >
+              Tools & products
+            </button>
+          </div>
+          {vendor && (
+            <button
+              className="reference-vendor-back"
+              onClick={() => {
+                setVendor("");
+                setMode("providers");
+                setPage(0);
+              }}
+            >
+              All providers
+            </button>
+          )}
+        </>
+      )}
       <form className="market-search" onSubmit={search}>
         <label className="sr-only" htmlFor={compact ? "home-product-search" : "product-search"}>
           Describe what you need
@@ -115,10 +178,12 @@ export function MarketplaceCatalog({
           id={compact ? "home-product-search" : "product-search"}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="A gift for someone who likes hiking…"
+          placeholder="Search a provider, product, or what you need"
           type="search"
         />
-        <button type="submit">Find products</button>
+        <button type="submit" aria-label={compact ? undefined : "Search marketplace"}>
+          {compact ? "Find products" : <Icon name="search" size={19} />}
+        </button>
       </form>
       <div className="minimal-kind-tabs" role="group" aria-label="Catalog categories">
         {[
@@ -139,6 +204,25 @@ export function MarketplaceCatalog({
           </button>
         ))}
       </div>
+      {!compact && categories.length > 1 && (
+        <div className="reference-category-tabs" role="group" aria-label="Product categories">
+          {[{ name: "", count: categories.reduce((n, c) => n + c.count, 0) }, ...categories].map(
+            (c) => (
+              <button
+                key={c.name}
+                aria-pressed={category === c.name}
+                onClick={() => {
+                  setCategory(c.name);
+                  setPage(0);
+                }}
+              >
+                {c.name || "All categories"}
+                <span>{c.count}</span>
+              </button>
+            ),
+          )}
+        </div>
+      )}
       {!compact && (
         <details className="minimal-filter-disclosure">
           <summary>More filters</summary>
@@ -204,6 +288,34 @@ export function MarketplaceCatalog({
           </p>
           <Link href="/partners/login?mode=signup">Become a seller</Link>
         </div>
+      ) : mode === "providers" && !compact ? (
+        <div className="reference-provider-list">
+          {providers.length ? (
+            providers.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => {
+                  setVendor(p.id);
+                  setMode("products");
+                  setPage(0);
+                }}
+              >
+                <span className="reference-provider-mark">
+                  <Icon name={p.kinds.includes("service") ? "zap" : "layers"} size={24} />
+                </span>
+                <span>
+                  <strong>{p.name}</strong>
+                  <small>
+                    {p.count} {p.count === 1 ? "listing" : "listings"}
+                  </small>
+                </span>
+                <Icon name="arrowRight" size={18} />
+              </button>
+            ))
+          ) : (
+            <p>No published providers match these filters.</p>
+          )}
+        </div>
       ) : (
         <div className="market-product-grid">
           {products.map((p) => (
@@ -246,13 +358,16 @@ export function MarketplaceCatalog({
           ))}
         </div>
       )}
-      {!compact && total > 12 && (
+      {!compact && (mode === "providers" ? providerTotal : total) > 12 && (
         <nav className="market-pagination" aria-label="Product pages">
           <button disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
             Previous
           </button>
           <span>Page {page + 1}</span>
-          <button disabled={(page + 1) * 12 >= total} onClick={() => setPage((p) => p + 1)}>
+          <button
+            disabled={(page + 1) * 12 >= (mode === "providers" ? providerTotal : total)}
+            onClick={() => setPage((p) => p + 1)}
+          >
             Next
           </button>
         </nav>
