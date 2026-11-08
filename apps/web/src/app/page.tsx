@@ -1,9 +1,19 @@
 "use client";
 import Link from "next/link";
+import Image from "next/image";
 import { MarketingShell } from "../lib/marketing-shell";
 import { MarketplaceCatalog } from "../lib/marketplace-catalog";
 import { Icon } from "../lib/ui";
 import "./home-agent-banner.css";
+
+const AGENT_CLIENTS = [
+  { name: "OpenAI / ChatGPT", symbol: "openai", wordmark: "openai-text" },
+  { name: "Claude Code", symbol: "claude-color", wordmark: "claude-text" },
+  { name: "Codex CLI", symbol: "codex", wordmark: "codex-text" },
+  { name: "GitHub Copilot", symbol: "githubcopilot", wordmark: "githubcopilot-text" },
+  { name: "Gemini CLI", symbol: "gemini-color", wordmark: "gemini-text" },
+  { name: "Cursor", symbol: "cursor", wordmark: "cursor-text" },
+];
 
 export default function HomePage() {
   return (
@@ -30,29 +40,43 @@ export default function HomePage() {
             </div>
           </div>
         </section>
-        <section className="agent-connect-banner" aria-labelledby="agent-connect-title">
-          <div className="agent-connect-heading">
-            <span className="agent-connect-symbol" aria-hidden="true">
-              <Icon name="zap" size={23} />
-            </span>
-            <div>
-              <h2 id="agent-connect-title">Bring your own agent.</h2>
-              <p>Connect through MCP or the API. You control permissions and spending.</p>
-            </div>
+        <section className="agent-logo-band" aria-label="Connect your AI agent">
+          <div className="agent-logo-band-heading">
+            <Link href="/console?view=connect">
+              Connect the agent you already use <Icon name="arrowRight" size={15} />
+            </Link>
+            <Link href="/docs#chatgpt">MCP & API setup</Link>
           </div>
-          <ul className="agent-connect-clients" aria-label="Compatible agent clients">
-            {["Claude Code", "ChatGPT", "Cursor", "Codex CLI", "Gemini CLI"].map((client) => (
-              <li key={client}>{client}</li>
-            ))}
-            <li className="agent-connect-custom">Your custom agent</li>
-          </ul>
-          <div className="agent-connect-actions">
-            <Link className="minimal-primary" href="/console?view=connect">
-              Connect your agent <Icon name="arrowRight" size={17} />
-            </Link>
-            <Link className="agent-connect-guide" href="/docs#chatgpt">
-              View setup options <Icon name="arrowRight" size={15} />
-            </Link>
+          <div className="agent-logo-window">
+            <div className="agent-logo-track">
+              {[0, 1].map((copy) => (
+                <ul
+                  className="agent-logo-cycle"
+                  key={copy}
+                  aria-label={copy === 0 ? "Compatible agent clients" : undefined}
+                  aria-hidden={copy === 1 ? true : undefined}
+                >
+                  {AGENT_CLIENTS.map((client) => (
+                    <li key={client.name}>
+                      <span className="sr-only">{client.name}</span>
+                      <Image
+                        src={`/agent-logos/${client.symbol}.svg`}
+                        alt=""
+                        width={30}
+                        height={30}
+                      />
+                      <Image
+                        className="agent-logo-wordmark"
+                        src={`/agent-logos/${client.wordmark}.svg`}
+                        alt=""
+                        width={118}
+                        height={30}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ))}
+            </div>
           </div>
         </section>
         <section className="minimal-home-categories" aria-label="Marketplace categories">

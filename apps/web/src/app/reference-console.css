@@ -92,6 +92,16 @@
   font-size: 13px;
   padding: 8px 14px;
 }
+.studio-workspace-links button svg {
+  display: block;
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+}
+.studio-workspace-links button[aria-current] svg,
+.minimal-dock button[aria-current] svg {
+  color: #2878c9;
+}
 .studio-workspace-links button[aria-current] {
   background: #e9e9e9;
 }

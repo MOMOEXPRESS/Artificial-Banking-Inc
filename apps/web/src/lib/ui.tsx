@@ -145,6 +145,18 @@ const PATHS: Record<string, ReactNode> = {
       <path d="M3 8.5h18M16.5 12.5h1.5" />
     </>
   ),
+  storefront: (
+    <>
+      <path d="M4 9V5a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v4M3 9h18l-1.5 4a2 2 0 0 1-3 0 2.8 2.8 0 0 1-4.5 0 2.8 2.8 0 0 1-4.5 0 2 2 0 0 1-3 0L3 9Z" />
+      <path d="M5 14v6h14v-6M10 20v-4h4v4" />
+    </>
+  ),
+  creditCard: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="3" />
+      <path d="M3 10h18M7 15h3M14 15h3" />
+    </>
+  ),
   robot: (
     <>
       <rect x="4" y="8" width="16" height="12" rx="3" />
