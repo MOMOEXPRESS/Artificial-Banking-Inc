@@ -1,0 +1,38 @@
+.agent-logo-cluster {
+  --agent-logo-size: 26px;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  vertical-align: middle;
+  line-height: 1;
+}
+.agent-logo-cluster > span {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--agent-logo-size);
+  height: var(--agent-logo-size);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px #162b441a;
+}
+.agent-logo-cluster > span + span {
+  margin-left: -7px;
+}
+.agent-logo-cluster img {
+  display: block;
+  width: calc(var(--agent-logo-size) - 8px);
+  height: calc(var(--agent-logo-size) - 8px);
+  object-fit: contain;
+}
+.reference-start .agent-logo-cluster {
+  --agent-logo-size: 24px;
+}
+.reference-start .agent-connect-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+}
