@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { Icon } from "./ui";
+import { AgentLogoCluster } from "./agent-logo-cluster";
 export function StudioNav({
   seller = false,
   active,
@@ -33,7 +34,11 @@ export function StudioNav({
       }
       onClick={() => onNavigate(view)}
     >
-      <Icon name={icon} size={20} />
+      {view === "connect" || view === "integrations" ? (
+        <AgentLogoCluster />
+      ) : (
+        <Icon name={icon} size={20} />
+      )}
       <span>{label}</span>
     </button>
   ));

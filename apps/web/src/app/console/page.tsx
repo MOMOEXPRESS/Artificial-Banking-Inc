@@ -558,7 +558,9 @@ export default function Console() {
     const canon = canonicalView(view);
     let effective = tabHint ?? alias;
     if (effective) {
-      if (canon === "treasury" && !TREASURY_TAB_SET.has(effective)) effective = alias;
+      if (view === "marketplace") {
+        if (!["shop", "orders", "resources"].includes(effective)) effective = null;
+      } else if (canon === "treasury" && !TREASURY_TAB_SET.has(effective)) effective = alias;
       else if (canon === "payments" && !PAYMENTS_TAB_SET.has(effective)) effective = alias;
       else if (
         canon !== "treasury" &&
@@ -1199,7 +1201,7 @@ export default function Console() {
         <main className="main">
           <div className="studio-shell-header">
             <StudioNav
-              active={view === "marketplace" && tabHint === "orders" ? "orders" : view}
+              active={view}
               onNavigate={(v, t) => setView(v as View, t)}
             />
             <header className="topbar">
@@ -1539,14 +1541,21 @@ export default function Console() {
                     </div>
                   </section>
                 )}
-                {view !== "overview" && view !== "treasury" && (
+                {view !== "overview" && view !== "treasury" && view !== "settings" && (
                   <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
                 )}
                 {view === "marketplace" && (
                   <MarketplaceBuyer
                     session={session}
                     gFetch={gFetch}
-                    initialTab={tabHint === "orders" ? "orders" : "shop"}
+                    initialTab={
+                      tabHint === "resources"
+                        ? "resources"
+                        : tabHint === "orders"
+                          ? "orders"
+                          : "shop"
+                    }
+                    onTabChange={setTabHint}
                   />
                 )}
                 {view === "overview" && (
