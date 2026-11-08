@@ -15,6 +15,7 @@ import "./public-studio.css";
 import "./minimal-workspace.css";
 import "./reference-console.css";
 import "./liquid-wallet.css";
+import "./agent-logo-cluster.css";
 
 // Self-hosted Inter (SIL OFL; fonts/OFL-Inter.txt) matches the supplied reference.
 const interSans = localFont({

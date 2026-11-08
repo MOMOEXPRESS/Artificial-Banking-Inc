@@ -4,6 +4,7 @@ import Image from "next/image";
 import { MarketingShell } from "../lib/marketing-shell";
 import { MarketplaceCatalog } from "../lib/marketplace-catalog";
 import { Icon } from "../lib/ui";
+import { AgentLogoCluster } from "../lib/agent-logo-cluster";
 import "./home-agent-banner.css";
 
 const AGENT_CLIENTS = [
@@ -34,7 +35,7 @@ export default function HomePage() {
             </p>
             <div className="minimal-actions">
               <Link className="minimal-primary" href="/console?view=connect">
-                Connect your agent <Icon name="arrowRight" size={18} />
+                Connect your agent <AgentLogoCluster /> <Icon name="arrowRight" size={18} />
               </Link>
               <Link href="/directory">Explore the catalog</Link>
             </div>

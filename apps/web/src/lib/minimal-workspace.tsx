@@ -6,6 +6,7 @@ import { Icon } from "./ui";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { SpendingLimits } from "./spending-limits";
 import { LiquidWalletCard } from "./liquid-wallet-card";
+import { AgentLogoCluster } from "./agent-logo-cluster";
 type Fetcher = (path: string, init?: RequestInit) => Promise<Response>;
 type Props = { org: OrgView | null | undefined; onNavigate: (view: View, tab?: string) => void };
 const usd = (cents: number) =>
@@ -57,11 +58,13 @@ export function MinimalOverview({ org, onNavigate }: Props) {
                   <span>{description}</span>
                 </div>
                 <button
+                  className={view === "connect" ? "agent-connect-action" : undefined}
                   onClick={() =>
                     onNavigate(view as View, view === "billing" ? "limits" : undefined)
                   }
                 >
                   {action}
+                  {view === "connect" && <AgentLogoCluster />}
                 </button>
               </li>
             ))}
