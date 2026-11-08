@@ -1201,7 +1201,7 @@ export default function Console() {
         <main className="main">
           <div className="studio-shell-header">
             <StudioNav
-              active={view === "marketplace" && tabHint === "orders" ? "orders" : view}
+              active={view}
               onNavigate={(v, t) => setView(v as View, t)}
             />
             <header className="topbar">
