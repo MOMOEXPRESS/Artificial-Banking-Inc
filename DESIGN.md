@@ -107,6 +107,8 @@ Mouse movement updates only a subtle radial highlight. Hover-capable devices wit
 
 ## Navigation and workspaces
 
+The public homepage includes an opaque pale-blue agent-connection banner below the hero. It names the documented compatible clients (Claude Code, ChatGPT, Cursor, Codex CLI and Gemini CLI), supports custom agents through MCP/API setup, and links to Connect and the setup documentation. Client names indicate protocol compatibility, not partnerships or completed live-payment testing. The desktop banner places its actions beside the copy and client list; mobile stacks the actions below.
+
 Buyer navigation is Overview, Marketplace, Connect, Billing and Settings. Seller navigation is Overview, Inventory, Connect, Payouts and Settings. Wallet replaces Treasury’s presentation and is reached through the full Overview card or Wallet details; its internal treasury identifier remains compatible. The buyer header removes Sell on ABI, while the account menu retains seller entry. There is no More menu or standalone ledger/webhook destination. Existing financial, settlement, audit and Cash/analytics code remains internally available, without a standalone wallet analytics tab. The interface is pinned light; the nonfunctional Theme menu has been removed.
 
 Marketplace provides provider/product segmentation, search, category tabs and understated provider/result rows from published inventory. Tools & APIs, Software and Physical goods have equal prominence. There is no Demo/Live selector; the Purchases tab owns order content. Catalog result images are 52px squares in the current console, and provider rows use opaque #f4f4f4 with 12px corners. Never substitute invented vendors or study balances for actual data.

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { MarketingShell } from "../lib/marketing-shell";
 import { MarketplaceCatalog } from "../lib/marketplace-catalog";
 import { Icon } from "../lib/ui";
+import "./home-agent-banner.css";
 
 export default function HomePage() {
   return (
@@ -27,6 +28,31 @@ export default function HomePage() {
               </Link>
               <Link href="/directory">Explore the catalog</Link>
             </div>
+          </div>
+        </section>
+        <section className="agent-connect-banner" aria-labelledby="agent-connect-title">
+          <div className="agent-connect-heading">
+            <span className="agent-connect-symbol" aria-hidden="true">
+              <Icon name="zap" size={23} />
+            </span>
+            <div>
+              <h2 id="agent-connect-title">Bring your own agent.</h2>
+              <p>Connect through MCP or the API. You control permissions and spending.</p>
+            </div>
+          </div>
+          <ul className="agent-connect-clients" aria-label="Compatible agent clients">
+            {["Claude Code", "ChatGPT", "Cursor", "Codex CLI", "Gemini CLI"].map((client) => (
+              <li key={client}>{client}</li>
+            ))}
+            <li className="agent-connect-custom">Your custom agent</li>
+          </ul>
+          <div className="agent-connect-actions">
+            <Link className="minimal-primary" href="/console?view=connect">
+              Connect your agent <Icon name="arrowRight" size={17} />
+            </Link>
+            <Link className="agent-connect-guide" href="/docs#chatgpt">
+              View setup options <Icon name="arrowRight" size={15} />
+            </Link>
           </div>
         </section>
         <section className="minimal-home-categories" aria-label="Marketplace categories">
