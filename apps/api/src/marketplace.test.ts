@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { emptyServiceListing } from "@policyvault/common";
 import {
   createMarketplace,
   CommerceError,
@@ -656,4 +657,69 @@ test("provider counts and category facets include only matching published invent
   assert.equal(filtered.providers[0].count, 1);
   const paged = f.m.search({ limit: 1, offset: 1 });
   assert.notEqual(all.providers[0].id, paged.providers[0].id);
+});
+
+test("service listing details survive durable storage and are discoverable by buyer agents", () => {
+  const f = fixture();
+  const service = emptyServiceListing();
+  service.baseUrl = "https://api.example.com/v1";
+  service.authentication = { type: "api_key_header", name: "X-API-Key" };
+  Object.assign(service.endpoints[0], {
+    name: "Search",
+    path: "/search",
+    description: "Returns ranked results.",
+    resource: "customer_data",
+  });
+  service.endpoints[0].pricing = {
+    model: "usage_based",
+    amount: "0.01",
+    currency: "USD",
+    unit: "100 results",
+    billingTerms: "USD 0.01 per 100 results, invoiced monthly.",
+  };
+  const p = f.product("seller", {
+    kind: "service",
+    attributes: { service, customReference: "preserve" },
+  });
+  const reopened = createMarketplace(f.db as unknown as CommerceDatabase, f.adapters);
+  assert.deepEqual(reopened.inventory("seller")[0].attributes.service, service);
+  assert.equal(reopened.product(p.id).product.attributes.customReference, "preserve");
+  assert.deepEqual(reopened.product(p.id).product.attributes.service, service);
+  // Descriptive endpoint pricing never rewrites the actual checkout price.
+  assert.equal(reopened.product(p.id).product.priceMicro, "1000000");
+});
+test("seller API rejects secret-bearing or malformed endpoint metadata before persisting", () => {
+  const f = fixture();
+  const service = emptyServiceListing();
+  service.baseUrl = "https://api.example.com";
+  Object.assign(service.endpoints[0], { name: "Search", description: "Searches documents." });
+  const p = f.product();
+  const save = (s: unknown) =>
+    f.m.saveProduct(
+      "seller",
+      {
+        name: "API",
+        description: "Research",
+        category: "data",
+        kind: "service",
+        priceMicro: "1000000",
+        stockLevel: 2,
+        images: [],
+        attributes: { service: s },
+      },
+      p.id,
+    );
+  assert.throws(
+    () => save({ ...service, authentication: { type: "bearer", name: "", token: "secret" } }),
+    /Unrecognized key/,
+  );
+  assert.throws(
+    () => save({ ...service, endpoints: [...service.endpoints, ...service.endpoints] }),
+    /unique/,
+  );
+  assert.throws(
+    () => save({ ...service, baseUrl: "https://example.com/?key=secret" }),
+    /credentials/,
+  );
+  assert.equal(f.m.inventory("seller")[0].name, "Trail backpack");
 });

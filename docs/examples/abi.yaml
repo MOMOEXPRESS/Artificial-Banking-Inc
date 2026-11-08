@@ -1,0 +1,33 @@
+# Illustrative listing format, not an onboarded vendor or a live offer.
+schemaVersion: abi.listing.v1
+name: Research API
+description: Returns structured research results for a query.
+category: Research
+kind: service
+priceMicro: "100000"
+currency: USDC
+stockLevel: 100
+images: []
+attributes:
+  useCases:
+    - Research
+service:
+  logo: ""
+  website: https://example.com
+  docs: https://example.com/docs
+  baseUrl: https://example.com/v1
+  authentication:
+    type: api_key_header
+    name: X-API-Key
+  endpoints:
+    - name: Web search
+      method: GET
+      path: /search
+      description: Returns ranked results for a search query.
+      resource: public_data
+      pricing:
+        model: usage_based
+        amount: "0.01"
+        currency: USD
+        unit: 100 results
+        billingTerms: USD 0.01 per 100 results, invoiced monthly by the provider.
