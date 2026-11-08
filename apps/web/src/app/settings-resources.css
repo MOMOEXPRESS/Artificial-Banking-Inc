@@ -1,0 +1,352 @@
+.studio-console .settings-page {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 36px;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  align-items: start;
+}
+.studio-console .settings-page .set-nav {
+  position: sticky;
+  top: 12px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  min-width: 0;
+  gap: 0;
+}
+.studio-console .settings-page .set-nav-head {
+  padding: 0 10px 18px;
+  font-size: 20px;
+  font-weight: 500;
+}
+.studio-console .settings-page .set-nav-head small {
+  font-size: 12px;
+  font-weight: 400;
+  color: #626262;
+}
+.studio-console .settings-page .set-nav-org {
+  background: #f4f4f4;
+  border: 0;
+  border-radius: 10px;
+  margin-bottom: 24px;
+  padding: 12px;
+}
+.studio-console .settings-page .set-nav-group {
+  margin-bottom: 18px;
+  padding: 0;
+  border: 0;
+}
+.studio-console .settings-page .set-nav-label {
+  display: block;
+  margin: 0 10px 8px;
+  color: #626262;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.studio-console .settings-page .set-nav-group button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px;
+  color: #525252;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  font-size: 13px;
+  text-align: left;
+}
+.studio-console .settings-page .set-nav-group button.on {
+  color: #205f9e;
+  background: #e8f1fb;
+}
+.studio-console .settings-page .set-nav-group button:hover {
+  background: #ededed;
+}
+.studio-console .settings-page .settings-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 24px;
+}
+.studio-console .settings-page .settings-section-summary {
+  padding: 0 0 8px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+.studio-console .settings-page .settings-section-summary h1 {
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  margin: 0 0 10px;
+}
+.studio-console .settings-page .settings-section-summary p {
+  max-width: 62ch;
+  color: #626262;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.studio-console .settings-page .settings-content .card {
+  padding: 24px;
+  margin: 0;
+  background: #f4f4f4;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.studio-console .settings-page .settings-content h2 {
+  font-size: 18px;
+  font-weight: 500;
+}
+.studio-console .settings-page .settings-content .sub {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #626262;
+}
+.studio-console .settings-page :is(input, select, textarea) {
+  background: #e5e5e5;
+  border-color: transparent;
+  border-radius: 7px;
+}
+.settings-page button:focus-visible,
+.market-resources button:focus-visible,
+.market-resource-dialog button:focus-visible {
+  outline: 3px solid #2878c9;
+  outline-offset: 3px;
+}
+.market-resources {
+  margin-top: 30px;
+}
+.market-resources-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.market-resources-heading h2 {
+  margin: 0 0 10px;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+.market-resources-heading p,
+.market-resource-copy p,
+.market-resource-empty p {
+  color: #626262;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+.market-resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 24px;
+}
+.market-resource-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 20px;
+  background: #f4f4f4;
+  border-radius: 12px;
+}
+.market-resource-symbol {
+  color: #2878c9;
+  flex: none;
+}
+.market-resource-copy {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.market-resource-copy h3 {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.4;
+  margin: 0 0 5px;
+}
+.market-resource-copy span {
+  display: block;
+  font-size: 12px;
+  color: #525252;
+  margin-top: 6px;
+}
+.market-resources button,
+.market-resource-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+}
+.market-resource-empty {
+  padding: 56px 24px;
+  text-align: center;
+  max-width: 60ch;
+  margin: 0 auto;
+}
+.market-resource-empty > svg {
+  margin: 0 auto 18px;
+  color: #626262;
+}
+.market-resource-empty h3 {
+  font-size: 20px;
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+.market-resource-dialog {
+  position: fixed !important;
+  z-index: 210 !important;
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  width: min(640px, calc(100vw - 32px));
+  max-width: 640px;
+  max-height: 85dvh;
+  overflow-y: auto;
+  background: #fafafa !important;
+  color: #262626;
+  border: 0 !important;
+  border-radius: 16px !important;
+  padding: 28px !important;
+  box-shadow: 0 20px 60px #00000026;
+}
+.market-resource-dialog h2 {
+  font-size: 22px;
+  font-weight: 500;
+}
+.market-resource-dialog > p {
+  color: #626262;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.market-resource-dialog button {
+  background: #e5e5e5;
+  color: #262626;
+  border: 0;
+  border-radius: 7px;
+  min-height: 40px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 400;
+}
+.market-resource-dialog > button {
+  min-height: 32px;
+  width: 32px;
+  padding: 6px;
+  background: transparent;
+  color: #626262;
+}
+.market-resource-actions button:last-child {
+  background: #2878c9;
+  color: #fff;
+}
+.studio-console .market-resources .minimal-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  gap: 4px;
+  padding: 4px;
+  background: #f1f1f1;
+  border-radius: 9px;
+}
+.studio-console .market-resources .minimal-tabs button {
+  background: transparent;
+  /* Override the legacy marketplace's important white button text. */
+  color: #525252 !important;
+  border: 0;
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 400;
+}
+.studio-console .market-resources .minimal-tabs button[aria-pressed="true"] {
+  background: #fff;
+  color: #262626 !important;
+  box-shadow: 0 1px 3px #00000013;
+}
+.studio-console .market-resource-row button:disabled {
+  background: #e5e5e5;
+  color: #626262 !important;
+  opacity: 1;
+}
+.studio-console .market-resources-heading > button {
+  background: #e5e5e5;
+  color: #262626 !important;
+  border: 0;
+  font-weight: 400;
+}
+.settings-profile-details > summary {
+  cursor: pointer;
+  color: #525252;
+  font-size: 13px;
+  padding: 12px 0;
+}
+.settings-profile-details .settings-profile-meta {
+  margin-top: 8px;
+}
+.market-resource-content {
+  padding: 18px;
+  background: #f0f0f0;
+  border-radius: 8px;
+  max-height: 42dvh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.market-resource-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+@media (max-width: 900px) {
+  .studio-console .settings-page {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+  .studio-console .settings-page .set-nav {
+    position: static;
+  }
+  .studio-console .settings-page .set-nav-head {
+    padding-inline: 0;
+  }
+  .studio-console .settings-page .set-nav-group,
+  .studio-console .settings-page .set-nav-org {
+    display: none;
+  }
+  .studio-console .settings-page .settings-mobile-picker {
+    display: block;
+    width: 100%;
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .studio-console .settings-page .settings-content .card {
+    padding: 20px;
+  }
+  .studio-console .settings-page :is(input, select, textarea) {
+    font-size: 16px;
+  }
+}
+@media (max-width: 760px) {
+  .market-resource-row {
+    flex-wrap: wrap;
+    gap: 14px;
+    padding: 18px;
+  }
+  .market-resource-row > button {
+    width: 100%;
+  }
+  .market-resources-heading h2 {
+    font-size: 24px;
+  }
+}

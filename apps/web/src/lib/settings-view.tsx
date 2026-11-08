@@ -3,15 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "./ui";
 import { CompliancePanel } from "./compliance-panel";
-import { AiEgressPanel } from "./ai-egress-panel";
 import { MfaPanel } from "./mfa-panel";
 import { AccountAccessPanel } from "./account-access-panel";
-import { NotificationEmailPanel } from "./notification-email-panel";
 import { Button } from "@/components/ui/button";
-import { AmountStepper } from "@/components/ui/amount-stepper";
 import { okJson } from "./api-response";
 import { TreasuryView } from "./treasury-view";
-import { networkLabel } from "./network-names";
 
 export type Setup = {
   custody: string;
@@ -70,24 +66,10 @@ type MerchantPayment = {
 const SECTIONS = [
   {
     key: "profile",
-    label: "Organization profile",
+    label: "Workspace profile",
     icon: "shield",
     group: "Workspace",
     description: "Identity, location, how this workspace uses ABI, and signing in or out.",
-  },
-  {
-    key: "golive",
-    label: "Go live",
-    icon: "shield",
-    group: "Finance",
-    description: "Readiness, custody, network, and reconciliation.",
-  },
-  {
-    key: "org",
-    label: "Organization controls",
-    icon: "shield",
-    group: "Workspace",
-    description: "Compliance screening and system health.",
   },
   {
     key: "merchants",
@@ -101,7 +83,7 @@ const SECTIONS = [
     label: "Team & quorum",
     icon: "check",
     group: "People & access",
-    description: "People, roles, approval quorum, and the treasury approval threshold.",
+    description: "People, roles and the number of approvals required for a payment.",
   },
   {
     key: "security",
@@ -111,29 +93,8 @@ const SECTIONS = [
     description: "Authentication, key posture, and incident controls.",
   },
   {
-    key: "webhooks",
-    label: "Webhooks",
-    icon: "zap",
-    group: "Connections",
-    description: "Developer endpoints and their delivery log (not your notifications).",
-  },
-  {
-    key: "console",
-    label: "Notifications & console",
-    icon: "sliders",
-    group: "Workspace",
-    description: "How this browser surfaces approvals and operator updates.",
-  },
-  {
-    key: "ai",
-    label: "AI & data",
-    icon: "spark",
-    group: "Connections",
-    description: "Assistant access, data boundaries, and model egress.",
-  },
-  {
     key: "connect",
-    label: "Connect an agent",
+    label: "Connect agent",
     icon: "robot",
     group: "Connections",
     description: "Give a runtime the minimum credentials and scopes it needs.",
@@ -146,13 +107,6 @@ const SECTIONS = [
     description:
       "Know your customer and know your agent: internal, self-attested checks that set starter limits.",
   },
-  {
-    key: "danger",
-    label: "Danger zone",
-    icon: "alert",
-    group: "People & access",
-    description: "Organization-wide controls with irreversible consequences.",
-  },
 ] as const;
 
 const SETTINGS_GROUPS = ["Workspace", "Finance", "People & access", "Connections"] as const;
@@ -160,18 +114,11 @@ const SETTINGS_GROUPS = ["Workspace", "Finance", "People & access", "Connections
 type Section = (typeof SECTIONS)[number]["key"];
 
 export function SettingsView({
-  setup,
-  recon,
-  prefs,
-  savePrefs,
   session,
   org,
-  metrics,
   busy,
   act,
   gFetch,
-  api,
-  sellerUrl,
   actorRole = "owner",
   initialSection,
   onGoto,
@@ -204,9 +151,17 @@ export function SettingsView({
   const [section, setSection] = useState<Section>("profile");
   // Deep links such as /console?view=settings&section=compliance.
   useEffect(() => {
-    const wanted = initialSection ?? new URLSearchParams(window.location.search).get("section");
+    const wanted = new URLSearchParams(window.location.search).get("section") ?? initialSection;
+    if (wanted === "connect") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("section");
+      url.searchParams.delete("tab");
+      window.history.replaceState(null, "", url);
+      onGoto?.("connect");
+      return;
+    }
     if (wanted && SECTIONS.some((item) => item.key === wanted)) setSection(wanted as Section);
-  }, [initialSection]);
+  }, [initialSection, onGoto]);
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [quorum, setQuorum] = useState(1);
   const [newGuardian, setNewGuardian] = useState("");
@@ -239,13 +194,6 @@ export function SettingsView({
     status: "",
     plan: "",
   });
-  const [treasuryHitlDraft, setTreasuryHitlDraft] = useState("50");
-  const [compliance, setCompliance] = useState<{
-    screener?: string;
-    denylistConfigured?: boolean;
-    denylistCount?: number;
-  } | null>(null);
-  const [obs, setObs] = useState<{ sink?: string } | null>(null);
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [selectedMerchantId, setSelectedMerchantId] = useState<string | null>(null);
   const [merchantPayments, setMerchantPayments] = useState<MerchantPayment[]>([]);
@@ -262,7 +210,7 @@ export function SettingsView({
     network: "eip155:84532",
   });
 
-  const loadTeam = async () => {
+  const loadTeam = useCallback(async () => {
     try {
       const g = await gFetch("/v1/guardian/guardians").then(okJson);
       if (!g) return;
@@ -271,26 +219,17 @@ export function SettingsView({
     } catch {
       /* non-fatal */
     }
-  };
+  }, [gFetch]);
 
   // Load the lazily-fetched sections on first visit.
-  const loadPlatform = async () => {
+  const loadPlatform = useCallback(async () => {
     try {
-      const [settings, comp, ob, merch] = await Promise.all([
-        gFetch("/v1/guardian/settings").then(okJson),
-        gFetch("/v1/guardian/compliance").then(okJson),
-        gFetch("/v1/guardian/observability").then(okJson),
-        gFetch("/v1/guardian/merchants").then(okJson),
-      ]);
-      if (settings)
-        setTreasuryHitlDraft(String((settings.settings ?? {}).treasuryHitlUsdc ?? "50"));
-      if (comp) setCompliance(comp);
-      if (ob) setObs(ob);
-      if (merch) setMerchants(merch.merchants ?? []);
+      const data = await gFetch("/v1/guardian/merchants").then(okJson);
+      if (data) setMerchants(data.merchants ?? []);
     } catch {
-      /* non-fatal */
+      /* Existing seller details remain available until a successful refresh. */
     }
-  };
+  }, [gFetch]);
 
   const loadProfile = useCallback(async () => {
     try {
@@ -337,20 +276,6 @@ export function SettingsView({
     if (section === "team") void loadAccountInvitations();
   }, [loadAccountInvitations, section]);
 
-  // The treasury approval threshold lives beside the approval quorum.
-  useEffect(() => {
-    if (section !== "team") return;
-    void gFetch("/v1/guardian/settings")
-      .then(okJson)
-      .then((settings) => {
-        if (settings)
-          setTreasuryHitlDraft(String((settings.settings ?? {}).treasuryHitlUsdc ?? "50"));
-      })
-      .catch(() => {
-        /* keep the last known value; the card still saves */
-      });
-  }, [gFetch, section]);
-
   const loadUserSessions = useCallback(async () => {
     if (session.mode !== "session") return;
     try {
@@ -367,11 +292,25 @@ export function SettingsView({
     if (section === "security") void loadUserSessions();
   }, [loadUserSessions, section]);
 
-  const go = (s: Section) => {
-    setSection(s);
-    if (s === "team") void loadTeam();
-    if (s === "profile") void loadProfile();
-    if (s === "org" || s === "merchants" || s === "golive") void loadPlatform();
+  useEffect(() => {
+    if (section === "team") void loadTeam();
+    if (section === "merchants") void loadPlatform();
+  }, [section, loadTeam, loadPlatform]);
+
+  const go = (next: Section) => {
+    if (next === "connect") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("section");
+      url.searchParams.delete("tab");
+      window.history.replaceState(null, "", url);
+      onGoto?.("connect");
+      return;
+    }
+    setSection(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("section", next);
+    window.history.replaceState(null, "", url);
+    if (next === "profile") void loadProfile();
   };
 
   const loadMerchantActivity = async (merchantId: string) => {
@@ -399,19 +338,6 @@ export function SettingsView({
   const currentOrgStatus = org?.org?.status ?? profileMeta.status;
   const orgFrozen = currentOrgStatus === "frozen";
   const activeSection = SECTIONS.find((item) => item.key === section) ?? SECTIONS[0];
-
-  const toggleFreeze = () =>
-    act("Org freeze", async () => {
-      const on = !orgFrozen;
-      const res = await gFetch(`/v1/guardian/${on ? "freeze" : "unfreeze"}`, {
-        method: "POST",
-        body: JSON.stringify(on ? { reason: "org-wide kill switch" } : {}),
-      });
-      if (!res.ok) throw new Error(JSON.stringify((await res.json()).error ?? res.status));
-      return on
-        ? "ORG FROZEN — every agent is stopped until you unfreeze."
-        : "Org unfrozen — agents may spend again under policy.";
-    });
 
   const addGuardian = () =>
     act("Invite", async () => {
@@ -468,66 +394,6 @@ export function SettingsView({
       return "Guardian revoked — their key no longer works.";
     });
 
-  const setupNetwork = networkLabel(setup?.network, "Base Sepolia");
-
-  const onchainMode = !!(setup?.onchainMode ?? setup?.productionMode);
-
-  const golive = [
-    {
-      // Never "done": managed custody is not implemented (roadmap P4-T1).
-      // This row used to tick green whenever CDP env vars were set, telling
-      // operators their keys were in Coinbase custody. They never were.
-      done: false,
-      title: "Managed custody (not yet implemented)",
-      body:
-        `Vault keys are generated and held by this application — self-custody. They are not in ` +
-        `Coinbase CDP, an HSM, or MPC custody. ${
-          onchainMode
-            ? "On-chain mode is enabled, but the key still lives in this application."
-            : "Currently dev custody."
-        } Treat this deployment accordingly until managed custody ships.`,
-    },
-    {
-      done: onchainMode,
-      title: `On-chain signer configured (${setupNetwork})`,
-      body: onchainMode
-        ? `Configuration is enabled for ${setupNetwork}; this does not verify a successful payment. The signer remains application-managed self-custody.`
-        : `On-chain signing is disabled. Simulation and policy testing remain available.`,
-    },
-    {
-      done: false,
-      title: "E2E proof: agent USDC → your wallet",
-      body: "1) Vault USDC + ETH (Fund auto-credits)  2) Move stipend to agent  3) Playground → Agent pays your wallet — paste Base Sepolia 0x → Run  4) Approve if HITL  5) Basescan Transfer. NOT Treasury Send. Track: docs/E2E-ONCHAIN-AGENT-PAY.md",
-    },
-    {
-      done: (recon?.journalsReplayed ?? 0) > 0 && !!recon?.ok,
-      title: "Ledger reconciliation clean",
-      body: recon?.ok
-        ? `${recon.journalsReplayed} journal entries replayed, ${recon.accountsChecked} accounts, zero drift.`
-        : "Reconciliation reports drift — investigate before trusting balances.",
-    },
-    {
-      done: false,
-      title: "Verify email delivery and account recovery",
-      body: "Send a verification and password reset email to a controlled test account. Confirm the links arrive, expire, and work before inviting users.",
-    },
-    {
-      done: false,
-      title: "Configure and test durable backups",
-      body: "Confirm the API host persists its database, take an encrypted backup, and rehearse restoring it into an isolated environment. This console cannot verify provider backup settings.",
-    },
-    {
-      done: false,
-      title: "Confirm monitoring and incident ownership",
-      body: "Set an alert recipient and on-call owner for API errors, settlement failures, and reconciliation drift; rehearse the recovery runbook before live funds.",
-    },
-    {
-      done: false,
-      title: "Review webhook delivery and key rotation",
-      body: "Verify signature checks and failed-delivery recovery in the receiver, then document a key rotation and revocation procedure.",
-    },
-  ];
-
   return (
     <div className="set-grid console-page settings-page">
       <nav className="set-nav" aria-label="Settings sections">
@@ -567,6 +433,7 @@ export function SettingsView({
               <button
                 key={s.key}
                 className={section === s.key ? "on" : ""}
+                aria-current={section === s.key ? "page" : undefined}
                 onClick={() => go(s.key)}
               >
                 <Icon name={s.icon} />
@@ -581,7 +448,6 @@ export function SettingsView({
       <section className="settings-content" aria-label="Settings details">
         <section className="settings-section-summary">
           <div>
-            <div className="ops-eyebrow">{activeSection.group}</div>
             <h1>{activeSection.label}</h1>
             <p>{activeSection.description}</p>
           </div>
@@ -607,37 +473,40 @@ export function SettingsView({
               </div>
             )}
 
-            <div className="settings-profile-meta" aria-label="Workspace status">
-              <div>
-                <span>Organization ID</span>
-                <strong className="mono" title={profileMeta.orgId || undefined}>
-                  {profileMeta.orgId || "Loading…"}
-                </strong>
+            <details className="settings-profile-details">
+              <summary>Workspace details</summary>
+              <div className="settings-profile-meta" aria-label="Workspace status">
+                <div>
+                  <span>Organization ID</span>
+                  <strong className="mono" title={profileMeta.orgId || undefined}>
+                    {profileMeta.orgId || "Loading…"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Environment</span>
+                  <strong>
+                    {profileMeta.environment === "testnet"
+                      ? "Live · testnet"
+                      : profileMeta.environment === "mainnet"
+                        ? "Live · mainnet"
+                        : profileMeta.environment || "—"}
+                  </strong>
+                  {profileMeta.environment === "testnet" ? (
+                    <small className="faint">
+                      Real Base Sepolia testnet funds only — balances come from on-chain deposits.
+                    </small>
+                  ) : null}
+                </div>
+                <div>
+                  <span>Organization status</span>
+                  <strong>{profileMeta.status || "—"}</strong>
+                </div>
+                <div>
+                  <span>Plan</span>
+                  <strong>{profileMeta.plan || "Not set"}</strong>
+                </div>
               </div>
-              <div>
-                <span>Environment</span>
-                <strong>
-                  {profileMeta.environment === "testnet"
-                    ? "Live · testnet"
-                    : profileMeta.environment === "mainnet"
-                      ? "Live · mainnet"
-                      : profileMeta.environment || "—"}
-                </strong>
-                {profileMeta.environment === "testnet" ? (
-                  <small className="faint">
-                    Real Base Sepolia testnet funds only — balances come from on-chain deposits.
-                  </small>
-                ) : null}
-              </div>
-              <div>
-                <span>Organization status</span>
-                <strong>{profileMeta.status || "—"}</strong>
-              </div>
-              <div>
-                <span>Plan</span>
-                <strong>{profileMeta.plan || "Not set"}</strong>
-              </div>
-            </div>
+            </details>
 
             <div className="settings-form-section">
               <div className="settings-form-section-heading">
@@ -839,161 +708,6 @@ export function SettingsView({
             onSignOut={onSignOut}
           />
         )}
-        {section === "golive" && (
-          <>
-            <div className="card">
-              <div className="card-head">
-                <div>
-                  <h2>Go-live checklist</h2>
-                  <div className="sub">What separates this from real money on Base</div>
-                </div>
-                <span className={`pill ${golive.every((g) => g.done) ? "ok" : "warn"}`}>
-                  <i /> {golive.filter((g) => g.done).length}/{golive.length} ready
-                </span>
-              </div>
-              <div className="settings-checklist">
-                {golive.map((g) => (
-                  <div key={g.title} className={`settings-check-item${g.done ? " is-done" : ""}`}>
-                    <span className="settings-check-icon">
-                      <Icon name={g.done ? "check" : "clock"} size={14} />
-                    </span>
-                    <div className="settings-check-copy">
-                      <b>{g.title}</b>
-                      <span className="muted">{g.body}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-head">
-                <h2>Environment</h2>
-              </div>
-              {[
-                ["Network", networkLabel(setup?.network)],
-                ["Custody", setup?.custody ?? "—"],
-                ["Custody model", setup?.custodyModel ?? "self-custody"],
-                ["Managed custody", setup?.managedCustodyProvider ?? "none"],
-                ["Vault keys encrypted at rest", setup?.vaultKeysEncryptedAtRest ? "yes" : "no"],
-                ["On-chain signing", onchainMode ? "enabled" : "disabled"],
-                ["Settlement", setup?.settlement ?? "—"],
-                ["Rate limit", `${setup?.rateLimitPerMin ?? "—"}/min per key`],
-                ["Approval expiry", `${setup?.approvalTtlMinutes ?? "—"} minutes`],
-                ["API", api],
-              ].map(([k, v]) => (
-                <div className="kv" key={k}>
-                  <span className="k">{k}</span>
-                  <span
-                    className="v"
-                    style={
-                      // Amber, always: self-custody is a caution state, not a
-                      // success state. It turns green when P4-T1 lands managed
-                      // custody and `managedCustodyProvider` is non-null.
-                      k === "Custody" || k === "Custody model"
-                        ? {
-                            color: setup?.managedCustodyProvider
-                              ? "var(--green)"
-                              : "var(--amber, var(--warn))",
-                          }
-                        : k === "Vault keys encrypted at rest" && !setup?.vaultKeysEncryptedAtRest
-                          ? { color: "var(--amber, var(--warn))" }
-                          : undefined
-                    }
-                  >
-                    {v}
-                  </span>
-                </div>
-              ))}
-              {setup?.custodyDisclosure ? (
-                <div className="hint" style={{ marginTop: 10, color: "var(--amber, var(--warn))" }}>
-                  {setup.custodyDisclosure}
-                </div>
-              ) : null}
-              {setup?.note ? (
-                <div className="hint" style={{ marginTop: 10 }}>
-                  {setup.note}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="card">
-              <div className="card-head">
-                <h2>Organisation</h2>
-              </div>
-              <div className="field">
-                <label>Vault address</label>
-                <div className="code">{org?.vaultAddress}</div>
-                <div className="hint">
-                  Fund with {setupNetwork} <b>USDC</b> (agent spend) and a little <b>ETH</b> (gas
-                  for on-chain agent pays). Sync deposits on Treasury → Vault. Proof path:{" "}
-                  <code>docs/E2E-ONCHAIN-AGENT-PAY.md</code>.
-                </div>
-              </div>
-              <div className="kv">
-                <span className="k">Agents</span>
-                <span className="v">{metrics?.agents ?? 0}</span>
-              </div>
-              <div className="kv">
-                <span className="k">Keys held in this browser</span>
-                <span className="v">{session.agentKeys.length}</span>
-              </div>
-              <div className="kv">
-                <span className="k">Ledger</span>
-                <span className="v" style={{ color: recon?.ok ? "var(--green)" : "var(--red)" }}>
-                  {recon?.ok ? "clean" : "DRIFT"}
-                </span>
-              </div>
-            </div>
-          </>
-        )}
-
-        {section === "org" && (
-          <>
-            {readOnly && (
-              <div className="banner">
-                <span className="txt">
-                  <b>Viewer mode</b>
-                  <span>You can inspect settings but cannot change them.</span>
-                </span>
-              </div>
-            )}
-            <div className="card">
-              <div className="card-head">
-                <div>
-                  <h2>Compliance & observability</h2>
-                  <div className="sub">Live screener + sink status</div>
-                </div>
-              </div>
-              <div className="kv">
-                <span className="k">Screener</span>
-                <span className="v mono">{compliance?.screener ?? "—"}</span>
-              </div>
-              <div className="kv">
-                <span className="k">Denylist</span>
-                <span className="v">
-                  {compliance?.denylistConfigured
-                    ? `${compliance.denylistCount} entries (ABI_COMPLIANCE_DENYLIST)`
-                    : "not configured"}
-                </span>
-              </div>
-              <div className="kv">
-                <span className="k">Observability sink</span>
-                <span className="v mono">{obs?.sink ?? "—"}</span>
-              </div>
-              <div className="kv">
-                <span className="k">Custody provider</span>
-                <span className="v mono">{setup?.custody ?? "—"}</span>
-              </div>
-              {setup?.note && (
-                <p className="muted" style={{ fontSize: 12.5 }}>
-                  {setup.note}
-                </p>
-              )}
-            </div>
-          </>
-        )}
-
         {section === "merchants" && (
           <>
             <div className="card">
@@ -1509,63 +1223,6 @@ export function SettingsView({
               </div>
             </div>
 
-            <div className="card treasury-threshold-card">
-              <div className="card-head">
-                <div>
-                  <h2>Treasury approval threshold</h2>
-                  <div className="sub">
-                    When a treasury move or withdrawal needs a guardian to look at it first.
-                  </div>
-                </div>
-              </div>
-              <div className="field">
-                <label htmlFor="treasury-hitl">Review treasury money above</label>
-                <AmountStepper
-                  id="treasury-hitl"
-                  value={treasuryHitlDraft}
-                  disabled={readOnly}
-                  onChange={setTreasuryHitlDraft}
-                  placeholder="50"
-                  min={0}
-                  step={10}
-                  inputProps={{ "aria-describedby": "treasury-hitl-help" }}
-                />
-                <p id="treasury-hitl-help" className="hint">
-                  At or below this amount, moves and withdrawals run right away. Above it, nothing
-                  is refused — the request waits under Treasury → Move → Activity until{" "}
-                  {quorum === 1 ? "any one guardian approves" : `${quorum} guardians approve`} (the
-                  approval quorum above), then runs. Withdrawal caps and the blocklist still apply
-                  either way.
-                </p>
-              </div>
-              <Button
-                size="sm"
-                disabled={busy || readOnly}
-                onClick={() =>
-                  void act("Save approval threshold", async () => {
-                    const hitl = treasuryHitlDraft.trim();
-                    if (hitl && (Number.isNaN(Number(hitl)) || Number(hitl) < 0)) {
-                      throw new Error("The approval threshold must be a non-negative USDC amount");
-                    }
-                    const res = await gFetch("/v1/guardian/settings", {
-                      method: "PATCH",
-                      body: JSON.stringify({
-                        settings: {
-                          treasuryHitlUsdc: hitl || "50",
-                        },
-                      }),
-                    });
-                    const d = await res.json();
-                    if (!res.ok) throw new Error(d.error?.message ?? "failed");
-                    setTreasuryHitlDraft(String((d.settings ?? {}).treasuryHitlUsdc ?? "50"));
-                    return "Treasury approval threshold saved.";
-                  })
-                }
-              >
-                Save threshold
-              </Button>
-            </div>
-
             <div className="card">
               <div className="card-head">
                 <div>
@@ -1645,23 +1302,6 @@ export function SettingsView({
               )}
             </div>
           </>
-        )}
-
-        {section === "webhooks" && (
-          <div className="card">
-            <div className="card-head">
-              <div>
-                <h2>Webhooks</h2>
-                <div className="sub">
-                  Signed endpoints for your integrations live under Developers → Webhooks, with
-                  their delivery log. Your notification history is under the bell.
-                </div>
-              </div>
-            </div>
-            <Button size="sm" onClick={() => onGoto?.("webhooks")}>
-              Open Webhooks
-            </Button>
-          </div>
         )}
 
         {section === "security" && (
@@ -1834,103 +1474,6 @@ ${agents || "_None saved in this browser session._"}
 
         {section === "compliance" && (
           <CompliancePanel gFetch={gFetch} act={act} canEdit={actorRole === "owner"} />
-        )}
-
-        {section === "ai" && (
-          <AiEgressPanel gFetch={gFetch} act={act} locked={busy || actorRole === "viewer"} />
-        )}
-
-        {section === "console" && (
-          <NotificationEmailPanel
-            gFetch={gFetch}
-            act={act}
-            busy={busy}
-            canEdit={actorRole === "owner"}
-          />
-        )}
-
-        {section === "console" && (
-          <div className="card">
-            <div className="card-head">
-              <h2>Approval alerts</h2>
-            </div>
-            <div className="between settings-setting-row">
-              <div style={{ minWidth: 0, paddingRight: 14 }}>
-                <b style={{ fontSize: 13, display: "block" }}>Open Approvals automatically</b>
-                <span className="muted" style={{ fontSize: 12, lineHeight: 1.55 }}>
-                  When a payment needs review, take this browser to Approvals. This preference is
-                  saved on this browser only.
-                </span>
-              </div>
-              <button
-                className={`switch ${prefs.autoJump ? "on" : ""}`}
-                onClick={() => savePrefs({ ...prefs, autoJump: !prefs.autoJump })}
-                aria-label="Toggle auto-jump"
-              />
-            </div>
-          </div>
-        )}
-
-        {section === "connect" && (
-          <div className="card">
-            <div className="card-head">
-              <h2>Connect your own agent</h2>
-            </div>
-            <p className="muted" style={{ fontSize: 12.5, marginTop: 0, lineHeight: 1.7 }}>
-              Any program that can make an HTTP request can be an agent. Create one under API, give
-              it the key, and these money verbs appear on its tool menu.
-            </p>
-            <div className="code" style={{ whiteSpace: "pre-wrap" }}>
-              {`curl -X POST ${api}/v1/agent/pay_api \\
-  -H "Authorization: Bearer pv_agent_…" \\
-  -H "Content-Type: application/json" \\
-  -d '{"amountUsdc":"2",
-       "destination":"${sellerUrl}",
-       "idempotencyKey":"job-1"}'`}
-            </div>
-            <div className="divider" />
-            <p className="muted" style={{ fontSize: 12.5, margin: 0, lineHeight: 1.7 }}>
-              For Claude, Eliza or LangGraph, point the MCP server at this API and the same verbs
-              become native tools — <span className="mono">get_budget</span>,{" "}
-              <span className="mono">pay_api</span>, <span className="mono">escrow_lock</span>. The
-              agent never sees a key or a wallet.
-            </p>
-          </div>
-        )}
-
-        {section === "danger" && (
-          <div className="card settings-danger-card">
-            <div className="card-head">
-              <h2 style={{ color: "var(--red)" }}>Danger zone</h2>
-            </div>
-            <div className="between settings-setting-row">
-              <div style={{ minWidth: 0, paddingRight: 14 }}>
-                <b style={{ fontSize: 13, display: "block" }}>Org-wide kill switch</b>
-                <span className="muted" style={{ fontSize: 12, lineHeight: 1.55 }}>
-                  Freezes every agent at once. In-flight intents are denied at the policy engine,
-                  not merely hidden. Escrow releases are blocked too.
-                </span>
-              </div>
-              <button
-                className={orgFrozen ? "ghost" : "danger"}
-                disabled={busy || readOnly}
-                onClick={() => void toggleFreeze()}
-              >
-                {orgFrozen ? "Unfreeze org" : "Freeze everything"}
-              </button>
-            </div>
-            {orgFrozen && (
-              <div className="banner" style={{ marginTop: 14 }}>
-                <span className="ico">
-                  <Icon name="alert" size={16} />
-                </span>
-                <span className="txt">
-                  <b>This org is frozen</b>
-                  <span>No agent can spend anything until you unfreeze.</span>
-                </span>
-              </div>
-            )}
-          </div>
         )}
       </section>
     </div>

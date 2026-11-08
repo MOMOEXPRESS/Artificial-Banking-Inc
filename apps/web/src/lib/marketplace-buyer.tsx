@@ -1,5 +1,4 @@
 "use client";
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   MarketplaceCatalog,
@@ -11,6 +10,8 @@ import type { Session } from "./console-types";
 import type { GuardianFetch } from "./flows/client";
 import { browserApiBase } from "./browser-api";
 import { MarketplaceCases } from "./marketplace-cases";
+import { MarketplaceResources } from "./marketplace-resources";
+export type MarketplaceTab = "shop" | "orders" | "resources";
 type Item = {
   id: string;
   product: MarketplaceProduct;
@@ -31,12 +32,20 @@ function LiveMarketplaceBuyer({
   session,
   gFetch,
   initialTab,
+  onTabChange,
 }: {
   session: Session;
   gFetch: GuardianFetch;
-  initialTab: "shop" | "orders";
+  initialTab: MarketplaceTab;
+  onTabChange?: (tab: MarketplaceTab) => void;
 }) {
   const [tab, setTab] = useState(initialTab);
+  const [loadingOrders, setLoadingOrders] = useState(true);
+  const [ordersError, setOrdersError] = useState("");
+  const selectTab = (next: MarketplaceTab) => {
+    setTab(next);
+    onTabChange?.(next);
+  };
   useEffect(() => setTab(initialTab), [initialTab]);
   const [agent, setAgent] = useState(session.agentKeys[0]?.agentId ?? ""),
     [shortlist, setShortlist] = useState<MarketplaceProduct[]>([]),
@@ -54,7 +63,19 @@ function LiveMarketplaceBuyer({
     country: "",
   });
   const load = useCallback(async () => {
-    setOrders((await marketplaceJson(await gFetch("/v1/guardian/marketplace/orders"))).orders);
+    setLoadingOrders(true);
+    setOrdersError("");
+    try {
+      const data = await marketplaceJson(await gFetch("/v1/guardian/marketplace/orders"));
+      if (!Array.isArray(data.orders))
+        throw new Error("Invalid order response. Try refreshing again.");
+      setOrders(data.orders);
+    } catch (e) {
+      setOrdersError(e instanceof Error ? e.message : "Orders are unavailable.");
+      throw e;
+    } finally {
+      setLoadingOrders(false);
+    }
   }, [gFetch]);
   const caseRequest = useCallback(
     async (method: string, path: string, body?: unknown) =>
@@ -69,7 +90,9 @@ function LiveMarketplaceBuyer({
     [gFetch],
   );
   useEffect(() => {
-    void load().catch((e) => setError(e.message));
+    setOrders([]);
+    setDelivery("");
+    void load().catch(() => {});
   }, [load]);
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("product");
@@ -157,16 +180,24 @@ function LiveMarketplaceBuyer({
   return (
     <div className="market-workspace">
       <nav className="reference-subnav" aria-label="Marketplace views">
-        <button aria-current={tab === "shop" ? "page" : undefined} onClick={() => setTab("shop")}>
+        <button
+          aria-current={tab === "shop" ? "page" : undefined}
+          onClick={() => selectTab("shop")}
+        >
           Catalog
         </button>
         <button
           aria-current={tab === "orders" ? "page" : undefined}
-          onClick={() => setTab("orders")}
+          onClick={() => selectTab("orders")}
         >
           Purchases
         </button>
-        <Link href="/docs">Resources</Link>
+        <button
+          aria-current={tab === "resources" ? "page" : undefined}
+          onClick={() => selectTab("resources")}
+        >
+          Resources
+        </button>
       </nav>
       <h1 className="sr-only">Marketplace</h1>
       {error && (
@@ -175,8 +206,8 @@ function LiveMarketplaceBuyer({
         </p>
       )}
       {message && <p role="status">{message}</p>}
-      {delivery && <pre className="market-delivery">{delivery}</pre>}
-      <div hidden={tab === "orders"}>
+      {tab === "orders" && delivery && <pre className="market-delivery">{delivery}</pre>}
+      <div hidden={tab !== "shop"}>
         <MarketplaceCatalog
           onSelect={(p) => {
             setShortlist((items) => (items.some((i) => i.id === p.id) ? items : [...items, p]));
@@ -286,7 +317,17 @@ function LiveMarketplaceBuyer({
           )}
         </section>
       </div>
+      {tab === "resources" && (
+        <MarketplaceResources
+          orders={orders}
+          gFetch={gFetch}
+          refresh={load}
+          loading={loadingOrders}
+          loadError={ordersError}
+        />
+      )}
       <section hidden={tab !== "orders"}>
+        {ordersError && <p role="alert">Orders could not be refreshed. {ordersError}</p>}
         <div className="market-section-heading">
           <h2>Your orders</h2>
           <button disabled={busy} onClick={() => void act(load)}>
@@ -469,14 +510,21 @@ export function MarketplaceBuyer({
   session,
   gFetch,
   initialTab = "shop",
+  onTabChange,
 }: {
   session: Session;
   gFetch: GuardianFetch;
-  initialTab?: "shop" | "orders";
+  initialTab?: MarketplaceTab;
+  onTabChange?: (tab: MarketplaceTab) => void;
 }) {
   return (
     <div className="studio-marketplace">
-      <LiveMarketplaceBuyer session={session} gFetch={gFetch} initialTab={initialTab} />
+      <LiveMarketplaceBuyer
+        session={session}
+        gFetch={gFetch}
+        initialTab={initialTab}
+        onTabChange={onTabChange}
+      />
     </div>
   );
 }
