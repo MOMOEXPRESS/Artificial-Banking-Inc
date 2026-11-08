@@ -1,34 +1,290 @@
 "use client";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { sellerApiFetch } from "./seller-api";
 import { marketplaceJson, marketPrice, type MarketplaceProduct } from "./marketplace-catalog";
 import { MarketplaceCases } from "./marketplace-cases";
-import { usdcInputToMicro, microToUsdcInput } from "./marketplace-price";
-const empty={name:"",description:"",category:"",priceUsdc:"",stockLevel:"0",kind:"digital",offerId:"",images:"",colors:"",sizes:"",regions:"",deliveryDays:"",useCases:""};
-type Inventory=MarketplaceProduct&{state:string;offerId?:string};
-type SellerItem={id:string;quantity:number;product:MarketplaceProduct;paymentState:string;fulfillmentState:string};
-export function MarketplaceSeller({offers,initialPanel="products",onPanelChange}:{offers:{id:string;title:string}[];initialPanel?:string;onPanelChange?:(panel:string)=>void}){
-  const [panel,setPanel]=useState(initialPanel);
-  useEffect(()=>setPanel(initialPanel),[initialPanel]);
-  function selectPanel(next:string){setPanel(next);onPanelChange?.(next);}
-  const [editorOpen,setEditorOpen]=useState(false);
-  const [loading,setLoading]=useState(true);
-  const [products,setProducts]=useState<Inventory[]>([]),[items,setItems]=useState<SellerItem[]>([]),[vendor,setVendor]=useState("unverified"),[form,setForm]=useState(empty),[editing,setEditing]=useState<string|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(""),[notice,setNotice]=useState("");
-  const call=useCallback(async(path:string,body?:unknown,method="POST")=>marketplaceJson(await sellerApiFetch(`/v1/seller/marketplace${path}`,{method:body===undefined?"GET":method,...(body!==undefined?{body:JSON.stringify(body)}:{})})),[]);
-  const load=useCallback(async()=>{const [p,v,o]=await Promise.all([call("/products"),call("/vendor"),call("/orders")]);setProducts(p.products);setVendor(v.status);setItems(o.items);},[call]);
-  const caseRequest=useCallback(async(method:string,path:string,body?:unknown)=>marketplaceJson(await sellerApiFetch(path,{method,...(body!==undefined?{body:JSON.stringify(body)}:{})})),[]);
-  useEffect(()=>{void load().catch(e=>setError(e.message)).finally(()=>setLoading(false));},[load]);
-  async function act(fn:()=>Promise<void>){setBusy(true);setError("");try{await fn();await load();}catch(e){setError(e instanceof Error?e.message:"Request failed");}finally{setBusy(false);}}
-  function edit(p:Inventory){setEditorOpen(true);setEditing(p.id);setForm({...empty,name:p.name,description:p.description,category:p.category,priceUsdc:microToUsdcInput(p.priceMicro),stockLevel:String(p.stockLevel),kind:p.kind,offerId:p.offerId??"",images:p.images.join("\n"),colors:((p.attributes.colors as string[])??[]).join(", "),sizes:((p.attributes.sizes as string[])??[]).join(", "),regions:((p.attributes.regions as string[])??[]).join(", "),deliveryDays:String(p.attributes.deliveryDays??""),useCases:((p.attributes.useCases as string[])??[]).join(", ")});}
-  const list=(s:string)=>s.split(",").map(v=>v.trim()).filter(Boolean);
-  function save(e:FormEvent){e.preventDefault();void act(async()=>{await call(`/products${editing?`/${editing}`:""}`,{name:form.name,description:form.description,category:form.category,kind:form.kind,priceMicro:usdcInputToMicro(form.priceUsdc),currency:"USDC",stockLevel:Number(form.stockLevel),images:form.images.split("\n").map(v=>v.trim()).filter(Boolean),offerId:form.offerId||undefined,attributes:{colors:list(form.colors),sizes:list(form.sizes),regions:list(form.regions),useCases:list(form.useCases),...(form.deliveryDays?{deliveryDays:Number(form.deliveryDays)}:{})}},editing?"PUT":"POST");setForm(empty);setEditing(null);setEditorOpen(false);setNotice("Product saved as a draft. Publish after reviewing the listing and linked offer.");});}
-  return <section className="market-workspace"><div className="studio-inventory-heading"><div><h2>Your products, ready for agents.</h2><p>Manage listings, availability and fulfillment in one workspace.</p></div><button onClick={()=>{setForm(empty);setEditing(null);setEditorOpen(true);selectPanel("products");}}>Add product</button></div>
-    <nav className="studio-section-tabs" aria-label="Seller marketplace sections">{[["products",`Products (${products.length})`],["orders",`Order items (${items.length})`],["cases","Returns & disputes"],["identity","Vendor identity"]].map(([id,label])=><button key={id} aria-pressed={panel===id} onClick={()=>selectPanel(id)}>{label}</button>)}</nav>{loading&&<p role="status">Loading your inventory and order items…</p>}<p>Products, variants and stock are separate from their payment offers. All changes return a product to draft for review.</p>{error&&<p role="alert" className="market-notice">{error}</p>}{notice&&<p role="status">{notice}</p>}
-    <div hidden={panel!=="identity"}><details className="market-onboarding" open={vendor==="unverified"}><summary>Vendor identity · {vendor}</summary><p>Identity review and a payout wallet are required before publication. Endpoint ownership alone does not verify your business.</p><form className="market-form" onSubmit={e=>{e.preventDefault();const data=new FormData(e.currentTarget);void act(async()=>{await call("/vendor",Object.fromEntries(data),"PUT");setNotice("Identity submitted for reviewer assessment.");});}}>{[["legalName","Legal name"],["country","Country (ISO code)"],["registration","Business registration or identity review reference"],["contact","Contact email"]].map(([name,label])=><label key={name}>{label}<input name={name} required maxLength={name==="country"?2:200}/></label>)}<button disabled={busy}>Submit for review</button></form></details></div>
-    <div hidden={panel!=="products"}><div className={`studio-inventory-layout ${editorOpen?"has-editor":""}`}><section>    <div className="market-table-wrap"><table><caption>Your products and publication status</caption><thead><tr><th>Name</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr></thead><tbody>{products.map(p=><tr key={p.id} className={editing===p.id?"is-selected":undefined}><td>{p.name}</td><td>{marketPrice(p.priceMicro)}</td><td>{p.stockLevel}</td><td><span className="pill">{p.state}</span></td><td><button disabled={busy} onClick={()=>edit(p)}>Edit</button><button disabled={busy} onClick={()=>void act(async()=>{await call(`/products/${p.id}/publish`,{published:p.state!=="published"});})}>{p.state==="published"?"Unpublish":"Publish"}</button></td></tr>)}</tbody></table>{!products.length&&<p>No products yet. Add a draft above.</p>}</div>
-</section><aside hidden={!editorOpen} aria-label="Product editor">    <form className="market-form studio-product-editor" onSubmit={save}><h3>{editing?"Edit product":"Add a product"}</h3>{[["name","Product name"],["description","Description"],["category","Category"],["priceUsdc","Price (USDC)"],["stockLevel","Available stock"]].map(([key,label])=><label key={key}>{label}<input value={form[key as keyof typeof form]} onChange={e=>setForm(v=>({...v,[key]:e.target.value}))} required={["name","description","category","priceUsdc","stockLevel"].includes(key)} inputMode={key==="priceUsdc"?"decimal":["stockLevel","deliveryDays"].includes(key)?"numeric":undefined}/></label>)}<label>Payment offer (digital products and services)<select value={form.offerId} onChange={e=>setForm(v=>({...v,offerId:e.target.value}))}><option value="">Choose an existing payment offer</option>{offers.map(o=><option key={o.id} value={o.id}>{o.title}</option>)}</select></label><details><summary>Colors, sizes and delivery details</summary>{[["colors","Colors"],["sizes","Sizes"],["regions","Delivery regions"],["deliveryDays","Estimated delivery days"],["useCases","Use cases"]].map(([key,label])=><label key={key}>{label}<input value={form[key as keyof typeof form]} onChange={e=>setForm(v=>({...v,[key]:e.target.value}))}/></label>)}<p>Separate multiple values with commas.</p></details><label>Product type<select value={form.kind} onChange={e=>setForm(v=>({...v,kind:e.target.value}))}><option value="digital">Digital product</option><option value="service">Service / API</option><option value="physical">Physical goods</option></select></label><label>Image URLs (HTTPS, one per line)<textarea value={form.images} onChange={e=>setForm(v=>({...v,images:e.target.value}))} rows={3}/></label><div className="market-actions"><button disabled={busy}>Save product draft</button>{<button type="button" disabled={busy} onClick={()=>{setEditing(null);setForm(empty);setEditorOpen(false);}}>Close editor</button>}</div></form>
-</aside></div></div>
-    <div hidden={panel!=="orders"}>    <h3>Marketplace order items</h3>{items.length?items.map(i=><div key={i.id} className="market-order-item"><div><strong>{i.quantity} × {i.product.name}</strong><p>{i.paymentState} · {i.fulfillmentState}</p></div>{i.product.kind==="physical"&&i.paymentState==="escrowed"&&i.fulfillmentState==="pending"&&<button disabled={busy} onClick={()=>void act(async()=>{await call(`/items/${i.id}/label`,{});})}>Create shipping label</button>}{i.product.kind==="service"&&i.paymentState==="paid"&&i.fulfillmentState==="pending"&&<button disabled={busy} onClick={()=>void act(async()=>{await call(`/items/${i.id}/fulfill`,{state:"delivered"});})}>Mark service delivered</button>}</div>):<p>No marketplace orders yet.</p>}
-    </div><div hidden={panel!=="cases"}><MarketplaceCases seller request={caseRequest}/></div>
-  </section>;
+import dynamic from "next/dynamic";
+const SellerListingEditor = dynamic(
+  () => import("./seller-listing-editor").then((m) => m.SellerListingEditor),
+  { loading: () => <p role="status">Opening listing editor…</p> },
+);
+type Inventory = MarketplaceProduct & { state: string; offerId?: string };
+type SellerItem = {
+  id: string;
+  quantity: number;
+  product: MarketplaceProduct;
+  paymentState: string;
+  fulfillmentState: string;
+};
+export function MarketplaceSeller({
+  offers,
+  initialPanel = "products",
+  onPanelChange,
+}: {
+  offers: { id: string; title: string }[];
+  initialPanel?: string;
+  onPanelChange?: (panel: string) => void;
+}) {
+  const [panel, setPanel] = useState(initialPanel);
+  useEffect(() => setPanel(initialPanel), [initialPanel]);
+  function selectPanel(next: string) {
+    setPanel(next);
+    onPanelChange?.(next);
+  }
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState<Inventory[]>([]),
+    [items, setItems] = useState<SellerItem[]>([]),
+    [vendor, setVendor] = useState("unverified"),
+    [editing, setEditing] = useState<string | null>(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [notice, setNotice] = useState("");
+  const call = useCallback(
+    async (path: string, body?: unknown, method = "POST") =>
+      marketplaceJson(
+        await sellerApiFetch(`/v1/seller/marketplace${path}`, {
+          method: body === undefined ? "GET" : method,
+          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        }),
+      ),
+    [],
+  );
+  const load = useCallback(async () => {
+    const [p, v, o] = await Promise.all([call("/products"), call("/vendor"), call("/orders")]);
+    setProducts(p.products);
+    setVendor(v.status);
+    setItems(o.items);
+  }, [call]);
+  const caseRequest = useCallback(
+    async (method: string, path: string, body?: unknown) =>
+      marketplaceJson(
+        await sellerApiFetch(path, {
+          method,
+          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+        }),
+      ),
+    [],
+  );
+  useEffect(() => {
+    void load()
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [load]);
+  async function act(fn: () => Promise<void>) {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Request failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+  function edit(p: Inventory) {
+    setEditing(p.id);
+    setEditorOpen(true);
+  }
+  if (editorOpen)
+    return (
+      <section className="market-workspace">
+        <SellerListingEditor
+          key={editing ?? "new"}
+          product={products.find((p) => p.id === editing)}
+          offers={offers}
+          onClose={() => {
+            setEditorOpen(false);
+            setEditing(null);
+          }}
+          onSave={async (payload) => {
+            await call(
+              `/products${editing ? `/${editing}` : ""}`,
+              payload,
+              editing ? "PUT" : "POST",
+            );
+            setEditorOpen(false);
+            setEditing(null);
+            setNotice(
+              "Listing saved as a draft. Review the listing and payment offer before publishing.",
+            );
+            await load().catch((e) => setError(e.message));
+          }}
+        />
+      </section>
+    );
+  return (
+    <section className="market-workspace">
+      <div className="studio-inventory-heading">
+        <div>
+          <h2>Your products, ready for agents.</h2>
+          <p>Manage listings, availability and fulfillment in one workspace.</p>
+        </div>
+        <button
+          disabled={editorOpen}
+          onClick={() => {
+            setEditing(null);
+            setEditorOpen(true);
+            selectPanel("products");
+          }}
+        >
+          Add listing
+        </button>
+      </div>
+      <nav className="studio-section-tabs" aria-label="Seller marketplace sections">
+        {[
+          ["products", `Products (${products.length})`],
+          ["orders", `Order items (${items.length})`],
+          ["cases", "Returns & disputes"],
+          ["identity", "Vendor identity"],
+        ].map(([id, label]) => (
+          <button key={id} aria-pressed={panel === id} onClick={() => selectPanel(id)}>
+            {label}
+          </button>
+        ))}
+      </nav>
+      {loading && <p role="status">Loading your inventory and order items…</p>}
+      <p>
+        Products, variants and stock are separate from their payment offers. All changes return a
+        product to draft for review.
+      </p>
+      {error && (
+        <p role="alert" className="market-notice">
+          {error}
+        </p>
+      )}
+      {notice && <p role="status">{notice}</p>}
+      <div hidden={panel !== "identity"}>
+        <details className="market-onboarding" open={vendor === "unverified"}>
+          <summary>Vendor identity · {vendor}</summary>
+          <p>
+            Identity review and a payout wallet are required before publication. Endpoint ownership
+            alone does not verify your business.
+          </p>
+          <form
+            className="market-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const data = new FormData(e.currentTarget);
+              void act(async () => {
+                await call("/vendor", Object.fromEntries(data), "PUT");
+                setNotice("Identity submitted for reviewer assessment.");
+              });
+            }}
+          >
+            {[
+              ["legalName", "Legal name"],
+              ["country", "Country (ISO code)"],
+              ["registration", "Business registration or identity review reference"],
+              ["contact", "Contact email"],
+            ].map(([name, label]) => (
+              <label key={name}>
+                {label}
+                <input name={name} required maxLength={name === "country" ? 2 : 200} />
+              </label>
+            ))}
+            <button disabled={busy}>Submit for review</button>
+          </form>
+        </details>
+      </div>
+      <div hidden={panel !== "products"}>
+        <div className="market-table-wrap">
+          <table>
+            <caption>Your listings and publication status</caption>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Price</th>
+                <th>Stock</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map((p) => (
+                <tr key={p.id}>
+                  <td>{p.name}</td>
+                  <td>{marketPrice(p.priceMicro)}</td>
+                  <td>{p.stockLevel}</td>
+                  <td>
+                    <span className="pill">{p.state}</span>
+                  </td>
+                  <td>
+                    <button disabled={busy} onClick={() => edit(p)}>
+                      Edit
+                    </button>
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        void act(async () => {
+                          await call(`/products/${p.id}/publish`, {
+                            published: p.state !== "published",
+                          });
+                        })
+                      }
+                    >
+                      {p.state === "published" ? "Unpublish" : "Publish"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!products.length && <p>No listings yet. Add a draft above.</p>}
+        </div>
+      </div>
+      <div hidden={panel !== "orders"}>
+        {" "}
+        <h3>Marketplace order items</h3>
+        {items.length ? (
+          items.map((i) => (
+            <div key={i.id} className="market-order-item">
+              <div>
+                <strong>
+                  {i.quantity} × {i.product.name}
+                </strong>
+                <p>
+                  {i.paymentState} · {i.fulfillmentState}
+                </p>
+              </div>
+              {i.product.kind === "physical" &&
+                i.paymentState === "escrowed" &&
+                i.fulfillmentState === "pending" && (
+                  <button
+                    disabled={busy}
+                    onClick={() =>
+                      void act(async () => {
+                        await call(`/items/${i.id}/label`, {});
+                      })
+                    }
+                  >
+                    Create shipping label
+                  </button>
+                )}
+              {i.product.kind === "service" &&
+                i.paymentState === "paid" &&
+                i.fulfillmentState === "pending" && (
+                  <button
+                    disabled={busy}
+                    onClick={() =>
+                      void act(async () => {
+                        await call(`/items/${i.id}/fulfill`, { state: "delivered" });
+                      })
+                    }
+                  >
+                    Mark service delivered
+                  </button>
+                )}
+            </div>
+          ))
+        ) : (
+          <p>No marketplace orders yet.</p>
+        )}
+      </div>
+      <div hidden={panel !== "cases"}>
+        <MarketplaceCases seller request={caseRequest} />
+      </div>
+    </section>
+  );
 }

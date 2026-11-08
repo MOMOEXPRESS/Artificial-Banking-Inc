@@ -95,7 +95,7 @@ const VIEW_META: Record<SellerView, { eyebrow: string; title: string; descriptio
     eyebrow: "Sell · Catalog",
     title: "Listings and inventory.",
     description:
-      "Each offer is a paid URL and a price. ABI can host it, or point it at your own server. Published offers are listed in the buyer directory unless you opt out.",
+      "Create listings for tools, software and physical goods. Describe your service endpoints, manage stock and link a payment offer before publishing.",
   },
   integrations: {
     eyebrow: "Sell · Integrations",

@@ -1,5 +1,6 @@
 /** Durable commerce above ABI's existing money path. No signing or ledger code lives here. */
 import { randomUUID, createHash } from "node:crypto";
+import { serviceListingSchema } from "@policyvault/common";
 
 // SQL adapter boundary: compatible with better-sqlite3 and the test's node:sqlite adapter.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -341,8 +342,20 @@ export function createMarketplace(db: CommerceDatabase, adapters: CommerceAdapte
       )
         return fail("INVALID_INPUT", "Images must be HTTPS URLs (20 maximum)", 400);
       const attrs = input.attributes ?? {};
-      if (!attrs || Array.isArray(attrs) || typeof attrs !== "object" || json(attrs).length > 16000)
+      if (!attrs || Array.isArray(attrs) || typeof attrs !== "object" || json(attrs).length > 64000)
         return fail("INVALID_INPUT", "Invalid attributes", 400);
+      if (attrs.service !== undefined) {
+        const result = serviceListingSchema.safeParse(attrs.service);
+        if (!result.success) {
+          const issue = result.error.issues[0];
+          return fail(
+            "INVALID_INPUT",
+            `Service listing ${issue.path.join(".")}: ${issue.message}`,
+            400,
+          );
+        }
+        attrs.service = result.data;
+      }
       if (attrs.deliveryDays !== undefined) integer(attrs.deliveryDays, 0, 365);
       for (const field of ["colors", "sizes", "regions", "useCases"])
         if (
