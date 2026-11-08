@@ -20,9 +20,9 @@ export function StudioNav({
       ]
     : [
         ["overview", "Overview", "home"],
-        ["marketplace", "Marketplace", "search"],
+        ["marketplace", "Marketplace", "storefront"],
         ["connect", "Connect", "key"],
-        ["billing", "Billing", "wallet"],
+        ["billing", "Billing", "creditCard"],
         ["settings", "Settings", "gear"],
       ];
   const controls = links.map(([view, label, icon]) => (

@@ -1,0 +1,1 @@
+Provider symbols and wordmarks from @lobehub/icons-static-svg version 1.102.0, MIT licensed. Source: https://github.com/lobehub/lobe-icons. Downloaded from https://unpkg.com/@lobehub/icons-static-svg@1.102.0/icons/. Brand names and trademarks belong to their respective owners. Logos identify configurable clients/platforms; they do not imply partnerships.

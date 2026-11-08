@@ -1,0 +1,115 @@
+.landing .agent-logo-band {
+  margin: 0 0 36px;
+  padding: 26px 0 28px;
+  border-top: 1px solid #e5e5e5;
+}
+.agent-logo-band-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  margin-bottom: 24px;
+}
+.landing .agent-logo-band-heading a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  color: #525252;
+  font-size: 13px;
+  text-decoration: none;
+  text-underline-offset: 5px;
+}
+.landing .agent-logo-band-heading a:first-child {
+  color: #262626;
+  font-weight: 500;
+}
+.landing .agent-logo-band-heading a:hover {
+  color: #2878c9;
+  text-decoration: underline;
+}
+.agent-logo-band-heading a:focus-visible {
+  outline: 3px solid #2878c9;
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.agent-logo-window {
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 3%, #000 97%, transparent);
+}
+.agent-logo-track {
+  display: flex;
+  width: max-content;
+  animation: agent-logo-drift 42s linear infinite;
+}
+.agent-logo-cycle {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 44px;
+  list-style: none;
+  padding: 8px 22px;
+  margin: 0;
+}
+.agent-logo-cycle li {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 0 0 166px;
+  min-height: 44px;
+}
+.agent-logo-cycle img {
+  display: block;
+  flex: none;
+  object-fit: contain;
+}
+.agent-logo-cycle .agent-logo-wordmark {
+  object-position: left center;
+}
+.agent-logo-band:is(:hover, :focus-within) .agent-logo-track {
+  animation-play-state: paused;
+}
+@keyframes agent-logo-drift {
+  to {
+    transform: translateX(-50%);
+  }
+}
+@media (max-width: 760px) {
+  .landing .agent-logo-band {
+    padding: 20px 0;
+    margin-bottom: 24px;
+  }
+  .agent-logo-band-heading {
+    margin-bottom: 18px;
+  }
+  .agent-logo-cycle {
+    gap: 28px;
+    padding-inline: 14px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-logo-window {
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+  .agent-logo-track {
+    width: 100%;
+    animation: none;
+  }
+  .agent-logo-cycle {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 20px 24px;
+    padding-inline: 0;
+  }
+  .agent-logo-cycle li {
+    flex-basis: 148px;
+  }
+  .agent-logo-cycle[aria-hidden="true"] {
+    display: none;
+  }
+}
