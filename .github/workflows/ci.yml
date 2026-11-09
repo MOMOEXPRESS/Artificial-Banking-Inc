@@ -37,6 +37,9 @@ jobs:
       - name: Install
         run: npm ci --no-audit --no-fund
 
+      - name: Scan tracked credentials
+        run: npm run security:scan
+
       - name: Build workspaces
         run: npm run build
 

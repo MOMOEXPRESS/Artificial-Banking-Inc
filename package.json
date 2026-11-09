@@ -32,6 +32,7 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "probe:stress": "node apps/api/scripts/stress-probe.mjs",
+    "security:scan": "node scripts/security-scan.mjs",
     "vercel:harden": "node scripts/vercel-harden.mjs"
   },
   "engines": {

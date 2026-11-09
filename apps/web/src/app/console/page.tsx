@@ -10,13 +10,14 @@ import {
 } from "../../lib/sign-out";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ABAppIcon, ABMark } from "../../lib/brand";
+import { ABAppIcon } from "../../lib/brand";
 import { showApprovalToast } from "../../lib/approval-toast";
 import { Icon, fmtUsd, relTime } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
 import { MinimalOverview, MinimalConnect, MinimalBilling } from "../../lib/minimal-workspace";
 import { StudioNav } from "../../lib/studio-nav";
 import { MarketplaceBuyer } from "../../lib/marketplace-buyer";
+import { AssistantDock } from "../../lib/assistant-dock";
 import { ChatView } from "../../lib/chat-view";
 import { PolicyView, type Policy } from "../../lib/policy-view";
 import { SettingsView } from "../../lib/settings-view";
@@ -1200,10 +1201,7 @@ export default function Console() {
 
         <main className="main">
           <div className="studio-shell-header">
-            <StudioNav
-              active={view}
-              onNavigate={(v, t) => setView(v as View, t)}
-            />
+            <StudioNav active={view} onNavigate={(v, t) => setView(v as View, t)} />
             <header className="topbar">
               <div className="topbar-title-block">
                 <nav className="crumb" aria-label="Breadcrumb">
@@ -1703,6 +1701,8 @@ export default function Console() {
                 )}
                 {view === "chat" && (
                   <ChatView
+                    key={session.orgId}
+                    canConfigure={org?.actor?.role === "owner" || !!session.guardianKey}
                     gFetch={gFetch}
                     act={act}
                     busy={busy}
@@ -1798,18 +1798,18 @@ export default function Console() {
           </button>
         </nav>
 
-        <button
-          type="button"
-          className="abi-assistant-fab"
-          onClick={() => setView("chat")}
-          aria-label="Open ABI assistant"
-          title="Open ABI assistant"
-        >
-          <span className="abi-assistant-fab-mark" aria-hidden="true">
-            <ABMark size={18} tone="#fff" />
-          </span>
-          <span>Ask ABI</span>
-        </button>
+        <AssistantDock
+          key={session.orgId}
+          currentView={view}
+          canConfigure={org?.actor?.role === "owner" || !!session.guardianKey}
+          gFetch={gFetch}
+          act={act}
+          busy={busy}
+          readOnly={readOnly}
+          pending={pending}
+          agentName={agentName}
+          onGoto={(v) => setView(v as View)}
+        />
 
         <ConsoleCommandPalette
           open={paletteOpen}

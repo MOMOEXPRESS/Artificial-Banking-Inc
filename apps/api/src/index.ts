@@ -45,6 +45,7 @@ import { buildDenial } from "./denial.js";
 import { approvalRecord, intentStatus, outflowReconciliation } from "./outcomes.js";
 import { anomalies, burnForecast, jobEconomics, vendorLedger } from "./analytics.js";
 import { answerQuestion, buildSummary } from "./insights.js";
+import { attachmentContext, chatInput } from "./chat-attachments.js";
 import { runAbiAgent, runMemoryCommand } from "./abi-agent/index.js";
 import { parseMemoryCommand } from "./abi-agent/memory-commands.js";
 import {
@@ -1843,18 +1844,48 @@ app.post(
 app.get(
   "/v1/guardian/chat",
   guardianRoute((org, _req, res) => {
-    res.json({ messages: store.listChatMessages(org.id) });
+    res.json({
+      messages: store.listChatMessages(org.id),
+      assistant: {
+        modelEnabled: process.env.ABI_CHAT_AGENT !== "0" && Boolean(resolveAiEgress(org.id)),
+        ...aiSettingsView(org.id),
+      },
+    });
   }),
 );
 
 app.post(
   "/v1/guardian/chat",
   guardianRoute(async (org, req, res) => {
-    const body = z.object({ message: z.string().min(1).max(800) }).parse(req.body);
+    if (overLimit(`chat:${org.id}`, 15, 60_000)) {
+      res.setHeader("Retry-After", "60");
+      return res.status(429).json({
+        error: {
+          code: "RATE_LIMITED",
+          message: "Please wait a minute before sending more messages.",
+        },
+      });
+    }
+    const body = chatInput.parse(req.body);
+    if (
+      body.attachments.length &&
+      (process.env.ABI_CHAT_AGENT === "0" || !resolveAiEgress(org.id))
+    ) {
+      return res.status(400).json({
+        error: {
+          code: "AI_NOT_CONFIGURED",
+          message: "Enable a model in Assistant settings before sending attachments.",
+        },
+      });
+    }
     // Load history before appending so follow-ups see prior assistant toolsUsed.
     const prior = store.listChatMessages(org.id, 24).map((m) => ({
       role: m.role,
-      body: m.body,
+      body:
+        m.body +
+        attachmentContext(
+          (m.meta?.attachmentText ?? []) as import("./chat-attachments.js").ChatAttachment[],
+        ),
       meta: m.meta,
     }));
     store.appendChatMessage({
@@ -1862,12 +1893,19 @@ app.post(
       role: "user",
       kind: "text",
       body: body.message,
+      meta: body.attachments.length
+        ? {
+            attachments: body.attachments.map((f) => ({ name: f.name, kind: f.kind })),
+            attachmentText: body.attachments.filter((f) => f.kind === "text"),
+          }
+        : undefined,
     });
     // ABI agent: read-only org survey + HITL external proposals. ABI_CHAT_AGENT=0 → legacy Q&A.
     const useAgent = process.env.ABI_CHAT_AGENT !== "0";
     const raw = useAgent
       ? await runAbiAgent(org.id, body.message, prior, {
           role: (req as express.Request & { guardianCtx?: GuardianCtx }).guardianCtx?.role,
+          attachments: body.attachments,
         })
       : { ...answerQuestion(org.id, body.message), toolsUsed: [] as string[] };
     // The LLM tool loop already synthesized a final answer. Sending that answer

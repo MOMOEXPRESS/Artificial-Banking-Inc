@@ -108,3 +108,94 @@ describe("smarter assistant over HTTP", () => {
     }
   });
 });
+
+describe("Assistant attachment admission", () => {
+  it("rejects unconfigured analysis before persisting documents, and exposes limited mode honestly", async () => {
+    const org = store.createOrg("Attachment isolation", 0n);
+    const headers = {
+      authorization: `Bearer ${org.guardianKey}`,
+      "content-type": "application/json",
+    };
+    const response = await fetch(`${base}/v1/guardian/chat`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        message: "Analyze this",
+        attachments: [{ kind: "text", name: "brief.md", text: "secret test document" }],
+      }),
+    });
+    assert.equal(response.status, 400);
+    const history = (await fetch(`${base}/v1/guardian/chat`, { headers }).then((r) =>
+      r.json(),
+    )) as { messages: unknown[]; assistant: { modelEnabled: boolean } };
+    assert.equal(history.messages.length, 0);
+    assert.equal(history.assistant.modelEnabled, false);
+  });
+  it("does not accept anonymous attachment uploads", async () => {
+    const response = await fetch(`${base}/v1/guardian/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "Analyze", attachments: [] }),
+    });
+    assert.equal(response.status, 401);
+  });
+});
+
+it("sends multimodal references only to the opted-in model and retains no image bytes", async () => {
+  const { updateAiSettings } = await import("./abi-agent/ai-settings.js");
+  const org = store.createOrg("Model attachment test", 0n);
+  const originalFetch = globalThis.fetch;
+  const previousLlm = process.env.ABI_CHAT_LLM;
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.ABI_CHAT_LLM = "1";
+  process.env.OPENAI_API_KEY = "test-platform-key";
+  updateAiSettings(org.id, { mode: "platform" });
+  let received: Record<string, unknown> | undefined;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).startsWith("https://api.openai.com/v1/chat/completions")) {
+      received = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "I can help compare marketplace listings from those references.",
+              },
+            },
+          ],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    }
+    return originalFetch(url, init);
+  };
+  try {
+    const image = "data:image/png;base64,iVBORw0KGgo=";
+    const response = await fetch(`${base}/v1/guardian/chat`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${org.guardianKey}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        message: "Find products from these references",
+        attachments: [
+          { kind: "image", name: "reference.png", dataUrl: image },
+          { kind: "text", name: "brief.md", text: "Need a search API" },
+        ],
+      }),
+    });
+    assert.equal(response.status, 200);
+    assert.ok(received, "model must be invoked");
+    assert.match(JSON.stringify(received), /image_url/);
+    assert.match(JSON.stringify(received), /Need a search API/);
+    assert.match(JSON.stringify(received), /untrusted reference data/);
+    const saved = JSON.stringify(store.listChatMessages(org.id));
+    assert.equal(saved.includes(image), false);
+    assert.match(saved, /reference.png/);
+    assert.match(saved, /Need a search API/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousLlm === undefined) delete process.env.ABI_CHAT_LLM;
+    else process.env.ABI_CHAT_LLM = previousLlm;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});

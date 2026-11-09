@@ -204,4 +204,5 @@ export const AI_EGRESS_DISCLOSURE = [
   "Balances, 24h spend figures, and your policy limits",
   "The question you type, and recent messages in this chat",
   "Facts you have asked the assistant to remember",
+  "Images and text documents you attach to a message",
 ] as const;
