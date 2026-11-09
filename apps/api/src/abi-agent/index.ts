@@ -4,6 +4,7 @@
  * Prefers OpenAI tool-calling when OPENAI_API_KEY is set; falls back to keywords.
  * Read-only money tools only. External actions are proposals until guardian approves.
  */
+import type { ChatAttachment } from "../chat-attachments.js";
 import { answerQuestion } from "../insights.js";
 import { buildOrgContext, formatOrgContext } from "./context.js";
 import { parseMemoryCommand, type MemoryCommand } from "./memory-commands.js";
@@ -43,6 +44,7 @@ export type AbiAgentResult = {
 };
 
 export type AbiAgentOptions = {
+  attachments?: ChatAttachment[];
   /** Caller's guardian role — shapes "who can do this" guidance, never permissions. */
   role?: "owner" | "approver" | "viewer";
 };
@@ -581,6 +583,7 @@ export async function runAbiAgent(
 
   const oos = outOfScopeTopic(text);
   if (
+    !opts.attachments?.length &&
     oos &&
     classifyIntent(text) === "unknown" &&
     !pickTools(text).some((t) => t !== "org_summary" && t !== "pending_approvals")
@@ -589,10 +592,11 @@ export async function runAbiAgent(
   }
 
   const referred = resolveReferenceTurn(orgId, text, recent);
-  if (referred) return finish(orgId, referred, norm, recent);
+  if (referred && !opts.attachments?.length) return finish(orgId, referred, norm, recent);
 
   try {
-    const llm = await runLlmToolLoop(orgId, message, recent);
+    const llm = await runLlmToolLoop(orgId, message, recent, opts.attachments);
+    if (opts.attachments?.length && !llm) throw new Error("Model returned no attachment analysis");
     if (llm && (llm.toolsUsed.length || llm.answer)) {
       const scratchpad = buildScratchpad(llm.results, lastScratchpad(recent));
       const ctx = buildOrgContext(orgId);
@@ -616,6 +620,13 @@ export async function runAbiAgent(
       );
     }
   } catch (err) {
+    if (opts.attachments?.length)
+      return {
+        answer:
+          "I couldn’t analyze the attachments because the model request failed. Please try again. No purchase was made.",
+        toolsUsed: [],
+        via: "keywords",
+      };
     console.warn("[abi-agent] llm loop failed, using keywords:", (err as Error).message);
   }
 

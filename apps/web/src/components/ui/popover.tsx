@@ -13,6 +13,7 @@ const PopoverContent = React.forwardRef<
 >(({ className, align = "end", sideOffset = 8, ...props }, ref) => (
   <PopoverPrimitive.Portal>
     <PopoverPrimitive.Content
+      data-motion="popover"
       ref={ref}
       align={align}
       sideOffset={sideOffset}

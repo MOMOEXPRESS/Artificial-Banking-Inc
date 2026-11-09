@@ -15,6 +15,7 @@ const DropdownMenuContent = React.forwardRef<
 >(({ className, sideOffset = 6, ...props }, ref) => (
   <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Content
+      data-motion="dropdown"
       ref={ref}
       sideOffset={sideOffset}
       className={cn(

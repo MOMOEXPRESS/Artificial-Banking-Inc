@@ -34,6 +34,7 @@ const DialogContent = React.forwardRef<
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
+      data-motion="dialog"
       ref={ref}
       className={cn(
         "fixed left-1/2 top-[18%] z-[81] w-full max-w-lg -translate-x-1/2 rounded-[var(--r-md)] border border-[var(--color-border)] bg-[var(--color-surface-2)] p-0 text-[var(--color-fg)] shadow-[var(--shadow)] outline-none",
