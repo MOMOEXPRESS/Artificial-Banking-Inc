@@ -31,6 +31,8 @@ export type IntegratedProvider = {
   slug: string;
   name: string;
   monogram: string;
+  /** Vendor's own mark, copied from its website into /public/vendors. */
+  logo: { src: string; width: number; height: number };
   website: string;
   kind: ProviderKind;
   kindLabel: string;
@@ -78,6 +80,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
     slug: "prodigi",
     name: "Prodigi",
     monogram: "P",
+    logo: { src: "/vendors/prodigi.svg", width: 1000, height: 1415 },
     website: "https://www.prodigi.com",
     kind: "physical",
     kindLabel: "Physical goods",
@@ -193,6 +196,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
     slug: "scrapingant",
     name: "ScrapingAnt",
     monogram: "SA",
+    logo: { src: "/vendors/scrapingant.png", width: 78, height: 160 },
     website: "https://scrapingant.com",
     kind: "service",
     kindLabel: "Tools & APIs",

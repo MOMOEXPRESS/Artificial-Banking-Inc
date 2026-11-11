@@ -18,11 +18,14 @@ const verifiedLabel = new Date(`${VERIFIED_ON}T12:00:00Z`).toLocaleDateString("e
 
 function Monogram({ provider, large }: { provider: IntegratedProvider; large?: boolean }) {
   return (
-    <span
-      className={`vendor-monogram vendor-monogram-${provider.slug}${large ? " is-large" : ""}`}
-      aria-hidden="true"
-    >
-      {provider.monogram}
+    <span className={`vendor-monogram${large ? " is-large" : ""}`} aria-hidden="true">
+      {/* eslint-disable-next-line @next/next/no-img-element -- tiny static vendor mark */}
+      <img
+        src={provider.logo.src}
+        alt=""
+        width={provider.logo.width}
+        height={provider.logo.height}
+      />
     </span>
   );
 }
