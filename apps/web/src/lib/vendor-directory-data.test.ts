@@ -1,11 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  INTEGRATED_LISTINGS,
   INTEGRATED_PROVIDERS,
   SCRAPINGANT_PLANS,
   creditCostUsd,
   findProvider,
   formatUsd,
+  matchListings,
   matchProviders,
 } from "./vendor-directory-data";
 
@@ -74,4 +76,29 @@ test("catalog search and kind tabs filter providers", () => {
     ["scrapingant"],
   );
   assert.equal(matchProviders("", "").length, 2);
+});
+
+test("every vendor product and action is one listing, with its provider", () => {
+  const counts = Object.fromEntries(INTEGRATED_PROVIDERS.map((p) => [p.slug, p.actions.length]));
+  assert.deepEqual(counts, { prodigi: 4, scrapingant: 6 });
+  assert.equal(INTEGRATED_LISTINGS.length, 10);
+  for (const { provider, action } of INTEGRATED_LISTINGS) {
+    assert.ok(provider.actions.includes(action));
+    assert.ok(action.listingTitle.trim().length > 3, action.id);
+    assert.ok(action.unitPrice.trim().length > 0, action.id);
+  }
+  const titles = INTEGRATED_LISTINGS.map((l) => l.action.listingTitle);
+  assert.equal(new Set(titles).size, titles.length);
+});
+
+test("listings follow the catalog search and kind tab", () => {
+  assert.equal(matchListings("", "").length, 10);
+  assert.equal(matchListings("prodigi", "").length, 4);
+  assert.equal(matchListings("", "service").length, 6);
+  assert.equal(matchListings("", "physical").length, 4);
+  assert.deepEqual(
+    matchListings("markdown", "").map((l) => l.action.id),
+    ["page-markdown"],
+  );
+  assert.equal(matchListings("no such thing", "").length, 0);
 });

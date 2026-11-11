@@ -5,9 +5,11 @@ import { Icon } from "./ui";
 import {
   INTEGRATED_PROVIDERS,
   VERIFIED_ON,
+  matchListings,
   matchProviders,
   type IntegratedProvider,
 } from "./vendor-directory-data";
+import { ListingCarousel, ListingGrid } from "./vendor-listings";
 import "./vendor-directory.css";
 
 const verifiedLabel = new Date(`${VERIFIED_ON}T12:00:00Z`).toLocaleDateString("en-GB", {
@@ -47,29 +49,51 @@ function RowBody({ provider }: { provider: IntegratedProvider }) {
 
 /**
  * Integrated vendors as a provider list (logo, name, action count, starting
- * price). Filters with the catalog's own search text and kind tab. Public pages
- * link to /providers/[slug]; the logged-in Marketplace opens the detail in place
- * so the buyer stays in the app.
+ * price), followed by every product and action as its own listing. Filters
+ * with the catalog's own search text and kind tab. Public pages link to
+ * /providers/[slug]; the logged-in Marketplace opens the detail in place so the
+ * buyer stays in the app.
+ *
+ * view="providers" shows the provider rows with the moving listing carousel
+ * under them (homepage, and the Providers tab); view="listings" shows every
+ * listing as a grid (the Tools & products tab).
  */
 export function ProviderDirectory({
   query = "",
   kind = "",
   inline = false,
+  view = "providers",
 }: {
   query?: string;
   kind?: string;
   inline?: boolean;
+  view?: "providers" | "listings";
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const providers = matchProviders(query, kind);
+  const listings = matchListings(query, kind);
   const selected = open ? INTEGRATED_PROVIDERS.find((p) => p.slug === open) : undefined;
+  const onOpen = inline ? setOpen : undefined;
   if (selected)
     return (
       <div className="vendor-dir">
         <ProviderDetail provider={selected} onBack={() => setOpen(null)} />
       </div>
     );
-  if (providers.length === 0) return null;
+  if (providers.length === 0 && listings.length === 0) return null;
+  const listingSection = listings.length > 0 && (
+    <section className="vendor-listings" aria-labelledby="vendor-listings-title">
+      <h3 id="vendor-listings-title" className="vendor-dir-title">
+        {listings.length} {listings.length === 1 ? "listing" : "listings"}
+      </h3>
+      {view === "listings" ? (
+        <ListingGrid listings={listings} onOpen={onOpen} />
+      ) : (
+        <ListingCarousel listings={listings} onOpen={onOpen} />
+      )}
+    </section>
+  );
+  if (view === "listings") return <div className="vendor-dir">{listingSection}</div>;
   return (
     <section className="vendor-dir" aria-labelledby="vendor-dir-title">
       <h3 id="vendor-dir-title" className="vendor-dir-title">
@@ -95,6 +119,7 @@ export function ProviderDirectory({
           </li>
         ))}
       </ul>
+      {listingSection}
     </section>
   );
 }
@@ -132,7 +157,7 @@ export function ProviderDetail({
       </h3>
       <ul className="vendor-actions">
         {provider.actions.map((action) => (
-          <li key={action.id} className="vendor-action">
+          <li key={action.id} id={action.id} className="vendor-action">
             <span className="vendor-action-name">{action.name}</span>
             <span className="vendor-action-price">
               <strong>{action.unitPrice}</strong>

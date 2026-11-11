@@ -269,7 +269,314 @@
   text-underline-offset: 2px;
 }
 
+/*
+ * Listings: every vendor product and action as its own grey card, in the same
+ * row style as the provider list. Under the provider rows they move one card
+ * at a time in a three-up carousel; the Tools & products tab shows them as a
+ * grid. `:is()` lifts the selectors over the blue `.market-home button` and
+ * `.market-workspace button` rules, as the provider rows above do.
+ */
+.vendor-listings {
+  margin-top: 32px;
+}
+.vendor-dir > .vendor-listings:first-child {
+  margin-top: 0;
+}
+.vendor-carousel {
+  position: relative;
+  container-type: inline-size;
+}
+.vendor-carousel-controls {
+  position: absolute;
+  top: -42px;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vendor-carousel-position {
+  margin-right: 6px;
+  font-size: 13px;
+  color: var(--vendor-muted);
+  font-variant-numeric: tabular-nums;
+}
+:is(.vendor-dir, .landing .market-home .vendor-dir, .studio-console .market-workspace .vendor-dir)
+  .vendor-carousel-controls
+  button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--vendor-row) !important;
+  color: var(--vendor-ink) !important;
+  box-shadow: none;
+  filter: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease-out;
+}
+:is(.vendor-dir, .landing .market-home .vendor-dir, .studio-console .market-workspace .vendor-dir)
+  .vendor-carousel-controls
+  button:hover:not(:disabled) {
+  background: var(--vendor-row-hover) !important;
+}
+:is(.vendor-dir, .landing .market-home .vendor-dir, .studio-console .market-workspace .vendor-dir)
+  .vendor-carousel-controls
+  button:disabled {
+  color: var(--vendor-muted) !important;
+  opacity: 0.6;
+  cursor: default;
+}
+.vendor-carousel-viewport {
+  overflow: hidden;
+  border-radius: 12px;
+}
+.vendor-carousel-track {
+  --per: 3;
+  --gap: 12px;
+  display: flex;
+  gap: var(--gap);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  transform: translateX(calc(var(--slide, 0) * -1 * (100% + var(--gap)) / var(--per)));
+}
+.vendor-carousel-track.is-animated {
+  transition: transform 0.7s cubic-bezier(0.65, 0, 0.35, 1);
+}
+.vendor-carousel-track > li {
+  display: flex;
+  flex: 0 0 calc((100% - (var(--per) - 1) * var(--gap)) / var(--per));
+  min-width: 0;
+}
+@container (max-width: 760px) {
+  .vendor-carousel-track {
+    --per: 2;
+  }
+}
+@container (max-width: 480px) {
+  .vendor-carousel-track {
+    --per: 1;
+  }
+}
+.vendor-listing-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.vendor-listing-grid > li {
+  display: flex;
+  min-width: 0;
+}
+@media (max-width: 1000px) {
+  .vendor-listing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .vendor-listing-grid {
+    grid-template-columns: 1fr;
+  }
+}
+:is(.vendor-dir, .landing .market-home .vendor-dir, .studio-console .market-workspace .vendor-dir)
+  .vendor-listing {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
+  width: 100%;
+  min-height: 196px;
+  margin: 0;
+  padding: 20px 22px;
+  text-align: left;
+  text-decoration: none;
+  color: var(--vendor-ink) !important;
+  background: var(--vendor-row) !important;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: none;
+  filter: none;
+  transform: none;
+  font: inherit;
+  font-weight: 400;
+  cursor: pointer;
+  transition: background-color 0.15s ease-out;
+}
+:is(.vendor-dir, .landing .market-home .vendor-dir, .studio-console .market-workspace .vendor-dir)
+  .vendor-listing:hover {
+  background: var(--vendor-row-hover) !important;
+  text-decoration: none;
+  filter: none;
+}
+.vendor-listing-provider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--vendor-muted);
+}
+.vendor-listing-provider > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vendor-logo.is-small {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+}
+.vendor-logo.is-small img {
+  height: 16px;
+  max-width: 20px;
+}
+.vendor-listing-pill {
+  flex: none;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--vendor-tile);
+  color: var(--vendor-muted);
+  white-space: nowrap;
+}
+.vendor-listing-title {
+  margin-top: 16px;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--vendor-ink);
+}
+.vendor-listing-desc {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--vendor-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.vendor-listing-price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-top: auto;
+  padding-top: 16px;
+}
+.vendor-listing-price strong {
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--vendor-ink);
+}
+.vendor-listing-price small {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--vendor-muted);
+  font-variant-numeric: tabular-nums;
+}
+.vendor-action:target {
+  box-shadow: inset 0 0 0 1px var(--vendor-ink);
+}
+
+/*
+ * Providers / Tools & products switch. The selected side keeps the grey track
+ * and gets a dark outline instead of turning white, and neither side picks up
+ * the blue `.market-home button` fill on the public directory.
+ */
+:is(.market-catalog, .landing .market-home .market-catalog, .studio-console .market-catalog)
+  .reference-catalog-switch {
+  gap: 3px;
+  padding: 3px;
+  border-radius: 9px;
+  background: #eee;
+}
+:is(
+    .market-catalog,
+    .landing .market-home .market-catalog,
+    .studio-console .market-workspace .market-catalog
+  )
+  .reference-catalog-switch
+  button {
+  min-height: 38px;
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 7px;
+  font-size: 14px;
+  font-weight: 400;
+  background: transparent !important;
+  color: #525252 !important;
+  box-shadow: none !important;
+  filter: none;
+  transition:
+    color 0.15s ease-out,
+    box-shadow 0.15s ease-out;
+}
+:is(
+    .market-catalog,
+    .landing .market-home .market-catalog,
+    .studio-console .market-workspace .market-catalog
+  )
+  .reference-catalog-switch
+  button:hover {
+  background: transparent !important;
+  color: #262626 !important;
+}
+:is(
+    .market-catalog,
+    .landing .market-home .market-catalog,
+    .studio-console .market-workspace .market-catalog
+  )
+  .reference-catalog-switch
+  button[aria-pressed="true"] {
+  background: transparent !important;
+  color: #262626 !important;
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1.5px #262626 !important;
+}
+
+[data-theme="dark"] .market-catalog .reference-catalog-switch {
+  background: var(--color-surface-2, #1c2c43);
+}
+[data-theme="dark"] .market-catalog .reference-catalog-switch button {
+  color: var(--color-fg-muted, #b2c0d5) !important;
+}
+[data-theme="dark"] .market-catalog .reference-catalog-switch button:hover,
+[data-theme="dark"] .market-catalog .reference-catalog-switch button[aria-pressed="true"] {
+  color: var(--color-fg, #edf3ff) !important;
+}
+[data-theme="dark"] .market-catalog .reference-catalog-switch button[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1.5px var(--color-fg, #edf3ff) !important;
+}
+
+/* Public directory category tabs: the homepage's grey pills, not accent blue. */
+.landing .market-home .reference-catalog .minimal-kind-tabs button {
+  background: #eee !important;
+  color: #444 !important;
+  border: 0;
+  border-radius: 8px;
+  font-weight: 400;
+}
+.landing .market-home .reference-catalog .minimal-kind-tabs button[aria-pressed="true"] {
+  background: #252525 !important;
+  color: #fff !important;
+}
+
 @media (max-width: 700px) {
+  .vendor-listing-title {
+    font-size: 15px;
+  }
   .vendor-dir .vendor-row,
   .studio-console .market-workspace .vendor-dir button.vendor-row {
     min-height: 76px;
@@ -291,7 +598,9 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .vendor-dir .vendor-row,
-  .studio-console .market-workspace .vendor-dir button.vendor-row {
+  .studio-console .market-workspace .vendor-dir button.vendor-row,
+  .vendor-carousel-track.is-animated,
+  .vendor-dir .vendor-listing {
     transition: none;
   }
 }
