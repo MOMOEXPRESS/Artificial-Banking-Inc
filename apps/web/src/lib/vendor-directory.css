@@ -292,45 +292,12 @@
   right: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
+  min-height: 32px;
 }
 .vendor-carousel-position {
-  margin-right: 6px;
   font-size: 13px;
   color: var(--vendor-muted);
   font-variant-numeric: tabular-nums;
-}
-:is(.vendor-dir, .landing .market-home .vendor-dir, .studio-console .market-workspace .vendor-dir)
-  .vendor-carousel-controls
-  button {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  min-width: 0;
-  min-height: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  background: var(--vendor-row) !important;
-  color: var(--vendor-ink) !important;
-  box-shadow: none;
-  filter: none;
-  cursor: pointer;
-  transition: background-color 0.15s ease-out;
-}
-:is(.vendor-dir, .landing .market-home .vendor-dir, .studio-console .market-workspace .vendor-dir)
-  .vendor-carousel-controls
-  button:hover:not(:disabled) {
-  background: var(--vendor-row-hover) !important;
-}
-:is(.vendor-dir, .landing .market-home .vendor-dir, .studio-console .market-workspace .vendor-dir)
-  .vendor-carousel-controls
-  button:disabled {
-  color: var(--vendor-muted) !important;
-  opacity: 0.6;
-  cursor: default;
 }
 .vendor-carousel-viewport {
   overflow: hidden;

@@ -1,7 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Icon } from "./ui";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { IntegratedListing } from "./vendor-directory-data";
 
 /** How long each listing stays in place before the carousel moves on. */
@@ -80,8 +79,8 @@ function usePrefersReducedMotion() {
 
 /**
  * Integrated vendor listings, three to a row on desktop, moving one listing at
- * a time on their own. Pauses on hover, keyboard focus, a hidden tab, the
- * pause button, and for people who ask for reduced motion.
+ * a time on their own. Pauses on hover, keyboard focus and a hidden tab, and
+ * stays still for people who ask for reduced motion.
  */
 export function ListingCarousel({
   listings,
@@ -93,13 +92,12 @@ export function ListingCarousel({
   const reduced = usePrefersReducedMotion();
   const [index, setIndex] = useState(0);
   const [animate, setAnimate] = useState(true);
-  const [paused, setPaused] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [visible, setVisible] = useState(true);
   const count = listings.length;
   const moves = count > CLONES;
-  const running = moves && !paused && !reduced && !hovered && !focused && visible;
+  const running = moves && !reduced && !hovered && !focused && visible;
   const keyOf = listings.map((l) => `${l.provider.slug}/${l.action.id}`).join("|");
   const snapping = useRef(false);
 
@@ -133,28 +131,6 @@ export function ListingCarousel({
     return () => window.cancelAnimationFrame(frame);
   }, [animate]);
 
-  const step = useCallback(
-    (delta: number) => {
-      if (!moves) return;
-      if (delta < 0 && index === 0) {
-        // Jump to the clone of the first card, then slide back one.
-        snapping.current = true;
-        setAnimate(false);
-        setIndex(count);
-        window.requestAnimationFrame(() =>
-          window.requestAnimationFrame(() => {
-            setAnimate(true);
-            setIndex(count - 1);
-          }),
-        );
-        return;
-      }
-      setAnimate(!reduced);
-      setIndex((i) => Math.min(i + delta, count));
-    },
-    [moves, index, count, reduced],
-  );
-
   if (count === 0) return null;
   const track = moves ? [...listings, ...listings.slice(0, CLONES)] : listings;
   const shown = (index % count) + 1;
@@ -176,27 +152,6 @@ export function ListingCarousel({
           <span className="vendor-carousel-position" aria-live={running ? "off" : "polite"}>
             {shown} of {count}
           </span>
-          <button type="button" onClick={() => step(-1)} aria-label="Previous listing">
-            <Icon name="arrowLeft" size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setPaused((p) => !p)}
-            aria-label={paused || reduced ? "Play listings" : "Pause listings"}
-            aria-pressed={paused}
-            disabled={reduced}
-          >
-            <svg viewBox="0 0 24 24" width={16} height={16} fill="currentColor" aria-hidden>
-              {paused || reduced ? (
-                <path d="M8 5.5v13l10.5-6.5z" />
-              ) : (
-                <path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" />
-              )}
-            </svg>
-          </button>
-          <button type="button" onClick={() => step(1)} aria-label="Next listing">
-            <Icon name="arrowRight" size={16} />
-          </button>
         </div>
       )}
       <div className="vendor-carousel-viewport">
