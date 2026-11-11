@@ -115,23 +115,25 @@
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #fff;
-  background: #142236;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+.vendor-monogram img {
+  display: block;
+  width: auto;
+  height: 24px;
+  max-width: 28px;
+  object-fit: contain;
 }
 .vendor-monogram.is-large {
   width: 56px;
   height: 56px;
   border-radius: 14px;
-  font-size: 19px;
 }
-.vendor-monogram-prodigi {
-  background: #1f2937;
-}
-.vendor-monogram-scrapingant {
-  background: #3b4a6b;
+.vendor-monogram.is-large img {
+  height: 34px;
+  max-width: 40px;
 }
 .vendor-detail {
   max-width: 960px;
