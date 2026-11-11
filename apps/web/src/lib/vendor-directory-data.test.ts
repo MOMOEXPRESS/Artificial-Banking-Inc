@@ -42,6 +42,19 @@ test("Prodigi prices are 'from' prices before tax and shipping", () => {
   assert.ok(products.every((a) => a.priceDetail.startsWith("Before tax and shipping")));
 });
 
+test("every action has a short price for the action list", () => {
+  for (const p of INTEGRATED_PROVIDERS)
+    for (const a of p.actions) assert.ok(a.unitPrice.length > 0 && a.unitPrice.length <= 24);
+  const sa = findProvider("scrapingant")!;
+  assert.equal(sa.actionNoun, "actions");
+  const fetchPage = sa.actions.find((a) => a.id === "fetch-page")!;
+  assert.equal(fetchPage.unitPrice, "1 credit/call");
+  assert.equal(fetchPage.unitNote, "≈ $0.00019");
+  const render = sa.actions.find((a) => a.id === "render-page")!;
+  assert.equal(render.unitPrice, "10 credits/call");
+  assert.equal(render.unitNote, "≈ $0.0019");
+});
+
 test("catalog search and kind tabs filter providers", () => {
   assert.deepEqual(
     matchProviders("", "physical").map((p) => p.slug),

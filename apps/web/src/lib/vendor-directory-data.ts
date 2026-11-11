@@ -21,6 +21,10 @@ export type ProviderAction = {
   price: string;
   /** What the price means, e.g. "Before tax and shipping". */
   priceDetail: string;
+  /** Short price for the action list, e.g. "1 credit/call" or "From €3.00/print". */
+  unitPrice: string;
+  /** Optional muted line under unitPrice, e.g. an estimated dollar cost. */
+  unitNote?: string;
   facts: string[];
   examples?: string[];
 };
@@ -69,6 +73,11 @@ export function formatUsd(value: number) {
   return `$${Number(value.toPrecision(2)).toString()}`;
 }
 
+/** "≈ $0.0019" on ScrapingAnt's entry plan. An estimate of the vendor's cost, not an ABI price. */
+function estimateNote(credits: number) {
+  return `≈ ${formatUsd(creditCostUsd(credits, SCRAPINGANT_PLANS[0]))}`;
+}
+
 function creditEstimate(credits: number) {
   const low = SCRAPINGANT_PLANS[0];
   const high = SCRAPINGANT_PLANS[SCRAPINGANT_PLANS.length - 1];
@@ -89,7 +98,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
     description:
       "Agents can find a print product, get an exact quote for a delivery address, and hand over artwork. Prodigi prints it in the lab nearest the customer and ships it.",
     actionNoun: "products",
-    pricingSummary: "Prints from €3.00",
+    pricingSummary: "From €3.00/print",
     pricingNote:
       "Prodigi's wholesale “from” prices, before tax and shipping, in the currency Prodigi lists. The exact price depends on size, options and the delivery address, so every order is quoted first.",
     status: {
@@ -106,6 +115,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
         reference: "SKU prefix GLOBAL-FAP · code EMA",
         price: "From €3.00",
         priceDetail: "Before tax and shipping. Other currencies are approximate.",
+        unitPrice: "From €3.00/print",
         facts: [
           "200gsm paper, Giclée printing",
           'Sizes 4x6" to 100x50"',
@@ -127,6 +137,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
         reference: "SKU prefix GLOBAL-BLP · code BLP",
         price: "From £3.00",
         priceDetail: "Before tax and shipping. Other currencies are approximate.",
+        unitPrice: "From £3.00/poster",
         facts: [
           "170gsm paper, UVgel printing",
           'Sizes 4x6" to 40x60"',
@@ -148,6 +159,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
         reference: "SKU prefix GLOBAL-CAN",
         price: "From £14.00",
         priceDetail: "Before tax and shipping. Other currencies are approximate.",
+        unitPrice: "From £14.00/canvas",
         facts: [
           "Latex or UVgel inks",
           'Sizes 3x16" to 119x56"',
@@ -170,6 +182,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
         reference: "POST /v5/quotes/order",
         price: "Quoted per order",
         priceDetail: "Prodigi returns the amounts and currency for that address.",
+        unitPrice: "Per order",
         facts: ["Needs the catalogue variant, quantity, product options and a shipping address"],
       },
     ],
@@ -205,10 +218,10 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
       "Web scraping API with headless Chrome and rotating proxies, for agent research and lead lists.",
     description:
       "Agents fetch any public page as HTML or Markdown, or pull structured fields such as company name, contact details or price with AI extraction. Each call is billed in ScrapingAnt credits.",
-    actionNoun: "tools",
-    pricingSummary: "1 to 125 credits a call",
+    actionNoun: "actions",
+    pricingSummary: "From 1 credit/call",
     pricingNote:
-      "ScrapingAnt bills in credits per request, set by the browser and proxy used. Dollar figures are estimated vendor costs on ScrapingAnt's monthly plans, not ABI prices. Failed requests are not charged credits.",
+      "ScrapingAnt bills in credits per request, set by the browser and proxy used. The ≈ dollar figures are estimated vendor costs on the Enthusiast plan ($19 for 100,000 credits), not ABI prices. Failed requests are not charged credits.",
     status: {
       label: "Browse only",
       detail:
@@ -222,6 +235,8 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
         reference: "GET /v2/general · browser=false",
         price: "1 credit",
         priceDetail: creditEstimate(1),
+        unitPrice: "1 credit/call",
+        unitNote: estimateNote(1),
         facts: ["Datacenter proxy", "25 credits on a residential proxy"],
       },
       {
@@ -231,6 +246,8 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
         reference: "GET /v2/general · return_page_source=true",
         price: "2 credits",
         priceDetail: creditEstimate(2),
+        unitPrice: "2 credits/call",
+        unitNote: estimateNote(2),
         facts: ["Datacenter proxy", "50 credits on a residential proxy"],
       },
       {
@@ -240,6 +257,8 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
         reference: "GET /v2/general",
         price: "10 credits",
         priceDetail: creditEstimate(10),
+        unitPrice: "10 credits/call",
+        unitNote: estimateNote(10),
         facts: ["Datacenter proxy", "125 credits on a residential proxy"],
       },
       {
@@ -248,6 +267,8 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
         description: "The page converted to Markdown, ready for an LLM.",
         reference: "GET /v2/markdown",
         price: "By settings",
+        unitPrice: "From 1 credit/call",
+        unitNote: "Same settings as a page fetch",
         priceDetail:
           "Takes the same browser and proxy settings as a page fetch. ScrapingAnt reports the exact credits on each response.",
         facts: ["Returns JSON with the url and the markdown"],
@@ -259,6 +280,8 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
           "Structured data from a page from a plain list such as “company name, email, phone”.",
         reference: "GET /v2/extract · extract_properties",
         price: "Varies by page",
+        unitPrice: "Varies by page",
+        unitNote: "1 credit per 30 characters",
         priceDetail:
           "1 credit per 30 characters of page Markdown and output, plus the request's own cost.",
         facts: ["Good for pulling contact and company details for outreach"],
@@ -270,6 +293,8 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
         reference: "GET /v2/general · google.com",
         price: "10 credits",
         priceDetail: creditEstimate(10),
+        unitPrice: "10 credits/call",
+        unitNote: estimateNote(10),
         facts: ["Datacenter proxy"],
       },
     ],
