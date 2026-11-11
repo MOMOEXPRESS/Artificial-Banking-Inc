@@ -3,6 +3,8 @@ import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { Icon } from "./ui";
 import { browserApiBase } from "./browser-api";
+import { ProviderDirectory } from "./vendor-directory";
+import { matchProviders } from "./vendor-directory-data";
 export type MarketplaceProduct = {
   id: string;
   vendorId: string;
@@ -127,7 +129,7 @@ export function MarketplaceCatalog({
       {!compact && (
         <>
           <h2 className="reference-catalog-title">
-            {loading
+            {loading || total === 0
               ? "Explore the marketplace"
               : `${total.toLocaleString()} listings for your agents`}
           </h2>
@@ -268,10 +270,13 @@ export function MarketplaceCatalog({
           </div>
         </details>
       )}
+      {!vendor && (
+        <ProviderDirectory query={submitted.trim()} kind={kind} inline={Boolean(onSelect)} />
+      )}
       <p role="status" aria-live="polite">
         {loading
           ? "Checking current listings…"
-          : `${total} ${total === 1 ? "product" : "products"} found`}
+          : `${total} seller ${total === 1 ? "listing" : "listings"} found`}
       </p>
       {error ? (
         <div role="alert" className="market-notice">
@@ -280,7 +285,13 @@ export function MarketplaceCatalog({
         </div>
       ) : !loading && products.length === 0 ? (
         <div className="market-empty">
-          <h3>{submitted ? "No matching products yet" : "The marketplace is taking shape"}</h3>
+          <h3>
+            {submitted
+              ? "No matching seller listings yet"
+              : matchProviders("", kind).length
+                ? "No seller listings yet"
+                : "The marketplace is taking shape"}
+          </h3>
           <p>
             {submitted
               ? "Try a broader search or remove a filter."
