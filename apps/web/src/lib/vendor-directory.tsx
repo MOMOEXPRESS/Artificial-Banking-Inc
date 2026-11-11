@@ -16,9 +16,9 @@ const verifiedLabel = new Date(`${VERIFIED_ON}T12:00:00Z`).toLocaleDateString("e
   year: "numeric",
 });
 
-function Monogram({ provider, large }: { provider: IntegratedProvider; large?: boolean }) {
+function Logo({ provider, large }: { provider: IntegratedProvider; large?: boolean }) {
   return (
-    <span className={`vendor-monogram${large ? " is-large" : ""}`} aria-hidden="true">
+    <span className={`vendor-logo${large ? " is-large" : ""}`} aria-hidden="true">
       {/* eslint-disable-next-line @next/next/no-img-element -- tiny static vendor mark */}
       <img
         src={provider.logo.src}
@@ -30,32 +30,26 @@ function Monogram({ provider, large }: { provider: IntegratedProvider; large?: b
   );
 }
 
-function CardBody({ provider }: { provider: IntegratedProvider }) {
+function RowBody({ provider }: { provider: IntegratedProvider }) {
   return (
     <>
-      <span className="vendor-card-top">
-        <Monogram provider={provider} />
-        <span className="vendor-card-title">
-          <strong>{provider.name}</strong>
-          <span>
-            {provider.kindLabel} · {provider.actions.length} {provider.actionNoun}
-          </span>
-        </span>
-        <Icon name="arrowRight" size={18} />
+      <Logo provider={provider} />
+      <span className="vendor-row-text">
+        <strong>{provider.name}</strong>
+        <small>
+          {provider.actions.length} {provider.actionNoun} · {provider.pricingSummary}
+        </small>
       </span>
-      <span className="vendor-card-tagline">{provider.tagline}</span>
-      <span className="vendor-card-foot">
-        <span className="vendor-card-price">{provider.pricingSummary}</span>
-        <span className="vendor-status-pill">{provider.status.label}</span>
-      </span>
+      <Icon name="arrowRight" size={18} />
     </>
   );
 }
 
 /**
- * Integrated vendor cards. Filters with the catalog's own search text and kind
- * tab. Public pages link to /providers/[slug]; the logged-in Marketplace opens
- * the detail in place so the buyer stays in the app.
+ * Integrated vendors as a provider list (logo, name, action count, starting
+ * price). Filters with the catalog's own search text and kind tab. Public pages
+ * link to /providers/[slug]; the logged-in Marketplace opens the detail in place
+ * so the buyer stays in the app.
  */
 export function ProviderDirectory({
   query = "",
@@ -78,28 +72,24 @@ export function ProviderDirectory({
   if (providers.length === 0) return null;
   return (
     <section className="vendor-dir" aria-labelledby="vendor-dir-title">
-      <div className="vendor-dir-heading">
-        <h3 id="vendor-dir-title">Integrated providers</h3>
-        <p>
-          Real vendors with published prices. Open one to see each product or tool and what it
-          costs.
-        </p>
-      </div>
-      <ul className="vendor-grid">
+      <h3 id="vendor-dir-title" className="vendor-dir-title">
+        Providers
+      </h3>
+      <ul className="vendor-list">
         {providers.map((provider) => (
           <li key={provider.slug}>
             {inline ? (
               <button
                 type="button"
-                className="vendor-card"
+                className="vendor-row"
                 onClick={() => setOpen(provider.slug)}
                 aria-label={`${provider.name}, ${provider.actions.length} ${provider.actionNoun}`}
               >
-                <CardBody provider={provider} />
+                <RowBody provider={provider} />
               </button>
             ) : (
-              <Link className="vendor-card" href={`/providers/${provider.slug}`}>
-                <CardBody provider={provider} />
+              <Link className="vendor-row" href={`/providers/${provider.slug}`}>
+                <RowBody provider={provider} />
               </Link>
             )}
           </li>
@@ -116,13 +106,6 @@ export function ProviderDetail({
   provider: IntegratedProvider;
   onBack?: () => void;
 }) {
-  const [filter, setFilter] = useState("");
-  const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
-  const actions = provider.actions.filter((a) =>
-    words.every((w) =>
-      [a.name, a.description, a.reference, a.price].join(" ").toLowerCase().includes(w),
-    ),
-  );
   return (
     <article className="vendor-detail">
       {onBack ? (
@@ -135,79 +118,45 @@ export function ProviderDetail({
         </Link>
       )}
       <header className="vendor-detail-head">
-        <Monogram provider={provider} large />
+        <Logo provider={provider} large />
         <div>
           <h2>{provider.name}</h2>
-          <p className="vendor-detail-meta">
-            {provider.kindLabel} · {provider.categories.join(" · ")} ·{" "}
-            <a href={provider.website} target="_blank" rel="noopener noreferrer">
-              {provider.website.replace(/^https:\/\/(www\.)?/, "")}
-            </a>
-          </p>
-          <p>{provider.description}</p>
+          <p>{provider.tagline}</p>
         </div>
+        <span className="vendor-status-pill" title={provider.status.detail}>
+          {provider.status.label}
+        </span>
       </header>
-      <div className="vendor-status" role="note">
-        <strong>{provider.status.label}.</strong> {provider.status.detail}
-      </div>
-      <div className="vendor-actions-head">
-        <h3>
-          {provider.actions.length} {provider.actionNoun}
-        </h3>
-        <label className="sr-only" htmlFor={`vendor-filter-${provider.slug}`}>
-          Filter {provider.actionNoun}
-        </label>
-        <input
-          id={`vendor-filter-${provider.slug}`}
-          type="search"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder={`Filter ${provider.actionNoun}`}
-        />
-      </div>
-      <p className="vendor-pricing-note">{provider.pricingNote}</p>
+      <h3 className="vendor-actions-title">
+        {provider.actions.length} {provider.actionNoun}
+      </h3>
       <ul className="vendor-actions">
-        {actions.map((action) => (
+        {provider.actions.map((action) => (
           <li key={action.id} className="vendor-action">
-            <div className="vendor-action-main">
-              <h4>{action.name}</h4>
-              <p>{action.description}</p>
-              <code>{action.reference}</code>
-              {action.facts.length > 0 && (
-                <ul className="vendor-facts">
-                  {action.facts.map((fact) => (
-                    <li key={fact}>{fact}</li>
-                  ))}
-                </ul>
-              )}
-              {action.examples && (
-                <p className="vendor-examples">Example SKUs: {action.examples.join(", ")}</p>
-              )}
-            </div>
-            <div className="vendor-action-price">
-              <strong>{action.price}</strong>
-              <span>{action.priceDetail}</span>
-              <button type="button" disabled title={provider.status.detail}>
-                Not available yet
-              </button>
-            </div>
+            <span className="vendor-action-name">{action.name}</span>
+            <span className="vendor-action-price">
+              <strong>{action.unitPrice}</strong>
+              {action.unitNote && <small>{action.unitNote}</small>}
+            </span>
           </li>
         ))}
-        {actions.length === 0 && (
-          <li className="vendor-action-empty">No {provider.actionNoun} match that filter.</li>
-        )}
       </ul>
       <footer className="vendor-sources">
-        <p>Prices checked on {verifiedLabel} from the vendor&apos;s own pages:</p>
-        <ul>
-          {provider.sources.map((s) => (
-            <li key={s.url}>
+        <p>
+          {provider.pricingNote} {provider.status.detail}
+        </p>
+        <p>
+          Checked {verifiedLabel} on{" "}
+          {provider.sources.map((s, i) => (
+            <span key={s.url}>
+              {i > 0 && ", "}
               <a href={s.url} target="_blank" rel="noopener noreferrer">
                 {s.label}
               </a>
-            </li>
+            </span>
           ))}
-        </ul>
+          .
+        </p>
       </footer>
     </article>
   );
