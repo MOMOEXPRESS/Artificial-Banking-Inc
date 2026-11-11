@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Icon } from "./ui";
 import { browserApiBase } from "./browser-api";
 import { ProviderDirectory } from "./vendor-directory";
-import { matchProviders } from "./vendor-directory-data";
+import { matchListings } from "./vendor-directory-data";
 export type MarketplaceProduct = {
   id: string;
   vendorId: string;
@@ -106,6 +106,10 @@ export function MarketplaceCatalog({
       });
     return () => c.abort();
   }, [submitted, kind, color, region, inStock, page, compact, vendor, category]);
+  // Integrated vendors' products and actions are listings too, counted with the
+  // seller listings from the API so the total is never a false zero.
+  const integrated = vendor ? 0 : matchListings(submitted.trim(), kind).length;
+  const listingTotal = integrated + total;
   function search(e: FormEvent) {
     e.preventDefault();
     setPage(0);
@@ -129,9 +133,9 @@ export function MarketplaceCatalog({
       {!compact && (
         <>
           <h2 className="reference-catalog-title">
-            {loading || total === 0
+            {listingTotal === 0
               ? "Explore the marketplace"
-              : `${total.toLocaleString()} listings for your agents`}
+              : `${listingTotal.toLocaleString()} ${listingTotal === 1 ? "listing" : "listings"} for your agents`}
           </h2>
           <div
             className="minimal-tabs reference-catalog-switch"
@@ -271,12 +275,23 @@ export function MarketplaceCatalog({
         </details>
       )}
       {!vendor && (
-        <ProviderDirectory query={submitted.trim()} kind={kind} inline={Boolean(onSelect)} />
+        <ProviderDirectory
+          query={submitted.trim()}
+          kind={kind}
+          inline={Boolean(onSelect)}
+          view={!compact && mode === "products" ? "listings" : "providers"}
+        />
       )}
-      <p role="status" aria-live="polite">
+      <p role="status" aria-live="polite" className={total ? undefined : "sr-only"}>
         {loading
-          ? "Checking current listings…"
-          : `${total} seller ${total === 1 ? "listing" : "listings"} found`}
+          ? integrated
+            ? ""
+            : "Checking current listings…"
+          : total
+            ? `${total} more seller ${total === 1 ? "listing" : "listings"}`
+            : integrated
+              ? `${integrated} ${integrated === 1 ? "listing" : "listings"} found`
+              : ""}
       </p>
       {error ? (
         <div role="alert" className="market-notice">
@@ -284,21 +299,17 @@ export function MarketplaceCatalog({
           <button onClick={() => setSubmitted(`${submitted} `)}>Try again</button>
         </div>
       ) : !loading && products.length === 0 ? (
-        <div className="market-empty">
-          <h3>
-            {submitted
-              ? "No matching seller listings yet"
-              : matchProviders("", kind).length
-                ? "No seller listings yet"
-                : "The marketplace is taking shape"}
-          </h3>
-          <p>
-            {submitted
-              ? "Try a broader search or remove a filter."
-              : "Reviewed sellers’ published products will appear here. The catalog won’t show pretend inventory."}
-          </p>
-          <Link href="/partners/login?mode=signup">Become a seller</Link>
-        </div>
+        integrated ? null : (
+          <div className="market-empty">
+            <h3>{submitted ? "No matching listings yet" : "The marketplace is taking shape"}</h3>
+            <p>
+              {submitted
+                ? "Try a broader search or remove a filter."
+                : "Reviewed sellers’ published products will appear here. The catalog won’t show pretend inventory."}
+            </p>
+            <Link href="/partners/login?mode=signup">Become a seller</Link>
+          </div>
+        )
       ) : mode === "providers" && !compact ? (
         <div className="reference-provider-list">
           {providers.length ? (

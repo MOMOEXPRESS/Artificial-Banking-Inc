@@ -14,6 +14,8 @@ export type ProviderKind = "service" | "physical";
 export type ProviderAction = {
   id: string;
   name: string;
+  /** Standalone title for a listing card, where the provider is named beside it. */
+  listingTitle: string;
   description: string;
   /** What an agent calls or orders: an API endpoint or a SKU prefix. */
   reference: string;
@@ -110,6 +112,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
       {
         id: "enhanced-matte-art",
         name: "Enhanced matte art print",
+        listingTitle: "Enhanced matte art print",
         description:
           "Prodigi's bestselling fine art paper, delivered rolled or flat, ready to frame.",
         reference: "SKU prefix GLOBAL-FAP · code EMA",
@@ -133,6 +136,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
       {
         id: "budget-poster",
         name: "Budget poster",
+        listingTitle: "Budget poster",
         description: "A bright white, affordable poster paper, delivered rolled or flat.",
         reference: "SKU prefix GLOBAL-BLP · code BLP",
         price: "From £3.00",
@@ -155,6 +159,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
       {
         id: "stretched-canvas",
         name: "Stretched canvas",
+        listingTitle: "Stretched canvas",
         description: "400gsm artist-grade canvas, tensioned over a 38mm kiln-dried pine frame.",
         reference: "SKU prefix GLOBAL-CAN",
         price: "From £14.00",
@@ -177,6 +182,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
       {
         id: "quote-order",
         name: "Quote an order",
+        listingTitle: "Print order quote",
         description:
           "Exact items, shipping, tax and total for one delivery address, before anything is ordered.",
         reference: "POST /v5/quotes/order",
@@ -231,6 +237,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
       {
         id: "fetch-page",
         name: "Fetch a page",
+        listingTitle: "Fetch a web page",
         description: "Raw HTML from a plain request, with no browser.",
         reference: "GET /v2/general · browser=false",
         price: "1 credit",
@@ -242,6 +249,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
       {
         id: "fetch-page-source",
         name: "Fetch page source in a browser",
+        listingTitle: "Fetch page source in a browser",
         description: "Headless browser without JavaScript rendering.",
         reference: "GET /v2/general · return_page_source=true",
         price: "2 credits",
@@ -253,6 +261,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
       {
         id: "render-page",
         name: "Render a page with JavaScript",
+        listingTitle: "Render a JavaScript page",
         description: "Headless Chrome with JavaScript, ScrapingAnt's default mode.",
         reference: "GET /v2/general",
         price: "10 credits",
@@ -264,6 +273,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
       {
         id: "page-markdown",
         name: "Page as Markdown",
+        listingTitle: "Convert a page to Markdown",
         description: "The page converted to Markdown, ready for an LLM.",
         reference: "GET /v2/markdown",
         price: "By settings",
@@ -276,6 +286,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
       {
         id: "ai-extract",
         name: "Extract fields with AI",
+        listingTitle: "Extract fields with AI",
         description:
           "Structured data from a page from a plain list such as “company name, email, phone”.",
         reference: "GET /v2/extract · extract_properties",
@@ -289,6 +300,7 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
       {
         id: "google-search",
         name: "Google results page",
+        listingTitle: "Scrape Google results",
         description: "Any request to a Google domain.",
         reference: "GET /v2/general · google.com",
         price: "10 credits",
@@ -327,6 +339,40 @@ export function matchProviders(query: string, kind: string) {
       p.kindLabel,
       ...p.categories,
       ...p.actions.flatMap((a) => [a.name, a.description, a.reference]),
+    ]
+      .join(" ")
+      .toLowerCase();
+    return words.every((w) => haystack.includes(w));
+  });
+}
+
+/** One action or product of an integrated vendor, shown as its own listing. */
+export type IntegratedListing = { provider: IntegratedProvider; action: ProviderAction };
+
+/** Every vendor action and product as a listing, in provider order. */
+export const INTEGRATED_LISTINGS: IntegratedListing[] = INTEGRATED_PROVIDERS.flatMap((provider) =>
+  provider.actions.map((action) => ({ provider, action })),
+);
+
+/**
+ * Listings for the catalog's search text and kind tab. A provider-level match
+ * (its name, tagline or category) keeps all its listings; otherwise each
+ * listing must match on its own words.
+ */
+export function matchListings(query: string, kind: string) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return INTEGRATED_LISTINGS.filter(({ provider, action }) => {
+    if (kind && provider.kind !== kind) return false;
+    if (words.length === 0) return true;
+    const haystack = [
+      provider.name,
+      provider.tagline,
+      provider.kindLabel,
+      ...provider.categories,
+      action.name,
+      action.listingTitle,
+      action.description,
+      action.reference,
     ]
       .join(" ")
       .toLowerCase();
