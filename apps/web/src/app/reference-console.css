@@ -253,6 +253,15 @@
   color: #525252;
   font-size: 12px;
 }
+/* Overview: the vault card spans the same width as the workspace row above it,
+   so both share left and right edges. It keeps bank-card proportions; the
+   height cap only applies on wide single-column layouts (tablets), where the
+   card would otherwise grow very tall. */
+.studio-console .reference-vault .liquid-wallet-card {
+  max-width: none;
+  max-height: 340px;
+  margin-inline: 0;
+}
 .reference-bank-card .vault-bank-card {
   height: auto;
   aspect-ratio: 1.7;
