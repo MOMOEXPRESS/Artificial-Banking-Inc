@@ -46,6 +46,17 @@ import { approvalRecord, intentStatus, outflowReconciliation } from "./outcomes.
 import { anomalies, burnForecast, jobEconomics, vendorLedger } from "./analytics.js";
 import { answerQuestion, buildSummary } from "./insights.js";
 import { attachmentContext, chatInput } from "./chat-attachments.js";
+import { commerceDatabase } from "./store.js";
+import { workspaceAuthorization, workspaceRequest } from "./workspace-context.js";
+import {
+  canUseWorkspace,
+  findWorkspace,
+  viewWorkspace,
+  workspaceForAgent,
+  WorkspaceError,
+} from "./workspaces.js";
+import { registerBotChallenge } from "./auth/bot-challenge.js";
+import { registerWorkspaceRoutes } from "./workspace-routes.js";
 import { runAbiAgent, runMemoryCommand } from "./abi-agent/index.js";
 import { parseMemoryCommand } from "./abi-agent/memory-commands.js";
 import {
@@ -654,7 +665,181 @@ function guardianRoute(
         },
       });
     }
-    Promise.resolve(handler(ctx.org, req, res)).catch((e) => {
+    const actorUserId = currentUser(req)?.user.id;
+    const checkAgent = (id: string | undefined) => {
+      const linked = id ? workspaceForAgent(id) : undefined;
+      if (linked && !canUseWorkspace(ctx.org.id, String(linked.id), ctx.role, actorUserId))
+        throw new WorkspaceError(
+          "WORKSPACE_FORBIDDEN",
+          "This workspace has not been shared with you.",
+          403,
+        );
+    };
+    try {
+      checkAgent(typeof req.body?.agentId === "string" ? req.body.agentId : undefined);
+      if (req.path.includes("/agents/") && typeof req.params.id === "string")
+        checkAgent(req.params.id);
+      if (req.path.includes("/approvals/") && typeof req.params.id === "string")
+        checkAgent(store.getApprovalAnyOrg(req.params.id)?.agentId);
+      if (req.path.includes("/session-keys/") && typeof req.params.id === "string")
+        checkAgent(store.listSessionKeys(ctx.org.id).find((k) => k.id === req.params.id)?.agentId);
+    } catch (e) {
+      return res.status(e instanceof WorkspaceError ? e.status : 403).json({
+        error: {
+          code: "WORKSPACE_FORBIDDEN",
+          message: e instanceof Error ? e.message : "Workspace access denied",
+        },
+      });
+    }
+    if (ctx.role !== "owner" && !req.header("x-abi-workspace")) {
+      const json = res.json.bind(res);
+      const canSeeFunding = (scope: string, id: string) => {
+        const row = commerceDatabase()
+          .prepare(
+            "SELECT id FROM abi_workspaces WHERE org_id=? AND funding_scope=? AND funding_id=?",
+          )
+          .get(ctx.org.id, scope, id) as { id: string } | undefined;
+        return !row || canUseWorkspace(ctx.org.id, row.id, ctx.role, actorUserId);
+      };
+      res.json = ((value: unknown) => {
+        if (value && typeof value === "object") {
+          const data = value as Record<string, unknown>;
+          if (Array.isArray(data.balances))
+            data.balances = (data.balances as { id: string }[]).filter((b) => {
+              const [scope, id] = String(b.id).split(":");
+              return (
+                !["dept", "shared"].includes(scope ?? "") ||
+                canSeeFunding(scope === "dept" ? "department" : "shared", id ?? "")
+              );
+            });
+          for (const [field, scope] of [
+            ["departments", "department"],
+            ["shared", "shared"],
+          ])
+            if (Array.isArray(data[field!]))
+              data[field!] = (data[field!] as { id: string }[]).filter((row) =>
+                canSeeFunding(scope!, row.id),
+              );
+        }
+        if (value && typeof value === "object")
+          for (const field of ["agents", "approvals", "decisions", "sessionKeys", "runs"]) {
+            const data = value as Record<string, unknown>;
+            if (Array.isArray(data[field]))
+              data[field] = (data[field] as Record<string, unknown>[]).filter((row) => {
+                const aid = field === "agents" ? row.id : row.agentId;
+                const linked = typeof aid === "string" ? workspaceForAgent(aid) : undefined;
+                return (
+                  !linked || canUseWorkspace(ctx.org.id, String(linked.id), ctx.role, actorUserId)
+                );
+              });
+          }
+        return json(value);
+      }) as typeof res.json;
+    }
+    const workspaceId = req.header("x-abi-workspace");
+    if (workspaceId) {
+      try {
+        findWorkspace(ctx.org.id, workspaceId);
+        if (!canUseWorkspace(ctx.org.id, workspaceId, ctx.role, currentUser(req)?.user.id))
+          throw new WorkspaceError(
+            "WORKSPACE_FORBIDDEN",
+            "This workspace has not been shared with your account.",
+            403,
+          );
+        const agentId =
+          typeof req.params.id === "string" && req.path.includes("/agents/")
+            ? req.params.id
+            : req.body?.agentId;
+        if (agentId && workspaceForAgent(agentId)?.id !== workspaceId)
+          throw new WorkspaceError(
+            "WORKSPACE_MISMATCH",
+            "This agent belongs to a different workspace.",
+            403,
+          );
+        if (req.path.includes("/session-keys/") && req.params.id) {
+          const key = store.listSessionKeys(ctx.org.id).find((k) => k.id === req.params.id);
+          if (key && workspaceForAgent(key.agentId)?.id !== workspaceId)
+            throw new WorkspaceError(
+              "WORKSPACE_MISMATCH",
+              "This key belongs to another workspace.",
+              403,
+            );
+        }
+        const json = res.json.bind(res);
+        res.json = ((value: unknown) => {
+          if (value && typeof value === "object") {
+            const data = value as Record<string, unknown>;
+            const inWorkspace = (row: Record<string, unknown>) =>
+              typeof row.agentId !== "string" || workspaceForAgent(row.agentId)?.id === workspaceId;
+            for (const name of [
+              "agents",
+              "approvals",
+              "decisions",
+              "sessionKeys",
+              "runs",
+              "orders",
+            ]) {
+              if (Array.isArray(data[name]))
+                data[name] = (data[name] as Record<string, unknown>[]).filter((row) =>
+                  name === "agents"
+                    ? workspaceForAgent(String(row.id))?.id === workspaceId
+                    : inWorkspace(row),
+                );
+            }
+            if (req.path === "/v1/guardian/org") {
+              const w = viewWorkspace(ctx.org.id, workspaceId);
+              if (data.org && typeof data.org === "object")
+                data.org = { ...data.org, name: w.name };
+              data.balances = [
+                { id: workspaceId, kind: "org_available", usdc: w.balance.availableUsdc },
+              ];
+              data.workspace = w;
+            }
+          }
+          return json(value);
+        }) as typeof res.json;
+      } catch (e) {
+        return res.status(e instanceof WorkspaceError ? e.status : 400).json({
+          error: {
+            code: e instanceof WorkspaceError ? e.code : "WORKSPACE_INVALID",
+            message: e instanceof Error ? e.message : "Invalid workspace",
+          },
+        });
+      }
+    }
+    const allowedAgentIds =
+      ctx.role === "owner"
+        ? undefined
+        : new Set(
+            store
+              .listAgents(ctx.org.id)
+              .filter((a) => {
+                const w = workspaceForAgent(a.id);
+                return !w || canUseWorkspace(ctx.org.id, String(w.id), ctx.role, actorUserId);
+              })
+              .map((a) => a.id),
+          );
+    const invoke = () =>
+      workspaceAuthorization.run(
+        { orgId: ctx.org.id, role: ctx.role, userId: actorUserId, allowedAgentIds },
+        () => handler(ctx.org, req, res),
+      );
+    Promise.resolve(
+      workspaceId
+        ? workspaceRequest.run(
+            {
+              orgId: ctx.org.id,
+              workspaceId,
+              agentIds: new Set(
+                viewWorkspace(ctx.org.id, workspaceId).connections.map((c) =>
+                  String((c as { agentId: string }).agentId),
+                ),
+              ),
+            },
+            invoke,
+          )
+        : invoke(),
+    ).catch((e) => {
       if (e instanceof z.ZodError) {
         return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: e.message } });
       }
@@ -669,7 +854,9 @@ function guardianRoute(
   };
 }
 
+registerBotChallenge(app);
 registerAuthRoutes(app);
+registerWorkspaceRoutes(app, { guardianRoute, authAgent });
 registerMfaRoutes(app);
 registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
 registerAgentRoutes(app, { guardianRoute });
@@ -2766,7 +2953,14 @@ app.get("/v1/agent/budget", (req, res) => {
   const rules = rulesFor(auth.agentId, auth.orgId);
   const spent = store.spentLast24h(auth.agentId);
   const remaining = rules.dailyMaxMicro - spent;
+  const bound = workspaceForAgent(auth.agentId);
+  const workspace = bound ? viewWorkspace(auth.orgId, String(bound.id)) : undefined;
+  if (bound)
+    commerceDatabase()
+      .prepare("UPDATE abi_workspace_connections SET verified_at=? WHERE agent_id=?")
+      .run(new Date().toISOString(), auth.agentId);
   res.json({
+    ...(workspace ? { workspace } : {}),
     agentId: auth.agentId,
     agentName: scopedStore(auth.orgId).getAgent(auth.agentId)?.name ?? auth.agentId,
     groups: scopedStore(auth.orgId)

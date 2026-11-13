@@ -26,6 +26,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model AbiCardReservations {
+  intentId String @id @map("intent_id")
+  cardId String @map("card_id") // -> abi_workspace_cards.id
+  agentId String @map("agent_id")
+  amountMicro BigInt @map("amount_micro")
+  createdAt String @map("created_at")
+  escrowId String? @map("escrow_id")
+  state String @default("pending")
+  @@map("abi_card_reservations")
+}
+
 model AbiMemories {
   id String @id
   orgId String @map("org_id") // -> orgs.id
@@ -34,6 +45,80 @@ model AbiMemories {
   createdAt String @map("created_at")
   @@index([orgId, createdAt])
   @@map("abi_memories")
+}
+
+model AbiWorkspaceAllocations {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  fromId String @map("from_id") // -> abi_workspaces.id
+  toId String @map("to_id") // -> abi_workspaces.id
+  amountMicro BigInt @map("amount_micro")
+  createKey String @map("create_key")
+  journalId String @map("journal_id")
+  createdAt String @map("created_at")
+  @@unique([orgId, createKey])
+  @@map("abi_workspace_allocations")
+}
+
+model AbiWorkspaceCards {
+  id String @id
+  workspaceId String @map("workspace_id") // -> abi_workspaces.id
+  status String @default("active")
+  limitMicro BigInt? @map("limit_micro")
+  period String @default("month")
+  startsAt String @map("starts_at")
+  allowRecurring Int @default(0) @map("allow_recurring")
+  @@unique([workspaceId])
+  @@map("abi_workspace_cards")
+}
+
+model AbiWorkspaceChat {
+  messageId String @id @map("message_id") // -> chat_messages.id
+  workspaceId String @map("workspace_id") // -> abi_workspaces.id
+  @@map("abi_workspace_chat")
+}
+
+model AbiWorkspaceConnections {
+  id String @id
+  workspaceId String @map("workspace_id") // -> abi_workspaces.id
+  cardId String @map("card_id") // -> abi_workspace_cards.id
+  agentId String @map("agent_id") // -> agents.id
+  createKey String @map("create_key")
+  createdAt String @map("created_at")
+  verifiedAt String? @map("verified_at")
+  @@unique([workspaceId, createKey])
+  @@unique([agentId])
+  @@map("abi_workspace_connections")
+}
+
+model AbiWorkspaceCredentials {
+  sessionId String @id @map("session_id") // -> session_keys.id
+  connectionId String @map("connection_id") // -> abi_workspace_connections.id
+  @@map("abi_workspace_credentials")
+}
+
+model AbiWorkspaceMembers {
+  workspaceId String @map("workspace_id") // -> abi_workspaces.id
+  userId String @map("user_id") // -> users.id
+  @@id([workspaceId, userId])
+  @@unique([workspaceId, userId])
+  @@map("abi_workspace_members")
+}
+
+model AbiWorkspaces {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  name String
+  fundingScope String @map("funding_scope")
+  fundingId String @map("funding_id")
+  isDefault Int @default(0) @map("is_default")
+  createdAt String @map("created_at")
+  createKey String? @map("create_key")
+  sellerOrgId String? @map("seller_org_id") // -> orgs.id
+  @@unique([orgId])
+  @@unique([orgId, createKey])
+  @@unique([orgId, fundingScope, fundingId])
+  @@map("abi_workspaces")
 }
 
 model Accounts {
@@ -107,6 +192,8 @@ model Agents {
   apiKey String @map("api_key")
   budgetId String? @map("budget_id")
   profileJson String? @map("profile_json")
+  apiKeyExpiresAt String? @map("api_key_expires_at")
+  apiKeyHint String? @map("api_key_hint")
   @@index([orgId])
   @@unique([apiKey])
   @@map("agents")

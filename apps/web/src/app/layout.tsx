@@ -20,6 +20,7 @@ import "./settings-resources.css";
 import "./seller-listing.css";
 import "./interaction-motion.css";
 import "./assistant-chat.css";
+import "./workspace-controls.css";
 
 // Self-hosted Inter (SIL OFL; fonts/OFL-Inter.txt) matches the supplied reference.
 const interSans = localFont({

@@ -14,6 +14,8 @@ import {
 } from "@policyvault/common";
 import { transferAvailable, type LedgerAccountKind } from "@policyvault/ledger";
 import { getCustodyProvider } from "@policyvault/custody";
+import { assertWorkspaceMovement } from "../workspaces.js";
+import { commerceDatabase } from "../store.js";
 import type express from "express";
 import { z } from "zod";
 import { id } from "../engine.js";
@@ -360,12 +362,17 @@ function executeMove(org: OrgRow, move: TreasuryMoveRow): void {
   const fromOwner = resolveWalletOwner(org, { scope: move.fromScope, id: move.fromId });
   const toOwner = resolveWalletOwner(org, { scope: move.toScope, id: move.toId });
   if (!fromOwner || !toOwner) throw new Error("WALLET_NOT_FOUND");
+  assertWorkspaceMovement(org.id, move.fromScope, fromOwner, move.amountMicro);
+  assertWorkspaceMovement(org.id, move.toScope, toOwner);
+  const allocation = commerceDatabase()
+    .prepare("SELECT journal_id FROM abi_workspace_allocations WHERE id=? AND org_id=?")
+    .get(move.id, org.id) as { journal_id: string } | undefined;
   ensureAvailableAccount(org.id, move.fromScope, fromOwner);
   ensureAvailableAccount(org.id, move.toScope, toOwner);
   store.applyEntries(org.id, [
     transferAvailable({
       orgId: org.id,
-      journalId: id("j"),
+      journalId: allocation?.journal_id ?? id("j"),
       fromAvailableId: accountId(move.fromScope, fromOwner),
       toAvailableId: accountId(move.toScope, toOwner),
       amountMicro: move.amountMicro,

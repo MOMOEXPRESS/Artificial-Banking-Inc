@@ -14,7 +14,13 @@ import { ABAppIcon } from "../../lib/brand";
 import { showApprovalToast } from "../../lib/approval-toast";
 import { Icon, fmtUsd, relTime } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
-import { MinimalOverview, MinimalConnect, MinimalBilling } from "../../lib/minimal-workspace";
+import { MinimalOverview, MinimalBilling } from "../../lib/minimal-workspace";
+import { useWorkspaces } from "../../lib/workspace-client";
+import {
+  WorkspaceSwitcher,
+  WorkspaceFunds,
+  WorkspaceConnections,
+} from "../../lib/workspace-controls";
 import { StudioNav } from "../../lib/studio-nav";
 import { MarketplaceBuyer } from "../../lib/marketplace-buyer";
 import { AssistantDock } from "../../lib/assistant-dock";
@@ -26,7 +32,6 @@ import { PageTour } from "../../lib/page-tour";
 import { WorkView, type Invoice, type InvoiceStats, type Run } from "../../lib/views";
 import { AgentsView } from "../../lib/agents-view";
 import { PaymentsView } from "../../lib/payments-view";
-import { WalletWorkspace } from "../../lib/wallet-workspace";
 import {
   KeyboardHelp,
   useConsoleShortcuts,
@@ -409,6 +414,7 @@ export default function Console() {
   // views — the agent keeps working while you go approve something.
   const [mission, setMission] = useState<MissionState>(emptyMissionState);
 
+  const workspaceRef = useRef<string>("");
   const sessionRef = useRef<Session | null>(null);
   sessionRef.current = session;
   const prefsRef = useRef(prefs);
@@ -666,13 +672,19 @@ export default function Console() {
       } else if (s?.guardianKey) {
         headers.Authorization = `Bearer ${s.guardianKey}`;
       }
+      const requestWorkspace = workspaceRef.current;
+      const requestOrg = s?.orgId;
+      if (requestWorkspace) headers["x-abi-workspace"] = requestWorkspace;
       // A hung request used to stall a whole Promise.all polling tier, which
       // left views on their skeleton forever. Abort after 15 s instead.
-      return fetchWithTimeout(`${API}${path}`, {
+      const response = await fetchWithTimeout(`${API}${path}`, {
         ...init,
         credentials: "include",
         headers,
       });
+      if (workspaceRef.current !== requestWorkspace || sessionRef.current?.orgId !== requestOrg)
+        throw new Error("Workspace changed. Reload this workspace to see the current result.");
+      return response;
     },
     [readCsrf],
   );
@@ -686,6 +698,14 @@ export default function Console() {
     (path: string, init?: RequestInit) => guard(() => rawFetch(path, init)),
     [guard, rawFetch],
   );
+
+  const workspaceState = useWorkspaces(gFetch, session?.orgId, session?.mode === "session", (w) => {
+    if (workspaceRef.current && workspaceRef.current !== w.id) updateSession({ agentKeys: [] });
+    workspaceRef.current = w.id;
+    localStorage.setItem(`abi_workspace:${w.orgId}`, w.id);
+    if (sessionRef.current?.orgId !== w.orgId) updateSession({ orgId: w.orgId, agentKeys: [] });
+  });
+  workspaceRef.current = workspaceState.current?.id ?? "";
 
   /**
    * Two-tier polling. Fast = approvals/activity; slow = journals/config.
@@ -1071,6 +1091,14 @@ export default function Console() {
     };
   }, [session, session?.orgId, org?.actor?.role, gFetch]);
 
+  useEffect(() => {
+    if (!workspaceState.current) return;
+    void refreshFast();
+    void refreshSlow();
+    // Reload visible data for the selected workspace; in-flight old responses are rejected above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceState.current?.id]);
+
   if (!hydrated) return null;
   if (!session) return <Login onLogin={saveSession} setToast={setToast} />;
 
@@ -1202,6 +1230,17 @@ export default function Console() {
         <main className="main">
           <div className="studio-shell-header">
             <StudioNav active={view} onNavigate={(v, t) => setView(v as View, t)} />
+            {workspaceState.items.length > 0 && (
+              <WorkspaceSwitcher
+                items={workspaceState.items}
+                value={workspaceState.current?.id ?? ""}
+                onSelect={workspaceState.choose}
+                gFetch={gFetch}
+                onChanged={workspaceState.load}
+                readOnly={readOnly}
+              />
+            )}
+            {workspaceState.error && <p role="alert">{workspaceState.error}</p>}
             <header className="topbar">
               <div className="topbar-title-block">
                 <nav className="crumb" aria-label="Breadcrumb">
@@ -1557,26 +1596,52 @@ export default function Console() {
                   />
                 )}
                 {view === "overview" && (
-                  <MinimalOverview org={org} onNavigate={(v, t) => setView(v, t)} />
-                )}
-                {view === "connect" && (
-                  <MinimalConnect
-                    onKeyRevealed={(entry) =>
-                      updateSession({
-                        agentKeys: [
-                          ...session.agentKeys.filter((k) => k.agentId !== entry.agentId),
-                          entry,
-                        ],
-                      })
-                    }
+                  <MinimalOverview
                     org={org}
-                    gFetch={gFetch}
-                    readOnly={readOnly}
+                    workspace={workspaceState.current}
                     onNavigate={(v, t) => setView(v, t)}
                   />
                 )}
+                {view === "connect" && workspaceState.current && (
+                  <WorkspaceConnections
+                    key={workspaceState.current.id}
+                    workspace={workspaceState.current}
+                    workspaces={workspaceState.items}
+                    gFetch={gFetch}
+                    onChanged={workspaceState.load}
+                    readOnly={readOnly}
+                    onNavigate={(v) => setView(v === "workspace-keys" ? "agents" : (v as View))}
+                  />
+                )}
+                {view === "treasury" && workspaceState.current && (
+                  <WorkspaceFunds
+                    key={workspaceState.current.id}
+                    workspace={workspaceState.current}
+                    workspaces={workspaceState.items}
+                    gFetch={gFetch}
+                    onChanged={workspaceState.load}
+                    readOnly={readOnly}
+                    onNavigate={(v) => setView(v as View)}
+                  />
+                )}
+                {view === "connect" && !workspaceState.current && (
+                  <p role="status">{workspaceState.error || "Loading workspace…"}</p>
+                )}
                 {view === "billing" && (
                   <MinimalBilling
+                    limitsContent={
+                      workspaceState.current ? (
+                        <WorkspaceFunds
+                          key={workspaceState.current.id}
+                          workspace={workspaceState.current}
+                          workspaces={workspaceState.items}
+                          gFetch={gFetch}
+                          onChanged={workspaceState.load}
+                          readOnly={readOnly || org?.actor?.role === "approver"}
+                          onNavigate={(v) => setView(v as View)}
+                        />
+                      ) : undefined
+                    }
                     initialTab={tabHint}
                     org={org}
                     gFetch={gFetch}
@@ -1584,16 +1649,8 @@ export default function Console() {
                     onNavigate={(v, t) => setView(v, t)}
                   />
                 )}
-                {view === "treasury" && (
-                  <WalletWorkspace
-                    org={org}
-                    onNavigate={(v, t) => setView(v, t)}
-                    gFetch={gFetch}
-                    busy={busy}
-                    act={act}
-                    readOnly={readOnly}
-                    initialAction={tabHint}
-                  />
+                {view === "treasury" && !workspaceState.current && (
+                  <p role="status">{workspaceState.error || "Loading workspace…"}</p>
                 )}
                 {view === "agents" && (
                   <AgentsView
@@ -1701,7 +1758,7 @@ export default function Console() {
                 )}
                 {view === "chat" && (
                   <ChatView
-                    key={session.orgId}
+                    key={`${session.orgId}:${workspaceState.current?.id ?? ""}`}
                     canConfigure={org?.actor?.role === "owner" || !!session.guardianKey}
                     gFetch={gFetch}
                     act={act}
@@ -1799,7 +1856,7 @@ export default function Console() {
         </nav>
 
         <AssistantDock
-          key={session.orgId}
+          key={`${session.orgId}:${workspaceState.current?.id ?? ""}`}
           currentView={view}
           canConfigure={org?.actor?.role === "owner" || !!session.guardianKey}
           gFetch={gFetch}

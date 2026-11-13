@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuthChallenge } from "../../../lib/auth-challenge";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ABLockup } from "../../../lib/brand";
@@ -161,6 +162,8 @@ export default function PartnerLoginPage() {
     }
   }
 
+  const challenge = useAuthChallenge(mode === "signin" ? "seller_login" : "seller_signup");
+
   async function submit() {
     setError(null);
     if (resetToken) return confirmReset();
@@ -175,6 +178,7 @@ export default function PartnerLoginPage() {
         mode === "signin"
           ? await post("/v1/partner/auth/login", {
               email: email.trim(),
+              challengeToken: challenge.take(),
               password,
               ...(mfaStep && mfaCode.trim()
                 ? useRecovery
@@ -184,6 +188,7 @@ export default function PartnerLoginPage() {
             })
           : await post("/v1/partner/auth/signup", {
               email: email.trim(),
+              challengeToken: challenge.take(),
               password,
               name: name.trim(),
               companyName: companyName.trim(),
@@ -224,10 +229,12 @@ export default function PartnerLoginPage() {
         );
         return;
       }
+      sessionStorage.removeItem("abi_seller_workspace");
       window.location.assign("/seller");
     } catch {
       setError("Could not reach the ABI API.");
     } finally {
+      challenge.reset();
       setBusy(false);
     }
   }
@@ -261,9 +268,11 @@ export default function PartnerLoginPage() {
           }}
         >
           <h1>Seller workspace</h1>
+          {challenge.element}
           <p className="login-sub">
-            List your tools, software and physical products. Seller accounts are separate from buyer
-            accounts; you can use the same email to create yours.
+            List your tools, software and physical products. Use your ABI workspace to buy and sell.
+            Legacy seller accounts retain their own accounts; you can use the same email to create
+            yours.
           </p>
 
           <div

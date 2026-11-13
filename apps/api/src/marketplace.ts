@@ -1,6 +1,14 @@
 /** Durable commerce above ABI's existing money path. No signing or ledger code lives here. */
+import { workspaceAuthorization, workspaceRequest } from "./workspace-context.js";
 import { randomUUID, createHash } from "node:crypto";
 import { serviceListingSchema } from "@policyvault/common";
+
+function canReadAgent(orgId: string, agentId: string) {
+  const selected = workspaceRequest.getStore(),
+    access = workspaceAuthorization.getStore();
+  if (selected?.orgId === orgId) return selected.agentIds?.has(agentId) ?? false;
+  return access?.orgId !== orgId || !access.allowedAgentIds || access.allowedAgentIds.has(agentId);
+}
 
 // SQL adapter boundary: compatible with better-sqlite3 and the test's node:sqlite adapter.
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -158,12 +166,21 @@ export function createMarketplace(db: CommerceDatabase, adapters: CommerceAdapte
       actor.orgId,
       actor.agentId,
     ) ?? fail("NOT_FOUND", "Cart not found", 404);
-  const ownedItem = (orgId: string, id: string, seller = false) =>
-    get(
+  const ownedItem = (orgId: string, id: string, seller = false) => {
+    const r = get(
       `SELECT i.*,o.buyer_org,o.agent_id,o.address_json FROM marketplace_order_items i JOIN marketplace_orders o ON o.id=i.order_id WHERE i.id=? AND ${seller ? "i.seller_org" : "o.buyer_org"}=?`,
       id,
       orgId,
-    ) ?? fail("NOT_FOUND", "Order item not found", 404);
+    );
+    const scope = workspaceRequest.getStore();
+    if (
+      !r ||
+      (!seller && !canReadAgent(orgId, r.agent_id)) ||
+      (!seller && scope?.orgId === orgId && !scope.agentIds?.has(r.agent_id))
+    )
+      return fail("NOT_FOUND", "Order item not found", 404);
+    return r;
+  };
   const sellerProduct = (orgId: string, id: string) =>
     get("SELECT * FROM products WHERE id=? AND org_id=?", id, orgId) ??
     fail("NOT_FOUND", "Product not found", 404);
@@ -208,7 +225,14 @@ export function createMarketplace(db: CommerceDatabase, adapters: CommerceAdapte
   });
   const orderView = (orgId: string, id: string, agentId?: string) => {
     const o = get("SELECT * FROM marketplace_orders WHERE id=? AND buyer_org=?", id, orgId);
-    if (!o || (agentId && o.agent_id !== agentId)) return fail("NOT_FOUND", "Order not found", 404);
+    const scope = workspaceRequest.getStore();
+    if (
+      !o ||
+      !canReadAgent(orgId, o.agent_id) ||
+      (agentId && o.agent_id !== agentId) ||
+      (scope?.orgId === orgId && !scope.agentIds?.has(o.agent_id))
+    )
+      return fail("NOT_FOUND", "Order not found", 404);
     return {
       id: o.id,
       quoteId: o.quote_id,
@@ -873,9 +897,15 @@ export function createMarketplace(db: CommerceDatabase, adapters: CommerceAdapte
           orgId,
         ).map((r) => publicItem(r, true));
       return all(
-        `SELECT id FROM marketplace_orders WHERE buyer_org=? ${agentId ? "AND agent_id=?" : ""} ORDER BY created_at DESC LIMIT 100`,
+        `SELECT id,agent_id FROM marketplace_orders WHERE buyer_org=? ${agentId ? "AND agent_id=?" : ""} ORDER BY created_at DESC LIMIT 100`,
         ...(agentId ? [orgId, agentId] : [orgId]),
-      ).map((o) => orderView(orgId, o.id, agentId));
+      )
+        .filter((o) => canReadAgent(orgId, o.agent_id))
+        .filter(
+          (o) =>
+            !workspaceRequest.getStore() || workspaceRequest.getStore()?.agentIds?.has(o.agent_id),
+        )
+        .map((o) => orderView(orgId, o.id, agentId));
     },
     order: orderView,
     async pay(actor: CommerceActor, orderId: string) {
@@ -1221,19 +1251,32 @@ export function createMarketplace(db: CommerceDatabase, adapters: CommerceAdapte
         "SELECT * FROM marketplace_cases WHERE buyer_org=? OR seller_org=? ORDER BY created_at DESC LIMIT 100",
         orgId,
         orgId,
-      ).map((c) => ({
-        ...c,
-        messages: all(
-          "SELECT actor_org,message,created_at FROM marketplace_case_messages WHERE case_id=? ORDER BY created_at,id",
-          c.id,
-        ),
-        returnShipment:
-          get("SELECT state,label_json FROM marketplace_returns WHERE case_id=?", c.id) ?? null,
-      }));
+      )
+        .filter(
+          (c) =>
+            c.seller_org === orgId ||
+            canReadAgent(
+              orgId,
+              get(
+                "SELECT o.agent_id FROM marketplace_order_items i JOIN marketplace_orders o ON o.id=i.order_id WHERE i.id=?",
+                c.item_id,
+              )?.agent_id ?? "",
+            ),
+        )
+        .map((c) => ({
+          ...c,
+          messages: all(
+            "SELECT actor_org,message,created_at FROM marketplace_case_messages WHERE case_id=? ORDER BY created_at,id",
+            c.id,
+          ),
+          returnShipment:
+            get("SELECT state,label_json FROM marketplace_returns WHERE case_id=?", c.id) ?? null,
+        }));
     },
     async returnLabel(orgId: string, caseId: string) {
       const c = get("SELECT * FROM marketplace_cases WHERE id=? AND buyer_org=?", caseId, orgId);
       if (!c) return fail("NOT_FOUND", "Return case not found", 404);
+      ownedItem(orgId, c.item_id);
       if (c.kind !== "return" || c.state !== "return_authorized")
         return fail("RETURN_NOT_AUTHORIZED", "A reviewer must authorize the return first");
       const previous = get("SELECT label_json FROM marketplace_returns WHERE case_id=?", caseId);

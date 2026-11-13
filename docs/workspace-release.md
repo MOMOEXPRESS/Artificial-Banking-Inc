@@ -1,0 +1,28 @@
+# Workspace restructuring release
+
+Reviewed 13 November 2026. This implements the account → workspace → card → agent-connection flow while preserving the existing SQLite ledger, custody and stablecoin settlement. An ABI card is spending authority, not newly issued payment-network plastic.
+
+## Implemented behavior
+
+- The account workspace list covers verified organization memberships. A visible switcher selects the active organization/workspace; creation automatically selects the new workspace. Stale responses are rejected after a switch, and one-time chat/key state remounts with the workspace.
+- New account signup creates General and its card inside the existing signup transaction. New additional workspaces atomically create zero-funded backing accounts and exactly one card. Retried creation uses an idempotency key; a different payload cannot reuse it. New cards start with a zero shared spending limit.
+- Legacy organization, department and shared funding accounts map additively to General or named workspaces. Agent labels do not create duplicate workspaces. Existing journal IDs, custody addresses, balances and held accounts remain unchanged. Unassigned or ambiguous legacy agents are not silently redirected. They require an explicit migration decision; legacy account-level APIs remain for owner review.
+- Each new card connection creates an agent identity and a separate expiring, revocable session key. The unused root-agent key is revoked immediately. Credential records bind to the connection; changing an agent's legacy budget cannot retarget a bound connection. Secrets display once; rotation preserves authority/expiry and clears verification evidence.
+- All agents on a card share the same funds and cap. Durable reservations are checked synchronously in a transaction before external payment work begins. Settled charges count, definitive failures release capacity, and unknown outcomes remain reserved. Frozen cards block new spending across REST/SDK/MCP paths while original funding references remain available for reconciliation/refunds.
+- Read-only `/v1/agent/context` and the existing budget probe confirm the key's actual workspace/card/scopes and record verification time. A header cannot move an agent into another workspace. Hosted MCP remains testnet-only; named client logos are not individual client certification.
+- Workspace allocations use balanced ledger entries and durable idempotent receipts. They move available funds only and do not reset limits. Above-threshold moves use existing treasury review/quorum. Both workspaces show the same receipt; pending movements can be reviewed from allocation history. Cross-tenant/custody pairs are not fabricated as internal transfers.
+- Existing organization memberships retain access to legacy workspaces. New workspaces are owner-only until shared with an existing account member through the owner-only membership endpoint. Selected workspace and record/key ownership checks are server-side; omitting the selector does not expose private agent/key records.
+- Chat history, saved notes, model settings and model egress consent follow the active workspace. Legacy conversations and consent stay in General; a new workspace does not silently inherit model egress. Marketplace order and delivery reads retain their original agent/workspace ownership.
+- Seller tools can be enabled from the same verified owner login. Seller business records and payouts remain separate. Linking an existing seller requires both active authenticated sessions and an explicit link action; matching email alone grants nothing. Existing seller-only sessions remain supported. Payout changes keep password and MFA checks against the correct identity realm.
+
+## Security follow-ups
+
+Compatible dependency updates were applied without forcing major upgrades. The current production audit reports **10 findings: 0 critical, 9 high, 1 moderate**. The Next.js 16/Zod 4/Prisma dependency migration remains awaiting the specific approval described in `security-upgrade-proposal.md`; automatic approval review rejected the original broad breaking upgrade. No clean dependency audit is claimed.
+
+Turnstile's frontend and server integration are implemented for buyer/seller password login and signup. Server Siteverify requires the exact action and production hostname and fails closed; browser tokens reset after each attempt. The user approved `turnstile-activation-manifest.md`. Activation happens after this compatible frontend/API are deployed; real-token success and replay checks must be recorded separately before claiming live verification.
+
+## Validation and scope
+
+Tests cover zero-money creation, replay conflicts, preserved legacy balances, two agents competing for one cap, frozen-card denial, immutable funding, CSRF, private-workspace access, real connection probes, key rotation/revocation, scoped history/notes and unified seller access. Browser checks use an actual local Next proxy, API and isolated SQLite database at 1440px and 390px; they create a workspace, issue a key, verify it, allocate funds, set its shared cap, freeze/unfreeze and reload. Synthetic funds/accounts are not production activity.
+
+This release does not migrate money to a new chain, invent receiving addresses, activate card-to-USDC conversion, implement arbitrary provider credential injection/write actions or certify real third-party agent clients. Existing unsupported provider invocation and monthly billing remain unavailable. Legacy per-agent policies remain in force; inherited legacy cards require an explicit shared limit before granting payment access to a new connection.

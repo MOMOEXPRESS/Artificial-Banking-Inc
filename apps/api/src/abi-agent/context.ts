@@ -3,6 +3,8 @@
  * Facts only — never invents balances.
  */
 import { accountId, formatMicroToUsdc } from "@policyvault/common";
+import { workspaceRequest } from "../workspace-context.js";
+import { viewWorkspace } from "../workspaces.js";
 import { store } from "../store.js";
 import { quietHoursStatus } from "./quiet.js";
 
@@ -34,6 +36,31 @@ export type OrgContext = {
 };
 
 export function buildOrgContext(orgId: string): OrgContext {
+  const scope = workspaceRequest.getStore();
+  if (scope?.orgId === orgId) {
+    const w = viewWorkspace(orgId, scope.workspaceId),
+      p = store.getPolicyTemplate(orgId);
+    return {
+      pendingApprovals: store
+        .listApprovals(orgId, "pending", 100)
+        .filter((a) =>
+          (w.connections as { agentId: string }[]).some((c) => c.agentId === a.agentId),
+        ).length,
+      activeAgents: w.connections.length,
+      vaultUsdc: w.balance.availableUsdc,
+      hitlAboveUsdc: formatMicroToUsdc(p.hitlAboveMicro),
+      perTxMaxUsdc: formatMicroToUsdc(p.perTxMaxMicro),
+      dailyMaxUsdc: formatMicroToUsdc(p.dailyMaxMicro),
+      quiet: "Account policy applies",
+      booksOk: null,
+      agents: (w.connections as { name: string; status: string }[]).map((c) => ({
+        name: c.name,
+        status: c.status,
+        stipendUsdc: w.balance.availableUsdc,
+      })),
+      budgets: [{ name: w.name, availableUsdc: w.balance.availableUsdc }],
+    };
+  }
   const accounts = store.getAccountMap(orgId);
   const vault = accounts.get(accountId("org", orgId))?.balanceMicro ?? 0n;
   const agents = store.listAgents(orgId).filter((a) => a.status === "active").length;
