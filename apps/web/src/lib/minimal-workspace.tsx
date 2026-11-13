@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { AgentKey, OrgView, View } from "./console-types";
 import { marketplaceJson } from "./marketplace-catalog";
 import { Icon } from "./ui";
@@ -8,15 +8,30 @@ import { SpendingLimits } from "./spending-limits";
 import { LiquidWalletCard } from "./liquid-wallet-card";
 import { AgentLogoCluster } from "./agent-logo-cluster";
 type Fetcher = (path: string, init?: RequestInit) => Promise<Response>;
-type Props = { org: OrgView | null | undefined; onNavigate: (view: View, tab?: string) => void };
+type Props = {
+  org: OrgView | null | undefined;
+  onNavigate: (view: View, tab?: string) => void;
+  workspace?: import("./workspace-client").Workspace | null;
+};
 const usd = (cents: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 function usdc(value?: string) {
   return value ?? "0.00";
 }
-export function MinimalOverview({ org, onNavigate }: Props) {
-  const agents = org?.agents ?? [],
-    available = org?.balances.find((b) => b.kind === "org_available")?.usdc ?? "0.00";
+export function MinimalOverview({ org, onNavigate, workspace }: Props) {
+  const agents = workspace
+      ? workspace.connections.map((c) => ({
+          id: c.agentId,
+          name: c.name,
+          status: c.status,
+          availableUsdc: workspace.balance.availableUsdc,
+          budget: { name: workspace.name },
+        }))
+      : (org?.agents ?? []),
+    available =
+      workspace?.balance.availableUsdc ??
+      org?.balances.find((b) => b.kind === "org_available")?.usdc ??
+      "0.00";
   return (
     <section className="minimal-page reference-overview">
       <header className="minimal-page-heading">
@@ -72,11 +87,11 @@ export function MinimalOverview({ org, onNavigate }: Props) {
         </section>
         <section className="reference-vault" aria-label="ABI workspace vault">
           <div className="reference-workspace-row">
-            <strong>{org?.org.name ?? "General"}</strong>
+            <strong>{workspace?.name ?? org?.org.name ?? "General"}</strong>
             <span>{available} USDC available</span>
           </div>
           <LiquidWalletCard
-            name={org?.org.name}
+            name={workspace?.name ?? org?.org.name}
             network={org?.network?.testnet === false ? "Base" : "Base Sepolia"}
             onOpen={() => onNavigate("treasury")}
           />
@@ -90,7 +105,7 @@ export function MinimalOverview({ org, onNavigate }: Props) {
       </div>
       <section className="minimal-section">
         <div className="minimal-section-heading">
-          <h2>Agent allowances</h2>
+          <h2>Connected agents</h2>
           <button onClick={() => onNavigate("billing", "limits")}>Manage limits</button>
         </div>
         {agents.length ? (
@@ -100,11 +115,11 @@ export function MinimalOverview({ org, onNavigate }: Props) {
                 <Icon name="key" size={21} />
                 <div>
                   <h3>{a.name}</h3>
-                  <p>{a.budget?.name ?? "No allowance assigned"}</p>
+                  <p>{a.budget?.name ?? "Workspace card"}</p>
                 </div>
-                <strong>{a.availableUsdc ?? "0.00"} USDC available</strong>
+                <strong>{a.availableUsdc ?? "0.00"} USDC shared</strong>
                 <span>{a.status}</span>
-                <button onClick={() => onNavigate("agents")}>Manage</button>
+                <button onClick={() => onNavigate("connect")}>Manage</button>
               </article>
             ))}
           </div>
@@ -112,10 +127,10 @@ export function MinimalOverview({ org, onNavigate }: Props) {
           <div className="reference-empty-row">
             <Icon name="layers" size={24} />
             <div>
-              <h3>No allowances yet</h3>
-              <p>Connect an agent and assign a budget to get started.</p>
+              <h3>No agents connected yet</h3>
+              <p>Create a connection to this workspace card to get started.</p>
             </div>
-            <button onClick={() => onNavigate("agents")}>Create allowance</button>
+            <button onClick={() => onNavigate("connect")}>Connect an agent</button>
           </div>
         )}
       </section>
@@ -487,7 +502,13 @@ export function MinimalBilling({
   readOnly,
   onNavigate,
   initialTab,
-}: Props & { gFetch: Fetcher; readOnly: boolean; initialTab?: string | null }) {
+  limitsContent,
+}: Props & {
+  gFetch: Fetcher;
+  readOnly: boolean;
+  initialTab?: string | null;
+  limitsContent?: ReactNode;
+}) {
   const [tab, setTab] = useState(initialTab === "limits" ? "limits" : "overview");
   const [data, setData] = useState<Billing | null>(null),
     [error, setError] = useState(""),
@@ -583,9 +604,10 @@ export function MinimalBilling({
           Spending limits
         </button>
       </div>
-      {tab === "limits" && (
-        <SpendingLimits gFetch={gFetch} readOnly={readOnly || org?.actor?.role === "approver"} />
-      )}
+      {tab === "limits" &&
+        (limitsContent ?? (
+          <SpendingLimits gFetch={gFetch} readOnly={readOnly || org?.actor?.role === "approver"} />
+        ))}
       <div hidden={tab !== "overview"}>
         {error && (
           <p role="alert" className="minimal-error">

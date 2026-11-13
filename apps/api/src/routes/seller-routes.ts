@@ -553,7 +553,10 @@ export function registerSellerRoutes(app: express.Express): void {
         nextPayout !== undefined &&
         (nextPayout ?? "").toLowerCase() !== (before?.payoutAddress ?? "").toLowerCase();
       if (payoutChanging && before?.payoutAddress) {
-        const hash = partnerStore.passwordHash(account.id);
+        const unifiedUser = store.getUser(account.id);
+        const hash = unifiedUser
+          ? store.findUserCredentialsByEmail(unifiedUser.email)?.passwordHash
+          : partnerStore.passwordHash(account.id);
         if (!body.currentPassword || !hash || !(await verifyPassword(body.currentPassword, hash))) {
           return res.status(403).json({
             error: {

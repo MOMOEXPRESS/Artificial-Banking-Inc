@@ -1,0 +1,234 @@
+.abi-workspace-switcher {
+  position: absolute;
+  right: 245px;
+  top: 18px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #262626;
+  font:
+    12px var(--font-sans),
+    sans-serif;
+}
+.abi-workspace-switcher select {
+  max-width: 155px;
+  background: #ededed;
+  border: 0;
+  border-radius: 7px;
+  padding: 10px 24px 10px 10px;
+  color: #262626;
+  font: inherit;
+}
+.abi-workspace-switcher > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  background: transparent;
+  color: #525252;
+  cursor: pointer;
+}
+.abi-workspace-funds-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(300px, 1fr);
+  gap: 48px;
+  align-items: center;
+  margin: 32px 0;
+}
+.abi-workspace-balances dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin: 0 0 24px;
+}
+.abi-workspace-balances dt {
+  font-size: 12px;
+  color: #626262;
+  margin-bottom: 6px;
+}
+.abi-workspace-balances dd {
+  font-size: 21px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.abi-workspace-balances p,
+.abi-workspace-note,
+.abi-workspace-funds .minimal-section > p {
+  color: #626262;
+  font-size: 13px;
+  line-height: 1.6;
+  max-width: 68ch;
+}
+.abi-workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.abi-workspace-connection-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  margin-top: 36px;
+}
+.abi-workspace-connection-grid h2,
+.abi-workspace-funds h2 {
+  font-size: 19px;
+  font-weight: 500;
+  margin: 0 0 16px;
+}
+.abi-workspace-connection-grid p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #626262;
+}
+.abi-workspace-form label,
+.abi-workspace-dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  margin: 18px 0;
+}
+.abi-workspace-form :is(input:not([type="checkbox"]), select),
+.abi-workspace-dialog :is(input:not([type="checkbox"]), select) {
+  min-height: 42px;
+  background: #e5e5e5;
+  color: #262626;
+  border: 0;
+  border-radius: 7px;
+  padding: 10px 12px;
+  font: inherit;
+  width: 100%;
+}
+label.abi-workspace-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+  line-height: 1.5;
+}
+.abi-workspace-check input {
+  accent-color: #2878c9;
+  width: 17px;
+  height: 17px;
+  flex: none;
+}
+.abi-workspace-dialog {
+  padding: 28px !important;
+  max-height: 80dvh;
+  overflow-y: auto;
+}
+.abi-workspace-dialog p {
+  color: #626262;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.abi-workspace-secret {
+  padding: 20px;
+  background: #f0f0f0;
+  border-radius: 12px;
+  margin-top: 24px;
+}
+.abi-workspace-secret code {
+  display: block;
+  overflow-wrap: anywhere;
+  user-select: all;
+  font-size: 12px;
+  margin: 14px 0;
+  color: #262626;
+}
+.abi-workspace-connection-grid pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #ededed;
+  padding: 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.abi-workspace-history {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+}
+.abi-workspace-history li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: #f0f0f0;
+  border-radius: 10px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.abi-workspace-history small {
+  display: block;
+  font-size: 11px;
+  color: #626262;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1100px) {
+  .abi-workspace-switcher {
+    right: 215px;
+    top: 70px;
+  }
+  .studio-shell-header:has(.abi-workspace-switcher) {
+    padding-bottom: 48px;
+  }
+}
+@media (max-width: 650px) {
+  .abi-workspace-switcher {
+    left: 16px;
+    right: auto;
+    top: 70px;
+  }
+  .abi-workspace-switcher select {
+    max-width: 220px;
+    min-height: 44px;
+  }
+  .abi-workspace-switcher > button {
+    width: 44px;
+    height: 44px;
+  }
+  .abi-workspace-funds-grid,
+  .abi-workspace-connection-grid {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+  .abi-workspace-funds-grid .liquid-wallet-card {
+    max-width: 360px;
+  }
+  .abi-workspace-balances dd {
+    font-size: 18px;
+  }
+  .abi-workspace-dialog {
+    width: calc(100% - 24px) !important;
+    top: 8% !important;
+    padding: 24px !important;
+  }
+}
+
+.abi-workspace-history li {
+  flex-wrap: wrap;
+}
+.abi-workspace-history li > span {
+  flex: 1;
+  min-width: 140px;
+}
+.abi-workspace-history li > div {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.abi-workspace-switcher > button svg {
+  display: block;
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  opacity: 1;
+}

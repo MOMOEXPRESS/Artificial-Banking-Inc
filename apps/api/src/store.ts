@@ -9,6 +9,8 @@
  * Postgres/Prisma (packages/db) swaps in behind this same surface when a real
  * Postgres is available — endpoint code never touches SQL directly.
  */
+import { workspaceRequest } from "./workspace-context.js";
+import { WORKSPACE_SCHEMA } from "./workspace-schema.js";
 import type { AgentActivityStats, KyaRecord, KycRecord } from "./kyc-kya.js";
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -2763,6 +2765,20 @@ function rowToProduct(r: Row): ProductRecord {
   };
 }
 
+db.exec(WORKSPACE_SCHEMA);
+
+function memoryScope(orgId: string) {
+  const scope = workspaceRequest.getStore();
+  if (!scope || scope.orgId !== orgId) return { sql: "", args: [] as (string | number)[] };
+  const general = !!db
+    .prepare("SELECT 1 FROM abi_workspaces WHERE id=? AND org_id=? AND is_default=1")
+    .get(scope.workspaceId, orgId);
+  return {
+    sql: " AND (source=? OR (?=1 AND source NOT LIKE 'workspace:%'))",
+    args: [`workspace:${scope.workspaceId}`, general ? 1 : 0],
+  };
+}
+
 export const store = {
   // ------------------------------------------------------------------ orgs
   createOrg(name: string, depositMicro: MicroUsdc, opts?: { kind?: OrgKind }): OrgRow {
@@ -2824,6 +2840,23 @@ export const store = {
     });
     tx();
     return { id: orgId, name, status: "active", kind, guardianKey, settings: {} };
+  },
+
+  createDefaultWorkspace(orgId: string): void {
+    if (db.prepare("SELECT 1 FROM abi_workspaces WHERE org_id=? AND is_default=1").get(orgId))
+      return;
+    const workspaceId = id("ws"),
+      cardId = id("card"),
+      created = nowIso();
+    db.prepare(
+      "INSERT INTO abi_workspaces(id,org_id,name,funding_scope,funding_id,is_default,created_at) VALUES (?,?,'General','org',?,1,?)",
+    ).run(workspaceId, orgId, orgId, created);
+    db.prepare(
+      "INSERT INTO abi_workspace_cards(id,workspace_id,limit_micro,starts_at) VALUES (?,?,'0',?)",
+    ).run(cardId, workspaceId, created);
+    db.prepare(
+      "INSERT OR IGNORE INTO accounts(id,org_id,kind,balance_micro) VALUES (?,?,'org_held','0')",
+    ).run(`org:${orgId}:held`, orgId);
   },
 
   // ------------------------------------------------------------ partner accounts
@@ -4508,6 +4541,7 @@ export const store = {
             0n,
           );
           orgId = org.id;
+          this.createDefaultWorkspace(orgId);
           role = "owner";
         }
         this.addMembership(user.id, orgId, role);
@@ -5775,6 +5809,12 @@ export const store = {
       row.meta ? JSON.stringify(row.meta) : null,
       row.createdAt,
     );
+    const scope = workspaceRequest.getStore();
+    if (scope?.orgId === input.orgId)
+      db.prepare("INSERT INTO abi_workspace_chat(message_id,workspace_id) VALUES (?,?)").run(
+        row.id,
+        scope.workspaceId,
+      );
     return row;
   },
 
@@ -5787,12 +5827,14 @@ export const store = {
    * stopped showing new replies at all.
    */
   listChatMessages(orgId: string, limit = 100): ChatMessageRow[] {
+    const scope = workspaceRequest.getStore();
+    const wid = scope?.orgId === orgId ? scope.workspaceId : null;
     return (
       db
         .prepare(
-          "SELECT * FROM (SELECT rowid AS _seq, * FROM chat_messages WHERE org_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?) ORDER BY created_at ASC, _seq ASC",
+          "SELECT * FROM (SELECT rowid AS _seq, * FROM chat_messages WHERE org_id = ? AND (? IS NULL OR id IN (SELECT message_id FROM abi_workspace_chat WHERE workspace_id=?) OR (? IN (SELECT id FROM abi_workspaces WHERE org_id=? AND is_default=1) AND id NOT IN (SELECT message_id FROM abi_workspace_chat))) ORDER BY created_at DESC, rowid DESC LIMIT ?) ORDER BY created_at ASC, _seq ASC",
         )
-        .all(orgId, limit) as Row[]
+        .all(orgId, wid, wid, wid, orgId, limit) as Row[]
     ).map((r) => ({
       id: r.id as string,
       orgId: r.org_id as string,
@@ -5849,12 +5891,15 @@ export const store = {
     fact: string,
     source = "guardian",
   ): { id: string; fact: string; createdAt: string; duplicate?: boolean } {
+    const scope = workspaceRequest.getStore();
+    if (scope?.orgId === orgId) source = `workspace:${scope.workspaceId}`;
+    const filter = memoryScope(orgId);
     const clean = fact.trim().replace(/\s+/g, " ").slice(0, 500);
     const norm = normalizeFact(clean);
     const existing = (
       db
-        .prepare("SELECT id, fact, created_at FROM abi_memories WHERE org_id = ?")
-        .all(orgId) as Row[]
+        .prepare(`SELECT id, fact, created_at FROM abi_memories WHERE org_id = ?${filter.sql}`)
+        .all(orgId, ...filter.args) as Row[]
     ).find((r) => normalizeFact(r.fact as string) === norm);
     if (existing) {
       return {
@@ -5876,12 +5921,13 @@ export const store = {
     orgId: string,
     limit = 20,
   ): { id: string; fact: string; source?: string; createdAt: string }[] {
+    const filter = memoryScope(orgId);
     return (
       db
         .prepare(
-          "SELECT id, fact, source, created_at FROM abi_memories WHERE org_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+          `SELECT id, fact, source, created_at FROM abi_memories WHERE org_id = ?${filter.sql} ORDER BY created_at DESC, rowid DESC LIMIT ?`,
         )
-        .all(orgId, limit) as Row[]
+        .all(orgId, ...filter.args, limit) as Row[]
     ).map((r) => ({
       id: r.id as string,
       fact: r.fact as string,
@@ -5891,6 +5937,7 @@ export const store = {
   },
 
   countAbiMemories(orgId: string): number {
+    if (workspaceRequest.getStore()) return this.listAbiMemories(orgId, 10000).length;
     const r = db.prepare("SELECT COUNT(*) AS n FROM abi_memories WHERE org_id = ?").get(orgId) as
       Row | undefined;
     return Number(r?.n ?? 0);
@@ -5928,6 +5975,11 @@ export const store = {
 
   /** Delete one note by id (org-scoped). Returns true when a row was removed. */
   deleteAbiMemory(orgId: string, memoryId: string): boolean {
+    if (
+      workspaceRequest.getStore() &&
+      !this.listAbiMemories(orgId, 10000).some((m) => m.id === memoryId)
+    )
+      return false;
     const r = db
       .prepare("DELETE FROM abi_memories WHERE id = ? AND org_id = ?")
       .run(memoryId, orgId) as { changes?: number };
@@ -5936,6 +5988,11 @@ export const store = {
 
   /** Delete every note for one org. Returns how many were removed. */
   clearAbiMemories(orgId: string): number {
+    if (workspaceRequest.getStore()) {
+      const rows = this.listAbiMemories(orgId, 10000);
+      for (const row of rows) this.deleteAbiMemory(orgId, row.id);
+      return rows.length;
+    }
     const n = this.countAbiMemories(orgId);
     db.prepare("DELETE FROM abi_memories WHERE org_id = ?").run(orgId);
     return n;
@@ -6513,6 +6570,9 @@ export const store = {
       )
         return "invalid";
       if (agent.budgetId === budgetId) return "ok";
+      // A card-bound connection cannot be retargeted by a legacy budget route.
+      if (db.prepare("SELECT 1 FROM abi_workspace_connections WHERE agent_id=?").get(agentId))
+        return "invalid";
       const pendingApproval = db
         .prepare(
           "SELECT 1 FROM approvals WHERE org_id = ? AND agent_id = ? AND status IN ('pending', 'resolving') LIMIT 1",
@@ -6751,6 +6811,13 @@ export const store = {
       createdAt,
       input.x402BudgetMicro !== undefined ? input.x402BudgetMicro.toString() : null,
     );
+    const connection = db
+      .prepare("SELECT id FROM abi_workspace_connections WHERE agent_id=?")
+      .get(input.agentId) as { id: string } | undefined;
+    if (connection)
+      db.prepare(
+        "INSERT INTO abi_workspace_credentials(session_id,connection_id) VALUES (?,?)",
+      ).run(row.id, connection.id);
     return row;
   },
 
@@ -6761,6 +6828,10 @@ export const store = {
         "UPDATE session_keys SET token=? WHERE org_id=? AND id=? AND revoked_at IS NULL AND expires_at>?",
       )
       .run(hashSecret(token), orgId, id, nowIso());
+    if (r.changes)
+      db.prepare(
+        "UPDATE abi_workspace_connections SET verified_at=NULL WHERE id IN (SELECT connection_id FROM abi_workspace_credentials WHERE session_id=?)",
+      ).run(id);
     return r.changes ? { id, token } : undefined;
   },
 
@@ -8132,6 +8203,14 @@ export const store = {
     const wipe = db.transaction(() => {
       for (const table of [
         // Child rows first — several of these carry FKs onto orgs/agents.
+        "abi_workspace_chat",
+        "abi_workspace_members",
+        "abi_workspace_credentials",
+        "abi_workspace_allocations",
+        "abi_card_reservations",
+        "abi_workspace_connections",
+        "abi_workspace_cards",
+        "abi_workspaces",
         "webhook_deliveries",
         "webhooks",
         "approval_votes",

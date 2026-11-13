@@ -1,6 +1,6 @@
 # Account, workspaces, cards and connections — implementation plan
 
-Status: proposed implementation, not shipped. Reviewed 9 November 2026 against released commit `b8da26425f135a829107be7299f8763e1f573bb9`. This plan incorporates the confirmed choices: one account for buying and selling; multiple agents per workspace, with separate revocable keys sharing the workspace card’s budget.
+Status: core workspace/card/connection restructuring is implemented in the current release candidate; see [workspace-release.md](workspace-release.md) for shipped scope, compatibility boundaries and validation. The remaining sections preserve the broader plan and are not a claim that every provider/client integration is complete. Reviewed 9 November 2026 against released commit `b8da26425f135a829107be7299f8763e1f573bb9`. This plan incorporates the confirmed choices: one account for buying and selling; multiple agents per workspace, with separate revocable keys sharing the workspace card’s budget.
 
 ## Product model
 
@@ -140,4 +140,4 @@ A connection test is read-only by default. Any purchase or write test is a separ
 - A connector is considered verified only after an authenticated, correctly scoped call from the target client or provider adapter succeeds. Wrong credentials, missing scopes, expired keys and provider outages have distinct recoverable states.
 - Unsupported methods, production transports, provider auth and monthly billing are clearly unavailable; setup instructions never substitute for a working integration.
 
-Deliverables: migration/reconciliation report, agreed API contracts, updated screens, server authorization/funding resolver, client/provider verification matrix, regression tests and rollout/rollback evidence. No workspace/account migration or financial configuration change is performed by this planning document.
+Deliverables: migration/reconciliation report, agreed API contracts, updated screens, server authorization/funding resolver, client/provider verification matrix, regression tests and rollout/rollback evidence. This document itself performs no migration; the additive implementation and its limits are recorded in workspace-release.md.

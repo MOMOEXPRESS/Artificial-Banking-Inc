@@ -3,6 +3,13 @@
  * resolution, and background sweeps. Pure of HTTP — driven by the REST routes
  * and by the Telegram approvals bot.
  */
+import {
+  workspaceForAgent,
+  fundingAccounts,
+  reserveCard,
+  finishCardReservation,
+  WorkspaceError,
+} from "./workspaces.js";
 import { randomBytes } from "node:crypto";
 import {
   accountId,
@@ -110,6 +117,30 @@ export function scopedIdempotencyKey(agentId: string, key: string): string {
  * policy, limits and audit attribution only.
  */
 export function agentFundingContext(agentId: string, orgId: string) {
+  const workspace = workspaceForAgent(agentId);
+  if (workspace) {
+    if (workspace.org_id !== orgId) return undefined;
+    if (
+      workspace.funding_scope === "department" &&
+      store.getDepartmentAnyOrg(String(workspace.funding_id))?.status !== "active"
+    )
+      return undefined;
+    if (
+      workspace.funding_scope === "shared" &&
+      store.getSharedWalletAnyOrg(String(workspace.funding_id))?.status !== "active"
+    )
+      return undefined;
+    return {
+      budget: {
+        id: String(workspace.id),
+        orgId,
+        name: String(workspace.name),
+        status: "active" as const,
+        createdAt: String(workspace.created_at),
+      },
+      ...fundingAccounts(workspace),
+    };
+  }
   let agent = scopedStore(orgId).getAgent(agentId);
   if (!agent) return undefined;
 
@@ -182,9 +213,13 @@ export function rulesFor(
     : undefined;
   const orgAgentIds = store.listAgents(orgId).map((a) => a.id);
   const funding = agentFundingContext(agentId, orgId);
+  const workspace = workspaceForAgent(agentId);
   return {
     ...effective,
-    budgetWindow: activeBudgetWindow,
+    budgetWindow:
+      workspace && !workspace.allow_recurring
+        ? { ...activeBudgetWindow, allowRecurringPurchases: false }
+        : activeBudgetWindow,
     knownCounterparties: [
       ...store.knownCounterparties(orgId),
       // same-org agents are never "new counterparties" for internal moves
@@ -237,7 +272,11 @@ export function rulesFor(
         ? undefined
         : store.paysSince(agentId, Date.now() - 60 * 60 * 1000),
     // Archived agents are non-spendable — same deny path as freeze.
-    agentFrozen: agent.status === "frozen" || agent.status === "archived" || !funding,
+    agentFrozen:
+      agent.status === "frozen" ||
+      agent.status === "archived" ||
+      !funding ||
+      workspaceForAgent(agentId)?.card_status === "frozen",
     orgFrozen: org.status === "frozen",
     walletBalanceMicro: funding
       ? (store.getAccountMap(orgId).get(funding.availableId)?.balanceMicro ?? 0n)
@@ -425,6 +464,36 @@ export type ExecResult =
  * - otherwise → transfer-mock (vendor strings / offline demo)
  */
 export async function executeIntent(input: ExecInput): Promise<ExecResult> {
+  let reserved = false;
+  try {
+    reserved = reserveCard(input.agentId, input.intentId, input.amountMicro, input.tool);
+  } catch (e) {
+    if (e instanceof WorkspaceError)
+      return {
+        ok: false,
+        status: e.status,
+        payload: { intentId: input.intentId, error: { code: e.code, message: e.message } },
+      };
+    throw e;
+  }
+  {
+    const result = await executeFundedIntent(input);
+    if (reserved) {
+      const settlement = store.getSettlementForOrg(input.orgId, input.intentId);
+      finishCardReservation(
+        input.intentId,
+        settlement?.state === "settled"
+          ? "settled"
+          : !result.ok && (!settlement || settlement.state === "failed")
+            ? "released"
+            : "pending",
+        typeof result.payload.escrowId === "string" ? result.payload.escrowId : undefined,
+      );
+    }
+    return result;
+  }
+}
+async function executeFundedIntent(input: ExecInput): Promise<ExecResult> {
   const funding = agentFundingContext(input.agentId, input.orgId);
   if (!funding) {
     return {

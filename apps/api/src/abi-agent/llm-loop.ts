@@ -3,6 +3,8 @@
  * Falls back to keyword pickTools when no key / failure / empty tool use.
  */
 import { attachmentContext, type ChatAttachment } from "../chat-attachments.js";
+import { workspaceRequest } from "../workspace-context.js";
+import { workspaceForAgent } from "../workspaces.js";
 import { buildOrgBriefSafe } from "./context.js";
 import {
   lastScratchpad,
@@ -277,7 +279,14 @@ export async function runLlmToolLoop(
   }
   let roster = "";
   try {
-    const agents = store.listAgents(orgId).filter((a) => a.status !== "archived");
+    const agents = store
+      .listAgents(orgId)
+      .filter(
+        (a) =>
+          a.status !== "archived" &&
+          (!workspaceRequest.getStore() ||
+            workspaceForAgent(a.id)?.id === workspaceRequest.getStore()?.workspaceId),
+      );
     if (agents.length) {
       roster = `Agent roster (use these exact names with agent_detail): ${agents.map((a) => a.name).join(", ")}`;
     }

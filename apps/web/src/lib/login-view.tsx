@@ -7,6 +7,7 @@ import { Icon } from "./ui";
 import type { AgentKey, Session } from "./console-types";
 import { Button } from "@/components/ui/button";
 
+import { useAuthChallenge } from "./auth-challenge";
 import { browserApiBase } from "./browser-api";
 import { PASSWORD_RULES_HINT, newPasswordProblem } from "./password-rules";
 
@@ -280,6 +281,10 @@ export function Login({
    * Sign in with an account. The credential is an httpOnly cookie the server
    * sets — nothing sensitive reaches localStorage, unlike the bearer-key path.
    */
+  const challenge = useAuthChallenge(
+    mode === "signin" ? "buyer_login" : mode === "signup" ? "buyer_signup" : null,
+  );
+
   async function signIn() {
     setBusy(true);
     try {
@@ -287,7 +292,7 @@ export function Login({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ email: email.trim(), password, challengeToken: challenge.take() }),
       });
       if (!res.ok) throw new Error(await readApiError(res));
       const d = (await res.json()) as {
@@ -307,6 +312,7 @@ export function Login({
     } catch (e) {
       setToast(`Sign in failed: ${String(e)}`, "err");
     } finally {
+      challenge.reset();
       setBusy(false);
     }
   }
@@ -386,6 +392,7 @@ export function Login({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: email.trim(),
+          challengeToken: challenge.take(),
           name: fullName.trim() || email.trim().split("@")[0],
           password,
           acceptTerms,
@@ -461,6 +468,7 @@ export function Login({
     } catch (e) {
       setToast(`Sign up failed: ${String(e)}`, "err");
     } finally {
+      challenge.reset();
       setBusy(false);
     }
   }
@@ -619,6 +627,7 @@ export function Login({
               ))}
             </div>
 
+            {challenge.element}
             {mode === "signin" && (
               <>
                 <div className="field">

@@ -10,6 +10,9 @@ import { isAddress } from "viem";
 import { z } from "zod";
 import { hashPassword, passwordProblem, verifyPassword } from "../auth/password.js";
 import {
+  csrfProblem,
+  clearSessionCookies,
+  SESSION_COOKIE,
   PARTNER_SESSION_COOKIE,
   SESSION_TTL_MS,
   clearPartnerSessionCookies,
@@ -18,6 +21,8 @@ import {
   partnerCsrfProblem,
   setPartnerSessionCookies,
 } from "../auth/session.js";
+import { currentUser } from "./auth-routes.js";
+import { findWorkspace } from "../workspaces.js";
 import { signupTokenProblem } from "../auth/signup-token.js";
 import { assertAuthRuntimeReady } from "../auth/key-encryption.js";
 import {
@@ -90,6 +95,23 @@ const signupSchema = z.object({
 export function currentPartner(
   req: express.Request,
 ): { account: PartnerAccountRow; sessionId: string } | null {
+  const user = currentUser(req),
+    workspaceId = req.header("x-abi-workspace"),
+    orgId = req.header("x-abi-org");
+  if (user && workspaceId && orgId) {
+    try {
+      if (!user.user.emailVerifiedAt || store.getMembership(user.user.id, orgId)?.role !== "owner")
+        return null;
+      const w = findWorkspace(orgId, workspaceId);
+      if (!w.seller_org_id) return null;
+      return {
+        account: { ...user.user, orgId: String(w.seller_org_id) },
+        sessionId: user.sessionId,
+      };
+    } catch {
+      return null;
+    }
+  }
   const token = parseCookies(req)[PARTNER_SESSION_COOKIE];
   if (!token) return null;
   return store.getPartnerBySessionToken(token) ?? null;
@@ -103,7 +125,10 @@ function partnerView(account: PartnerAccountRow) {
     createdAt: account.createdAt,
     lastLoginAt: account.lastLoginAt ?? null,
     passwordChangedAt: account.passwordChangedAt ?? null,
-    mfaEnabled: Boolean(partnerStore.getMfa(account.id)?.confirmed),
+    mfaEnabled: Boolean(
+      (store.getUser(account.id) ? store.getMfa(account.id) : partnerStore.getMfa(account.id))
+        ?.confirmed,
+    ),
   };
 }
 
@@ -141,17 +166,18 @@ export function checkSecondFactor(
   accountId: string,
   input: { code?: string; recoveryCode?: string },
 ): { code: "MFA_REQUIRED" | "MFA_INVALID"; message: string } | undefined {
-  const mfa = partnerStore.getMfa(accountId);
+  const identityStore = store.getUser(accountId) ? store : partnerStore;
+  const mfa = identityStore.getMfa(accountId);
   if (!mfa?.confirmed) return undefined;
   if (input.recoveryCode) {
-    return partnerStore.useRecoveryCode(accountId, input.recoveryCode)
+    return identityStore.useRecoveryCode(accountId, input.recoveryCode)
       ? undefined
       : { code: "MFA_INVALID", message: "That recovery code is not valid." };
   }
   if (input.code) {
     const check = verifyCode(mfa.secret, input.code, { lastUsedStep: mfa.lastStep });
     if (!check.ok) return { code: "MFA_INVALID", message: "That authenticator code is not valid." };
-    partnerStore.recordMfaStep(accountId, check.step);
+    identityStore.recordMfaStep(accountId, check.step);
     return undefined;
   }
   return { code: "MFA_REQUIRED", message: "Enter the 6-digit code from your authenticator app." };
@@ -198,7 +224,7 @@ export const partnerRoute: PartnerRoute = (handler) =>
         error: { code: "UNAUTHORIZED", message: "Sign in at /partners/login." },
       });
     }
-    const problem = partnerCsrfProblem(req);
+    const problem = store.getUser(me.account.id) ? csrfProblem(req) : partnerCsrfProblem(req);
     if (problem) {
       return res.status(403).json({ error: { code: "CSRF_FAILED", message: problem } });
     }
@@ -212,6 +238,19 @@ export const partnerRoute: PartnerRoute = (handler) =>
   });
 
 export function registerPartnerAuthRoutes(app: express.Express): void {
+  app.use("/v1/partner", (req, res, next) => {
+    if (!req.path.startsWith("/account") && !req.path.startsWith("/auth/mfa")) return next();
+    const me = currentPartner(req);
+    if (me && store.getUser(me.account.id))
+      return res.status(409).json({
+        error: {
+          code: "SHARED_ACCOUNT_SETTINGS",
+          message: "Manage your shared account, sessions and MFA in Console Settings.",
+          url: "/console?view=settings",
+        },
+      });
+    next();
+  });
   app.post(
     "/v1/partner/auth/signup",
     route(async (req, res) => {
@@ -375,6 +414,12 @@ export function registerPartnerAuthRoutes(app: express.Express): void {
   );
 
   app.post("/v1/partner/auth/logout", (req, res) => {
+    const me = currentPartner(req);
+    if (me && store.getUser(me.account.id)) {
+      const token = parseCookies(req)[SESSION_COOKIE];
+      if (token) store.revokeUserSessionByToken(token);
+      clearSessionCookies(res);
+    }
     const token = parseCookies(req)[PARTNER_SESSION_COOKIE];
     if (token) store.revokePartnerSessionByToken(token);
     clearPartnerSessionCookies(res);

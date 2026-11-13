@@ -23,7 +23,8 @@
  * fallback path already works.
  */
 import { decryptSecret, encryptSecret, isEncrypted } from "../auth/key-encryption.js";
-import { store } from "../store.js";
+import { workspaceRequest } from "../workspace-context.js";
+import { commerceDatabase, store } from "../store.js";
 
 export type AiMode = "off" | "platform" | "byo";
 
@@ -53,7 +54,16 @@ const DEFAULT_MODEL = "gpt-4o-mini";
 
 function read(orgId: string): StoredAiSettings {
   const settings = store.getOrg(orgId)?.settings ?? {};
-  const ai = (settings as Record<string, unknown>).ai;
+  const scope = workspaceRequest.getStore();
+  let ai = (settings as Record<string, unknown>).ai;
+  if (scope?.orgId === orgId) {
+    const scoped = (settings as Record<string, unknown>).aiWorkspaces as
+      Record<string, unknown> | undefined;
+    const general = !!commerceDatabase()
+      .prepare("SELECT 1 FROM abi_workspaces WHERE id=? AND org_id=? AND is_default=1")
+      .get(scope.workspaceId, orgId);
+    ai = scoped?.[scope.workspaceId] ?? (general ? ai : undefined);
+  }
   return ai && typeof ai === "object" ? (ai as StoredAiSettings) : {};
 }
 
@@ -186,9 +196,20 @@ export function updateAiSettings(
     throw new AiSettingsError("Bring-your-own mode needs an API key for your own account");
   }
 
+  const scope = workspaceRequest.getStore();
   store.setOrgSettings(orgId, {
     ...(org.settings ?? {}),
-    ai: next,
+    ...(scope?.orgId === orgId
+      ? {
+          aiWorkspaces: {
+            ...(((org.settings as Record<string, unknown>)?.aiWorkspaces as Record<
+              string,
+              unknown
+            >) ?? {}),
+            [scope.workspaceId]: next,
+          },
+        }
+      : { ai: next }),
   });
   return aiSettingsView(orgId);
 }
