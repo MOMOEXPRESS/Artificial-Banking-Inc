@@ -466,7 +466,13 @@ export type ExecResult =
 export async function executeIntent(input: ExecInput): Promise<ExecResult> {
   let reserved = false;
   try {
-    reserved = reserveCard(input.agentId, input.intentId, input.amountMicro, input.tool);
+    reserved = reserveCard(
+      input.agentId,
+      input.intentId,
+      input.amountMicro,
+      input.tool,
+      input.destination,
+    );
   } catch (e) {
     if (e instanceof WorkspaceError)
       return {

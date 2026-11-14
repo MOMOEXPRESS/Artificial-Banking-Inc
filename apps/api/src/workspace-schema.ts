@@ -35,4 +35,18 @@ CREATE TABLE IF NOT EXISTS abi_card_reservations (
 CREATE TABLE IF NOT EXISTS abi_workspace_chat (
  message_id TEXT PRIMARY KEY REFERENCES chat_messages(id) ON DELETE CASCADE, workspace_id TEXT NOT NULL REFERENCES abi_workspaces(id)
 );
+CREATE TABLE IF NOT EXISTS abi_key_wallet_grants (
+ parent_session_id TEXT NOT NULL REFERENCES session_keys(id) ON DELETE CASCADE,
+ workspace_id TEXT NOT NULL REFERENCES abi_workspaces(id),
+ session_id TEXT NOT NULL UNIQUE REFERENCES session_keys(id) ON DELETE CASCADE,
+ PRIMARY KEY(parent_session_id,workspace_id)
+);
+CREATE TABLE IF NOT EXISTS abi_card_services (
+ card_id TEXT PRIMARY KEY REFERENCES abi_workspace_cards(id), allowed_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS abi_wallet_key_requests (
+ org_id TEXT NOT NULL REFERENCES orgs(id), create_key TEXT NOT NULL,
+ session_id TEXT NOT NULL UNIQUE REFERENCES session_keys(id) ON DELETE CASCADE,
+ PRIMARY KEY(org_id,create_key)
+);
 `;

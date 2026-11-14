@@ -75,6 +75,164 @@ async function request(
   };
 }
 
+test("one key explicitly selects multiple wallets and rotation/revocation apply to all grants", async () => {
+  const owner = identity(),
+    a = createWorkspace(owner.org.id, "First", crypto.randomUUID()),
+    b = createWorkspace(owner.org.id, "Second", crypto.randomUUID()),
+    denied = createWorkspace(owner.org.id, "Excluded", crypto.randomUUID());
+  const payload = {
+    name: "Multi-wallet agent",
+    workspaceIds: [a.id, b.id],
+    pay: false,
+    ttlHours: 24,
+    idempotencyKey: crypto.randomUUID(),
+  };
+  const created = await request("/v1/guardian/wallet-keys", owner.headers, payload);
+  assert.equal(created.status, 201);
+  const token = created.data.sessionKey.token;
+  assert.equal(
+    (
+      await request("/v1/guardian/wallet-keys", owner.headers, {
+        ...payload,
+        workspaceIds: [b.id, a.id],
+      })
+    ).status,
+    409,
+  );
+  for (const wallet of [a, b]) {
+    const probe = await request("/v1/agent/context", {
+      authorization: `Bearer ${token}`,
+      "x-abi-workspace": wallet.id,
+    });
+    assert.equal(probe.status, 200);
+    assert.equal(probe.data.workspace.id, wallet.id);
+  }
+  assert.equal(
+    (
+      await request("/v1/agent/context", {
+        authorization: `Bearer ${token}`,
+        "x-abi-workspace": denied.id,
+      })
+    ).status,
+    401,
+  );
+  const foreign = identity(),
+    foreignWallet = createWorkspace(foreign.org.id, "Foreign", crypto.randomUUID());
+  assert.equal(
+    (
+      await request("/v1/guardian/wallet-keys", owner.headers, {
+        ...payload,
+        workspaceIds: [a.id, foreignWallet.id],
+        idempotencyKey: crypto.randomUUID(),
+      })
+    ).status,
+    404,
+  );
+  assert.equal(
+    (await request("/v1/guardian/wallet-keys", identity("viewer", owner.org.id).headers, payload))
+      .status,
+    403,
+  );
+  const rotated = await request(
+    `/v1/guardian/wallet-keys/${created.data.sessionKey.id}/rotate`,
+    owner.headers,
+    {},
+  );
+  assert.equal(rotated.status, 200);
+  assert.equal(
+    (
+      await request("/v1/agent/context", {
+        authorization: `Bearer ${token}`,
+        "x-abi-workspace": b.id,
+      })
+    ).status,
+    401,
+  );
+  const replacement = rotated.data.sessionKey.token;
+  assert.equal(
+    (
+      await request("/v1/agent/context", {
+        authorization: `Bearer ${replacement}`,
+        "x-abi-workspace": b.id,
+      })
+    ).data.workspace.id,
+    b.id,
+  );
+  await request(`/v1/guardian/wallet-keys/${created.data.sessionKey.id}/revoke`, owner.headers, {});
+  for (const wallet of [a, b])
+    assert.equal(
+      (
+        await request("/v1/agent/context", {
+          authorization: `Bearer ${replacement}`,
+          "x-abi-workspace": wallet.id,
+        })
+      ).status,
+      401,
+    );
+});
+test("optional agent administration cannot raise limits or gain access to newly created funds", async () => {
+  const owner = identity(),
+    wallet = createWorkspace(owner.org.id, "Admin wallet", crypto.randomUUID());
+  const make = async (permissions: string[]) =>
+    request("/v1/guardian/wallet-keys", owner.headers, {
+      name: "Scoped admin",
+      workspaceIds: [wallet.id],
+      pay: false,
+      permissions,
+      ttlHours: 24,
+      idempotencyKey: crypto.randomUUID(),
+    });
+  const plain = await make([]);
+  const plainHeaders = {
+    authorization: `Bearer ${plain.data.sessionKey.token}`,
+    "content-type": "application/json",
+  };
+  assert.equal(
+    (await request("/v1/agent/card", plainHeaders, { status: "frozen" }, "PATCH")).status,
+    403,
+  );
+  const admin = await make(["wallets:create", "cards:manage", "keys:manage"]);
+  assert.equal(admin.status, 201);
+  const headers = {
+    authorization: `Bearer ${admin.data.sessionKey.token}`,
+    "content-type": "application/json",
+  };
+  assert.equal(
+    (await request("/v1/agent/card", headers, { status: "frozen" }, "PATCH")).status,
+    200,
+  );
+  assert.equal(
+    (await request("/v1/agent/card", headers, { status: "active", limitUsdc: "1000" }, "PATCH"))
+      .status,
+    400,
+  );
+  assert.equal(
+    (await request("/v1/agent/card", headers, { status: "active" }, "PATCH")).status,
+    200,
+  );
+  const created = await request("/v1/agent/wallets", headers, {
+    name: "Agent-created",
+    idempotencyKey: crypto.randomUUID(),
+  });
+  assert.equal(created.status, 201);
+  assert.equal(viewWorkspace(owner.org.id, created.data.workspace.id).card.limitUsdc, "0");
+  assert.equal(
+    (
+      await request("/v1/agent/context", {
+        ...headers,
+        "x-abi-workspace": created.data.workspace.id,
+      })
+    ).status,
+    401,
+  );
+  const rotated = await request("/v1/agent/key/rotate", headers, {});
+  assert.equal(rotated.status, 200);
+  assert.equal((await request("/v1/agent/context", headers)).status, 401);
+  const replaced = { ...headers, authorization: `Bearer ${rotated.data.sessionKey.token}` };
+  assert.equal((await request("/v1/agent/key/revoke", replaced, {})).status, 200);
+  assert.equal((await request("/v1/agent/context", replaced)).status, 401);
+});
+
 test("account workspace selection is membership-checked, private by default and role protected", async () => {
   const owner = identity(),
     travel = createWorkspace(owner.org.id, "Travel", crypto.randomUUID());

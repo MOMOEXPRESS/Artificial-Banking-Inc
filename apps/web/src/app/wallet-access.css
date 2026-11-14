@@ -1,0 +1,843 @@
+.abi-wallet-trigger {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 0 22px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: #262626;
+  cursor: pointer;
+  font: inherit;
+}
+.abi-wallet-trigger:hover .abi-wallet-title strong {
+  color: #367ed5;
+}
+.abi-wallet-trigger:focus-visible,
+.abi-field-trigger:focus-visible {
+  outline: 2px solid #4295e8;
+  outline-offset: 5px;
+  border-radius: 8px;
+}
+.abi-wallet-mark {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  color: #397fcb;
+  background: #eaf2fc;
+}
+.abi-wallet-title {
+  min-width: 0;
+  flex: 1;
+}
+.abi-wallet-title strong {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 23px;
+  letter-spacing: -0.025em;
+  font-weight: 550;
+  line-height: 1.3;
+  transition: color 150ms;
+  overflow-wrap: anywhere;
+}
+.abi-wallet-title small,
+.abi-wallet-available > small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #626262;
+  font-size: 13px;
+  margin-top: 4px;
+}
+.abi-wallet-available {
+  text-align: right;
+  flex: none;
+}
+.abi-wallet-available > strong {
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.abi-wallet-available strong small {
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.abi-wallet-available > small {
+  justify-content: flex-end;
+}
+.abi-wallet-popover,
+.abi-wallet-access-popover,
+.abi-services-popover {
+  z-index: 110 !important;
+  max-width: calc(100vw - 24px);
+  color: #262626 !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  backdrop-filter: blur(22px) saturate(1.12);
+  border: 0 !important;
+  border-radius: 14px !important;
+  padding: 8px !important;
+  font-family: var(--font-sans), sans-serif;
+  box-shadow:
+    0 12px 40px #26262624,
+    0 3px 8px #26262614 !important;
+  transform-origin: var(--radix-popover-content-transform-origin);
+  animation: abi-wallet-reveal 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.abi-wallet-popover {
+  width: 380px !important;
+}
+.abi-wallet-popover[data-state="closed"],
+.abi-wallet-access-popover[data-state="closed"],
+.abi-services-popover[data-state="closed"] {
+  animation: abi-wallet-leave 160ms ease-in forwards;
+}
+@keyframes abi-wallet-reveal {
+  from {
+    opacity: 0.4;
+    transform: translateY(-6px) scale(0.97);
+    clip-path: inset(0 0 10% 0 round 14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0 round 14px);
+  }
+}
+@keyframes abi-wallet-leave {
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+.abi-wallet-search {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  color: #626262;
+}
+.abi-wallet-search input {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: #262626;
+  font: inherit;
+  font-size: 15px;
+  padding: 4px 0;
+}
+.abi-wallet-search input::placeholder {
+  color: #626262;
+}
+.abi-wallet-create {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  background: #f0f0f0;
+  color: #262626;
+  padding: 15px 12px;
+  text-align: left;
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
+  margin: 4px 0 8px;
+}
+.abi-wallet-create:hover {
+  background: #e8e8e8;
+}
+.abi-wallet-options {
+  max-height: min(340px, var(--radix-popover-content-available-height));
+  overflow-y: auto;
+}
+.abi-wallet-options > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  text-align: left;
+  padding: 12px;
+  border: 0;
+  background: transparent;
+  border-radius: 9px;
+  font: inherit;
+  color: #262626;
+  cursor: pointer;
+}
+.abi-wallet-options > button:hover,
+.abi-wallet-options > button:focus-visible {
+  background: #f0f4f9;
+  outline: none;
+}
+.abi-wallet-options > button > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+.abi-wallet-options .abi-wallet-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+}
+.abi-wallet-options strong {
+  font-size: 16px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.abi-wallet-options small {
+  display: block;
+  font-size: 12px;
+  color: #626262;
+  margin-top: 3px;
+}
+.abi-wallet-empty {
+  padding: 16px;
+  color: #626262;
+  font-size: 14px;
+}
+.abi-connect-page {
+  max-width: 900px;
+}
+.abi-connect-page > .minimal-page-heading {
+  margin-bottom: 26px;
+}
+.abi-connect-quick {
+  margin: 38px 0 56px;
+  max-width: 620px;
+}
+.abi-setup-copy {
+  display: flex !important;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  font-size: 15px !important;
+}
+.abi-setup-copy > span:nth-child(2) {
+  flex: 1;
+  text-align: left;
+}
+.abi-connect-quick > p,
+.abi-key-heading p {
+  color: #626262;
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 14px 0 8px;
+  max-width: 65ch;
+}
+.abi-text-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none !important;
+  padding: 6px 0 !important;
+  color: #397fcb !important;
+  font: inherit;
+  border: 0;
+  cursor: pointer;
+}
+.abi-manual-setup > h2 {
+  margin-bottom: 28px;
+}
+.abi-setup-row {
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr);
+  gap: 15px;
+  margin-bottom: 38px;
+}
+.abi-setup-row > svg {
+  margin-top: 3px;
+  color: #737373;
+}
+.abi-setup-row h3 {
+  font-size: 18px !important;
+  font-weight: 500;
+  margin: 0 0 10px !important;
+}
+.abi-setup-row p {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #525252;
+  max-width: 65ch;
+}
+.abi-connect-page .minimal-copy-row {
+  margin: 16px 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.abi-connect-page .minimal-copy-row code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  background: #e9e9e9;
+  border-radius: 7px;
+  padding: 12px;
+  font-size: 12px;
+}
+.abi-connect-page .minimal-copy-row button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.abi-setup-row pre {
+  font-size: 12px;
+  overflow-x: auto;
+  max-width: 100%;
+  line-height: 1.7;
+}
+.abi-command {
+  position: relative;
+  background: #e9e9e9;
+  border-radius: 9px;
+  padding: 14px 42px 14px 14px;
+  margin-top: 16px;
+}
+.abi-command pre {
+  margin: 0;
+  white-space: pre;
+}
+.abi-command button {
+  position: absolute;
+  right: 7px;
+  top: 8px;
+  background: transparent !important;
+  padding: 6px !important;
+}
+.abi-key-heading {
+  margin: 38px 0 20px !important;
+  align-items: flex-start !important;
+  gap: 18px;
+}
+.abi-key-heading p {
+  margin: 8px 0 0 !important;
+}
+.abi-key-heading > button {
+  flex: none;
+}
+.abi-key-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 20px 0;
+}
+.abi-key-list article {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  background: #f4f4f4;
+  border-radius: 12px;
+  min-width: 0;
+}
+.abi-key-symbol {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  color: #626262;
+}
+.abi-key-list article > div:first-of-type {
+  flex: 1;
+  min-width: 0;
+}
+.abi-key-list h3 {
+  font-size: 15px !important;
+  font-weight: 550;
+  margin: 0 0 4px !important;
+  overflow-wrap: anywhere;
+}
+.abi-key-list p {
+  font-size: 13px;
+  color: #525252;
+  margin: 0 0 4px !important;
+  overflow-wrap: anywhere;
+}
+.abi-key-list small {
+  font-size: 12px;
+  color: #626262;
+  display: block;
+  line-height: 1.6;
+}
+.abi-key-actions {
+  display: flex;
+  gap: 4px;
+}
+.abi-key-actions button {
+  background: transparent !important;
+  font-size: 12px !important;
+}
+.abi-key-list article > button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.abi-key-secret {
+  display: flex;
+  gap: 15px;
+  background: #eef4fc;
+  border-radius: 12px;
+  padding: 22px;
+  margin: 25px 0;
+}
+.abi-key-secret > svg {
+  flex: none;
+  color: #397fcb;
+}
+.abi-key-secret > div {
+  min-width: 0;
+  flex: 1;
+}
+.abi-key-secret h3 {
+  font-size: 16px !important;
+  margin: 0 0 8px !important;
+}
+.abi-key-secret p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #525252;
+}
+.abi-key-secret code {
+  display: block;
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  user-select: all;
+}
+.abi-connect-empty {
+  padding: 40px 18px;
+  color: #626262;
+  text-align: center;
+  background: #f4f4f4;
+  border-radius: 12px;
+}
+.abi-connect-empty > svg {
+  margin: 0 auto 15px;
+}
+.abi-connect-empty h3 {
+  color: #262626;
+  font-size: 17px;
+}
+.abi-connect-empty p {
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 48ch;
+  margin: 8px auto;
+}
+.abi-connection-status {
+  padding: 20px 0;
+  border-top: 1px solid #e5e5e5;
+  margin-top: 30px;
+}
+.abi-connection-status summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.abi-connection-status p {
+  font-size: 13px;
+  color: #626262;
+  line-height: 1.6;
+}
+.abi-inline-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #285e34;
+  margin: 16px 0;
+}
+.abi-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 14px;
+  color: #262626;
+}
+.abi-form-field > small {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #626262;
+}
+.abi-field-trigger {
+  display: flex !important;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  background: #e5e5e5 !important;
+  border: 0;
+  border-radius: 7px !important;
+  padding: 11px 12px !important;
+  color: #262626;
+  font: inherit;
+  text-align: left;
+}
+.abi-field-trigger > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.abi-field-trigger svg {
+  flex: none;
+}
+.abi-wallet-access-popover {
+  width: 360px !important;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.abi-wallet-access-popover > p {
+  font-size: 12px;
+  color: #626262;
+  padding: 6px 10px;
+}
+.abi-wallet-access-popover > label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.abi-wallet-access-popover > label:hover {
+  background: #f4f4f4;
+}
+.abi-wallet-access-popover small {
+  display: block;
+  font-size: 12px;
+  color: #626262;
+  margin-top: 4px;
+}
+.abi-wallet-access-popover strong {
+  font-weight: 500;
+}
+.abi-key-dialog form,
+.abi-limit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.abi-key-dialog form > h3 {
+  font-size: 17px;
+  font-weight: 500;
+  margin: 8px 0 -10px;
+}
+.abi-key-dialog label > input:not([type="checkbox"]),
+.abi-limit-form input:not([type="checkbox"]) {
+  min-height: 44px;
+}
+.abi-key-dialog input[type="checkbox"],
+.abi-limit-form input[type="checkbox"],
+.abi-services-popover input[type="checkbox"],
+.abi-wallet-access-popover input[type="checkbox"] {
+  accent-color: #4295e8;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.abi-permission-row {
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  font-size: 14px;
+}
+.abi-permission-row small {
+  display: block;
+  color: #626262;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+.abi-owner-permissions {
+  font-size: 13px;
+}
+.abi-owner-permissions summary {
+  color: #626262;
+  cursor: pointer;
+}
+.abi-owner-permissions > p {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.abi-owner-permissions label {
+  margin-top: 14px;
+}
+.abi-form-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.abi-form-columns > label {
+  min-width: 0;
+}
+.abi-wallet-limits > .minimal-section-heading > div > p {
+  font-size: 14px;
+  line-height: 1.6;
+  margin-top: 8px;
+  color: #626262;
+}
+.abi-services-popover {
+  width: 440px !important;
+  max-height: min(570px, var(--radix-popover-content-available-height));
+  overflow-y: auto;
+}
+.abi-service-all {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 9px;
+  background: #f0f4f9;
+  padding: 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+.abi-service-all strong {
+  font-size: 14px;
+  font-weight: 550;
+}
+.abi-service-all small {
+  display: block;
+  font-size: 12px;
+  color: #626262;
+  margin-top: 5px;
+}
+.abi-service-list {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+.abi-service-list > p,
+.abi-services-popover > .minimal-note {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #626262;
+  padding: 8px 12px;
+}
+.abi-service-list details {
+  background: #f4f4f4;
+  border-radius: 9px;
+  margin-bottom: 7px;
+}
+.abi-service-list summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 13px;
+  list-style: none;
+  cursor: pointer;
+}
+.abi-service-list summary strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.abi-service-list summary small {
+  display: block;
+  font-size: 12px;
+  margin-top: 3px;
+  color: #626262;
+}
+.abi-service-list details[open] summary svg {
+  transform: rotate(180deg);
+}
+.abi-service-list details > label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.abi-connect-page button:disabled,
+.abi-wallet-create:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.abi-workspace-dialog {
+  max-height: calc(100dvh - 48px) !important;
+  overflow-y: auto;
+}
+.abi-key-dialog form label,
+.abi-limit-form label {
+  margin: 0;
+}
+.abi-key-dialog .abi-owner-permissions label {
+  margin: 14px 0 0;
+}
+.abi-key-dialog form,
+.abi-limit-form {
+  gap: 20px;
+}
+.abi-key-dialog .abi-permission-row input {
+  appearance: none;
+  position: relative;
+  width: 36px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #dedede;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+.abi-key-dialog .abi-permission-row input::before {
+  content: "";
+  display: block;
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 3px #0002;
+  transition: transform 160ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.abi-key-dialog .abi-permission-row input:checked {
+  background: #4295e8;
+}
+.abi-key-dialog .abi-permission-row input:checked::before {
+  transform: translateX(14px);
+}
+.abi-key-dialog .abi-permission-row input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.abi-key-dialog .abi-permission-row input:focus-visible {
+  outline: 2px solid #2878c9;
+  outline-offset: 3px;
+}
+.abi-workspace-dialog > button:last-child {
+  background: transparent !important;
+  color: #626262;
+  padding: 6px !important;
+  min-height: 0;
+}
+.abi-access-select {
+  z-index: 130 !important;
+  background: #ededed !important;
+  color: #262626 !important;
+  border: 0 !important;
+  border-radius: 9px !important;
+  font:
+    14px var(--font-sans),
+    sans-serif;
+  box-shadow: 0 8px 24px #0002 !important;
+}
+.abi-access-select [role="option"][data-highlighted] {
+  background: #dadada;
+}
+.abi-key-wallet-ids {
+  margin: 8px 0;
+  font-size: 12px;
+  color: #626262;
+}
+.abi-key-wallet-ids summary {
+  cursor: pointer;
+}
+.abi-key-wallet-ids code {
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .abi-wallet-trigger {
+    gap: 10px;
+    padding-bottom: 20px;
+  }
+  .abi-wallet-title strong {
+    font-size: 20px;
+  }
+  .abi-wallet-title small,
+  .abi-wallet-available > small {
+    font-size: 11px;
+  }
+  .abi-wallet-available > strong {
+    font-size: 18px;
+  }
+  .abi-wallet-mark {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+  }
+  .abi-wallet-popover {
+    width: calc(100vw - 32px) !important;
+  }
+  .abi-connect-quick {
+    margin: 30px 0 44px;
+  }
+  .abi-key-heading {
+    flex-direction: column;
+  }
+  .abi-key-list article {
+    padding: 16px;
+    gap: 9px;
+    flex-wrap: wrap;
+  }
+  .abi-key-list article > div:first-of-type {
+    min-width: calc(100% - 50px);
+  }
+  .abi-key-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .abi-key-list article > button {
+    margin-left: auto;
+  }
+  .abi-setup-row {
+    grid-template-columns: 20px minmax(0, 1fr);
+    gap: 10px;
+  }
+  .abi-connect-page .minimal-copy-row {
+    flex-wrap: wrap;
+  }
+  .abi-connect-page .minimal-copy-row code {
+    flex-basis: 100%;
+  }
+  .abi-form-columns {
+    gap: 12px;
+  }
+  .abi-workspace-dialog {
+    top: 24px !important;
+    max-height: calc(100dvh - 48px) !important;
+  }
+  .abi-wallet-limits .minimal-section-heading {
+    align-items: flex-start;
+    gap: 15px;
+    flex-direction: column;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .abi-wallet-popover,
+  .abi-wallet-access-popover,
+  .abi-services-popover,
+  .abi-wallet-popover[data-state="closed"],
+  .abi-wallet-access-popover[data-state="closed"],
+  .abi-services-popover[data-state="closed"] {
+    animation: none !important;
+  }
+  .abi-wallet-trigger * {
+    transition: none !important;
+  }
+}

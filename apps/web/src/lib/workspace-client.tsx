@@ -18,6 +18,7 @@ export type Workspace = {
     pendingUsdc: string;
     remainingUsdc: string;
     inheritedLimits: boolean;
+    services?: string[] | null;
   };
   connections: {
     id: string;

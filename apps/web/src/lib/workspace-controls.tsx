@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { WalletLimitEditor } from "./wallet-limits";
 import { LiquidWalletCard } from "./liquid-wallet-card";
 import { workspaceJson, type Workspace, type WorkspaceFetcher } from "./workspace-client";
 
@@ -154,9 +155,6 @@ export function WorkspaceFunds({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [receipt, setReceipt] = useState("");
-  const [limit, setLimit] = useState(w.card.limitUsdc ?? "0"),
-    [period, setPeriod] = useState(w.card.period),
-    [recurring, setRecurring] = useState(w.card.allowRecurring);
   async function mutate(path: string, body: unknown, method = "POST") {
     setBusy(true);
     setError("");
@@ -365,52 +363,17 @@ export function WorkspaceFunds({
               )}
             </form>
           ) : (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void mutate(
-                  `${prefix}/card`,
-                  { limitUsdc: limit, period, allowRecurring: recurring },
-                  "PATCH",
-                );
+            <WalletLimitEditor
+              workspace={w}
+              workspaces={workspaces}
+              gFetch={gFetch}
+              onChanged={onChanged}
+              readOnly={readOnly}
+              onSaved={() => {
+                setAction(null);
+                setReceipt("Spending limit saved.");
               }}
-            >
-              <label>
-                Shared limit in USDC
-                <input
-                  required
-                  inputMode="decimal"
-                  pattern="[0-9]+(\.[0-9]{1,6})?"
-                  value={limit}
-                  onChange={(e) => setLimit(e.target.value)}
-                />
-              </label>
-              <label>
-                Period
-                <select value={period} onChange={(e) => setPeriod(e.target.value)}>
-                  <option value="day">Per day (UTC)</option>
-                  <option value="week">Per week (UTC)</option>
-                  <option value="month">Per month (UTC)</option>
-                  <option value="total">Total (up to 90 days)</option>
-                </select>
-              </label>
-              <label className="abi-workspace-check">
-                <input
-                  type="checkbox"
-                  checked={recurring}
-                  onChange={(e) => setRecurring(e.target.checked)}
-                />
-                Allow recurring purchases under existing account controls
-              </label>
-              <p>
-                Connected-service write actions remain unavailable. Increasing this limit does not
-                add funds.
-              </p>
-              {error && <p role="alert">{error}</p>}
-              <Button disabled={readOnly || busy} type="submit">
-                Save shared limit
-              </Button>
-            </form>
+            />
           )}
         </DialogContent>
       </Dialog>

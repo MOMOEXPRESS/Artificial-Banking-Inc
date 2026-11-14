@@ -29,6 +29,67 @@ function setup() {
   const travel = createWorkspace(org.id, "Travel", crypto.randomUUID());
   return { org, general: viewWorkspace(org.id, String(general.id)), travel };
 }
+test("tool selection is enforced before reservations and fails closed on corrupt rules", () => {
+  const { org, general } = setup();
+  setCard(org.id, general.id, { limitUsdc: "20" });
+  const connection = connectAgent(org.id, general.id, {
+    name: "Restricted",
+    pay: true,
+    ttlHours: 24,
+    key: crypto.randomUUID(),
+  });
+  commerceDatabase()
+    .prepare("INSERT INTO abi_card_services(card_id,allowed_json) VALUES (?,?)")
+    .run(general.card.id, JSON.stringify(["https://example.invalid/search"]));
+  assert.throws(
+    () =>
+      reserveCard(
+        connection.agentId,
+        "blocked",
+        1_000_000n,
+        "pay_api",
+        "https://example.invalid/export",
+      ),
+    /not enabled/,
+  );
+  assert.equal(
+    reserveCard(
+      connection.agentId,
+      "allowed",
+      1_000_000n,
+      "pay_api",
+      "https://example.invalid/search?q=hello",
+    ),
+    true,
+  );
+  finishCardReservation("allowed", "released");
+  assert.throws(
+    () => setCard(org.id, general.id, { services: ["https://unpublished.invalid/tool"] }),
+    /published/,
+  );
+  commerceDatabase()
+    .prepare("UPDATE abi_card_services SET allowed_json='broken' WHERE card_id=?")
+    .run(general.card.id);
+  assert.throws(
+    () =>
+      reserveCard(
+        connection.agentId,
+        "corrupt",
+        1_000_000n,
+        "pay_api",
+        "https://example.invalid/search",
+      ),
+    /not enabled/,
+  );
+  setCard(org.id, general.id, { services: null });
+  assert.equal(viewWorkspace(org.id, general.id).card.services, null);
+  assert.equal(
+    reserveCard(connection.agentId, "all", 1_000_000n, "pay_api", "https://example.invalid/export"),
+    true,
+  );
+  finishCardReservation("all", "released");
+  assert.equal(store.reconcileOrg(org.id).ok, true);
+});
 
 test("workspace creation is atomic, zero-funded and idempotent with exactly one card", () => {
   const { org, travel } = setup();

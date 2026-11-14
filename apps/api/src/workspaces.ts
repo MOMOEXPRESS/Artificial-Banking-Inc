@@ -2,7 +2,7 @@ import { treasuryApprovalThresholdMicro } from "./treasury-threshold.js";
 import { randomBytes } from "node:crypto";
 import { accountId, formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/common";
 import { transferAvailable } from "@policyvault/ledger";
-import { commerceDatabase, store } from "./store.js";
+import { commerceDatabase, store, sellerStore } from "./store.js";
 
 type Row = Record<string, string | number | null>;
 export class WorkspaceError extends Error {
@@ -17,6 +17,30 @@ export class WorkspaceError extends Error {
 const id = (prefix: string) => `${prefix}_${randomBytes(12).toString("hex")}`;
 const now = () => new Date().toISOString();
 const db = () => commerceDatabase();
+export function normalizeService(value: string) {
+  try {
+    const u = new URL(value);
+    return `${u.origin}${u.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return value;
+  }
+}
+function cardServices(cardId: string): string[] | null {
+  const row = db()
+    .prepare("SELECT allowed_json FROM abi_card_services WHERE card_id=?")
+    .get(cardId) as { allowed_json: string } | undefined;
+  if (!row) return null;
+  try {
+    const value = JSON.parse(row.allowed_json);
+    return value === null
+      ? null
+      : Array.isArray(value) && value.every((x) => typeof x === "string")
+        ? value
+        : [];
+  } catch {
+    return [];
+  }
+}
 export function findWorkspace(orgId: string, workspaceId: string): Row {
   const row = db()
     .prepare(
@@ -230,6 +254,7 @@ export function viewWorkspace(orgId: string, workspaceId: string) {
       pendingUsdc: formatMicroToUsdc(usage.pending),
       remainingUsdc: formatMicroToUsdc(remaining < available ? remaining : available),
       inheritedLimits: limit === null,
+      services: cardServices(String(w.card_id)),
     },
     connections: db()
       .prepare(
@@ -246,10 +271,32 @@ export function setCard(
     limitUsdc?: string;
     period?: "day" | "week" | "month" | "total";
     allowRecurring?: boolean;
+    services?: string[] | null;
   },
 ) {
   return db().transaction(() => {
     const w = findWorkspace(orgId, workspaceId);
+    if (input.services !== undefined) {
+      const available = new Set(
+        sellerStore.listDirectoryOffers().map((o) => normalizeService(o.endpointUrl)),
+      );
+      if (input.services?.some((url) => !available.has(normalizeService(url))))
+        throw new WorkspaceError(
+          "SERVICE_UNAVAILABLE",
+          "Choose a currently published service endpoint.",
+          400,
+        );
+      db()
+        .prepare(
+          "INSERT INTO abi_card_services(card_id,allowed_json) VALUES (?,?) ON CONFLICT(card_id) DO UPDATE SET allowed_json=excluded.allowed_json",
+        )
+        .run(
+          w.card_id,
+          JSON.stringify(
+            input.services === null ? null : [...new Set(input.services.map(normalizeService))],
+          ),
+        );
+    }
     const limit =
       input.limitUsdc === undefined ? w.limit_micro : parseUsdcToMicro(input.limitUsdc).toString();
     const period = input.period ?? String(w.period);
@@ -275,7 +322,7 @@ export function setCard(
 export function connectAgent(
   orgId: string,
   workspaceId: string,
-  input: { name: string; pay: boolean; ttlHours: number; key: string },
+  input: { name: string; pay: boolean; ttlHours: number; key: string; permissions?: string[] },
 ) {
   return db().transaction(() => {
     const w = findWorkspace(orgId, workspaceId);
@@ -313,7 +360,7 @@ export function connectAgent(
       orgId,
       agentId: agent.agentId,
       label: input.name,
-      scopes: input.pay ? ["read", "pay"] : ["read"],
+      scopes: [...(input.pay ? ["read", "pay"] : ["read"]), ...(input.permissions ?? [])],
       ttlHours: input.ttlHours,
     });
     return {
@@ -415,7 +462,13 @@ export function allocateWorkspace(
     });
   })();
 }
-export function reserveCard(agentId: string, intentId: string, amount: bigint, tool: string) {
+export function reserveCard(
+  agentId: string,
+  intentId: string,
+  amount: bigint,
+  tool: string,
+  destination?: string,
+) {
   return db().transaction(() => {
     const w = workspaceForAgent(agentId);
     if (!w) return false;
@@ -426,6 +479,13 @@ export function reserveCard(agentId: string, intentId: string, amount: bigint, t
       throw new WorkspaceError("SPENDING_FROZEN", "The account and agent must be active to spend.");
     if (w.card_status !== "active")
       throw new WorkspaceError("CARD_FROZEN", "This workspace card is frozen.");
+    const services = cardServices(String(w.card_id));
+    if (services !== null && (!destination || !services.includes(normalizeService(destination))))
+      throw new WorkspaceError(
+        "SERVICE_NOT_ALLOWED",
+        "This tool is not enabled for the wallet’s spending limit.",
+        403,
+      );
     if (w.period === "total" && Date.now() - Date.parse(String(w.starts_at)) > 90 * 86400000)
       throw new WorkspaceError("LIMIT_EXPIRED", "The card's total spending window has expired.");
     const previous = db()
