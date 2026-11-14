@@ -237,7 +237,13 @@ async function handle(req: NextRequest, pathSegments: string[]) {
       data: { user },
       error,
     } = await identity.client.auth.getUser();
-    if (error && (error.name === "AuthRetryableFetchError" || !error.status || error.status >= 500))
+    if (
+      error &&
+      (error.name === "AuthRetryableFetchError" ||
+        !error.status ||
+        error.status === 429 ||
+        error.status >= 500)
+    )
       return identity.apply(
         NextResponse.json(
           {

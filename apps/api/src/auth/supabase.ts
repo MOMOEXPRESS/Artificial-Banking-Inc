@@ -50,7 +50,7 @@ export async function verifySupabaseIdentity(
       "The identity service is temporarily unavailable. Try again.",
     );
   }
-  if (response.status >= 500)
+  if (response.status === 429 || response.status >= 500)
     throw new IdentityError(
       503,
       "IDENTITY_UNAVAILABLE",
@@ -99,14 +99,12 @@ export function externalSessionGuard(fetcher: typeof fetch = fetch): express.Req
     if (!binding) return next();
     const token = req.header("x-abi-supabase-token");
     if (!token)
-      return res
-        .status(401)
-        .json({
-          error: {
-            code: "SSO_SESSION_REQUIRED",
-            message: "Sign in again to refresh your identity session.",
-          },
-        });
+      return res.status(401).json({
+        error: {
+          code: "SSO_SESSION_REQUIRED",
+          message: "Sign in again to refresh your identity session.",
+        },
+      });
     void verifySupabaseIdentity(token, fetcher)
       .then((identity) => {
         if (identity.id !== binding.subject || identity.sessionId !== binding.provider_session_id)

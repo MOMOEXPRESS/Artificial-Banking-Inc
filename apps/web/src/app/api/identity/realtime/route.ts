@@ -8,6 +8,14 @@ export async function GET(req: NextRequest) {
       data: { user },
       error,
     } = await s.client.auth.getUser();
+    if (
+      error &&
+      (!error.status ||
+        error.status === 429 ||
+        error.status >= 500 ||
+        error.name === "AuthRetryableFetchError")
+    )
+      throw error;
     if (error || !user)
       return s.apply(NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 }));
     const {

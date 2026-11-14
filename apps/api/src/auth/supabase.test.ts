@@ -176,3 +176,12 @@ test("identity verification fails closed for invalid or malformed upstream resul
       !!error && typeof error === "object" && "status" in error && error.status === 503,
   );
 });
+
+test("provider rate limits preserve the ABI session as retryable, not unauthorized", async () => {
+  const e = external();
+  await assert.rejects(
+    () => verifySupabaseIdentity(e.token, async () => new Response("{}", { status: 429 })),
+    (error: unknown) =>
+      !!error && typeof error === "object" && "status" in error && error.status === 503,
+  );
+});

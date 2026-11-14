@@ -48,7 +48,9 @@ Deno.serve(async (req: Request) => {
         signal: AbortSignal.timeout(10000),
       }),
     ]);
-    if (userResponse.status >= 500 || statusResponse.status >= 500)
+    if (
+      [userResponse.status, statusResponse.status].some((status) => status === 429 || status >= 500)
+    )
       return reply({ error: "IDENTITY_UNAVAILABLE" }, 503);
     if (!userResponse.ok || !statusResponse.ok) return reply({ error: "UNAUTHORIZED" }, 401);
     const [user, status] = await Promise.all([userResponse.json(), statusResponse.json()]);
