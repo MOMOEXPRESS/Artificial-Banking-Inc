@@ -1,6 +1,7 @@
 import type express from "express";
 import { z } from "zod";
-import { commerceDatabase, store, type OrgRow } from "./store.js";
+import { commerceDatabase, store, sellerStore, type OrgRow } from "./store.js";
+import { createWalletKey, listWalletKeys, changeWalletKey } from "./wallet-keys.js";
 import {
   canUseWorkspace,
   allocationView,
@@ -123,6 +124,7 @@ export function registerWorkspaceRoutes(
           limitUsdc: amount.optional(),
           period: z.enum(["day", "week", "month", "total"]).optional(),
           allowRecurring: z.boolean().optional(),
+          services: z.array(z.string().url().max(2048)).max(500).nullable().optional(),
         })
         .strict()
         .parse(req.body);
@@ -147,6 +149,51 @@ export function registerWorkspaceRoutes(
           connectAgent(org.id, String(req.params.workspaceId), { ...b, key: b.idempotencyKey }),
         );
     }, true),
+  );
+  app.get(
+    "/v1/guardian/wallet-keys",
+    route((org, _req, res) => res.json({ keys: listWalletKeys(org.id) }), true),
+  );
+  app.post(
+    "/v1/guardian/wallet-keys",
+    route((org, req, res) => {
+      const input = z
+        .object({
+          name: z.string().trim().min(1).max(80),
+          workspaceIds: z.array(z.string().min(1).max(100)).min(1).max(20),
+          permissions: z
+            .array(z.enum(["wallets:create", "cards:manage", "keys:manage"]))
+            .max(3)
+            .default([]),
+          pay: z.boolean().default(false),
+          ttlHours: z.number().int().min(1).max(720).default(24),
+          idempotencyKey: key,
+        })
+        .strict()
+        .parse(req.body);
+      return res.status(201).json(createWalletKey(org.id, input));
+    }, true),
+  );
+  app.post(
+    "/v1/guardian/wallet-keys/:keyId/:operation",
+    route((org, req, res) => {
+      const operation = z.enum(["rotate", "revoke"]).parse(req.params.operation);
+      return res.json(changeWalletKey(org.id, String(req.params.keyId), operation));
+    }, true),
+  );
+  app.get(
+    "/v1/guardian/spending-services",
+    route((_org, _req, res) =>
+      res.json({
+        services: sellerStore.listDirectoryOffers().map((o) => ({
+          id: o.id,
+          name: o.title,
+          providerId: o.orgId,
+          provider: o.sellerName,
+          endpoint: o.endpointUrl,
+        })),
+      }),
+    ),
   );
   app.post(
     "/v1/guardian/workspaces/:workspaceId/allocations",
@@ -288,4 +335,91 @@ export function registerWorkspaceRoutes(
       },
     });
   });
+  app.get("/v1/agent/wallets", (req, res) => {
+    const auth = deps.authAgent(req);
+    if (!auth || !auth.scopes.includes("read"))
+      return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+    const linked = commerceDatabase()
+      .prepare("SELECT parent_session_id FROM abi_key_wallet_grants WHERE session_id=?")
+      .get(auth.sessionId ?? "") as { parent_session_id: string } | undefined;
+    const rows = linked
+      ? (commerceDatabase()
+          .prepare("SELECT workspace_id FROM abi_key_wallet_grants WHERE parent_session_id=?")
+          .all(linked.parent_session_id) as { workspace_id: string }[])
+      : [];
+    const workspace = workspaceForAgent(auth.agentId);
+    return res.json({
+      wallets: (rows.length
+        ? rows.map((r) => r.workspace_id)
+        : workspace
+          ? [String(workspace.id)]
+          : []
+      ).map((id) => {
+        const w = findWorkspace(auth.orgId, id);
+        return { id, name: w.name, cardId: w.card_id };
+      }),
+    });
+  });
+  const agentRoute =
+    (
+      scope: string,
+      handler: (
+        auth: NonNullable<ReturnType<typeof deps.authAgent>>,
+        req: express.Request,
+        res: express.Response,
+      ) => unknown,
+    ): express.RequestHandler =>
+    (req, res, next) => {
+      try {
+        const auth = deps.authAgent(req);
+        if (!auth) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+        if (!auth.sessionId || !auth.scopes.includes(scope))
+          return res.status(403).json({ error: { code: "INSUFFICIENT_SCOPE" } });
+        return handler(auth, req, res);
+      } catch (e) {
+        if (e instanceof WorkspaceError)
+          return res.status(e.status).json({ error: { code: e.code, message: e.message } });
+        next(e);
+      }
+    };
+  app.post(
+    "/v1/agent/wallets",
+    agentRoute("wallets:create", (auth, req, res) => {
+      const b = z
+        .object({ name: z.string().trim().min(1).max(80), idempotencyKey: key })
+        .strict()
+        .parse(req.body);
+      // Creation never grants existing funds or raises any allowance. Access to
+      // this new wallet still requires an owner-issued key grant.
+      return res
+        .status(201)
+        .json({
+          workspace: createWorkspace(auth.orgId, b.name, `${auth.sessionId}:${b.idempotencyKey}`),
+        });
+    }),
+  );
+  app.patch(
+    "/v1/agent/card",
+    agentRoute("cards:manage", (auth, req, res) => {
+      const b = z
+        .object({ status: z.enum(["active", "frozen"]) })
+        .strict()
+        .parse(req.body);
+      const w = workspaceForAgent(auth.agentId);
+      if (!w) throw new WorkspaceError("WORKSPACE_CONNECTION_REQUIRED", "Connect a wallet first.");
+      return res.json({ workspace: setCard(auth.orgId, String(w.id), b) });
+    }),
+  );
+  app.post(
+    "/v1/agent/key/:operation",
+    agentRoute("keys:manage", (auth, req, res) => {
+      const operation = z.enum(["rotate", "revoke"]).parse(req.params.operation);
+      const parent = commerceDatabase()
+        .prepare("SELECT parent_session_id FROM abi_key_wallet_grants WHERE session_id=?")
+        .get(auth.sessionId) as { parent_session_id: string } | undefined;
+      return res.json(
+        changeWalletKey(auth.orgId, parent?.parent_session_id ?? auth.sessionId!, operation),
+      );
+    }),
+  );
 }

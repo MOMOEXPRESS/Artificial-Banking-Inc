@@ -3419,6 +3419,7 @@ export const store = {
   /** Resolve a live session token to agent + scopes (for scope enforcement). */
   getSessionByToken(
     token: string,
+    workspaceId?: string,
   ):
     | { agent: AgentRow; scopes: string[]; sessionId: string; x402BudgetMicro?: MicroUsdc }
     | undefined {
@@ -3449,6 +3450,25 @@ export const store = {
       }
     }
     if (!r) return undefined;
+    // A wallet key may grant several immutable card connections. The parent
+    // must remain live; a selector can only choose an explicitly granted wallet.
+    const grants = db
+      .prepare(
+        "SELECT workspace_id,session_id FROM abi_key_wallet_grants WHERE parent_session_id=?",
+      )
+      .all(r.session_id) as Row[];
+    if (grants.length) {
+      const grant = workspaceId
+        ? grants.find((g) => g.workspace_id === workspaceId)
+        : grants.find((g) => g.session_id === r!.session_id);
+      if (!grant) return undefined;
+      r = db
+        .prepare(
+          `SELECT a.*,s.scopes_json,s.id AS session_id,s.x402_budget_micro FROM session_keys s JOIN agents a ON a.id=s.agent_id WHERE s.id=? AND s.revoked_at IS NULL AND s.expires_at>?`,
+        )
+        .get(grant.session_id, nowIso()) as Row | undefined;
+      if (!r) return undefined;
+    }
     // Fail CLOSED. This previously defaulted an empty or unparseable scope list
     // back to ["read","pay","escrow"] — so a session key created with no scopes
     // silently received full money authority. A key that grants nothing is a
@@ -8203,6 +8223,9 @@ export const store = {
     const wipe = db.transaction(() => {
       for (const table of [
         // Child rows first — several of these carry FKs onto orgs/agents.
+        "abi_key_wallet_grants",
+        "abi_wallet_key_requests",
+        "abi_card_services",
         "abi_workspace_chat",
         "abi_workspace_members",
         "abi_workspace_credentials",

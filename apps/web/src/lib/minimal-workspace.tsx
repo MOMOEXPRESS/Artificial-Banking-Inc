@@ -12,13 +12,14 @@ type Props = {
   org: OrgView | null | undefined;
   onNavigate: (view: View, tab?: string) => void;
   workspace?: import("./workspace-client").Workspace | null;
+  walletPicker?: ReactNode;
 };
 const usd = (cents: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 function usdc(value?: string) {
   return value ?? "0.00";
 }
-export function MinimalOverview({ org, onNavigate, workspace }: Props) {
+export function MinimalOverview({ org, onNavigate, workspace, walletPicker }: Props) {
   const agents = workspace
       ? workspace.connections.map((c) => ({
           id: c.agentId,
@@ -86,10 +87,12 @@ export function MinimalOverview({ org, onNavigate, workspace }: Props) {
           </ol>
         </section>
         <section className="reference-vault" aria-label="ABI workspace vault">
-          <div className="reference-workspace-row">
-            <strong>{workspace?.name ?? org?.org.name ?? "General"}</strong>
-            <span>{available} USDC available</span>
-          </div>
+          {walletPicker ?? (
+            <div className="reference-workspace-row">
+              <strong>{workspace?.name ?? org?.org.name ?? "General"}</strong>
+              <span>{available} USDC available</span>
+            </div>
+          )}
           <LiquidWalletCard
             name={workspace?.name ?? org?.org.name}
             network={org?.network?.testnet === false ? "Base" : "Base Sepolia"}

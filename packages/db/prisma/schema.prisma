@@ -37,6 +37,22 @@ model AbiCardReservations {
   @@map("abi_card_reservations")
 }
 
+model AbiCardServices {
+  cardId String @id @map("card_id") // -> abi_workspace_cards.id
+  allowedJson String @map("allowed_json")
+  @@map("abi_card_services")
+}
+
+model AbiKeyWalletGrants {
+  parentSessionId String @map("parent_session_id") // -> session_keys.id
+  workspaceId String @map("workspace_id") // -> abi_workspaces.id
+  sessionId String @map("session_id") // -> session_keys.id
+  @@id([parentSessionId, workspaceId])
+  @@unique([parentSessionId, workspaceId])
+  @@unique([sessionId])
+  @@map("abi_key_wallet_grants")
+}
+
 model AbiMemories {
   id String @id
   orgId String @map("org_id") // -> orgs.id
@@ -45,6 +61,16 @@ model AbiMemories {
   createdAt String @map("created_at")
   @@index([orgId, createdAt])
   @@map("abi_memories")
+}
+
+model AbiWalletKeyRequests {
+  orgId String @map("org_id") // -> orgs.id
+  createKey String @map("create_key")
+  sessionId String @map("session_id") // -> session_keys.id
+  @@id([orgId, createKey])
+  @@unique([orgId, createKey])
+  @@unique([sessionId])
+  @@map("abi_wallet_key_requests")
 }
 
 model AbiWorkspaceAllocations {

@@ -16,11 +16,10 @@ import { Icon, fmtUsd, relTime } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
 import { MinimalOverview, MinimalBilling } from "../../lib/minimal-workspace";
 import { useWorkspaces } from "../../lib/workspace-client";
-import {
-  WorkspaceSwitcher,
-  WorkspaceFunds,
-  WorkspaceConnections,
-} from "../../lib/workspace-controls";
+import { WorkspaceFunds } from "../../lib/workspace-controls";
+import { WalletPicker } from "../../lib/wallet-picker";
+import { WalletConnect } from "../../lib/wallet-connect";
+import { WalletSpendingLimits } from "../../lib/wallet-limits";
 import { StudioNav } from "../../lib/studio-nav";
 import { MarketplaceBuyer } from "../../lib/marketplace-buyer";
 import { AssistantDock } from "../../lib/assistant-dock";
@@ -1230,17 +1229,6 @@ export default function Console() {
         <main className="main">
           <div className="studio-shell-header">
             <StudioNav active={view} onNavigate={(v, t) => setView(v as View, t)} />
-            {workspaceState.items.length > 0 && (
-              <WorkspaceSwitcher
-                items={workspaceState.items}
-                value={workspaceState.current?.id ?? ""}
-                onSelect={workspaceState.choose}
-                gFetch={gFetch}
-                onChanged={workspaceState.load}
-                readOnly={readOnly}
-              />
-            )}
-            {workspaceState.error && <p role="alert">{workspaceState.error}</p>}
             <header className="topbar">
               <div className="topbar-title-block">
                 <nav className="crumb" aria-label="Breadcrumb">
@@ -1599,18 +1587,33 @@ export default function Console() {
                   <MinimalOverview
                     org={org}
                     workspace={workspaceState.current}
+                    walletPicker={
+                      workspaceState.current ? (
+                        <WalletPicker
+                          items={workspaceState.items}
+                          current={workspaceState.current}
+                          onSelect={workspaceState.choose}
+                          gFetch={gFetch}
+                          onChanged={workspaceState.load}
+                          readOnly={readOnly}
+                        />
+                      ) : (
+                        <p role="status">{workspaceState.error || "Loading wallets…"}</p>
+                      )
+                    }
                     onNavigate={(v, t) => setView(v, t)}
                   />
                 )}
                 {view === "connect" && workspaceState.current && (
-                  <WorkspaceConnections
-                    key={workspaceState.current.id}
+                  <WalletConnect
+                    key={session.orgId}
                     workspace={workspaceState.current}
                     workspaces={workspaceState.items}
                     gFetch={gFetch}
                     onChanged={workspaceState.load}
                     readOnly={readOnly}
-                    onNavigate={(v) => setView(v === "workspace-keys" ? "agents" : (v as View))}
+                    initialTab={tabHint ?? undefined}
+                    onTabChange={setTabHint}
                   />
                 )}
                 {view === "treasury" && workspaceState.current && (
@@ -1631,14 +1634,13 @@ export default function Console() {
                   <MinimalBilling
                     limitsContent={
                       workspaceState.current ? (
-                        <WorkspaceFunds
-                          key={workspaceState.current.id}
+                        <WalletSpendingLimits
+                          key={session.orgId}
                           workspace={workspaceState.current}
                           workspaces={workspaceState.items}
                           gFetch={gFetch}
                           onChanged={workspaceState.load}
                           readOnly={readOnly || org?.actor?.role === "approver"}
-                          onNavigate={(v) => setView(v as View)}
                         />
                       ) : undefined
                     }

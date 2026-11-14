@@ -1,4 +1,6 @@
 import type express from "express";
+import { AsyncLocalStorage } from "node:async_hooks";
+const selectedWallet = new AsyncLocalStorage<string | undefined>();
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
@@ -82,6 +84,7 @@ async function agentRequest(
 ): Promise<JsonRecord> {
   const headers: Record<string, string> = {
     authorization: `Bearer ${token}`,
+    ...(selectedWallet.getStore() ? { "x-abi-workspace": selectedWallet.getStore()! } : {}),
     ...(init?.body ? { "content-type": "application/json" } : {}),
   };
   if (init?.headers) {
@@ -474,7 +477,9 @@ export function registerRemoteMcp(app: express.Express) {
     res.set({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
     const token =
       req.params.token ?? req.header("authorization")?.match(/^Bearer (pv_sess_[a-f0-9]+)$/)?.[1];
-    const session = token?.startsWith("pv_sess_") ? store.getSessionByToken(token) : undefined;
+    const session = token?.startsWith("pv_sess_")
+      ? store.getSessionByToken(token, req.header("x-abi-workspace"))
+      : undefined;
     if (!session || !session.scopes.includes("read")) {
       return res.status(401).json({
         jsonrpc: "2.0",
@@ -519,7 +524,9 @@ export function registerRemoteMcp(app: express.Express) {
     });
     try {
       await server.connect(transport);
-      await transport.handleRequest(req, res, req.body);
+      await selectedWallet.run(req.header("x-abi-workspace"), () =>
+        transport.handleRequest(req, res, req.body),
+      );
       res.on("close", () => {
         void transport.close();
         void server.close();

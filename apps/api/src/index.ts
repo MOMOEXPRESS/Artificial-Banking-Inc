@@ -525,7 +525,7 @@ function authAgent(req: express.Request): AgentAuth | null {
   const key = bearer(req);
   if (!key) return null;
   if (key.startsWith("pv_sess_")) {
-    const session = store.getSessionByToken(key);
+    const session = store.getSessionByToken(key, req.header("x-abi-workspace"));
     if (!session) return null;
     // Frozen / archived agents still authenticate: their intents hit the policy
     // engine and produce an explainable agent_frozen/org_frozen deny in the trace.
