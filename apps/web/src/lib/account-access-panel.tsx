@@ -91,6 +91,7 @@ export function AccountAccessPanel({
   onSignOut: (everywhere: boolean) => void;
 }) {
   const [email, setEmail] = useState<string | null>(null);
+  const [external, setExternal] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -100,8 +101,11 @@ export function AccountAccessPanel({
     void (async () => {
       try {
         const res = await gFetch("/v1/auth/me");
-        if (res.ok)
-          setEmail(((await res.json()) as { user?: { email?: string } }).user?.email ?? null);
+        if (res.ok) {
+          const data = await res.json();
+          setEmail(data.user?.email ?? null);
+          setExternal(data.passwordManagedExternally === true);
+        }
       } catch {
         /* the rest of the panel still works */
       }
@@ -175,7 +179,13 @@ export function AccountAccessPanel({
         ) : null}
       </div>
 
-      {isSessionUser ? (
+      {isSessionUser && external && (
+        <p className="faint">
+          Sign-in is managed through Google or GitHub. Use your provider’s account recovery; no
+          separate ABI password was created.
+        </p>
+      )}
+      {isSessionUser && !external ? (
         <form
           aria-label="Change password"
           className="settings-password-form"

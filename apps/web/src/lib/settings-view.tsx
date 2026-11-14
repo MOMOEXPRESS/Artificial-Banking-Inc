@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "./ui";
 import { CompliancePanel } from "./compliance-panel";
+import { PrivateFiles } from "./private-files";
 import { MfaPanel } from "./mfa-panel";
 import { AccountAccessPanel } from "./account-access-panel";
 import { Button } from "@/components/ui/button";
@@ -64,6 +65,13 @@ type MerchantPayment = {
 };
 
 const SECTIONS = [
+  {
+    key: "files",
+    label: "Private files",
+    icon: "layers",
+    group: "Workspace",
+    description: "Private account storage, downloads and real-time file updates.",
+  },
   {
     key: "profile",
     label: "Workspace profile",
@@ -1472,6 +1480,7 @@ ${agents || "_None saved in this browser session._"}
           </>
         )}
 
+        {section === "files" && <PrivateFiles />}
         {section === "compliance" && (
           <CompliancePanel gFetch={gFetch} act={act} canEdit={actorRole === "owner"} />
         )}

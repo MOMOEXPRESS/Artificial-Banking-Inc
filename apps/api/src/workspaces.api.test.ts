@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -106,6 +108,36 @@ test("one key explicitly selects multiple wallets and rotation/revocation apply 
     });
     assert.equal(probe.status, 200);
     assert.equal(probe.data.workspace.id, wallet.id);
+  }
+  for (const wallet of [a, b]) {
+    const client = new Client({ name: "wallet-context-test", version: "1" });
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+        requestInit: {
+          headers: { authorization: `Bearer ${token}`, "x-abi-workspace": wallet.id },
+        },
+      }),
+    );
+    try {
+      const tools = await client.listTools();
+      assert.ok(tools.tools.some((t) => t.name === "abi_connection_context"));
+      assert.ok(tools.tools.some((t) => t.name === "abi_list_wallets"));
+      assert.ok(!tools.tools.some((t) => t.name === "abi_propose_payment"));
+      const context = await client.callTool({ name: "abi_connection_context", arguments: {} });
+      assert.notEqual(context.isError, true);
+      assert.equal(
+        (context.structuredContent as { workspace: { id: string } }).workspace.id,
+        wallet.id,
+      );
+      const list = await client.callTool({ name: "abi_list_wallets", arguments: {} });
+      assert.notEqual(list.isError, true);
+      const ids = (list.structuredContent as { wallets: { id: string }[] }).wallets.map(
+        (w) => w.id,
+      );
+      assert.deepEqual(ids.sort(), [a.id, b.id].sort());
+    } finally {
+      await client.close();
+    }
   }
   assert.equal(
     (
@@ -369,4 +401,47 @@ test("workspace seller enablement reuses the buyer identity without granting ano
     { name: "Bad", idempotencyKey: crypto.randomUUID() },
   );
   assert.equal(csrf.status, 403);
+});
+
+test("external-only sellers require enrolled MFA for payout changes and reject code replay", async () => {
+  const owner = identity(),
+    w = createWorkspace(owner.org.id, "SSO Seller", crypto.randomUUID());
+  commerceDatabase()
+    .prepare(
+      "INSERT INTO abi_external_identities(subject,user_id,external_only,created_at) VALUES (?,?,1,?)",
+    )
+    .run(crypto.randomUUID(), owner.user.id, new Date().toISOString());
+  const headers = { ...owner.headers, "x-abi-workspace": w.id };
+  assert.equal(
+    (await request(`/v1/guardian/workspaces/${w.id}/seller`, headers, { linkExisting: false }))
+      .status,
+    200,
+  );
+  const a = "0x1111111111111111111111111111111111111111",
+    b = "0x2222222222222222222222222222222222222222";
+  assert.equal(
+    (await request("/v1/seller/profile", headers, { payoutAddress: a }, "PATCH")).status,
+    200,
+  );
+  assert.equal(
+    (await request("/v1/seller/profile", headers, { payoutAddress: b }, "PATCH")).status,
+    403,
+  );
+  const { generateSecret, currentCode } = await import("./auth/totp.js");
+  const secret = generateSecret();
+  store.startMfaEnrolment(owner.user.id, secret);
+  store.confirmMfa(owner.user.id, 0);
+  assert.equal(
+    (await request("/v1/seller/profile", headers, { payoutAddress: b }, "PATCH")).status,
+    403,
+  );
+  const code = currentCode(secret);
+  assert.equal(
+    (await request("/v1/seller/profile", headers, { payoutAddress: b, code }, "PATCH")).status,
+    200,
+  );
+  assert.equal(
+    (await request("/v1/seller/profile", headers, { payoutAddress: a, code }, "PATCH")).status,
+    403,
+  );
 });

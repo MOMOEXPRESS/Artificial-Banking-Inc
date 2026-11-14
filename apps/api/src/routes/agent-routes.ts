@@ -158,7 +158,7 @@ export function registerAgentRoutes(
             budgetId: z.string().min(1).optional(),
             groupId: z.string().min(1).optional(),
             groupIds: z.array(z.string().min(1)).optional(),
-            profile: z.record(z.unknown()).optional(),
+            profile: z.record(z.string(), z.unknown()).optional(),
           })
           .parse(req.body);
         const legacyGroup = body.groupId
@@ -253,7 +253,7 @@ export function registerAgentRoutes(
         const body = z
           .object({
             name: z.string().min(1).max(80).optional(),
-            profile: z.record(z.unknown()).optional(),
+            profile: z.record(z.string(), z.unknown()).optional(),
           })
           .parse(req.body);
         if (body.name) store.renameAgent(agent.id, body.name);
@@ -282,7 +282,7 @@ export function registerAgentRoutes(
         if (!agent) {
           return res.status(404).json({ error: { code: "NOT_FOUND", message: "agent" } });
         }
-        const body = z.object({ profile: z.record(z.unknown()) }).parse(req.body);
+        const body = z.object({ profile: z.record(z.string(), z.unknown()) }).parse(req.body);
         const err = validateProfileHints(org, body.profile);
         if (err) {
           return res.status(400).json({ error: { code: "VALIDATION_ERROR", message: err } });

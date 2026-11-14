@@ -8,6 +8,8 @@
 import type express from "express";
 import { z } from "zod";
 import { hashPassword, passwordProblem, verifyPassword } from "../auth/password.js";
+import { accountMfaProblem } from "../auth/mfa-check.js";
+import { isExternalOnly } from "../auth/supabase.js";
 import {
   CSRF_COOKIE,
   SESSION_COOKIE,
@@ -301,7 +303,13 @@ export function registerAuthRoutes(app: express.Express) {
   app.post(
     "/v1/auth/login",
     asyncRoute(async (req, res) => {
-      const body = z.object({ email: emailSchema, password: z.string() }).parse(req.body);
+      const body = z
+        .object({
+          email: emailSchema,
+          password: z.string(),
+          mfaCode: z.string().max(100).optional(),
+        })
+        .parse(req.body);
       const found = store.findUserCredentialsByEmail(body.email);
 
       if (!found) {
@@ -310,7 +318,8 @@ export function registerAuthRoutes(app: express.Express) {
         await verifyPassword(body.password, "s2:16384:8:1:00:00");
         return res.status(401).json(LOGIN_FAILED);
       }
-      if (found.disabled) return res.status(401).json(LOGIN_FAILED);
+      if (found.disabled || isExternalOnly(found.user.id))
+        return res.status(401).json(LOGIN_FAILED);
       if (!(await verifyPassword(body.password, found.passwordHash))) {
         return res.status(401).json(LOGIN_FAILED);
       }
@@ -320,6 +329,8 @@ export function registerAuthRoutes(app: express.Express) {
         });
       }
 
+      const factor = accountMfaProblem(found.user.id, body.mfaCode);
+      if (factor) return res.status(403).json({ error: factor });
       store.markUserLogin(found.user.id);
       issueSession(res, found.user, req);
       res.json({
@@ -350,6 +361,7 @@ export function registerAuthRoutes(app: express.Express) {
     if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
     res.json({
       user: userView(me.user),
+      passwordManagedExternally: isExternalOnly(me.user.id),
       orgs: store.listMembershipsForUser(me.user.id).map(orgMembershipView),
       csrfToken: parseCookies(req)[CSRF_COOKIE] ?? null,
     });
@@ -385,6 +397,16 @@ export function registerAuthRoutes(app: express.Express) {
     asyncRoute(async (req, res) => {
       const me = currentUser(req);
       if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
+      if (isExternalOnly(me.user.id))
+        return res
+          .status(409)
+          .json({
+            error: {
+              code: "EXTERNAL_IDENTITY",
+              message:
+                "Use your Google or GitHub account to manage sign-in. No ABI password was created.",
+            },
+          });
       const body = z
         .object({
           currentPassword: z.string().max(1024),

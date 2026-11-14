@@ -32,3 +32,6 @@ docs/archive/**/node_modules/
 
 # Local rendered design-review evidence; approved mockups remain versioned.
 .impeccable/review/
+
+# Supabase CLI local cache
+supabase/.temp/

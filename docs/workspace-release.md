@@ -17,9 +17,9 @@ Reviewed 13 November 2026. This implements the account → workspace → card �
 
 ## Security follow-ups
 
-Compatible dependency updates were applied without forcing major upgrades. The current production audit reports **10 findings: 0 critical, 9 high, 1 moderate**. The Next.js 16/Zod 4/Prisma dependency migration remains awaiting the specific approval described in `security-upgrade-proposal.md`; automatic approval review rejected the original broad breaking upgrade. No clean dependency audit is claimed.
+The explicitly approved Next.js 16.4.6, Zod 4.6.7 and x402 2.31.0 compatibility upgrade is implemented. Unused optional Prisma tooling is outside the active workspace graph; its files remain. The 14 November production dependency audit reports zero findings. See `security-upgrade-proposal.md` and `supabase-platform.md`.
 
-Turnstile's frontend and server integration are implemented for buyer/seller password login and signup. Server Siteverify requires the exact action and production hostname and fails closed; browser tokens reset after each attempt. The user approved `turnstile-activation-manifest.md`. Activation happens after this compatible frontend/API are deployed; real-token success and replay checks must be recorded separately before claiming live verification.
+Turnstile's frontend and server integration are implemented for buyer/seller password login and signup. Server Siteverify requires the exact action and production hostname and fails closed; browser tokens reset after each attempt. The user approved `turnstile-activation-manifest.md`. The specifically approved secret recovery activated the existing Worker on 14 November. Missing tokens are rejected on all four forms. A browser reached the real interactive challenge but did not obtain a token; human fresh-token success and replay checks remain pending. No full live verification is claimed.
 
 ## Validation and scope
 

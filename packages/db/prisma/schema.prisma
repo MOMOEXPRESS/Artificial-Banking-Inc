@@ -43,6 +43,22 @@ model AbiCardServices {
   @@map("abi_card_services")
 }
 
+model AbiExternalIdentities {
+  subject String @id
+  userId String @map("user_id") // -> users.id
+  externalOnly Int @default(0) @map("external_only")
+  createdAt String @map("created_at")
+  @@unique([userId])
+  @@map("abi_external_identities")
+}
+
+model AbiExternalSessions {
+  sessionId String @id @map("session_id") // -> user_sessions.id
+  subject String // -> abi_external_identities.subject
+  providerSessionId String @map("provider_session_id")
+  @@map("abi_external_sessions")
+}
+
 model AbiKeyWalletGrants {
   parentSessionId String @map("parent_session_id") // -> session_keys.id
   workspaceId String @map("workspace_id") // -> abi_workspaces.id

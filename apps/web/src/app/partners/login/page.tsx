@@ -9,6 +9,7 @@ import { inspectSellerSession } from "../../../lib/seller-session";
 import { browserApiBase } from "../../../lib/browser-api";
 import { PASSWORD_RULES_HINT, newPasswordProblem } from "../../../lib/password-rules";
 import { Icon } from "../../../lib/ui";
+import { SocialSignIn } from "../../../lib/social-sign-in";
 
 const API = browserApiBase();
 
@@ -268,6 +269,7 @@ export default function PartnerLoginPage() {
           }}
         >
           <h1>Seller workspace</h1>
+          <SocialSignIn destination="seller" />
           {challenge.element}
           <p className="login-sub">
             List your tools, software and physical products. Use your ABI workspace to buy and sell.
@@ -567,8 +569,8 @@ export default function PartnerLoginPage() {
           )}
 
           <p className="faint" style={{ fontSize: 11.5, marginTop: 14, lineHeight: 1.55 }}>
-            Looking to give your agents a wallet instead? <Link href="/console">Buyer console</Link>{" "}
-            uses a separate account.
+            Use your shared ABI account in the <Link href="/console">buyer console</Link> to manage
+            agent wallets. Legacy seller sign-ins remain available here.
           </p>
         </form>
       </div>

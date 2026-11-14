@@ -121,7 +121,7 @@ export function registerPlatformRoutes(
     "/v1/guardian/settings",
     guardianRoute(
       (org, req, res) => {
-        const body = z.object({ settings: z.record(z.unknown()) }).parse(req.body);
+        const body = z.object({ settings: z.record(z.string(), z.unknown()) }).parse(req.body);
         // The treasury approval threshold decides when guardian money waits
         // for review. A malformed value would silently fall back to the
         // default, so refuse it here where the operator can see why.

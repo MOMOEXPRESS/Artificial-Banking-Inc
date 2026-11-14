@@ -68,10 +68,29 @@ export function SellerSettingsView({
 }) {
   const [tab, setTab] = useState<Tab>("company");
   const [account, setAccount] = useState<Account | null>(null);
+  const [shared, setShared] = useState<{ external: boolean; mfa: boolean } | null>(null);
 
   const loadAccount = useCallback(async () => {
-    const res = await apiFetch("/v1/partner/account").catch(() => null);
-    if (res?.ok) setAccount((await res.json()) as Account);
+    try {
+      const res = await apiFetch("/v1/partner/account").catch(() => null);
+      if (res?.ok) setAccount((await res.json()) as Account);
+      else if (res?.status === 409) {
+        const [identity, factor] = await Promise.all([
+          apiFetch("/v1/auth/me"),
+          apiFetch("/v1/auth/mfa"),
+        ]);
+        if (identity.ok && factor.ok) {
+          const user = await identity.json();
+          const mfa = await factor.json();
+          setShared({
+            external: Boolean(user.passwordManagedExternally),
+            mfa: Boolean(mfa.enabled),
+          });
+        }
+      }
+    } catch {
+      /* Keep the current account view during transient identity failures. */
+    }
   }, []);
 
   useEffect(() => {
@@ -81,7 +100,7 @@ export function SellerSettingsView({
   return (
     <div style={{ display: "grid", gap: 16, maxWidth: 760 }}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} role="tablist">
-        {TABS.map((t) => (
+        {TABS.filter((t) => !shared || t.key === "company" || t.key === "payout").map((t) => (
           <Button
             key={t.key}
             size="sm"
@@ -94,11 +113,15 @@ export function SellerSettingsView({
           </Button>
         ))}
       </div>
+      {shared && (
+        <a href="/console?view=settings">Manage your shared account, sessions and security →</a>
+      )}
       {tab === "company" && profile && <CompanyTab profile={profile} onSaved={onProfileSaved} />}
       {tab === "payout" && profile && (
         <PayoutTab
           profile={profile}
-          mfaEnabled={Boolean(account?.security.mfaEnabled)}
+          mfaEnabled={shared?.mfa ?? Boolean(account?.security.mfaEnabled)}
+          external={shared?.external ?? false}
           onSaved={onProfileSaved}
         />
       )}
@@ -209,10 +232,12 @@ function secondFactorBody(value: string): { code?: string; recoveryCode?: string
 function PayoutTab({
   profile,
   mfaEnabled,
+  external,
   onSaved,
 }: {
   profile: SellerProfile;
   mfaEnabled: boolean;
+  external: boolean;
   onSaved: (p: SellerProfile) => void;
 }) {
   const [address, setAddress] = useState(profile.payoutAddress);
@@ -239,9 +264,8 @@ function PayoutTab({
       <Card title="Payout wallet">
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
           Every paid call settles USDC on-chain straight to this address. ABI never holds seller
-          funds. Use a wallet you control; changing it asks for your password (and your
-          authenticator code when two-factor is on), emails you, and asks connected buyers to
-          confirm the new address before they pay again.
+          funds. Use a wallet you control. Changes require identity verification, email you and ask
+          connected buyers to confirm the new address before they pay again.
         </p>
         <div style={formGrid}>
           <label className="field" style={{ gridColumn: "1 / -1" }}>
@@ -260,7 +284,7 @@ function PayoutTab({
               <option value="base">Base (real USDC)</option>
             </select>
           </label>
-          {changingExisting && (
+          {changingExisting && !external && (
             <label className="field">
               <span>Current password</span>
               <input
@@ -283,9 +307,21 @@ function PayoutTab({
             </label>
           )}
         </div>
+        {changingExisting && external && !mfaEnabled && (
+          <p>
+            Enable an authenticator in <a href="/console?view=settings">Console Settings</a> before
+            changing your payout wallet.
+          </p>
+        )}
         <Button
           style={{ marginTop: 12 }}
-          disabled={busy || (changingExisting && (!password || (mfaEnabled && !factor.trim())))}
+          disabled={
+            busy ||
+            (changingExisting &&
+              (external
+                ? !mfaEnabled || !factor.trim()
+                : !password || (mfaEnabled && !factor.trim())))
+          }
           onClick={async () => {
             setBusy(true);
             try {

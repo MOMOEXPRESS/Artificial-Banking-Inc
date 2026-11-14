@@ -20,6 +20,6 @@
     "typescript": "^5.8.2"
   },
   "dependencies": {
-    "zod": "^3.25.76"
+    "zod": "4.6.7"
   }
 }

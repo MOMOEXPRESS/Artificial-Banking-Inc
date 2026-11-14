@@ -56,6 +56,8 @@ import {
   WorkspaceError,
 } from "./workspaces.js";
 import { registerBotChallenge } from "./auth/bot-challenge.js";
+import { externalSessionGuard } from "./auth/supabase.js";
+import { registerSupabaseAuth } from "./routes/supabase-auth-routes.js";
 import { registerWorkspaceRoutes } from "./workspace-routes.js";
 import { runAbiAgent, runMemoryCommand } from "./abi-agent/index.js";
 import { parseMemoryCommand } from "./abi-agent/memory-commands.js";
@@ -415,6 +417,7 @@ const SIGNUP_PATHS = new Set([
 ]);
 const AUTH_LIMITS: Record<string, { ipLimit: number; accountLimit: number; windowMs: number }> = {
   "/v1/auth/login": { ipLimit: 30, accountLimit: 20, windowMs: 15 * 60_000 },
+  "/v1/auth/supabase/exchange": { ipLimit: 30, accountLimit: 20, windowMs: 15 * 60_000 },
   "/v1/partner/auth/login": { ipLimit: 30, accountLimit: 20, windowMs: 15 * 60_000 },
   "/v1/partner/auth/email/resend": { ipLimit: 10, accountLimit: 5, windowMs: 60 * 60_000 },
   "/v1/auth/email/resend": { ipLimit: 10, accountLimit: 5, windowMs: 60 * 60_000 },
@@ -434,7 +437,12 @@ app.use((req, res, next) => {
     const ip = req.ip ?? "anon";
     const rawEmail = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
     const sessionToken = parseCookies(req)[SESSION_COOKIE];
-    const rawToken = typeof req.body?.token === "string" ? req.body.token : "";
+    const rawToken =
+      typeof req.body?.token === "string"
+        ? req.body.token
+        : req.path === "/v1/auth/supabase/exchange"
+          ? (bearer(req) ?? "")
+          : "";
     const identity = rawEmail
       ? hashSecret(rawEmail)
       : rawToken
@@ -854,7 +862,9 @@ function guardianRoute(
   };
 }
 
+app.use(externalSessionGuard());
 registerBotChallenge(app);
+registerSupabaseAuth(app);
 registerAuthRoutes(app);
 registerWorkspaceRoutes(app, { guardianRoute, authAgent });
 registerMfaRoutes(app);
@@ -1782,7 +1792,7 @@ app.post(
           key: z.string().min(1),
           label: z.string().optional(),
           category: z.string().optional(),
-          meta: z.record(z.unknown()).optional(),
+          meta: z.record(z.string(), z.unknown()).optional(),
         })
         .parse(req.body);
       const merchant = store.upsertMerchant({ orgId: org.id, ...body });
