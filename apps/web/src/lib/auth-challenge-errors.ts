@@ -1,11 +1,6 @@
-export const AUTH_CANONICAL_ORIGIN = "https://artificial-banking-inc-web.vercel.app";
-export const AUTH_PRODUCTION_ALIASES = [
-  "artificial-banking-inc-web-momoexpress-projects.vercel.app",
-  "artificial-banking-inc-web-git-main-momoexpress-projects.vercel.app",
-];
 export function challengeErrorMessage(code: string) {
   if (code === "110200")
-    return "This website address is not enabled for the security check. Open the main ABI website to sign in.";
+    return "The security check could not verify this website address. Please retry shortly.";
   if (["110100", "110110", "400020", "400021", "400070"].includes(code))
     return "The security check configuration could not be confirmed. Continue with Google or GitHub, or try again shortly.";
   if (code === "200500")

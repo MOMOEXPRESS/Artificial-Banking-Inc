@@ -15,7 +15,9 @@ export async function verifyBotChallenge(
   fetcher: typeof fetch = fetch,
 ): Promise<boolean> {
   const secret = process.env.TURNSTILE_SECRET?.trim();
-  const hosts = (process.env.TURNSTILE_HOSTNAMES ?? "")
+  const hosts = [process.env.TURNSTILE_HOSTNAMES, process.env.TURNSTILE_ADDITIONAL_HOSTNAMES]
+    .filter(Boolean)
+    .join(",")
     .split(",")
     .map((h) => h.trim())
     .filter(Boolean);
@@ -62,14 +64,12 @@ export function registerBotChallenge(app: express.Express) {
     void verifyBotChallenge(req.body?.challengeToken, action)
       .then((ok) => {
         if (!ok)
-          return res
-            .status(403)
-            .json({
-              error: {
-                code: "BOT_VERIFICATION_REQUIRED",
-                message: "Complete the security check and try again.",
-              },
-            });
+          return res.status(403).json({
+            error: {
+              code: "BOT_VERIFICATION_REQUIRED",
+              message: "Complete the security check and try again.",
+            },
+          });
         // Siteverify consumes each token. The browser resets its widget after every attempt.
         next();
       })

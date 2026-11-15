@@ -67,3 +67,27 @@ test("only a successful provider result for this exact frontend and action passe
     false,
   );
 });
+
+test("explicit historical production hosts pass; other deployments and local hosts stay blocked", async () => {
+  const additional = process.env.TURNSTILE_ADDITIONAL_HOSTNAMES;
+  const nodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+  process.env.TURNSTILE_ADDITIONAL_HOSTNAMES = "historical-production.example.invalid";
+  const check = (hostname: string, action = "buyer_login") =>
+    verifyBotChallenge("token", "buyer_login", fake({ success: true, hostname, action }));
+  try {
+    assert.equal(await check("historical-production.example.invalid"), true);
+    assert.equal(await check("console.example.invalid"), true);
+    assert.equal(await check("another-deployment.example.invalid"), false);
+    assert.equal(await check("historical-production.example.invalid.attacker.invalid"), false);
+    assert.equal(await check("historical-production.example.invalid", "seller_login"), false);
+    process.env.TURNSTILE_ADDITIONAL_HOSTNAMES += ",localhost";
+    assert.equal(await check("localhost"), false);
+    assert.equal(await check("console.example.invalid"), false);
+  } finally {
+    if (additional === undefined) delete process.env.TURNSTILE_ADDITIONAL_HOSTNAMES;
+    else process.env.TURNSTILE_ADDITIONAL_HOSTNAMES = additional;
+    if (nodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = nodeEnv;
+  }
+});

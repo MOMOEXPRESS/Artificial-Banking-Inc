@@ -17,9 +17,13 @@ describe("applyWorkerEnv", () => {
 
   it("copies deploy metadata and drops Node-only SMTP settings", () => {
     process.env.SMTP_URL = "smtp://leak";
-    applyWorkerEnv({ ABI_GIT_COMMIT: "a".repeat(40) } as unknown as Env);
+    applyWorkerEnv({
+      ABI_GIT_COMMIT: "a".repeat(40),
+      TURNSTILE_ADDITIONAL_HOSTNAMES: "approved.example.invalid",
+    } as unknown as Env);
     expect(process.env.ABI_GIT_COMMIT).toBe("a".repeat(40));
     expect(process.env.SMTP_URL).toBeUndefined();
+    expect(process.env.TURNSTILE_ADDITIONAL_HOSTNAMES).toBe("approved.example.invalid");
   });
 
   it("does not forward Telegram bindings", () => {

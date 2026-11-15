@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AUTH_CANONICAL_ORIGIN, challengeErrorMessage } from "./auth-challenge-errors";
+import { challengeErrorMessage } from "./auth-challenge-errors";
 import { browserApiBase } from "./browser-api";
 type Turnstile = {
   render: (el: HTMLElement, options: Record<string, unknown>) => string;
@@ -182,23 +182,19 @@ export function useAuthChallenge(action: string | null) {
               {error}
               {errorCode && errorCode !== "unknown" ? ` (Cloudflare ${errorCode})` : ""}
             </p>
-            {errorCode === "110200" ? (
-              <a href={`${AUTH_CANONICAL_ORIGIN}/console`}>Open main ABI sign-in</a>
-            ) : (
-              <button
-                type="button"
-                className="bare"
-                onClick={() => {
-                  token.current = "";
-                  setError("");
-                  setErrorCode("");
-                  if (widget.current && window.turnstile) window.turnstile.reset(widget.current);
-                  else setAttempt((n) => n + 1);
-                }}
-              >
-                Retry security check
-              </button>
-            )}
+            <button
+              type="button"
+              className="bare"
+              onClick={() => {
+                token.current = "";
+                setError("");
+                setErrorCode("");
+                if (widget.current && window.turnstile) window.turnstile.reset(widget.current);
+                else setAttempt((n) => n + 1);
+              }}
+            >
+              Retry security check
+            </button>
           </div>
         )}
       </div>

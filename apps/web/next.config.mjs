@@ -12,10 +12,19 @@ const nextConfig = {
     "@policyvault/custody",
   ],
   async redirects() {
-    return [
+    const hosts = [
       "artificial-banking-inc-web-momoexpress-projects.vercel.app",
       "artificial-banking-inc-web-git-main-momoexpress-projects.vercel.app",
-    ].map((host) => ({
+    ];
+    // Vercel's production deployment URL changes with each release. Normalize
+    // that exact URL before loading auth; preview deployments stay separate.
+    const deploymentHost = process.env.VERCEL_URL ?? "";
+    if (
+      process.env.VERCEL_ENV === "production" &&
+      /^artificial-banking-inc-[a-z0-9]+-momoexpress-projects\.vercel\.app$/.test(deploymentHost)
+    )
+      hosts.push(deploymentHost);
+    return hosts.map((host) => ({
       source: "/:path*",
       has: [{ type: "host", value: host }],
       destination: "https://artificial-banking-inc-web.vercel.app/:path*",

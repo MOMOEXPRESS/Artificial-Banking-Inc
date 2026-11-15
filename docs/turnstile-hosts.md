@@ -1,0 +1,9 @@
+# Sign-in hostnames
+
+Cloudflare error `110200` is a widget hostname mismatch. The reported URL, `artificial-banking-inc-3q5odra4n-momoexpress-projects.vercel.app`, is a verified production deployment of this Vercel project (deployment `dpl_4khHBU7pkr5wsECjJK2aB7Zrpkzr`, commit `f753e81`). It was missing from the existing ABI Turnstile widget. The earlier redirects covered two stable aliases but missed this immutable deployment URL.
+
+The existing widget now registers that exact historical production hostname alongside `artificial-banking-inc-web.vercel.app` and the two local development hosts. Managed mode and clearance settings are preserved; no secret or sitekey is rotated. The backend retains its existing `TURNSTILE_HOSTNAMES` and adds the exact historical hostname through the public, source-controlled `TURNSTILE_ADDITIONAL_HOSTNAMES` binding. Siteverify still requires a successful, single-use token, the exact action and an exact allowed hostname. Local hosts remain forbidden in production.
+
+New production builds redirect their own exact `VERCEL_URL` to the stable website before auth loads. Preview builds do not get this redirect, and arbitrary Vercel hostnames are never added to the verification allowlist. Existing immutable deployments cannot acquire source changes retroactively, so the specifically reported historical address is authorized directly. The current sign-in UI removes the alternate sign-in link and retains in-place retry.
+
+Validation includes exact-host acceptance/denial, action mismatch, production local-host rejection, deployment redirect behavior, Worker binding forwarding and local browser retry without clearing credentials. Cloudflare metadata confirms domain registration. A real human challenge acceptance and replay check are distinct from metadata and fixture checks; do not report them as passed until observed.
