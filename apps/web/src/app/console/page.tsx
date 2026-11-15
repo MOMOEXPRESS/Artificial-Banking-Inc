@@ -27,7 +27,7 @@ import { WalletSpendingLimits } from "../../lib/wallet-limits";
 import { StudioNav } from "../../lib/studio-nav";
 import { MarketplaceBuyer } from "../../lib/marketplace-buyer";
 import { AssistantDock } from "../../lib/assistant-dock";
-import { ChatView } from "../../lib/chat-view";
+import { ChatView, type ChatDraft } from "../../lib/chat-view";
 import { PolicyView, type Policy } from "../../lib/policy-view";
 import { SettingsView } from "../../lib/settings-view";
 import { loadTabAgentKeys, mergeAgentKeys, saveTabAgentKeys } from "../../lib/agent-keys-tab";
@@ -357,6 +357,7 @@ function tabStorage(): Storage | null {
 
 export default function Console() {
   const [session, setSession] = useState<Session | null>(null);
+  const [assistantDrafts, setAssistantDrafts] = useState<Record<string, ChatDraft>>({});
   const [prefs, setPrefs] = useState<Prefs>({ autoJump: true });
   const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -639,6 +640,7 @@ export default function Console() {
   const signingOut = useRef(false);
   const signOut = useCallback(
     async (everywhere = false) => {
+      setAssistantDrafts({});
       if (signingOut.current) return;
       signingOut.current = true;
       const s = sessionRef.current;
@@ -709,6 +711,19 @@ export default function Console() {
     if (sessionRef.current?.orgId !== w.orgId) updateSession({ orgId: w.orgId, agentKeys: [] });
   });
   workspaceRef.current = workspaceState.current?.id ?? "";
+  const assistantScope = `${session?.user?.id ?? session?.mode ?? "anonymous"}:${session?.orgId ?? ""}:${workspaceState.current?.id ?? ""}`;
+  const assistantComposer = {
+    value: assistantDrafts[assistantScope] ?? { text: "", attachments: [] },
+    onChange: (update: (current: ChatDraft) => ChatDraft) =>
+      setAssistantDrafts((current) =>
+        signingOut.current
+          ? current
+          : {
+              ...current,
+              [assistantScope]: update(current[assistantScope] ?? { text: "", attachments: [] }),
+            },
+      ),
+  };
 
   /**
    * Two-tier polling. Fast = approvals/activity; slow = journals/config.
@@ -1557,7 +1572,7 @@ export default function Console() {
               </>
             ) : (
               <div className="view">
-                {view !== "overview" && viewMeta && (
+                {view !== "overview" && view !== "chat" && viewMeta && (
                   <section className="console-section-intro">
                     <div className="console-section-copy">
                       <p>{viewMeta.description}</p>
@@ -1570,9 +1585,14 @@ export default function Console() {
                     </div>
                   </section>
                 )}
-                {view !== "overview" && view !== "treasury" && view !== "settings" && (
-                  <PageTour view={view === "invoices" || view === "escrows" ? "payments" : view} />
-                )}
+                {view !== "overview" &&
+                  view !== "treasury" &&
+                  view !== "settings" &&
+                  view !== "chat" && (
+                    <PageTour
+                      view={view === "invoices" || view === "escrows" ? "payments" : view}
+                    />
+                  )}
                 {view === "marketplace" && (
                   <MarketplaceBuyer
                     session={session}
@@ -1763,8 +1783,10 @@ export default function Console() {
                     runs={runs}
                   />
                 )}
-                {view === "chat" && (
+                {view === "chat" && workspaceState.current && (
                   <ChatView
+                    composer={assistantComposer}
+                    workspaceName={workspaceState.current?.name}
                     key={`${session.orgId}:${workspaceState.current?.id ?? ""}`}
                     canConfigure={org?.actor?.role === "owner" || !!session.guardianKey}
                     gFetch={gFetch}
@@ -1775,6 +1797,9 @@ export default function Console() {
                     agentName={agentName}
                     onGoto={(v) => setView(v as View)}
                   />
+                )}
+                {view === "chat" && !workspaceState.current && (
+                  <p role="status">{workspaceState.error || "Loading workspace conversation…"}</p>
                 )}
                 {view === "work" && <WorkView runs={runs} busy={busy} act={act} gFetch={gFetch} />}
                 {(view === "insights" || view === "activity") && (
@@ -1876,18 +1901,22 @@ export default function Console() {
           </button>
         </nav>
 
-        <AssistantDock
-          key={`${session.orgId}:${workspaceState.current?.id ?? ""}`}
-          currentView={view}
-          canConfigure={org?.actor?.role === "owner" || !!session.guardianKey}
-          gFetch={gFetch}
-          act={act}
-          busy={busy}
-          readOnly={readOnly}
-          pending={pending}
-          agentName={agentName}
-          onGoto={(v) => setView(v as View)}
-        />
+        {workspaceState.current && (
+          <AssistantDock
+            composer={assistantComposer}
+            workspaceName={workspaceState.current?.name}
+            key={`${session.orgId}:${workspaceState.current?.id ?? ""}`}
+            currentView={view}
+            canConfigure={org?.actor?.role === "owner" || !!session.guardianKey}
+            gFetch={gFetch}
+            act={act}
+            busy={busy}
+            readOnly={readOnly}
+            pending={pending}
+            agentName={agentName}
+            onGoto={(v) => setView(v as View)}
+          />
+        )}
 
         <ConsoleCommandPalette
           open={paletteOpen}

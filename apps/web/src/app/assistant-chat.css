@@ -1,4 +1,4 @@
-/* Operate: quiet content, clear conversation hierarchy, glass only on chrome. */
+/* Shared conversation layout for the full Assistant and its floating dock. */
 .abi-assistant-panel {
   position: fixed;
   z-index: 79;
@@ -39,14 +39,14 @@
   min-width: 0;
   min-height: 0;
   color: #262626;
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 15px;
+  line-height: 1.7;
 }
 .abi-chat-full {
-  width: min(100%, 850px);
+  width: min(100%, 880px);
   margin: 0 auto;
   height: var(--abi-chat-height, calc(100dvh - 350px));
-  min-height: 280px;
+  min-height: 160px;
 }
 .abi-chat-compact {
   flex: 1;
@@ -113,6 +113,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  justify-content: safe center;
   min-height: 100%;
   max-width: 480px;
   margin: auto;
@@ -176,7 +177,7 @@
   max-width: 88%;
   width: fit-content;
   padding: 12px 16px;
-  background: #ededed;
+  background: #eaf0f8;
   border-radius: 14px 14px 4px 14px;
 }
 .abi-chat-message small {
@@ -237,16 +238,16 @@
 .abi-chat .abi-chat-composer textarea {
   display: block;
   width: 100%;
-  min-height: 56px;
-  max-height: 140px;
-  resize: vertical;
+  min-height: 44px;
+  max-height: 168px;
+  resize: none;
   padding: 4px 5px;
   border: 0;
   outline: none;
   box-shadow: none;
   background: transparent;
   color: #262626;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.6;
 }
 .abi-chat-composer textarea::placeholder {
@@ -267,6 +268,8 @@
   border-radius: 9px;
   height: 36px;
   width: 36px;
+  padding: 0;
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -421,14 +424,16 @@
 @media (max-width: 600px) {
   .abi-assistant-panel {
     right: 8px;
-    bottom: calc(80px + env(safe-area-inset-bottom));
+    top: max(env(safe-area-inset-top), var(--abi-dock-top, 8px));
+    bottom: auto;
     width: calc(100vw - 16px);
-    height: calc(100dvh - 104px - env(safe-area-inset-bottom));
-    border-radius: 14px;
+    height: var(--abi-dock-height, calc(100dvh - 16px));
+    max-height: calc(100dvh - 16px);
+    border-radius: 16px;
   }
   .abi-chat-full {
     height: var(--abi-chat-height, calc(100dvh - 340px));
-    min-height: 280px;
+    min-height: 160px;
   }
   .abi-chat-header {
     padding: 14px 16px;
@@ -445,6 +450,275 @@
     min-height: 44px;
   }
   .abi-chat-composer-actions > span {
-    font-size: 8px;
+    font-size: 10px;
   }
+  .abi-chat-footer {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .abi-chat-message {
+    margin-top: 20px;
+  }
+  .abi-chat-welcome {
+    padding: 20px 0;
+  }
+  .abi-chat-welcome h3 {
+    font-size: 24px;
+  }
+  .abi-chat-message-tools .abi-chat-icon {
+    min-width: 36px;
+    min-height: 36px;
+  }
+}
+
+.abi-assistant-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 78;
+  background: #17202e59;
+}
+.abi-chat-header {
+  border-bottom: 1px solid #ededed;
+  margin-bottom: 4px;
+}
+.abi-chat-conversation {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.abi-chat-thread {
+  width: 100%;
+  min-width: 0;
+}
+.abi-chat-welcome-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border: 1px solid #d9e7f6;
+  border-radius: 18px;
+  background: #edf4fc;
+  color: #2878c9;
+  margin-bottom: 22px;
+}
+.abi-chat-eyebrow {
+  font-size: 11px;
+  color: #626262;
+  margin-bottom: 10px;
+}
+.abi-chat-welcome h3 {
+  max-width: 18ch;
+}
+.abi-chat-starters button {
+  min-height: 52px;
+  background: #f4f4f4;
+  border: 1px solid #e7e7e7;
+  transition: background 150ms;
+}
+.abi-chat-starters button:hover {
+  background: #eaf0f8;
+}
+.abi-chat-starters button > svg {
+  flex: none;
+}
+.abi-chat-speaker {
+  font-weight: 550;
+  letter-spacing: 0.01em;
+}
+.abi-chat-user .abi-chat-speaker {
+  color: #486685;
+}
+.abi-chat-system {
+  padding: 12px 14px;
+  border-left: 2px solid #b8c6d7;
+  background: #f5f6f8;
+  font-size: 13px;
+}
+.abi-chat-message-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  margin-top: 7px;
+  color: #737373;
+}
+.abi-chat-message-tools time {
+  font-size: 10px;
+}
+.abi-chat-message-tools .abi-chat-icon {
+  width: 28px;
+  height: 28px;
+}
+.abi-chat-prose {
+  white-space: normal;
+}
+.abi-chat-prose p {
+  white-space: pre-wrap;
+  margin: 0 0 12px;
+}
+.abi-chat-prose :last-child {
+  margin-bottom: 0;
+}
+.abi-chat-prose h4 {
+  margin: 18px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.abi-chat-prose h4:first-child {
+  margin-top: 0;
+}
+.abi-chat-prose :is(ul, ol) {
+  padding-left: 24px;
+  margin: 8px 0 14px;
+}
+.abi-chat-prose li {
+  margin: 5px 0;
+  white-space: pre-wrap;
+}
+.abi-chat-prose code {
+  font:
+    12px/1.7 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  background: #ededed;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+.abi-chat-code {
+  max-width: 100%;
+  margin: 12px 0;
+  overflow: hidden;
+  border: 1px solid #e3e3e3;
+  border-radius: 9px;
+  background: #f2f3f5;
+}
+.abi-chat-code > span {
+  display: block;
+  padding: 7px 12px;
+  font-size: 10px;
+  color: #626262;
+  border-bottom: 1px solid #e3e3e3;
+}
+.abi-chat-code pre {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.abi-chat-code code {
+  padding: 0;
+  background: none;
+  white-space: pre;
+}
+.abi-chat-jump {
+  position: absolute;
+  z-index: 2;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: fit-content;
+  margin: 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  padding: 8px 13px;
+  border: 1px solid #d5dce6;
+  border-radius: 20px;
+  background: #fff;
+  color: #305c8a;
+  box-shadow: 0 3px 14px #14283b14;
+  font-size: 12px !important;
+}
+.abi-chat-footer {
+  background: #fafafa;
+  border-top: 1px solid #ededed;
+  padding-top: 8px;
+}
+.abi-chat-composer {
+  box-shadow: 0 2px 8px #14283b05;
+  background: #fff;
+}
+.abi-chat-suggestions button {
+  min-height: 32px;
+  background: #fff;
+}
+.abi-chat-character-count {
+  color: #626262;
+  font-size: 10px;
+}
+.abi-chat-error {
+  padding: 10px 12px;
+  border: 1px solid #ebd7d4;
+  background: #fff7f5;
+  border-radius: 9px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.abi-chat-error p {
+  margin: 4px 0;
+  font-size: 12px;
+}
+.abi-chat-error > div {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.abi-chat-approvals {
+  padding-top: 10px;
+  border-top: 1px solid #ededed;
+  font-size: 12px;
+}
+.abi-chat-approvals summary {
+  cursor: pointer;
+  color: #486685;
+  padding: 4px 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .abi-chat-starters button,
+  .abi-chat-composer {
+    transition: none;
+  }
+}
+
+.abi-chat-prose ul {
+  list-style: disc;
+}
+.abi-chat-prose ol {
+  list-style: decimal;
+}
+
+.abi-chat-table {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 12px 0;
+  border: 1px solid #e3e3e3;
+  border-radius: 9px;
+}
+.abi-chat-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: normal;
+}
+.abi-chat-table :is(th, td) {
+  padding: 9px 12px;
+  border-bottom: 1px solid #e9e9e9;
+  text-align: left;
+  min-width: 100px;
+}
+.abi-chat-table th {
+  font-weight: 600;
+  background: #f2f3f5;
+}
+.abi-chat-table tr:last-child td {
+  border-bottom: none;
+}
+
+.abi-chat-send > svg {
+  flex: none;
 }
