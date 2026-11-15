@@ -8,10 +8,12 @@ import type { PointerEvent } from "react";
 export function LiquidWalletCard({
   name,
   network,
+  currency = "USDC",
   onOpen,
 }: {
   name?: string | null;
   network: string;
+  currency?: string;
   onOpen?: () => void;
 }) {
   const content = (
@@ -24,7 +26,7 @@ export function LiquidWalletCard({
         <span className="liquid-card-brand">
           <ABMark size={25} tone="#262626" /> ABI VAULT
         </span>
-        <span className="liquid-card-token">USDC</span>
+        <span className="liquid-card-token">{currency}</span>
       </span>
       <span className="liquid-card-purpose">Workspace wallet</span>
       <span className="liquid-card-bottom">
@@ -55,7 +57,7 @@ export function LiquidWalletCard({
       className="liquid-wallet-card"
       onPointerMove={highlight}
       role="group"
-      aria-label={`${name || "Workspace"} wallet, USDC on ${network}`}
+      aria-label={`${name || "Workspace"} wallet, ${currency} on ${network}`}
     >
       {content}
     </div>

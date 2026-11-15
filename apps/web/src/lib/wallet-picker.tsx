@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { workspaceJson, type Workspace, type WorkspaceFetcher } from "./workspace-client";
+import { walletAmount } from "./managed-wallet-client";
 export function WalletPicker({
   items,
   current,
@@ -74,10 +75,11 @@ export function WalletPicker({
             </span>
             <span className="abi-wallet-available">
               <strong>
-                {current.balance.availableUsdc} <small>USDC</small>
+                {walletAmount(current.wallet)}{" "}
+                <small>{current.wallet?.asset.symbol ?? "USDC"}</small>
               </strong>
               <small>
-                Available <ArrowUpRight size={14} />
+                {current.wallet?.asset.network ?? "Wallet setup"} <ArrowUpRight size={14} />
               </small>
             </span>
           </button>
@@ -86,6 +88,7 @@ export function WalletPicker({
           align="start"
           sideOffset={10}
           className="abi-wallet-popover"
+          collisionPadding={16}
           onKeyDown={(e) => {
             if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
             const rows = Array.from(
@@ -145,10 +148,15 @@ export function WalletPicker({
                   <strong>{w.name}</strong>
                   <small>
                     {w.orgId === current.orgId ? "Workspace wallet" : "Another account"} ·{" "}
-                    {w.balance.availableUsdc} USDC
+                    {walletAmount(w.wallet)} {w.wallet?.asset.symbol ?? "USDC"} ·{" "}
+                    {w.wallet?.asset.network ?? "Setting up"}
                   </small>
                 </span>
-                {w.id === current.id && <Check size={20} />}
+                {w.id === current.id && (
+                  <span className="abi-wallet-selected">
+                    <Check size={16} aria-hidden="true" />
+                  </span>
+                )}
               </button>
             ))}
             {!filtered.length && <p className="abi-wallet-empty">No wallets match “{query}”.</p>}
@@ -161,7 +169,10 @@ export function WalletPicker({
           if (!busy) setCreateOpen(v);
         }}
       >
-        <DialogContent className="reference-dialog abi-workspace-dialog">
+        <DialogContent className="reference-dialog abi-workspace-dialog abi-wallet-action-dialog">
+          <span className="abi-dialog-symbol" aria-hidden="true">
+            <Wallet size={22} />
+          </span>
           <DialogTitle>Create wallet</DialogTitle>
           <DialogDescription>
             A new workspace with its own ABI card and shared spending limit.

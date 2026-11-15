@@ -14,7 +14,6 @@ import {
 } from "../auth/session.js";
 import { signupTokenProblem } from "../auth/signup-token.js";
 import { KYC_TERMS_VERSION } from "../kyc-kya.js";
-import { queueDefaultCustomerWallet } from "../customer-wallets.js";
 export function registerSupabaseAuth(app: express.Express, fetcher: typeof fetch = fetch) {
   app.post("/v1/auth/supabase/exchange", (req, res, next) => {
     void (async () => {
@@ -129,8 +128,6 @@ export function registerSupabaseAuth(app: express.Express, fetcher: typeof fetch
       })();
       store.markUserLogin(user.id);
       setSessionCookies(res, sessionToken, newToken());
-      const ownerOrg = store.listMembershipsForUser(user.id).find((m) => m.role === "owner");
-      if (ownerOrg) queueDefaultCustomerWallet(user.id, ownerOrg.orgId);
       return res.json({
         user: { id: user.id, email: user.email, name: user.name, emailVerified: true },
         orgs: store

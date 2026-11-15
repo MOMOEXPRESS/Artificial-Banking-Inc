@@ -97,7 +97,8 @@ export function MinimalOverview({ org, onNavigate, workspace, walletPicker, gFet
           )}
           <LiquidWalletCard
             name={workspace?.name ?? org?.org.name}
-            network={org?.network?.testnet === false ? "Base" : "Base Sepolia"}
+            network={workspace?.wallet?.asset.network ?? "Wallet setup"}
+            currency={workspace?.wallet?.asset.symbol ?? "USDC"}
             onOpen={() => onNavigate("treasury")}
           />
           <div className="reference-card-caption">

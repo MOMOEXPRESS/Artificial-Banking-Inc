@@ -95,7 +95,10 @@ export function WalletSpendingLimits(props: Props) {
         agent policies still apply.
       </p>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="reference-dialog abi-workspace-dialog">
+        <DialogContent className="reference-dialog abi-workspace-dialog abi-wallet-action-dialog">
+          <span className="abi-dialog-symbol" aria-hidden="true">
+            <ShieldCheck size={22} />
+          </span>
           <DialogTitle>Wallet spending limit</DialogTitle>
           <DialogDescription>
             Choose a wallet, period and the tools its agents can pay for.

@@ -883,3 +883,53 @@
     padding: 18px;
   }
 }
+
+/* A compact glass menu anchored to the workspace summary. */
+.abi-wallet-popover {
+  width: min(420px, calc(100vw - 32px)) !important;
+  border-radius: 16px !important;
+  padding: 8px !important;
+}
+.abi-wallet-popover .abi-wallet-options {
+  max-height: min(320px, 42dvh);
+  scrollbar-width: thin;
+  scrollbar-color: #c5c5c5 transparent;
+}
+.abi-wallet-options > button {
+  min-height: 72px;
+  transition: background 160ms ease;
+}
+.abi-wallet-options > button[aria-selected="true"] {
+  background: #f0f4f9;
+}
+.abi-wallet-selected {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  flex: none;
+  border-radius: 50%;
+  background: #2878c9;
+  color: white;
+}
+.abi-wallet-search {
+  min-height: 48px;
+}
+.abi-wallet-search:focus-within {
+  border-radius: 9px;
+  outline: 2px solid #2878c9;
+  outline-offset: -2px;
+}
+.abi-wallet-search input {
+  caret-color: #2878c9;
+}
+.abi-wallet-popover button:focus-visible {
+  outline: 2px solid #2878c9;
+  outline-offset: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .abi-wallet-options > button {
+    transition: none;
+  }
+}
