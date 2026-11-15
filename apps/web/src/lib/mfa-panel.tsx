@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "./ui";
 
 type MfaStatus = {
+  passwordManagedExternally?: boolean;
   enabled: boolean;
   pending: boolean;
   recoveryCodesRemaining: number;
@@ -102,13 +103,15 @@ export function MfaPanel({
     act("Disable MFA", async () => {
       const res = await gFetch("/v1/auth/mfa/disable", {
         method: "POST",
-        body: JSON.stringify({ password }),
+        body: JSON.stringify(status?.passwordManagedExternally ? { code: password } : { password }),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error?.message ?? "Password is incorrect");
       setPassword("");
       await load();
-      return "Two-factor authentication is off. High-value approvals now ask for your password.";
+      return status?.passwordManagedExternally
+        ? "Two-factor authentication is off. Enroll it again before high-value approvals."
+        : "Two-factor authentication is off. High-value approvals now ask for your password.";
     });
 
   return (
@@ -258,14 +261,21 @@ export function MfaPanel({
             <summary style={{ fontSize: 12.5, cursor: "pointer" }}>Turn it off</summary>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
               <p className="faint" style={{ fontSize: 12, margin: 0, lineHeight: 1.55 }}>
-                Removing a second factor is what someone with a stolen session would try first, so
-                this asks for your password.
+                {status.passwordManagedExternally
+                  ? "Confirm with an authenticator or recovery code before removing this factor."
+                  : "Removing a second factor requires confirming your password."}
               </p>
               <input
                 className="input sm"
-                type="password"
-                autoComplete="current-password"
-                placeholder="Your password"
+                type={status.passwordManagedExternally ? "text" : "password"}
+                autoComplete={
+                  status.passwordManagedExternally ? "one-time-code" : "current-password"
+                }
+                placeholder={
+                  status.passwordManagedExternally
+                    ? "Authenticator or recovery code"
+                    : "Your password"
+                }
                 value={password}
                 disabled={locked}
                 data-shortcut-ignore

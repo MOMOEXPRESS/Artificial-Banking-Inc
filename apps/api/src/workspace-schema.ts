@@ -1,4 +1,12 @@
 export const WORKSPACE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS abi_external_identities (
+ subject TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+ external_only INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS abi_external_sessions (
+ session_id TEXT PRIMARY KEY REFERENCES user_sessions(id) ON DELETE CASCADE,
+ subject TEXT NOT NULL REFERENCES abi_external_identities(subject), provider_session_id TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS abi_workspaces (
  id TEXT PRIMARY KEY, org_id TEXT NOT NULL REFERENCES orgs(id), name TEXT NOT NULL,
  funding_scope TEXT NOT NULL CHECK(funding_scope IN ('org','department','shared')), funding_id TEXT NOT NULL,

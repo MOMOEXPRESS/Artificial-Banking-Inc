@@ -2,7 +2,7 @@
   "name": "artificial-banking-inc",
   "private": true,
   "version": "0.1.0",
-  "description": "Artificial Banking Incorporated — Financial OS for AI agents",
+  "description": "Artificial Banking Incorporated \u2014 Financial OS for AI agents",
   "workspaces": [
     "apps/web",
     "apps/api",
@@ -12,7 +12,11 @@
     "apps/demo-agent",
     "apps/x402-seller",
     "apps/x402-seller-worker",
-    "packages/*"
+    "packages/common",
+    "packages/custody",
+    "packages/ledger",
+    "packages/policy",
+    "packages/sdk"
   ],
   "scripts": {
     "build": "npm run build -w @policyvault/common -w @policyvault/policy -w @policyvault/ledger -w @policyvault/custody -w @policyvault/sdk -w @policyvault/api -w @policyvault/x402-seller -w @policyvault/mcp-server -w @policyvault/worker -w @policyvault/web",
@@ -24,7 +28,7 @@
     "demo:agent": "npm run start -w @policyvault/demo-agent",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "db:generate": "npm run generate -w @policyvault/db",
+    "db:generate": "npm --prefix packages/db run generate",
     "db:reset": "node apps/api/scripts/reset-db.mjs",
     "db:backup": "node apps/api/scripts/backup-db.mjs",
     "lint": "eslint .",
@@ -39,18 +43,18 @@
     "node": ">=22.13"
   },
   "overrides": {
-    "zod": "3.25.76",
+    "zod": "4.6.7",
     "@cloudflare/vitest-plugin": {
-      "zod": "4.6.5"
+      "zod": "4.6.7"
     },
     "@cloudflare/vitest-pool-workers": {
-      "zod": "4.6.5"
+      "zod": "4.6.7"
     }
   },
   "packageManager": "npm@10",
   "devDependencies": {
     "@eslint/js": "^9.39.5",
-    "@next/eslint-plugin-next": "^15.5.22",
+    "@next/eslint-plugin-next": "16.4.6",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^9.1.2",
     "eslint-plugin-react-hooks": "^5.2.0",

@@ -38,7 +38,7 @@ const productCreateSchema = z.object({
   stockLevel: z.number().int().min(0).max(1_000_000_000).optional().default(0),
   vendorId: z.string().trim().min(1).max(120),
   images: z.array(z.string().url().max(500)).max(20).optional().default([]),
-  attributes: z.record(z.unknown()).optional().default({}),
+  attributes: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
 function productView(p: ProductRecord) {

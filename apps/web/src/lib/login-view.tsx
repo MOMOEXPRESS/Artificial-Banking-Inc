@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { useAuthChallenge } from "./auth-challenge";
 import { browserApiBase } from "./browser-api";
 import { PASSWORD_RULES_HINT, newPasswordProblem } from "./password-rules";
+import { SocialSignIn } from "./social-sign-in";
 
 const API = browserApiBase();
 
@@ -117,6 +118,8 @@ export function Login({
   const [orgName, setOrgName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false),
+    [mfaCode, setMfaCode] = useState("");
   const [fullName, setFullName] = useState("");
   const [inviteToken, setInviteToken] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
@@ -155,6 +158,12 @@ export function Login({
       setVerificationMessage("Verifying your email address…");
     }
     const params = new URLSearchParams(window.location.search);
+    if (params.has("identity_error")) {
+      setToast("Social sign-in could not finish. Start again with Google or GitHub.", "err");
+      const url = new URL(window.location.href);
+      url.searchParams.delete("identity_error");
+      window.history.replaceState(null, "", url.toString());
+    }
     const invite = params.get("invite");
     if (invite) {
       setInviteToken(invite);
@@ -292,9 +301,21 @@ export function Login({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password, challengeToken: challenge.take() }),
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          mfaCode,
+          challengeToken: challenge.take(),
+        }),
       });
-      if (!res.ok) throw new Error(await readApiError(res));
+      if (!res.ok) {
+        const details = await res
+          .clone()
+          .json()
+          .catch(() => null);
+        if (["MFA_REQUIRED", "MFA_INVALID"].includes(details?.error?.code)) setMfaRequired(true);
+        throw new Error(await readApiError(res));
+      }
       const d = (await res.json()) as {
         user: { id: string; email: string; name: string };
         orgs: { id: string; name: string; role: string }[];
@@ -627,9 +648,22 @@ export function Login({
               ))}
             </div>
 
+            {(mode === "signin" || mode === "signup") && <SocialSignIn />}
             {challenge.element}
             {mode === "signin" && (
               <>
+                {mfaRequired && (
+                  <div className="field">
+                    <label htmlFor="signin-mfa">Authenticator or recovery code</label>
+                    <input
+                      id="signin-mfa"
+                      autoComplete="one-time-code"
+                      value={mfaCode}
+                      onChange={(e) => setMfaCode(e.target.value)}
+                      maxLength={100}
+                    />
+                  </div>
+                )}
                 <div className="field">
                   <label>Email</label>
                   <input

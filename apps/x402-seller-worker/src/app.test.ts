@@ -134,7 +134,7 @@ describe("x402 seller worker", () => {
   it("unpaid GET /report → 402 challenge with Base Sepolia USDC requirements", async () => {
     const { handle, paidWork } = realSeller();
     const { res, required } = await challenge(handle);
-    assert.equal(await res.text(), "{}");
+    assert.deepEqual(await res.json(), { error: "Payment required" });
     assert.match(res.headers.get("cache-control") ?? "", /no-store/);
     assert.equal(required.x402Version, 2);
     assert.equal(required.resource.url, `${BASE}/report`);

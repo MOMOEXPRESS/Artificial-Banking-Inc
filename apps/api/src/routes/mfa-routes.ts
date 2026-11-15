@@ -16,6 +16,8 @@ import { generateRecoveryCodes, generateSecret, otpauthUri, verifyCode } from ".
 import { resolveConsoleUrl, sendEmail } from "../platform/email.js";
 import { store } from "../store.js";
 import { asyncRoute, currentUser } from "./auth-routes.js";
+import { isExternalOnly } from "../auth/supabase.js";
+import { accountMfaProblem } from "../auth/mfa-check.js";
 
 /** How long a step-up lasts before a high-value approval needs it again. */
 export const STEP_UP_TTL_MS = Number(process.env.ABI_STEP_UP_TTL_MINUTES ?? 5) * 60_000;
@@ -94,12 +96,21 @@ export function registerMfaRoutes(app: express.Express) {
     asyncRoute(async (req, res) => {
       const me = currentUser(req);
       if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
-      const body = z.object({ password: z.string() }).parse(req.body);
+      const body = z
+        .object({ password: z.string().optional(), code: z.string().max(100).optional() })
+        .parse(req.body);
 
       // Turning off a second factor is exactly what an attacker with a stolen
       // session would try, so re-prove the password.
       const found = store.findUserCredentialsByEmail(me.user.email);
-      if (!found || !(await verifyPassword(body.password, found.passwordHash))) {
+      if (isExternalOnly(me.user.id)) {
+        const factor = accountMfaProblem(me.user.id, body.code);
+        if (factor) return res.status(403).json({ error: factor });
+      } else if (
+        !found ||
+        !body.password ||
+        !(await verifyPassword(body.password, found.passwordHash))
+      ) {
         return res
           .status(403)
           .json({ error: { code: "UNAUTHORIZED", message: "Password is incorrect." } });
@@ -115,6 +126,7 @@ export function registerMfaRoutes(app: express.Express) {
     const mfa = store.getMfa(me.user.id);
     res.json({
       enabled: Boolean(mfa?.confirmed),
+      passwordManagedExternally: isExternalOnly(me.user.id),
       pending: Boolean(mfa && !mfa.confirmed),
       recoveryCodesRemaining: mfa?.confirmed ? store.countUnusedRecoveryCodes(me.user.id) : 0,
       stepUp: {
@@ -160,6 +172,15 @@ export function registerMfaRoutes(app: express.Express) {
         }
       } else {
         // No second factor enrolled: the password is the strongest proof there is.
+        if (isExternalOnly(me.user.id))
+          return res
+            .status(403)
+            .json({
+              error: {
+                code: "MFA_ENROLLMENT_REQUIRED",
+                message: "Enroll an authenticator in Security before approving high-value actions.",
+              },
+            });
         if (!body.password) {
           return res.status(400).json({
             error: { code: "PASSWORD_REQUIRED", message: "Confirm your password to continue." },
@@ -196,7 +217,7 @@ export function registerMfaRoutes(app: express.Express) {
       const body = z.object({ email: z.string().email().max(200) }).parse(req.body);
       const found = store.findUserCredentialsByEmail(body.email);
 
-      if (found && !found.disabled) {
+      if (found && !found.disabled && !isExternalOnly(found.user.id)) {
         const token = newToken();
         store.createPasswordReset(found.user.id, token, RESET_TTL_MS);
         const console = resolveConsoleUrl();

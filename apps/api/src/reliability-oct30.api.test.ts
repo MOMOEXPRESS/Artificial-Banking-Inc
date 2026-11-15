@@ -9,7 +9,7 @@
  *   4. Outflow reconciliation (transfer id, policy revision, staleness fields,
  *      where released / cancelled money went) + approval record with a rules
  *      hash and an approver the agent can read.
- *   5. x402 SDK at 2.28.
+ *   5. x402 SDK at 2.31.
  *
  * No chain, no spend: a local x402 seller, fake vault chain clients, and
  * stand-in outcome readers. Nothing here touches Base or Base Sepolia.
@@ -817,19 +817,19 @@ describe("item 4: approval record and outflow reconciliation", () => {
 
 // ============================================================ item 5
 
-describe("item 5: x402 SDK pinned at 2.28", () => {
-  it("installs @x402/core and @x402/evm 2.28.x and pins them in the API and both sellers", () => {
+describe("item 5: x402 SDK pinned at 2.31", () => {
+  it("installs @x402/core and @x402/evm 2.31.x and pins them in the API and both sellers", () => {
     const root = join(here, "..", "..", "..");
     for (const pkg of ["@x402/core", "@x402/evm"]) {
       const v = JSON.parse(readFileSync(join(root, "node_modules", pkg, "package.json"), "utf8"))
         .version as string;
-      assert.match(v, /^2\.28\./, `${pkg} is ${v}`);
+      assert.match(v, /^2\.31\./, `${pkg} is ${v}`);
     }
     for (const app of ["api", "x402-seller", "x402-seller-worker"]) {
       const deps = JSON.parse(readFileSync(join(root, "apps", app, "package.json"), "utf8"))
         .dependencies as Record<string, string>;
-      assert.equal(deps["@x402/core"], "~2.28.0", app);
-      assert.equal(deps["@x402/evm"], "~2.28.0", app);
+      assert.equal(deps["@x402/core"], "2.31.0", app);
+      assert.equal(deps["@x402/evm"], "2.31.0", app);
     }
   });
 });

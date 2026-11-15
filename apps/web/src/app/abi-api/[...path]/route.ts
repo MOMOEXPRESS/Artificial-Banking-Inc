@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { hasIdentityCookie, serverIdentity, supabaseConfig } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,7 +91,12 @@ function notConfigured() {
   );
 }
 
-async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
+async function proxy(
+  req: NextRequest,
+  pathSegments: string[],
+  origin: string,
+  identityToken?: string,
+) {
   const joined = pathSegments.map(encodeURIComponent).join("/");
   const incoming = new URL(req.url);
   const dest = `${origin}/${joined}${incoming.search}`;
@@ -102,6 +108,8 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
     if (k === "host" || k === "content-length" || HOP_BY_HOP.has(k)) return;
     headers.set(key, value);
   });
+  headers.delete("x-abi-supabase-token");
+  if (identityToken) headers.set("x-abi-supabase-token", identityToken);
   // Preserve the caller's address for the API's per-IP limits.
   const forwarded = req.headers.get("x-forwarded-for");
   if (forwarded) headers.set("x-forwarded-for", forwarded);
@@ -222,7 +230,57 @@ async function proxy(req: NextRequest, pathSegments: string[], origin: string) {
 async function handle(req: NextRequest, pathSegments: string[]) {
   const origin = resolveOrigin();
   if (!origin) return notConfigured();
-  return proxy(req, pathSegments, origin);
+  if (!supabaseConfig() || !hasIdentityCookie(req)) return proxy(req, pathSegments, origin);
+  const identity = serverIdentity(req);
+  try {
+    const {
+      data: { user },
+      error,
+    } = await identity.client.auth.getUser();
+    if (
+      error &&
+      (error.name === "AuthRetryableFetchError" ||
+        !error.status ||
+        error.status === 429 ||
+        error.status >= 500)
+    )
+      return identity.apply(
+        NextResponse.json(
+          {
+            error: {
+              code: "IDENTITY_UNAVAILABLE",
+              message: "The identity service is temporarily unavailable. Try again.",
+            },
+          },
+          { status: 503 },
+        ),
+      );
+    const {
+      data: { session },
+    } = user ? await identity.client.auth.getSession() : { data: { session: null } };
+    const response = await proxy(req, pathSegments, origin, session?.access_token);
+    if (
+      req.method === "POST" &&
+      ["v1/auth/logout", "v1/auth/logout-all"].includes(pathSegments.join("/")) &&
+      response.ok
+    )
+      await identity.client.auth.signOut({
+        scope: pathSegments.join("/").endsWith("logout-all") ? "global" : "local",
+      });
+    return identity.apply(response);
+  } catch {
+    return identity.apply(
+      NextResponse.json(
+        {
+          error: {
+            code: "IDENTITY_UNAVAILABLE",
+            message: "The identity service is temporarily unavailable. Try again.",
+          },
+        },
+        { status: 503 },
+      ),
+    );
+  }
 }
 
 type Ctx = { params: Promise<{ path: string[] }> };

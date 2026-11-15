@@ -13,6 +13,7 @@ import { isAddress } from "viem";
 import { z } from "zod";
 import { decodePaymentRequiredHeader } from "@x402/core/http";
 import { parseUsdcToMicro, formatMicroToUsdc } from "@policyvault/common";
+import { isExternalOnly } from "../auth/supabase.js";
 import { verifyPassword } from "../auth/password.js";
 import { resolveConsoleUrl, sendEmail } from "../platform/email.js";
 import { recordObs } from "../platform/observability.js";
@@ -557,7 +558,22 @@ export function registerSellerRoutes(app: express.Express): void {
         const hash = unifiedUser
           ? store.findUserCredentialsByEmail(unifiedUser.email)?.passwordHash
           : partnerStore.passwordHash(account.id);
-        if (!body.currentPassword || !hash || !(await verifyPassword(body.currentPassword, hash))) {
+        if (unifiedUser && isExternalOnly(unifiedUser.id)) {
+          if (!store.getMfa(unifiedUser.id)?.confirmed)
+            return res
+              .status(403)
+              .json({
+                error: {
+                  code: "MFA_ENROLLMENT_REQUIRED",
+                  message:
+                    "Enable an authenticator in Console Settings before changing your payout wallet.",
+                },
+              });
+        } else if (
+          !body.currentPassword ||
+          !hash ||
+          !(await verifyPassword(body.currentPassword, hash))
+        ) {
           return res.status(403).json({
             error: {
               code: "PASSWORD_REQUIRED",
