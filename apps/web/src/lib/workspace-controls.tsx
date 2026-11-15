@@ -227,8 +227,8 @@ export function WorkspaceFunds({
             </div>
           </dl>
           <p>
-            All {w.connections.length} connected agents share these funds. USD card credits remain
-            separate from USDC.
+            This workspace owns its on-chain funds. Its {w.connections.length} connected agents
+            currently spend from the separate testnet allowance. USD card credits are separate.
           </p>
           <div className="abi-workspace-actions">
             <Button
@@ -240,7 +240,7 @@ export function WorkspaceFunds({
               }}
             >
               <ArrowDownLeft size={16} />
-              Receive
+              Add money
             </Button>
             <Button
               variant="ghost"
@@ -299,7 +299,7 @@ export function WorkspaceFunds({
       {receipt && <p role="status">{receipt}</p>}
       {error && !action && <p role="alert">{error}</p>}
       <details className="abi-legacy-wallet">
-        <summary>Earlier account receiving address</summary>
+        <summary>Legacy account wallet · separate funds</summary>
         <p>
           Funds sent to the earlier account wallet stay there. They are separate from this
           workspace’s Privy wallet.
@@ -819,17 +819,17 @@ function WorkspaceReceive({ gFetch }: { gFetch: WorkspaceFetcher }) {
     <>
       <Button variant="ghost" onClick={() => void show()}>
         <ArrowDownLeft size={16} aria-hidden="true" />
-        Receive to General
+        View legacy receiving address
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="reference-dialog abi-workspace-dialog abi-wallet-action-dialog">
           <span className="abi-dialog-symbol" aria-hidden="true">
             <ArrowDownLeft size={22} />
           </span>
-          <DialogTitle>Receive funds into General</DialogTitle>
+          <DialogTitle>Legacy account receiving address</DialogTitle>
           <DialogDescription>
-            Use only the supported network below. Funds arrive in this account’s General workspace;
-            allocate them to another workspace afterwards.
+            This is the older account wallet, separate from every workspace’s Privy wallet. To fund
+            the current workspace, close this window and choose Add money above.
           </DialogDescription>
           {error ? (
             <p role="alert">{error}</p>

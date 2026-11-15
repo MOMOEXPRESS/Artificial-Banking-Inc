@@ -37,3 +37,15 @@ Mainnet receiving/owner transfers do not activate mainnet agent settlement. Exis
 Focused tests cover three distinct password-account workspace wallets, ambiguous creation, ownership and app mismatches, invalid signatures, exact chain-specific balances, cache invalidation, preservation of an earlier trial address, reviewed-transfer idempotency, unknown outcomes, frozen organizations, precision checks, guardian-review refusal, and actual SDK use of Workers-compatible transport without social-owner JWTs. HTTP regressions retain human-session, CSRF and provider-failure checks.
 
 The bounded browser run checks desktop 1440px and mobile 390px: custom picker keyboard navigation, currency selection across reload and Overview, receive/copy, Send/Allocate review and spending dialog bounds, with no page errors or horizontal overflow. Its provider, RPC balances and signatures are isolated fixtures; these checks do not establish a real deposit or successful mainnet transfer. Live provisioning and the faucet transaction must be verified separately after deployment.
+
+## Mainnet Add money flow
+
+The workspace's **Add money** button and the card's currency dialog use the same verified managed-wallet binding. Choose **Asset**, then **Network**. Supported real deposits are native USDC and ETH on Base mainnet or Ethereum mainnet. A shared EVM address is expected; switching assets or networks never creates or replaces the workspace wallet. Bitcoin, USDT, DAI and other tokens are not enabled by these instructions.
+
+Add money starts on mainnet even if the last selection was a test asset. Faucet networks require the explicit **Show test networks** option. ETH on Ethereum Sepolia is not supported by this catalog and will not appear as Base Sepolia ETH. Send on the exact displayed network; native USDC differs from bridged USDC/USDC.e.
+
+While the funding dialog is open and the page is visible, the selected balance refreshes every 25 seconds, respecting the API's 20-second cache. A manual refresh remains available. The displayed observation time is a balance check, not proof of a particular incoming transaction or its finality. Refresh failures remain unavailable rather than becoming zero.
+
+The legacy account address remains accessible under **Legacy account wallet · separate funds**, with explicit instructions to use Add money for the current workspace. Existing deposits stay at their original addresses; no funds are migrated.
+
+Mainnet receiving and reviewed owner withdrawals already exist independently of the testnet agent settlement rail. These UI changes do not activate mainnet agent spending, convert ETH to stablecoins, or credit the separate card/agent ledger. Verify the signed-in workspace's actual provider address, deposit visibility and withdrawal path before describing mainnet funding as proven end to end. Automated fixtures do not move real funds.

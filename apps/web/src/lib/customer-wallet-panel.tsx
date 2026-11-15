@@ -63,6 +63,7 @@ export function CustomerWalletPanel({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [copied, setCopied] = useState(false);
+  const [showTestnets, setShowTestnets] = useState(false);
   const [activity, setActivity] = useState<Send[]>([]),
     [activityError, setActivityError] = useState("");
   const [amount, setAmount] = useState(""),
@@ -75,10 +76,12 @@ export function CustomerWalletPanel({
   const active = useRef(true),
     path = `/v1/guardian/workspaces/${encodeURIComponent(workspaceId)}/wallet`;
   const load = useCallback(
-    async (setup = false) => {
+    async (setup = false, background = false) => {
       const version = ++requestVersion.current;
-      setBusy(true);
-      setError("");
+      if (!background) {
+        setBusy(true);
+        setError("");
+      }
       try {
         const value = managedWalletSchema.parse(
           await workspaceJson(
@@ -89,13 +92,14 @@ export function CustomerWalletPanel({
           throw Error("The wallet response belongs to another workspace.");
         if (active.current && version === requestVersion.current) {
           setData(value);
-          if (setup) walletChanged();
+          if (setup || background) walletChanged();
         }
         return value;
       } catch (e) {
-        if (active.current && version === requestVersion.current) setError((e as Error).message);
+        if (active.current && version === requestVersion.current && !background)
+          setError((e as Error).message);
       } finally {
-        if (active.current && version === requestVersion.current) setBusy(false);
+        if (active.current && version === requestVersion.current && !background) setBusy(false);
       }
     },
     [gFetch, path, workspaceId],
@@ -109,6 +113,31 @@ export function CustomerWalletPanel({
       active.current = false;
     };
   }, [load]);
+  const changeAsset = useCallback(
+    async (assetId: string) => {
+      const version = ++requestVersion.current;
+      setBusy(true);
+      setError("");
+      setCopied(false);
+      setDraft(null);
+      try {
+        const value = managedWalletSchema.parse(
+          await workspaceJson(
+            await gFetch(path, { method: "PATCH", body: JSON.stringify({ assetId }) }),
+          ),
+        );
+        if (value.workspaceId !== workspaceId) throw Error("Wallet mismatch.");
+        if (!active.current || version !== requestVersion.current) return;
+        setData(value);
+        walletChanged();
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [gFetch, path, workspaceId],
+  );
   useEffect(() => {
     if (open) {
       setCopied(false);
@@ -118,32 +147,30 @@ export function CustomerWalletPanel({
       setCode("");
       setAmount("");
       setRecipient("");
-      void load();
+      setShowTestnets(false);
+      void load().then((value) => {
+        if (!active.current) return;
+        // Add money always starts on a real network, even after a faucet check.
+        if (intent === "receive" && value?.asset.testnet) {
+          const mainnet = value.assets.find((a) => !a.testnet && a.symbol === value.asset.symbol);
+          if (mainnet) void changeAsset(mainnet.id);
+        } else if (value?.asset.testnet) {
+          setShowTestnets(true);
+        }
+      });
     }
-  }, [open, intent, load]);
-  const changeAsset = async (assetId: string) => {
-    const version = ++requestVersion.current;
-    setBusy(true);
-    setError("");
-    setCopied(false);
-    setDraft(null);
-    try {
-      const value = managedWalletSchema.parse(
-        await workspaceJson(
-          await gFetch(path, { method: "PATCH", body: JSON.stringify({ assetId }) }),
-        ),
-      );
-      if (value.workspaceId !== workspaceId) throw Error("Wallet mismatch.");
-      if (!active.current || version !== requestVersion.current) return;
-      setData(value);
-      walletChanged();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  }, [open, intent, load, changeAsset]);
   const ready = data?.status === "ready" && data.receiveEnabled && data.address;
+  useEffect(() => {
+    if (!open || !ready || busy) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void load(false, true);
+    }, 25000);
+    return () => clearInterval(timer);
+  }, [open, ready, busy, data, load]);
+  const visibleAssets =
+    data?.assets.filter((a) => showTestnets || !a.testnet || a.id === data.selectedAssetId) ?? [];
+  const symbols = [...new Set(visibleAssets.map((a) => a.symbol))];
   useEffect(() => {
     if (!ready) return;
     let active = true,
@@ -290,36 +317,82 @@ export function CustomerWalletPanel({
                   ? "Allocate between wallets"
                   : `Send from ${name}`
               : intent === "receive"
-                ? `Receive to ${name}`
+                ? `Add money to ${name}`
                 : `${name} · currencies`}
           </DialogTitle>
           <DialogDescription>
             {sending
               ? "Transfers move funds on-chain. Check the currency, network and destination before confirming."
-              : "Choose a currency and network. Your EVM address is the same; each network has its own balance."}
+              : "Choose what to deposit, then the network you will send it on. Funds go directly to this workspace wallet."}
           </DialogDescription>
           {data && (
             <>
               <label>
-                Currency and network
+                Asset
                 <Select
-                  value={data.selectedAssetId}
+                  value={data.asset.symbol}
                   disabled={busy || !!draft}
-                  onValueChange={(id) => void changeAsset(id)}
+                  onValueChange={(symbol) => {
+                    const asset =
+                      visibleAssets.find(
+                        (a) => a.symbol === symbol && a.chainId === data.asset.chainId,
+                      ) ?? visibleAssets.find((a) => a.symbol === symbol && !a.testnet);
+                    if (asset) void changeAsset(asset.id);
+                  }}
                 >
-                  <SelectTrigger aria-label="Currency and network">
+                  <SelectTrigger aria-label="Deposit asset">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="abi-access-select">
-                    {data.assets.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.symbol} · {a.network}
-                        {a.testnet ? " (testnet)" : ""}
+                    {symbols.map((symbol) => (
+                      <SelectItem key={symbol} value={symbol}>
+                        {symbol === "USDC" ? "USDC · USD stablecoin" : "ETH · Ethereum"}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </label>
+              <label>
+                Network
+                <Select
+                  value={data.selectedAssetId}
+                  disabled={busy || !!draft}
+                  onValueChange={(id) => void changeAsset(id)}
+                >
+                  <SelectTrigger aria-label="Deposit network">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="abi-access-select">
+                    {visibleAssets
+                      .filter((a) => a.symbol === data.asset.symbol)
+                      .map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          {a.network} · {a.testnet ? "Testnet" : "Mainnet"}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </label>
+              {!draft && (
+                <label className="abi-funding-testnets">
+                  <input
+                    type="checkbox"
+                    checked={showTestnets}
+                    disabled={busy}
+                    onChange={(event) => {
+                      const show = event.target.checked;
+                      setShowTestnets(show);
+                      if (!show && data.asset.testnet) {
+                        const asset = data.assets.find(
+                          (a) => !a.testnet && a.symbol === data.asset.symbol,
+                        );
+                        if (asset) void changeAsset(asset.id);
+                      }
+                    }}
+                  />{" "}
+                  Show test networks (faucets only)
+                </label>
+              )}
               <div className="abi-receive-network">
                 <Wallet size={22} aria-hidden="true" />
                 <div>
@@ -344,6 +417,7 @@ export function CustomerWalletPanel({
                   </div>
                   <Button
                     className="abi-receive-copy"
+                    disabled={busy}
                     onClick={() =>
                       void navigator.clipboard
                         .writeText(data.address!)
@@ -361,6 +435,20 @@ export function CustomerWalletPanel({
                     {data.asset.testnet
                       ? "Use a faucet for this test network."
                       : "Use the exact network above when sending funds."}
+                  </p>
+                  <p className="abi-workspace-note">
+                    ETH and USDC share this workspace’s EVM address. Each network has a separate
+                    balance.
+                    {data.asset.symbol === "USDC" &&
+                      " Use native USDC, not bridged USDC or USDC.e."}{" "}
+                    Bitcoin and other assets are not supported by this deposit route.
+                  </p>
+                  <p role="status" className="abi-workspace-note">
+                    {data.balance.observedAt
+                      ? `Balance checked ${new Date(data.balance.observedAt).toLocaleTimeString()}. `
+                      : ""}
+                    Balances refresh while this window is open. Mainnet deposits do not fund the
+                    testnet agent allowance.
                   </p>
                   <div className="abi-wallet-dialog-footer">
                     <Button
