@@ -43,6 +43,26 @@ model AbiCardServices {
   @@map("abi_card_services")
 }
 
+model AbiCustomerWallets {
+  workspaceId String @id @map("workspace_id") // -> abi_workspaces.id
+  orgId String @map("org_id") // -> orgs.id
+  userId String @map("user_id") // -> users.id
+  subject String // -> abi_external_identities.subject
+  appHash String @map("app_hash")
+  externalId String @map("external_id")
+  requestKey String @map("request_key")
+  privyUserId String? @map("privy_user_id")
+  walletId String? @map("wallet_id")
+  address String?
+  ownerQuorum String? @map("owner_quorum")
+  verifiedAt String? @map("verified_at")
+  createdAt String @map("created_at")
+  @@unique([address])
+  @@unique([walletId])
+  @@unique([externalId])
+  @@map("abi_customer_wallets")
+}
+
 model AbiExternalIdentities {
   subject String @id
   userId String @map("user_id") // -> users.id

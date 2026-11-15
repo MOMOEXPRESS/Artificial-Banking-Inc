@@ -232,3 +232,46 @@ label.abi-workspace-check {
   stroke: currentColor;
   opacity: 1;
 }
+
+.abi-mainnet-wallet .minimal-section-heading h2,
+.abi-mainnet-status,
+.abi-mainnet-asset {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.abi-mainnet-wallet .minimal-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.abi-mainnet-asset {
+  margin-top: 6px;
+  padding: 20px;
+  border-radius: 12px;
+  background: #f4f4f4;
+}
+.abi-mainnet-asset p {
+  color: #525252;
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.abi-mainnet-status {
+  color: #525252;
+  font-size: 14px;
+}
+.abi-mainnet-dialog label {
+  font-size: 13px;
+  color: #525252;
+}
+.reference-dialog.abi-mainnet-dialog {
+  bottom: auto;
+}
+@media (max-width: 760px) {
+  .reference-dialog.abi-mainnet-dialog {
+    left: 12px;
+    border-radius: 16px;
+  }
+}
