@@ -1,10 +1,12 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AUTH_CANONICAL_ORIGIN, challengeErrorMessage } from "./auth-challenge-errors";
 import { browserApiBase } from "./browser-api";
 type Turnstile = {
   render: (el: HTMLElement, options: Record<string, unknown>) => string;
   remove: (id: string) => void;
   reset: (id: string) => void;
+  ready?: (fn: () => void) => void;
 };
 declare global {
   interface Window {
@@ -20,8 +22,27 @@ function loadScript() {
     tag.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
     tag.async = true;
     tag.defer = true;
-    tag.onload = () => resolve();
+    const timer = setTimeout(() => {
+      script = undefined;
+      tag.remove();
+      reject(new Error("Cloudflare’s security check could not connect. Retry the check."));
+    }, 15000);
+    tag.onload = () => {
+      const ready = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      if (window.turnstile?.ready) window.turnstile.ready(ready);
+      else if (window.turnstile) ready();
+      else {
+        clearTimeout(timer);
+        script = undefined;
+        tag.remove();
+        reject(new Error("The security check did not initialize. Retry the check."));
+      }
+    };
     tag.onerror = () => {
+      clearTimeout(timer);
       script = undefined;
       tag.remove();
       reject(new Error("Security check couldn’t load. Check your connection and reload."));
@@ -32,12 +53,16 @@ function loadScript() {
 }
 export function useAuthChallenge(action: string | null) {
   const [config, setConfig] = useState<{ enabled: boolean; sitekey: string | null } | null>(null),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [errorCode, setErrorCode] = useState(""),
+    [attempt, setAttempt] = useState(0);
   const target = useRef<HTMLDivElement>(null),
     token = useRef(""),
     widget = useRef<string | undefined>(undefined);
   useEffect(() => {
     const controller = new AbortController();
+    let live = true;
+    const timer = setTimeout(() => controller.abort(), 15000);
     fetch(`${browserApiBase()}/v1/auth/challenge`, {
       signal: controller.signal,
       credentials: "include",
@@ -45,18 +70,41 @@ export function useAuthChallenge(action: string | null) {
     })
       .then(async (r) => {
         if (!r.ok) throw new Error("Security settings couldn’t load. Reload before signing in.");
-        return r.json();
+        const data = await r.json();
+        if (
+          typeof data?.enabled !== "boolean" ||
+          (data.sitekey !== null && typeof data.sitekey !== "string")
+        )
+          throw new Error("Security settings could not be verified. Retry the check.");
+        return data;
       })
-      .then(setConfig)
+      .then((value) => {
+        if (live) {
+          setConfig(value);
+          setError("");
+        }
+      })
       .catch((e) => {
-        if (!controller.signal.aborted) setError(e.message);
-      });
-    return () => controller.abort();
-  }, []);
+        if (live)
+          setError(
+            controller.signal.aborted
+              ? "Security settings could not connect. Retry the check."
+              : e.message,
+          );
+      })
+      .finally(() => clearTimeout(timer));
+    return () => {
+      live = false;
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [attempt]);
   useEffect(() => {
     token.current = "";
     if (!action || !config?.enabled || !target.current) return;
     let live = true;
+    setErrorCode("");
+    setError("");
     if (!config.sitekey) {
       setError("The security check is temporarily unavailable. Try again later.");
       return;
@@ -68,16 +116,34 @@ export function useAuthChallenge(action: string | null) {
           sitekey: config.sitekey,
           action,
           theme: "light",
+          size: target.current.clientWidth < 300 ? "compact" : "flexible",
+          retry: "auto",
+          "refresh-expired": "auto",
+          "refresh-timeout": "auto",
           callback: (value: string) => {
+            if (!live) return;
             token.current = value;
             setError("");
+            setErrorCode("");
           },
           "expired-callback": () => {
+            if (!live) return;
             token.current = "";
           },
-          "error-callback": () => {
+          "timeout-callback": () => {
+            if (live) {
+              token.current = "";
+              setError(challengeErrorMessage("110620"));
+              setErrorCode("110620");
+            }
+          },
+          "error-callback": (value: unknown) => {
+            if (!live) return true;
             token.current = "";
-            setError("The security check failed. Reload and try again.");
+            const code = typeof value === "string" && /^\d{3,6}$/.test(value) ? value : "unknown";
+            setErrorCode(code);
+            setError(challengeErrorMessage(code));
+            return true;
           },
         });
       })
@@ -100,6 +166,8 @@ export function useAuthChallenge(action: string | null) {
   }, [action, config]);
   const reset = useCallback(() => {
     token.current = "";
+    setError("");
+    setErrorCode("");
     if (widget.current) window.turnstile?.reset(widget.current);
   }, []);
   return {
@@ -108,7 +176,31 @@ export function useAuthChallenge(action: string | null) {
     element: (
       <div className="abi-auth-challenge">
         <div ref={target} />
-        {error && <p role="alert">{error}</p>}
+        {error && (
+          <div className="abi-auth-challenge-error">
+            <p role="alert">
+              {error}
+              {errorCode && errorCode !== "unknown" ? ` (Cloudflare ${errorCode})` : ""}
+            </p>
+            {errorCode === "110200" ? (
+              <a href={`${AUTH_CANONICAL_ORIGIN}/console`}>Open main ABI sign-in</a>
+            ) : (
+              <button
+                type="button"
+                className="bare"
+                onClick={() => {
+                  token.current = "";
+                  setError("");
+                  setErrorCode("");
+                  if (widget.current && window.turnstile) window.turnstile.reset(widget.current);
+                  else setAttempt((n) => n + 1);
+                }}
+              >
+                Retry security check
+              </button>
+            )}
+          </div>
+        )}
       </div>
     ),
   };
