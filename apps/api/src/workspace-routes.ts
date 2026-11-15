@@ -16,6 +16,12 @@ import {
   workspaceForAgent,
 } from "./workspaces.js";
 import { currentUser } from "./routes/auth-routes.js";
+import {
+  PrivyTrialError,
+  privyTrialStatus,
+  provisionPrivyTrial,
+  verifyPrivyTrial,
+} from "./privy-trial.js";
 import { parseCookies, PARTNER_SESSION_COOKIE } from "./auth/session.js";
 
 type GuardianRoute = (
@@ -76,11 +82,36 @@ export function registerWorkspaceRoutes(
         } catch (e) {
           if (e instanceof WorkspaceError)
             return res.status(e.status).json({ error: { code: e.code, message: e.message } });
+          if (e instanceof PrivyTrialError)
+            return res.status(e.status).json({ error: { code: e.code, message: e.message } });
           throw e;
         }
       },
       { ownerOnly: owner },
     );
+  app.get(
+    "/v1/guardian/workspaces/:workspaceId/privy",
+    route(
+      (org, req, res) => res.json(privyTrialStatus(org.id, String(req.params.workspaceId))),
+      true,
+    ),
+  );
+  app.post(
+    "/v1/guardian/workspaces/:workspaceId/privy",
+    route(async (org, req, res) => {
+      z.object({ acknowledgeTestOnly: z.literal(true) })
+        .strict()
+        .parse(req.body);
+      res.json(await provisionPrivyTrial(org.id, String(req.params.workspaceId)));
+    }, true),
+  );
+  app.post(
+    "/v1/guardian/workspaces/:workspaceId/privy/verify",
+    route(async (org, req, res) => {
+      z.object({}).strict().parse(req.body);
+      res.json(await verifyPrivyTrial(org.id, String(req.params.workspaceId)));
+    }, true),
+  );
   app.get(
     "/v1/guardian/workspaces",
     route((org, _req, res) =>
@@ -391,11 +422,9 @@ export function registerWorkspaceRoutes(
         .parse(req.body);
       // Creation never grants existing funds or raises any allowance. Access to
       // this new wallet still requires an owner-issued key grant.
-      return res
-        .status(201)
-        .json({
-          workspace: createWorkspace(auth.orgId, b.name, `${auth.sessionId}:${b.idempotencyKey}`),
-        });
+      return res.status(201).json({
+        workspace: createWorkspace(auth.orgId, b.name, `${auth.sessionId}:${b.idempotencyKey}`),
+      });
     }),
   );
   app.patch(

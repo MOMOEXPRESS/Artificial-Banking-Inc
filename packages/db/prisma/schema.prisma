@@ -79,6 +79,22 @@ model AbiMemories {
   @@map("abi_memories")
 }
 
+model AbiPrivyTestWallets {
+  workspaceId String @id @map("workspace_id") // -> abi_workspaces.id
+  orgId String @map("org_id") // -> orgs.id
+  appHash String @map("app_hash")
+  externalId String @map("external_id")
+  requestKey String @map("request_key")
+  walletId String? @map("wallet_id")
+  address String?
+  verifiedAt String? @map("verified_at")
+  createdAt String @map("created_at")
+  @@unique([address])
+  @@unique([walletId])
+  @@unique([externalId])
+  @@map("abi_privy_test_wallets")
+}
+
 model AbiWalletKeyRequests {
   orgId String @map("org_id") // -> orgs.id
   createKey String @map("create_key")

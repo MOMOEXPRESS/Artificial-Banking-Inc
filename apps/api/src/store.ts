@@ -8235,6 +8235,7 @@ export const store = {
         "abi_card_reservations",
         "abi_workspace_connections",
         "abi_workspace_cards",
+        "abi_privy_test_wallets",
         "abi_workspaces",
         "webhook_deliveries",
         "webhooks",

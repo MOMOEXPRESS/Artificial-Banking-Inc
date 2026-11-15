@@ -13,6 +13,7 @@ import {
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { WalletLimitEditor } from "./wallet-limits";
+import { PrivyTrialPanel } from "./privy-trial-panel";
 import { LiquidWalletCard } from "./liquid-wallet-card";
 import { workspaceJson, type Workspace, type WorkspaceFetcher } from "./workspace-client";
 
@@ -253,6 +254,7 @@ export function WorkspaceFunds({
         Deposits use the account’s existing verified receiving route and arrive in General. Allocate
         settled funds here; a workspace card does not imply a separate deposit address.
       </p>
+      {!readOnly && <PrivyTrialPanel key={w.id} workspaceId={w.id} gFetch={gFetch} />}
       {receipt && <p role="status">{receipt}</p>}
       {error && !action && <p role="alert">{error}</p>}
       <section className="minimal-section">

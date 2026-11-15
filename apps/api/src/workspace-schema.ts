@@ -23,6 +23,11 @@ CREATE TABLE IF NOT EXISTS abi_workspace_cards (
  limit_micro TEXT, period TEXT NOT NULL DEFAULT 'month' CHECK(period IN ('day','week','month','total')),
  starts_at TEXT NOT NULL, allow_recurring INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS abi_privy_test_wallets (
+ workspace_id TEXT PRIMARY KEY REFERENCES abi_workspaces(id), org_id TEXT NOT NULL REFERENCES orgs(id),
+ app_hash TEXT NOT NULL, external_id TEXT NOT NULL UNIQUE, request_key TEXT NOT NULL,
+ wallet_id TEXT UNIQUE, address TEXT COLLATE NOCASE UNIQUE, verified_at TEXT, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS abi_workspace_connections (
  id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES abi_workspaces(id), card_id TEXT NOT NULL REFERENCES abi_workspace_cards(id),
  agent_id TEXT NOT NULL UNIQUE REFERENCES agents(id), create_key TEXT NOT NULL, created_at TEXT NOT NULL, verified_at TEXT,

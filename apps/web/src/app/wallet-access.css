@@ -841,3 +841,45 @@
     transition: none !important;
   }
 }
+
+.abi-privy-trial {
+  padding: 22px;
+  background: #f4f4f4;
+  border-radius: 12px;
+  margin: 28px 0;
+}
+.abi-privy-trial h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.abi-privy-trial .minimal-section-heading > span {
+  color: #525252;
+  font-size: 13px;
+}
+.abi-privy-trial > p {
+  max-width: 72ch;
+  color: #525252;
+  line-height: 1.6;
+}
+.abi-privy-address {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 8px;
+}
+.abi-privy-address code {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.abi-privy-address button {
+  flex: none;
+}
+.abi-privy-trial [role="alert"] {
+  color: #9d3030;
+}
+@media (max-width: 600px) {
+  .abi-privy-trial {
+    padding: 18px;
+  }
+}
