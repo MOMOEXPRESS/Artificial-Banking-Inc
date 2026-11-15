@@ -346,3 +346,16 @@ test("background rollout provisions verified customer workspaces only, without c
   assert.equal(p.creates, 3);
   assert.equal((db().prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n, count);
 });
+
+test("legacy trial clients reuse a managed workspace wallet instead of creating another address", async () => {
+  const f = fixture(),
+    p = provider();
+  const view = await provision(f.org.id, String(f.w.id), f.user.id, p.p);
+  const { provisionPrivyTrial } = await import("./privy-trial.js");
+  const legacy = await provisionPrivyTrial(f.org.id, String(f.w.id), async () => {
+    throw Error("A second provider request must not occur");
+  });
+  assert.equal(legacy.wallet?.address, view.address);
+  assert.equal(legacy.wallet?.providerWalletId, view.providerWalletId);
+  assert.equal(p.creates, 1);
+});
