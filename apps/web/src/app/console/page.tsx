@@ -16,7 +16,11 @@ import { Icon, fmtUsd, relTime } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
 import { MinimalOverview, MinimalBilling } from "../../lib/minimal-workspace";
 import { useWorkspaces } from "../../lib/workspace-client";
-import { WorkspaceFunds, LegacyWalletRecovery } from "../../lib/workspace-controls";
+import {
+  WorkspaceFunds,
+  LegacyWalletRecovery,
+  WorkspaceAssetRecovery,
+} from "../../lib/workspace-controls";
 import { WalletPicker } from "../../lib/wallet-picker";
 import { WalletConnect } from "../../lib/wallet-connect";
 import { WalletSpendingLimits } from "../../lib/wallet-limits";
@@ -1822,7 +1826,16 @@ export default function Console() {
                       onSignOut={(everywhere) => void signOut(everywhere)}
                     />
                     {!readOnly && org?.actor?.role === "owner" && (
-                      <LegacyWalletRecovery key={session.orgId} gFetch={gFetch} />
+                      <>
+                        <LegacyWalletRecovery key={session.orgId} gFetch={gFetch} />
+                        {workspaceState.current && (
+                          <WorkspaceAssetRecovery
+                            key={workspaceState.current.id}
+                            workspace={workspaceState.current}
+                            gFetch={gFetch}
+                          />
+                        )}
+                      </>
                     )}
                   </>
                 )}

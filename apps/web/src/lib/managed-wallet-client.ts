@@ -11,6 +11,7 @@ export const managedWalletSchema = z.object({
   receiveEnabled: z.boolean(),
   withdrawalEnabled: z.boolean(),
   spendingEnabled: z.literal(false),
+  accountSymbol: z.enum(["USDC", "ETH"]),
   selectedAssetId: z.string(),
   asset: z.object({
     id: z.string(),

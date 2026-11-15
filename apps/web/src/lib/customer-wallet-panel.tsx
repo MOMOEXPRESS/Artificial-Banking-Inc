@@ -51,6 +51,8 @@ export function CustomerWalletPanel({
   onOpenChange,
   intent = "currencies",
   workspaces = [],
+  sourceAccount,
+  recoveryAssetId,
 }: {
   workspaceId: string;
   name: string;
@@ -59,6 +61,8 @@ export function CustomerWalletPanel({
   onOpenChange: (open: boolean) => void;
   intent?: Intent;
   workspaces?: Workspace[];
+  sourceAccount?: "USDC" | "ETH";
+  recoveryAssetId?: string;
 }) {
   const [data, setData] = useState<ManagedWallet | null>(null),
     [busy, setBusy] = useState(false),
@@ -79,6 +83,10 @@ export function CustomerWalletPanel({
   const load = useCallback(
     async (setup = false, background = false) => {
       const version = ++requestVersion.current;
+      const options = recoveryAssetId ? { assetId: recoveryAssetId, sourceAccount } : {};
+      const query = recoveryAssetId
+        ? `?${new URLSearchParams({ assetId: recoveryAssetId, sourceAccount: sourceAccount! })}`
+        : "";
       if (!background) {
         setBusy(true);
         setError("");
@@ -86,7 +94,10 @@ export function CustomerWalletPanel({
       try {
         const value = managedWalletSchema.parse(
           await workspaceJson(
-            await gFetch(path, setup ? { method: "POST", body: "{}" } : undefined),
+            await gFetch(
+              setup ? path : `${path}${query}`,
+              setup ? { method: "POST", body: JSON.stringify(options) } : undefined,
+            ),
           ),
         );
         if (value.workspaceId !== workspaceId)
@@ -103,7 +114,7 @@ export function CustomerWalletPanel({
         if (active.current && version === requestVersion.current && !background) setBusy(false);
       }
     },
-    [gFetch, path, workspaceId],
+    [gFetch, path, workspaceId, recoveryAssetId, sourceAccount],
   );
   useEffect(() => {
     active.current = true;
@@ -152,7 +163,7 @@ export function CustomerWalletPanel({
       void load().then((value) => {
         if (!active.current) return;
         // Add money always starts on a real network, even after a faucet check.
-        if (intent === "receive" && value?.asset.testnet) {
+        if (!recoveryAssetId && intent === "receive" && value?.asset.testnet) {
           const mainnet = value.assets.find((a) => !a.testnet && a.symbol === value.asset.symbol);
           if (mainnet) void changeAsset(mainnet.id);
         } else if (value?.asset.testnet) {
@@ -160,15 +171,15 @@ export function CustomerWalletPanel({
         }
       });
     }
-  }, [open, intent, load, changeAsset]);
+  }, [open, intent, load, changeAsset, recoveryAssetId]);
   const ready = data?.status === "ready" && data.receiveEnabled && data.address;
   useEffect(() => {
-    if (!open || !ready || busy) return;
+    if (!open || !ready || busy || draft) return;
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") void load(false, true);
     }, 25000);
     return () => clearInterval(timer);
-  }, [open, ready, busy, data, load]);
+  }, [open, ready, busy, data, load, draft]);
   const visibleAssets =
     data?.assets.filter((a) => showTestnets || !a.testnet || a.id === data.selectedAssetId) ?? [];
   const networks = [...new Set(visibleAssets.map((a) => a.chainId))];
@@ -210,6 +221,7 @@ export function CustomerWalletPanel({
             ? { ...(code ? { code } : {}) }
             : {
                 assetId: data.selectedAssetId,
+                ...(sourceAccount ? { sourceAccount } : {}),
                 amount,
                 ...(intent === "allocate" ? { toWorkspaceId: to } : { recipient }),
               },
@@ -243,11 +255,13 @@ export function CustomerWalletPanel({
       <div className="minimal-section-heading">
         <h2>
           <Wallet size={21} aria-hidden="true" />
-          On-chain wallet
+          {recoveryAssetId ? "Asset recovery" : "On-chain wallet"}
         </h2>
-        <Button variant="ghost" onClick={() => onOpenChange(true)}>
-          <Globe2 size={16} /> Currencies
-        </Button>
+        {!recoveryAssetId && (
+          <Button variant="ghost" onClick={() => onOpenChange(true)}>
+            <Globe2 size={16} /> Currencies
+          </Button>
+        )}
       </div>
       <p>
         {ready
@@ -332,7 +346,7 @@ export function CustomerWalletPanel({
                 Assets
                 <Select
                   value={data.selectedAssetId}
-                  disabled={busy || !!draft}
+                  disabled={busy || !!draft || !!recoveryAssetId}
                   onValueChange={(id) => void changeAsset(id)}
                 >
                   <SelectTrigger aria-label="Asset and network">
@@ -359,7 +373,7 @@ export function CustomerWalletPanel({
                   </SelectContent>
                 </Select>
               </label>
-              {!draft && (
+              {!draft && !recoveryAssetId && (
                 <label className="abi-funding-testnets">
                   <input
                     type="checkbox"
@@ -398,7 +412,9 @@ export function CustomerWalletPanel({
               {ready && !sending && (
                 <>
                   <div className="abi-receive-address">
-                    <span>Receiving address · {name}</span>
+                    <span>
+                      Receiving address · {data.asset.symbol} · {name}
+                    </span>
                     <code>{data.address}</code>
                   </div>
                   <Button
@@ -417,17 +433,20 @@ export function CustomerWalletPanel({
                     {copied ? "Address copied" : "Copy address"}
                   </Button>
                   <p className="abi-receive-instruction">
-                    Send only {data.asset.symbol} on {data.asset.network}.{" "}
+                    Deposit {data.asset.symbol} on {data.asset.network}.{" "}
                     {data.asset.testnet
                       ? "Use a faucet for this test network."
                       : "Use the exact network above when sending funds."}
                   </p>
                   <p className="abi-workspace-note">
-                    ETH and USDC share this workspace’s EVM address. Each network has a separate
+                    Each asset has its own receiving address in this workspace. The same asset
+                    address works across the supported EVM networks; each network has a separate
                     balance.
                     {data.asset.symbol === "USDC" &&
                       " Use native USDC, not bridged USDC or USDC.e."}{" "}
                     Bitcoin and other assets are not supported by this deposit route.
+                    {data.asset.symbol === "USDC" &&
+                      " To send USDC later, this USDC address also needs ETH on the same network for fees. Your separate ETH address does not pay those fees."}
                   </p>
                   <p role="status" className="abi-workspace-note">
                     {data.balance.observedAt
@@ -459,6 +478,12 @@ export function CustomerWalletPanel({
                     void submit();
                   }}
                 >
+                  <p className="abi-workspace-note">
+                    Sending from the {sourceAccount ?? draft?.symbol ?? data.accountSymbol} asset
+                    wallet: <code>{draft?.source ?? data.address}</code>.
+                    {sourceAccount &&
+                      " Recovery transfers use this address, even when the asset differs from the account label."}
+                  </p>
                   {!draft ? (
                     <>
                       {intent === "allocate" ? (
@@ -504,13 +529,20 @@ export function CustomerWalletPanel({
                         />
                       </label>
                       <p className="abi-workspace-note">
-                        ETH on {data.asset.network} covers the network fee. A fee estimate appears
-                        before you confirm.
+                        ETH on {data.asset.network} at this sending address covers the network fee.
+                        ETH in your separate ETH asset wallet does not cover another address’s fees.
+                        A fee estimate appears before you confirm.
                       </p>
                     </>
                   ) : (
                     <>
                       <dl className="abi-send-review">
+                        <div>
+                          <dt>From</dt>
+                          <dd>
+                            <code>{draft.source}</code>
+                          </dd>
+                        </div>
                         <div>
                           <dt>Amount</dt>
                           <dd>

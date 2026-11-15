@@ -46,6 +46,9 @@ const key = z
   .max(100)
   .regex(/^[\w:-]+$/);
 const walletAssetId = z.enum(WALLET_ASSETS.map((a) => a.id));
+const walletViewOptions = z
+  .object({ assetId: walletAssetId.optional(), sourceAccount: z.enum(["USDC", "ETH"]).optional() })
+  .strict();
 const amount = z.string().regex(/^\d{1,12}(\.\d{1,6})?$/);
 export function registerWorkspaceRoutes(
   app: express.Express,
@@ -114,14 +117,20 @@ export function registerWorkspaceRoutes(
       if (!me) return res.status(401).json({ error: { code: "HUMAN_SESSION_REQUIRED" } });
       res.setHeader("Cache-Control", "no-store");
       return res.json(
-        await managedWalletStatus(org.id, String(req.params.workspaceId), me.user.id),
+        await managedWalletStatus(
+          org.id,
+          String(req.params.workspaceId),
+          me.user.id,
+          undefined,
+          walletViewOptions.parse(req.query),
+        ),
       );
     }, true),
   );
   app.post(
     "/v1/guardian/workspaces/:workspaceId/wallet",
     route(async (org, req, res) => {
-      z.object({}).strict().parse(req.body);
+      const options = walletViewOptions.parse(req.body);
       const me = currentUser(req);
       if (!me)
         return res.status(401).json({
@@ -131,7 +140,13 @@ export function registerWorkspaceRoutes(
           },
         });
       return res.json(
-        await provisionManagedWallet(org.id, String(req.params.workspaceId), me.user.id),
+        await provisionManagedWallet(
+          org.id,
+          String(req.params.workspaceId),
+          me.user.id,
+          undefined,
+          options,
+        ),
       );
     }, true),
   );
@@ -142,6 +157,7 @@ export function registerWorkspaceRoutes(
       if (!me) return res.status(401).json({ error: { code: "HUMAN_SESSION_REQUIRED" } });
       const body = z.object({ assetId: walletAssetId }).strict().parse(req.body);
       selectManagedAsset(org.id, String(req.params.workspaceId), me.user.id, body.assetId);
+      await provisionManagedWallet(org.id, String(req.params.workspaceId), me.user.id);
       return res.json(
         await managedWalletStatus(org.id, String(req.params.workspaceId), me.user.id),
       );
@@ -163,13 +179,22 @@ export function registerWorkspaceRoutes(
     route(async (org, req, res) => {
       const me = currentUser(req);
       if (!me) return res.status(401).json({ error: { code: "HUMAN_SESSION_REQUIRED" } });
-      const shape = { assetId: walletAssetId, amount: z.string().max(44) };
+      const shape = {
+        assetId: walletAssetId,
+        amount: z.string().max(44),
+        sourceAccount: z.enum(["USDC", "ETH"]).optional(),
+      };
       const body = z
         .union([
           z.object({ ...shape, recipient: z.string().max(42) }).strict(),
           z.object({ ...shape, toWorkspaceId: z.string().max(80) }).strict(),
         ])
         .parse(req.body);
+      if ("toWorkspaceId" in body) {
+        await provisionManagedWallet(org.id, body.toWorkspaceId, me.user.id, undefined, {
+          assetId: body.assetId,
+        });
+      }
       return res
         .status(201)
         .json(await prepareManagedSend(org.id, String(req.params.workspaceId), me.user.id, body));

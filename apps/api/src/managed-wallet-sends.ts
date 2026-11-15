@@ -18,6 +18,9 @@ import {
 import { treasuryApprovalThresholdMicro } from "./treasury-threshold.js";
 import {
   readyManagedWallet,
+  managedSendAccount,
+  assertManagedWalletOwner,
+  type WalletAccount,
   managedProvider,
   ManagedWalletError,
   type ManagedProvider,
@@ -139,7 +142,13 @@ export async function prepareManagedSend(
   orgId: string,
   workspaceId: string,
   userId: string,
-  input: { assetId: string; amount: string; recipient?: string; toWorkspaceId?: string },
+  input: {
+    assetId: string;
+    amount: string;
+    recipient?: string;
+    toWorkspaceId?: string;
+    sourceAccount?: WalletAccount;
+  },
   client?: WalletChainClient,
 ) {
   try {
@@ -162,13 +171,26 @@ async function prepareManagedSendUnsafe(
   orgId: string,
   workspaceId: string,
   userId: string,
-  input: { assetId: string; amount: string; recipient?: string; toWorkspaceId?: string },
+  input: {
+    assetId: string;
+    amount: string;
+    recipient?: string;
+    toWorkspaceId?: string;
+    sourceAccount?: WalletAccount;
+  },
   client = assetClient(walletAsset(input.assetId)),
 ) {
-  const row = readyManagedWallet(orgId, workspaceId, userId),
+  const row = readyManagedWallet(
+      orgId,
+      workspaceId,
+      userId,
+      true,
+      input.assetId,
+      input.sourceAccount,
+    ),
     asset = walletAsset(input.assetId);
   const destination = input.toWorkspaceId
-    ? readyManagedWallet(orgId, input.toWorkspaceId, userId).address
+    ? readyManagedWallet(orgId, input.toWorkspaceId, userId, true, input.assetId).address
     : input.recipient;
   if (!destination)
     throw new ManagedWalletError(
@@ -249,7 +271,7 @@ async function prepareManagedSendUnsafe(
   if (gasBalance < (asset.contract ? 0n : units) + gasLimit * maxFee)
     throw new ManagedWalletError(
       "GAS_REQUIRED",
-      `Add ETH on ${asset.network} to cover the network fee.`,
+      `Add ETH on ${asset.network} to the sending address ${row.address} to cover the network fee. ETH held at a different asset address cannot cover this fee.`,
       409,
     );
   Object.assign(tx, {
@@ -289,7 +311,7 @@ export async function confirmManagedSend(
   sendId: string,
   provider?: ManagedProvider,
 ) {
-  const wallet = readyManagedWallet(orgId, workspaceId, userId);
+  assertManagedWalletOwner(orgId, workspaceId, userId);
   const row = db()
     .prepare(
       "SELECT * FROM abi_managed_sends WHERE id=? AND org_id=? AND workspace_id=? AND user_id=?",
@@ -301,6 +323,8 @@ export async function confirmManagedSend(
       "This transfer does not belong to your account.",
       404,
     );
+  const sourceAccount = managedSendAccount(orgId, workspaceId, userId, row.wallet_id);
+  const wallet = readyManagedWallet(orgId, workspaceId, userId, true, row.asset_id, sourceAccount);
   if (row.state !== "prepared") return publicSend(row);
   if (Date.parse(row.expires_at) < Date.now())
     throw new ManagedWalletError(
@@ -363,7 +387,7 @@ export async function confirmManagedSend(
   }
 }
 export async function managedSends(orgId: string, workspaceId: string, userId: string) {
-  readyManagedWallet(orgId, workspaceId, userId, false);
+  assertManagedWalletOwner(orgId, workspaceId, userId);
   const rows = db()
     .prepare(
       "SELECT * FROM abi_managed_sends WHERE org_id=? AND workspace_id=? ORDER BY created_at DESC LIMIT 20",

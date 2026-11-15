@@ -846,3 +846,69 @@ export function LegacyWalletRecovery({ gFetch }: { gFetch: WorkspaceFetcher }) {
     </section>
   );
 }
+
+/** Owner recovery for assets received at a different asset account before separation. */
+export function WorkspaceAssetRecovery({
+  workspace,
+  gFetch,
+}: {
+  workspace: Workspace;
+  gFetch: WorkspaceFetcher;
+}) {
+  const [open, setOpen] = useState(false);
+  const [sourceAccount, setSourceAccount] = useState<"USDC" | "ETH">("USDC");
+  const [assetId, setAssetId] = useState("base:eth");
+  return (
+    <section className="minimal-section">
+      <details>
+        <summary>Recover assets at an earlier workspace address</summary>
+        <p>
+          Existing funds have not moved. If ETH was sent to this workspace’s original shared
+          address, choose the USDC account below. Recovery uses the same reviewed transfer and
+          security checks as Send.
+        </p>
+        <label>
+          Account holding the funds
+          <select
+            aria-label="Recovery source account"
+            value={sourceAccount}
+            onChange={(e) => setSourceAccount(e.target.value as "USDC" | "ETH")}
+          >
+            <option value="USDC">USDC account · original workspace address</option>
+            <option value="ETH">ETH account</option>
+          </select>
+        </label>
+        <label>
+          Asset and network to recover
+          <select
+            aria-label="Recovery asset and network"
+            value={assetId}
+            onChange={(e) => setAssetId(e.target.value)}
+          >
+            {workspace.wallet?.assets.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.symbol} · {a.network} {a.testnet ? "Testnet" : "Mainnet"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button variant="ghost" onClick={() => setOpen(true)}>
+          Review recovery transfer
+        </Button>
+        {open && (
+          <CustomerWalletPanel
+            key={`${workspace.id}:${sourceAccount}:${assetId}`}
+            workspaceId={workspace.id}
+            name={workspace.name}
+            gFetch={gFetch}
+            open={open}
+            onOpenChange={setOpen}
+            intent="send"
+            sourceAccount={sourceAccount}
+            recoveryAssetId={assetId}
+          />
+        )}
+      </details>
+    </section>
+  );
+}
