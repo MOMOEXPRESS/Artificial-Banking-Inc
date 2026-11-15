@@ -103,6 +103,12 @@ async function main() {
     const healthBody = await health.json();
     results.steps.push({ name: "health", status: health.status, body: healthBody });
 
+    const transport = await fetch(`${BASE}/v1/spike/privy-transport`);
+    const transportBody = await transport.json();
+    results.steps.push({ name: "privy-transport", status: transport.status, body: transportBody });
+    if (transport.status !== 200 || transportBody.redirect !== "manual")
+      throw new Error("Privy transport is incompatible with Workers Request");
+
     const scrypt = await fetch(`${BASE}/v1/spike/scrypt`, {
       method: "POST",
       headers: { "content-type": "application/json" },
