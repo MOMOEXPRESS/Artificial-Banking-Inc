@@ -30,9 +30,6 @@ ABI_CORS_ORIGINS = "https://artificial-banking-inc-web.vercel.app"
 ABI_NOTIFY_EMAIL_FROM = "ABI <onboarding@resend.dev>"
 ABI_WAITLIST_NOTIFY_TO = "momomaurice20006@gmail.com"
 PRIVY_APP_ID = "cmwh1hm2v01k50hjjfwcbdtv1"
-# Verified historical production URL retained for existing sign-in links.
-# Both the Turnstile widget and Siteverify must authorize this exact hostname.
-TURNSTILE_ADDITIONAL_HOSTNAMES = "artificial-banking-inc-3q5odra4n-momoexpress-projects.vercel.app"
 # ABI_GIT_COMMIT is injected from the actual release commit at deploy time.
 # PRIVY_APP_SECRET stays in the existing Worker's secret bindings, never here.
 ABI_RUNTIME = "cloudflare-workers"

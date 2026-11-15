@@ -36,10 +36,6 @@ const STRING_KEYS = [
   "RATE_LIMIT_READ_PER_MIN",
   "ABI_GIT_COMMIT",
   "OPENAI_API_KEY",
-  "TURNSTILE_SITEKEY",
-  "TURNSTILE_SECRET",
-  "TURNSTILE_HOSTNAMES",
-  "TURNSTILE_ADDITIONAL_HOSTNAMES",
   "SUPABASE_URL",
   "SUPABASE_PUBLISHABLE_KEY",
   "PRIVY_APP_ID",
@@ -68,6 +64,14 @@ export function applyWorkerEnv(env: Env): void {
   process.env.ABI_RUNTIME = "cloudflare-workers";
   process.env.ABI_NO_LISTEN = "1";
   process.env.ABI_RUN_JOBS = "0";
+  // Retained provider credentials cannot reactivate the removed CAPTCHA.
+  for (const key of [
+    "TURNSTILE_SITEKEY",
+    "TURNSTILE_SECRET",
+    "TURNSTILE_HOSTNAMES",
+    "TURNSTILE_ADDITIONAL_HOSTNAMES",
+  ])
+    delete process.env[key];
   // SMTP is Node-only (#63). Clear so resolveEmailProvider never picks smtp
   // inside the Worker even if a stray var leaked in.
   delete process.env.SMTP_URL;

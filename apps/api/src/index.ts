@@ -55,7 +55,7 @@ import {
   workspaceForAgent,
   WorkspaceError,
 } from "./workspaces.js";
-import { registerBotChallenge } from "./auth/bot-challenge.js";
+import { registerAuthChallengeCompatibility } from "./auth/challenge-compatibility.js";
 import { externalSessionGuard } from "./auth/supabase.js";
 import { registerSupabaseAuth } from "./routes/supabase-auth-routes.js";
 import { registerWorkspaceRoutes } from "./workspace-routes.js";
@@ -862,8 +862,8 @@ function guardianRoute(
   };
 }
 
+registerAuthChallengeCompatibility(app);
 app.use(externalSessionGuard());
-registerBotChallenge(app);
 registerSupabaseAuth(app);
 registerAuthRoutes(app);
 registerWorkspaceRoutes(app, { guardianRoute, authAgent });
