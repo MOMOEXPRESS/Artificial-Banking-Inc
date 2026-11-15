@@ -36,7 +36,7 @@ const provider: typeof fetch = async (input, init) => {
   const url = new URL(String(input));
   if (url.origin !== "https://api.privy.io") return nativeFetch(input, init);
   const headers = new Headers(init?.headers);
-  assert.equal(init?.redirect, "error");
+  assert.equal(init?.redirect, "manual");
   assert.equal(headers.get("privy-app-id"), "test-app");
   assert.equal(
     headers.get("authorization"),

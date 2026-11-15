@@ -6,6 +6,7 @@ import { z } from "zod";
 import { commerceDatabase } from "./store.js";
 import { findWorkspace, ensureWorkspaces } from "./workspaces.js";
 import { verifySupabaseIdentity } from "./auth/supabase.js";
+import { privyFetch } from "./privy-transport.js";
 
 export class CustomerWalletError extends Error {
   constructor(
@@ -113,9 +114,8 @@ export function privyCustomerProvider(): CustomerWalletProvider {
     maxRetries: 0,
     authorizationKeyCacheMaxCapacity: 1,
     fetch: (input, init) =>
-      fetch(input, {
+      privyFetch(input, {
         ...init,
-        redirect: "error",
         signal: init?.signal ? AbortSignal.any([deadline, init.signal]) : deadline,
       }),
   });

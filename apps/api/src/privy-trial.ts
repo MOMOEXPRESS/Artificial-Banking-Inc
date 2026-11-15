@@ -4,6 +4,7 @@ import { z } from "zod";
 import { verifyTypedData, type Address } from "viem";
 import { commerceDatabase } from "./store.js";
 import { findWorkspace } from "./workspaces.js";
+import { privyFetch } from "./privy-transport.js";
 
 export class PrivyTrialError extends Error {
   constructor(
@@ -62,18 +63,21 @@ export class PrivyTrialClient {
   private async request(path: string, body?: unknown, requestKey?: string): Promise<unknown> {
     let response: Response;
     try {
-      response = await this.fetcher(`https://api.privy.io/v1/wallets${path ? "/" + path : ""}`, {
-        method: body === undefined ? "GET" : "POST",
-        redirect: "error",
-        headers: {
-          authorization: `Basic ${Buffer.from(`${this.appId}:${this.secret}`).toString("base64")}`,
-          "privy-app-id": this.appId,
-          "content-type": "application/json",
-          ...(requestKey ? { "privy-idempotency-key": requestKey } : {}),
+      response = await privyFetch(
+        `https://api.privy.io/v1/wallets${path ? "/" + path : ""}`,
+        {
+          method: body === undefined ? "GET" : "POST",
+          headers: {
+            authorization: `Basic ${Buffer.from(`${this.appId}:${this.secret}`).toString("base64")}`,
+            "privy-app-id": this.appId,
+            "content-type": "application/json",
+            ...(requestKey ? { "privy-idempotency-key": requestKey } : {}),
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          signal: AbortSignal.timeout(10000),
         },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.timeout(10000),
-      });
+        this.fetcher,
+      );
     } catch {
       throw new PrivyTrialError(
         "PRIVY_UNAVAILABLE",

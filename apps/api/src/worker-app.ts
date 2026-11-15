@@ -7,9 +7,23 @@
 import { app } from "./index.js";
 import { runAlarmJobs } from "./jobs/alarm-runner.js";
 import { hashPassword, verifyPassword } from "./auth/password.js";
+import { privyFetch } from "./privy-transport.js";
 
 /** Local spike measurement — only when ABI_SPIKE_ROUTES=1. */
 if (process.env.ABI_SPIKE_ROUTES === "1") {
+  app.get("/v1/spike/privy-transport", async (_req, res) => {
+    try {
+      let redirect = "";
+      await privyFetch("https://api.privy.io/v1/wallets", {}, async (input, init) => {
+        // Use the actual Workers Request constructor, not a Node fetch mock.
+        redirect = new Request(input, init).redirect;
+        return Response.json({ ok: true });
+      });
+      res.json({ ok: true, redirect });
+    } catch {
+      res.status(500).json({ ok: false });
+    }
+  });
   app.post("/v1/spike/scrypt", async (req, res) => {
     try {
       const password =
