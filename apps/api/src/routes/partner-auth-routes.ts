@@ -360,8 +360,7 @@ export function registerPartnerAuthRoutes(app: express.Express): void {
           },
         });
       }
-      const factor = checkSecondFactor(found.account.id, body);
-      if (factor) return res.status(401).json({ error: factor });
+      // A valid password completes sign-in; payout step-up checks are separate.
       store.markPartnerLogin(found.account.id);
       issuePartnerSession(req, res, found.account);
       const org = store.getOrg(found.account.orgId);

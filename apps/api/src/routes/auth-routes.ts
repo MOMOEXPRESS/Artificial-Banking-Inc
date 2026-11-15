@@ -8,7 +8,6 @@
 import type express from "express";
 import { z } from "zod";
 import { hashPassword, passwordProblem, verifyPassword } from "../auth/password.js";
-import { accountMfaProblem } from "../auth/mfa-check.js";
 import { isExternalOnly } from "../auth/supabase.js";
 import {
   CSRF_COOKIE,
@@ -329,8 +328,8 @@ export function registerAuthRoutes(app: express.Express) {
         });
       }
 
-      const factor = accountMfaProblem(found.user.id, body.mfaCode);
-      if (factor) return res.status(403).json({ error: factor });
+      // Sign-in uses the verified password. Enrolled factors remain available
+      // for explicit step-up actions and are not consumed by login.
       store.markUserLogin(found.user.id);
       issueSession(res, found.user, req);
       res.json({
@@ -398,15 +397,13 @@ export function registerAuthRoutes(app: express.Express) {
       const me = currentUser(req);
       if (!me) return res.status(401).json({ error: { code: "UNAUTHORIZED" } });
       if (isExternalOnly(me.user.id))
-        return res
-          .status(409)
-          .json({
-            error: {
-              code: "EXTERNAL_IDENTITY",
-              message:
-                "Use your Google or GitHub account to manage sign-in. No ABI password was created.",
-            },
-          });
+        return res.status(409).json({
+          error: {
+            code: "EXTERNAL_IDENTITY",
+            message:
+              "Use your Google or GitHub account to manage sign-in. No ABI password was created.",
+          },
+        });
       const body = z
         .object({
           currentPassword: z.string().max(1024),

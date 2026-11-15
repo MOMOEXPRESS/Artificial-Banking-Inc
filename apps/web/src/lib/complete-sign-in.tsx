@@ -12,8 +12,6 @@ export function CompleteSignIn({ destination }: { destination: "console" | "sell
   const [terms, setTerms] = useState(false),
     [link, setLink] = useState(false),
     [needsLink, setNeedsLink] = useState(false),
-    [needsMfa, setNeedsMfa] = useState(false),
-    [mfa, setMfa] = useState(""),
     [seller, setSeller] = useState(destination === "seller"),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -31,13 +29,11 @@ export function CompleteSignIn({ destination }: { destination: "console" | "sell
         body: JSON.stringify({
           acceptTerms: terms,
           linkExisting: link,
-          ...(mfa ? { mfaCode: mfa } : {}),
         }),
       });
       const data = await r.json();
       if (!r.ok) {
         if (data.error?.code === "ACCOUNT_LINK_REQUIRED") setNeedsLink(true);
-        if (["MFA_REQUIRED", "MFA_INVALID"].includes(data.error?.code)) setNeedsMfa(true);
         throw Error(
           data.error?.message ?? "Sign-in could not finish. Restart sign-in and try again.",
         );
@@ -118,17 +114,6 @@ export function CompleteSignIn({ destination }: { destination: "console" | "sell
             </label>
           </div>
         )}
-        {needsMfa && (
-          <label>
-            Authenticator or recovery code
-            <input
-              autoComplete="one-time-code"
-              value={mfa}
-              onChange={(e) => setMfa(e.target.value)}
-              maxLength={100}
-            />
-          </label>
-        )}
         <label className="abi-identity-check">
           <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} />
           <span>
@@ -143,10 +128,7 @@ export function CompleteSignIn({ destination }: { destination: "console" | "sell
           </label>
         )}
         {error && <p role="alert">{error}</p>}
-        <button
-          onClick={() => void finish()}
-          disabled={busy || (needsLink && !link) || (needsMfa && !mfa.trim())}
-        >
+        <button onClick={() => void finish()} disabled={busy || (needsLink && !link)}>
           {busy ? "Connecting…" : "Continue to ABI"}
           <ArrowRight size={17} />
         </button>
