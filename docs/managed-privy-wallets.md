@@ -8,7 +8,7 @@ Each workspace gets one Ethereum-compatible Privy wallet. A durable, application
 
 Workspace creation attempts provisioning and preserves the workspace if the provider fails. Overview catches up existing owner workspaces after sign-in. A Durable Object alarm also provisions one existing workspace belonging to a verified, enabled account owner per minute; failed attempts wait ten minutes. It never creates customer accounts or synthetic production users. Structured `abi.wallet.provision` events report ready/pending and sanitized failure codes. Privy secrets remain only on the existing API Worker.
 
-The separate earlier organization custody route remains accessible under “Earlier account receiving address.” No money, journals or historical custody keys move automatically.
+The separate earlier organization custody route remains inspectable in Settings under “Historical wallet recovery.” No money, journals or historical custody keys move automatically.
 
 ## Currencies and balances
 
@@ -40,12 +40,12 @@ The bounded browser run checks desktop 1440px and mobile 390px: custom picker ke
 
 ## Mainnet Add money flow
 
-The workspace's **Add money** button and the card's currency dialog use the same verified managed-wallet binding. Choose **Asset**, then **Network**. Supported real deposits are native USDC and ETH on Base mainnet or Ethereum mainnet. A shared EVM address is expected; switching assets or networks never creates or replaces the workspace wallet. Bitcoin, USDT, DAI and other tokens are not enabled by these instructions.
+The workspace's **Add money** button and the card's currency dialog use the same verified managed-wallet binding. Open **Assets**, then choose a currency from the **Base Mainnet** or **Ethereum Mainnet** group. Supported real deposits are native USDC and ETH on Base mainnet or Ethereum mainnet. A shared EVM address is expected; switching assets or networks never creates or replaces the workspace wallet. Bitcoin, USDT, DAI and other tokens are not enabled by these instructions.
 
 Add money starts on mainnet even if the last selection was a test asset. Faucet networks require the explicit **Show test networks** option. ETH on Ethereum Sepolia is not supported by this catalog and will not appear as Base Sepolia ETH. Send on the exact displayed network; native USDC differs from bridged USDC/USDC.e.
 
 While the funding dialog is open and the page is visible, the selected balance refreshes every 25 seconds, respecting the API's 20-second cache. A manual refresh remains available. The displayed observation time is a balance check, not proof of a particular incoming transaction or its finality. Refresh failures remain unavailable rather than becoming zero.
 
-The legacy account address remains accessible under **Legacy account wallet · separate funds**, with explicit instructions to use Add money for the current workspace. Existing deposits stay at their original addresses; no funds are migrated.
+The legacy account address is removed from workspace funding. Owners can inspect its address, network and on-chain balances under **Settings → Historical wallet recovery**, with explicit instructions to use Add money for new deposits. This section has no receiving or copy-address action. Existing deposits stay at their original addresses; no funds are migrated.
 
 Mainnet receiving and reviewed owner withdrawals already exist independently of the testnet agent settlement rail. These UI changes do not activate mainnet agent spending, convert ETH to stablecoins, or credit the separate card/agent ledger. Verify the signed-in workspace's actual provider address, deposit visibility and withdrawal path before describing mainnet funding as proven end to end. Automated fixtures do not move real funds.

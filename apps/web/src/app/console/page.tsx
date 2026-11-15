@@ -16,7 +16,7 @@ import { Icon, fmtUsd, relTime } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
 import { MinimalOverview, MinimalBilling } from "../../lib/minimal-workspace";
 import { useWorkspaces } from "../../lib/workspace-client";
-import { WorkspaceFunds } from "../../lib/workspace-controls";
+import { WorkspaceFunds, LegacyWalletRecovery } from "../../lib/workspace-controls";
 import { WalletPicker } from "../../lib/wallet-picker";
 import { WalletConnect } from "../../lib/wallet-connect";
 import { WalletSpendingLimits } from "../../lib/wallet-limits";
@@ -1801,25 +1801,30 @@ export default function Console() {
                   <Webhooks {...shared} webhooks={webhooks} deliveries={deliveries} />
                 )}
                 {view === "settings" && (
-                  <SettingsView
-                    initialSection={tabHint}
-                    setup={setup}
-                    recon={recon}
-                    prefs={prefs}
-                    savePrefs={savePrefs}
-                    session={session}
-                    org={org}
-                    metrics={metrics}
-                    agents={org?.agents ?? []}
-                    busy={busy}
-                    act={act}
-                    gFetch={gFetch}
-                    api={API}
-                    sellerUrl={SELLER}
-                    actorRole={org?.actor?.role ?? "owner"}
-                    onGoto={(v) => setView(v as View)}
-                    onSignOut={(everywhere) => void signOut(everywhere)}
-                  />
+                  <>
+                    <SettingsView
+                      initialSection={tabHint}
+                      setup={setup}
+                      recon={recon}
+                      prefs={prefs}
+                      savePrefs={savePrefs}
+                      session={session}
+                      org={org}
+                      metrics={metrics}
+                      agents={org?.agents ?? []}
+                      busy={busy}
+                      act={act}
+                      gFetch={gFetch}
+                      api={API}
+                      sellerUrl={SELLER}
+                      actorRole={org?.actor?.role ?? "owner"}
+                      onGoto={(v) => setView(v as View)}
+                      onSignOut={(everywhere) => void signOut(everywhere)}
+                    />
+                    {!readOnly && org?.actor?.role === "owner" && (
+                      <LegacyWalletRecovery key={session.orgId} gFetch={gFetch} />
+                    )}
+                  </>
                 )}
               </div>
             )}

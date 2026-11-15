@@ -11,6 +11,7 @@ import {
   ArrowRightLeft,
   ExternalLink,
 } from "lucide-react";
+import { Group as SelectGroup, Label as SelectLabel } from "@radix-ui/react-select";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -170,7 +171,7 @@ export function CustomerWalletPanel({
   }, [open, ready, busy, data, load]);
   const visibleAssets =
     data?.assets.filter((a) => showTestnets || !a.testnet || a.id === data.selectedAssetId) ?? [];
-  const symbols = [...new Set(visibleAssets.map((a) => a.symbol))];
+  const networks = [...new Set(visibleAssets.map((a) => a.chainId))];
   useEffect(() => {
     if (!ready) return;
     let active = true,
@@ -323,53 +324,38 @@ export function CustomerWalletPanel({
           <DialogDescription>
             {sending
               ? "Transfers move funds on-chain. Check the currency, network and destination before confirming."
-              : "Choose what to deposit, then the network you will send it on. Funds go directly to this workspace wallet."}
+              : "Choose an asset under the network you will send it on. Funds go directly to this workspace wallet."}
           </DialogDescription>
           {data && (
             <>
               <label>
-                Asset
-                <Select
-                  value={data.asset.symbol}
-                  disabled={busy || !!draft}
-                  onValueChange={(symbol) => {
-                    const asset =
-                      visibleAssets.find(
-                        (a) => a.symbol === symbol && a.chainId === data.asset.chainId,
-                      ) ?? visibleAssets.find((a) => a.symbol === symbol && !a.testnet);
-                    if (asset) void changeAsset(asset.id);
-                  }}
-                >
-                  <SelectTrigger aria-label="Deposit asset">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="abi-access-select">
-                    {symbols.map((symbol) => (
-                      <SelectItem key={symbol} value={symbol}>
-                        {symbol === "USDC" ? "USDC · USD stablecoin" : "ETH · Ethereum"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
-              <label>
-                Network
+                Assets
                 <Select
                   value={data.selectedAssetId}
                   disabled={busy || !!draft}
                   onValueChange={(id) => void changeAsset(id)}
                 >
-                  <SelectTrigger aria-label="Deposit network">
+                  <SelectTrigger aria-label="Asset and network">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="abi-access-select">
-                    {visibleAssets
-                      .filter((a) => a.symbol === data.asset.symbol)
-                      .map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.network} · {a.testnet ? "Testnet" : "Mainnet"}
-                        </SelectItem>
-                      ))}
+                    {networks.map((chainId) => {
+                      const assets = visibleAssets.filter((a) => a.chainId === chainId);
+                      const network = assets[0]!;
+                      return (
+                        <SelectGroup key={chainId}>
+                          <SelectLabel className="abi-asset-network-heading">
+                            {network.network} {network.testnet ? "Testnet" : "Mainnet"}
+                          </SelectLabel>
+                          {assets.map((a) => (
+                            <SelectItem key={a.id} value={a.id}>
+                              {a.symbol} · {a.network}
+                              {a.testnet ? " Testnet" : " Mainnet"}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </label>
