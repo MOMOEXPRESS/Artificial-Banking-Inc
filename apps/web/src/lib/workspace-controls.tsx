@@ -9,11 +9,15 @@ import {
   Copy,
   Store,
   RefreshCw,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Check,
+  Wallet,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { WalletLimitEditor } from "./wallet-limits";
-import { PrivyTrialPanel } from "./privy-trial-panel";
+import { walletAmount } from "./managed-wallet-client";
 import { CustomerWalletPanel } from "./customer-wallet-panel";
 import { LiquidWalletCard } from "./liquid-wallet-card";
 import { workspaceJson, type Workspace, type WorkspaceFetcher } from "./workspace-client";
@@ -104,7 +108,10 @@ export function WorkspaceSwitcher({
           if (!busy) setOpen(v);
         }}
       >
-        <DialogContent className="reference-dialog abi-workspace-dialog">
+        <DialogContent className="reference-dialog abi-workspace-dialog abi-wallet-action-dialog">
+          <span className="abi-dialog-symbol" aria-hidden="true">
+            <Plus size={22} />
+          </span>
           <DialogTitle>Create workspace</DialogTitle>
           <DialogDescription>
             A separate balance, one ABI card and shared spending controls. Your funds stay where
@@ -150,11 +157,10 @@ export function WorkspaceFunds({
   readOnly,
 }: Props) {
   const [currenciesOpen, setCurrenciesOpen] = useState(false);
-  const [action, setAction] = useState<"allocate" | "limits" | null>(null),
-    [to, setTo] = useState(""),
-    [amount, setAmount] = useState(""),
-    [review, setReview] = useState(false),
-    [requestKey, setRequestKey] = useState(""),
+  const [walletIntent, setWalletIntent] = useState<"currencies" | "receive" | "send" | "allocate">(
+    "currencies",
+  );
+  const [action, setAction] = useState<"limits" | null>(null),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [receipt, setReceipt] = useState("");
@@ -191,8 +197,10 @@ export function WorkspaceFunds({
       <div className="abi-workspace-funds-grid">
         <LiquidWalletCard
           name={w.name}
-          network="Base Sepolia"
+          network={w.wallet?.asset.network ?? "Wallet setup"}
+          currency={w.wallet?.asset.symbol ?? "USDC"}
           onOpen={() => {
+            setWalletIntent("currencies");
             setCurrenciesOpen(true);
             setError("");
           }}
@@ -200,12 +208,14 @@ export function WorkspaceFunds({
         <div className="abi-workspace-balances">
           <dl>
             <div>
-              <dt>Available</dt>
-              <dd>{w.balance.availableUsdc} USDC</dd>
+              <dt>On-chain balance · {w.wallet?.asset.network ?? "Wallet setup"}</dt>
+              <dd>
+                {walletAmount(w.wallet)} {w.wallet?.asset.symbol ?? "USDC"}
+              </dd>
             </div>
             <div>
-              <dt>Held</dt>
-              <dd>{w.balance.heldUsdc} USDC</dd>
+              <dt>Agent allowance · Base Sepolia</dt>
+              <dd>{w.balance.availableUsdc} USDC</dd>
             </div>
             <div>
               <dt>Card capacity remaining</dt>
@@ -221,15 +231,33 @@ export function WorkspaceFunds({
             separate from USDC.
           </p>
           <div className="abi-workspace-actions">
-            <WorkspaceReceive gFetch={gFetch} />
             <Button
-              disabled={readOnly || busy || !destinations.length}
+              variant="ghost"
+              disabled={readOnly || !w.wallet?.receiveEnabled}
               onClick={() => {
-                setTo(destinations[0]?.id ?? "");
-                setReview(false);
-                setRequestKey(crypto.randomUUID());
-                setError("");
-                setAction("allocate");
+                setWalletIntent("receive");
+                setCurrenciesOpen(true);
+              }}
+            >
+              <ArrowDownLeft size={16} />
+              Receive
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={readOnly || !w.wallet?.withdrawalEnabled}
+              onClick={() => {
+                setWalletIntent("send");
+                setCurrenciesOpen(true);
+              }}
+            >
+              <ArrowUpRight size={16} />
+              Send
+            </Button>
+            <Button
+              disabled={readOnly || busy || !w.wallet?.withdrawalEnabled || !destinations.length}
+              onClick={() => {
+                setWalletIntent("allocate");
+                setCurrenciesOpen(true);
               }}
             >
               <ArrowRightLeft size={16} />
@@ -253,8 +281,8 @@ export function WorkspaceFunds({
         </div>
       </div>
       <p className="abi-workspace-note">
-        Deposits use the account’s existing verified receiving route and arrive in General. Allocate
-        settled funds here; a workspace card does not imply a separate deposit address.
+        Your Privy wallet receives funds directly on the selected network. Agent payments still use
+        the separate Base Sepolia allowance; mainnet deposits do not increase that allowance.
       </p>
       {!readOnly && (
         <CustomerWalletPanel
@@ -264,16 +292,20 @@ export function WorkspaceFunds({
           gFetch={gFetch}
           open={currenciesOpen}
           onOpenChange={setCurrenciesOpen}
+          intent={walletIntent}
+          workspaces={workspaces.filter((x) => x.orgId === w.orgId)}
         />
-      )}
-      {!readOnly && (
-        <details>
-          <summary>Testnet connection diagnostics</summary>
-          <PrivyTrialPanel key={w.id} workspaceId={w.id} gFetch={gFetch} />
-        </details>
       )}
       {receipt && <p role="status">{receipt}</p>}
       {error && !action && <p role="alert">{error}</p>}
+      <details className="abi-legacy-wallet">
+        <summary>Earlier account receiving address</summary>
+        <p>
+          Funds sent to the earlier account wallet stay there. They are separate from this
+          workspace’s Privy wallet.
+        </p>
+        <WorkspaceReceive gFetch={gFetch} />
+      </details>
       <section className="minimal-section">
         <h2>Card controls</h2>
         <p>
@@ -313,87 +345,25 @@ export function WorkspaceFunds({
           if (!open && !busy) setAction(null);
         }}
       >
-        <DialogContent className="reference-dialog abi-workspace-dialog">
-          <DialogTitle>
-            {action === "allocate"
-              ? review
-                ? "Review allocation"
-                : "Allocate between workspaces"
-              : "Card spending limits"}
-          </DialogTitle>
+        <DialogContent className="reference-dialog abi-workspace-dialog abi-wallet-action-dialog">
+          <span className="abi-dialog-symbol" aria-hidden="true">
+            <ShieldCheck size={22} />
+          </span>
+          <DialogTitle>Card spending limits</DialogTitle>
           <DialogDescription>
-            {action === "allocate"
-              ? "Only settled available funds move. Limits and spending history stay unchanged."
-              : "One shared cap applies to every agent using this workspace card."}
+            One shared cap applies to every agent using this workspace card.
           </DialogDescription>
-          {action === "allocate" ? (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!review) setReview(true);
-                else
-                  void mutate(`${prefix}/allocations`, {
-                    toWorkspaceId: to,
-                    amountUsdc: amount,
-                    idempotencyKey: requestKey,
-                  });
-              }}
-            >
-              <label>
-                From
-                <input value={w.name} readOnly />
-              </label>
-              <label>
-                To
-                <select value={to} disabled={review} onChange={(e) => setTo(e.target.value)}>
-                  {destinations.map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.name} · {x.balance.availableUsdc} USDC available
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Amount in USDC
-                <input
-                  required
-                  inputMode="decimal"
-                  pattern="[0-9]+(\.[0-9]{1,6})?"
-                  value={amount}
-                  disabled={review}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </label>
-              {review && (
-                <p>
-                  Allocate {amount} USDC from {w.name} to{" "}
-                  {destinations.find((x) => x.id === to)?.name}. Amounts above the treasury
-                  threshold wait for approval.
-                </p>
-              )}
-              {error && <p role="alert">{error}</p>}
-              <Button type="submit" disabled={readOnly || busy || !to || !amount}>
-                {busy ? "Submitting…" : review ? "Confirm allocation" : "Review allocation"}
-              </Button>
-              {review && (
-                <Button type="button" variant="ghost" onClick={() => setReview(false)}>
-                  Edit
-                </Button>
-              )}
-            </form>
-          ) : (
-            <WalletLimitEditor
-              workspace={w}
-              workspaces={workspaces}
-              gFetch={gFetch}
-              onChanged={onChanged}
-              readOnly={readOnly}
-              onSaved={() => {
-                setAction(null);
-                setReceipt("Spending limit saved.");
-              }}
-            />
-          )}
+          <WalletLimitEditor
+            workspace={w}
+            workspaces={workspaces}
+            gFetch={gFetch}
+            onChanged={onChanged}
+            readOnly={readOnly}
+            onSaved={() => {
+              setAction(null);
+              setReceipt("Spending limit saved.");
+            }}
+          />
         </DialogContent>
       </Dialog>
     </section>
@@ -468,7 +438,8 @@ function WorkspaceAllocationHistory({
 
   return (
     <section className="minimal-section">
-      <h2>Allocations</h2>
+      <h2>Agent allowance allocations</h2>
+      <p>Earlier internal USDC allocations on Base Sepolia. On-chain transfers appear above.</p>
       {notice && <p role="status">{notice}</p>}
       {error ? (
         <p role="alert">{error}</p>
@@ -823,9 +794,11 @@ function WorkspaceKeyList({
 function WorkspaceReceive({ gFetch }: { gFetch: WorkspaceFetcher }) {
   const [open, setOpen] = useState(false),
     [profile, setProfile] = useState<import("./wallet-profile").WalletProfile | null>(null),
+    [copied, setCopied] = useState(false),
     [error, setError] = useState("");
   async function show() {
     setOpen(true);
+    setCopied(false);
     setProfile(null);
     setError("");
     try {
@@ -845,10 +818,14 @@ function WorkspaceReceive({ gFetch }: { gFetch: WorkspaceFetcher }) {
   return (
     <>
       <Button variant="ghost" onClick={() => void show()}>
+        <ArrowDownLeft size={16} aria-hidden="true" />
         Receive to General
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="reference-dialog abi-workspace-dialog">
+        <DialogContent className="reference-dialog abi-workspace-dialog abi-wallet-action-dialog">
+          <span className="abi-dialog-symbol" aria-hidden="true">
+            <ArrowDownLeft size={22} />
+          </span>
           <DialogTitle>Receive funds into General</DialogTitle>
           <DialogDescription>
             Use only the supported network below. Funds arrive in this account’s General workspace;
@@ -860,21 +837,44 @@ function WorkspaceReceive({ gFetch }: { gFetch: WorkspaceFetcher }) {
             <p role="status">Verifying receiving details…</p>
           ) : (
             <>
-              <p>{profile.network.name} · USDC</p>
+              <div className="abi-receive-network">
+                <Wallet size={22} aria-hidden="true" />
+                <div>
+                  <strong>USDC</strong>
+                  <span>{profile.network.name}</span>
+                </div>
+              </div>
               {address ? (
                 <>
-                  <code style={{ overflowWrap: "anywhere", display: "block" }}>{address}</code>
+                  <div className="abi-receive-address">
+                    <span>Receiving address</span>
+                    <code>{address}</code>
+                  </div>
                   <Button
+                    className="abi-receive-copy"
                     onClick={() =>
                       void navigator.clipboard
                         .writeText(address)
+                        .then(() => setCopied(true))
                         .catch(() =>
                           setError("Clipboard unavailable. Select and copy the address manually."),
                         )
                     }
                   >
-                    Copy verified address
+                    {copied ? (
+                      <Check size={16} aria-hidden="true" />
+                    ) : (
+                      <Copy size={16} aria-hidden="true" />
+                    )}
+                    {copied ? "Address copied" : "Copy address"}
                   </Button>
+                  <p className="abi-receive-instruction">
+                    Send only USDC on {profile.network.name} to this address. Transfers on a
+                    different network won’t appear in this balance.
+                  </p>
+                  <span role="status" className="sr-only">
+                    {copied ? "Receiving address copied to clipboard" : ""}
+                  </span>
                 </>
               ) : (
                 <p>A verified USDC receiving address is unavailable.</p>

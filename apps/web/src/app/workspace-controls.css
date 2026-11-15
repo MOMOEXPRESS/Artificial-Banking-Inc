@@ -275,3 +275,263 @@ label.abi-workspace-check {
     border-radius: 16px;
   }
 }
+
+/* Funding tasks keep a single, compact surface on desktop and mobile. */
+.reference-dialog.abi-wallet-action-dialog {
+  top: max(24px, 8dvh);
+  bottom: auto;
+  max-width: 500px;
+  max-height: calc(100dvh - 48px);
+  border: 0;
+  padding: 28px !important;
+  scrollbar-width: thin;
+  scrollbar-color: #c5c5c5 transparent;
+}
+.abi-dialog-symbol {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 20px;
+  border-radius: 12px;
+  color: #2878c9;
+  background: #eaf2fc;
+}
+.abi-wallet-action-dialog h2 {
+  font-size: 23px;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+}
+.abi-wallet-action-dialog > p {
+  margin-bottom: 24px;
+  color: #525252;
+}
+.abi-wallet-action-dialog form {
+  gap: 20px;
+}
+.abi-wallet-action-dialog form > label {
+  margin: 0;
+}
+.abi-wallet-action-dialog :is(input, button[role="combobox"]):focus-visible {
+  outline: 2px solid #2878c9;
+  outline-offset: 3px;
+}
+.abi-wallet-action-dialog input {
+  caret-color: #2878c9;
+  font-variant-numeric: tabular-nums;
+}
+.abi-wallet-action-dialog input::placeholder {
+  color: #626262;
+}
+.abi-transfer-source {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  background: #f4f4f4;
+}
+.abi-transfer-source > svg {
+  flex: none;
+  color: #525252;
+}
+.abi-transfer-source > div {
+  flex: 1;
+  min-width: 0;
+}
+.abi-transfer-source strong {
+  display: block;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  margin-top: 3px;
+}
+.abi-transfer-source > span {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.abi-transfer-source small {
+  display: block;
+  color: #525252;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.abi-transfer-review {
+  padding: 16px;
+  background: #f4f4f4;
+  border-radius: 12px;
+  margin: 0;
+}
+.abi-wallet-dialog-footer {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 8px;
+}
+.abi-receive-network {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 22px;
+}
+.abi-receive-network > svg {
+  color: #2878c9;
+}
+.abi-receive-network strong,
+.abi-receive-network span {
+  display: block;
+}
+.abi-receive-network strong {
+  font-weight: 500;
+}
+.abi-receive-network span {
+  font-size: 12px;
+  color: #525252;
+  margin-top: 3px;
+}
+.abi-receive-address {
+  padding: 18px;
+  background: #f4f4f4;
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+.abi-receive-address > span {
+  display: block;
+  font-size: 12px;
+  color: #525252;
+  margin-bottom: 10px;
+}
+.abi-receive-address code {
+  display: block;
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.abi-receive-copy {
+  width: 100%;
+  gap: 8px;
+  min-height: 44px;
+}
+.abi-wallet-action-dialog .abi-receive-instruction {
+  margin: 18px 0 0;
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .reference-dialog.abi-wallet-action-dialog {
+    left: 12px;
+    top: max(16px, 5dvh) !important;
+    width: calc(100% - 24px) !important;
+    transform: none;
+    max-height: calc(100dvh - 32px);
+    border-radius: 16px;
+    padding: 24px !important;
+  }
+}
+.abi-currency-balance {
+  margin-left: auto;
+  text-align: right;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.abi-currency-balance small {
+  font-size: 11px;
+  font-weight: 400;
+}
+.abi-currency-dialog a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #246bb2;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-size: 12px;
+}
+.abi-currency-dialog [role="alert"] {
+  color: #943434;
+  line-height: 1.6;
+}
+.abi-send-review {
+  margin: 0;
+}
+.abi-send-review > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 18px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e5e5e5;
+}
+.abi-send-review dt {
+  font-size: 12px;
+  color: #525252;
+  flex: none;
+}
+.abi-send-review dd {
+  margin: 0;
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.abi-send-review code {
+  font-size: 11px;
+}
+.abi-legacy-wallet {
+  padding: 18px 0;
+  font-size: 12px;
+  color: #525252;
+}
+.abi-legacy-wallet summary {
+  cursor: pointer;
+}
+.abi-legacy-wallet p {
+  max-width: 65ch;
+  line-height: 1.6;
+}
+.abi-workspace-balances dt {
+  line-height: 1.5;
+}
+.abi-wallet-transfers {
+  margin: 24px 0;
+}
+.abi-wallet-transfers h3 {
+  font-size: 15px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+.abi-wallet-transfers ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.abi-wallet-transfers li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid #e5e5e5;
+  font-size: 12px;
+}
+.abi-wallet-transfers li > div {
+  flex: 1;
+}
+.abi-wallet-transfers strong {
+  font-weight: 500;
+}
+.abi-wallet-transfers small {
+  display: block;
+  color: #525252;
+  margin-top: 4px;
+}
+.abi-wallet-transfers a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #246bb2;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

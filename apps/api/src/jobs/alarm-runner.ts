@@ -46,6 +46,16 @@ const CARD_FUNDING_JOB: JobDefinition = {
   },
 };
 
+const MANAGED_WALLETS_JOB: JobDefinition = {
+  name: "managed-wallets",
+  intervalMs: 60000,
+  leaseMs: 60000,
+  run: async () => {
+    const { backfillManagedWallets } = await import("../managed-wallets.js");
+    await backfillManagedWallets();
+  },
+};
+
 const WEBHOOK_RETRY_JOB: JobDefinition = {
   name: "webhook-retries",
   intervalMs: 30_000,
@@ -66,7 +76,7 @@ const WEBHOOK_RETRY_JOB: JobDefinition = {
 export const ALARM_RPC_BUDGET = Number(process.env.ABI_ALARM_RPC_BUDGET ?? 35);
 
 export async function runAlarmJobs(
-  jobs: JobDefinition[] = [...JOBS, WEBHOOK_RETRY_JOB, CARD_FUNDING_JOB],
+  jobs: JobDefinition[] = [...JOBS, WEBHOOK_RETRY_JOB, CARD_FUNDING_JOB, MANAGED_WALLETS_JOB],
 ): Promise<{
   ran: string[];
   skipped: string[];

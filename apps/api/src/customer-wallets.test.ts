@@ -237,7 +237,7 @@ test("SDK adapter requests explicit user ownership and never a server-owned fall
   assert.equal(new Set(MAINNET_ASSETS.map((a) => a.id)).size, 4);
   assert.deepEqual(new Set(MAINNET_ASSETS.map((a) => a.chainId)), new Set([1, 8453]));
 });
-test("HTTP wallet routes reject API keys/missing identity/CSRF and retain a new workspace during provider failure", async () => {
+test("HTTP managed-wallet routes accept ABI sessions, reject API keys/CSRF and retain workspaces during provider failure", async () => {
   const { app } = await import("./index.js");
   const server = app.listen(0, "127.0.0.1");
   await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -265,7 +265,6 @@ test("HTTP wallet routes reject API keys/missing identity/CSRF and retain a new 
     const get = await original(path, { headers });
     assert.equal(get.status, 200);
     assert.equal(((await get.json()) as { address: null }).address, null);
-    assert.equal((await original(path, { method: "POST", headers, body: "{}" })).status, 401);
     assert.equal(
       (
         await original(path, {
@@ -299,25 +298,24 @@ test("HTTP wallet routes reject API keys/missing identity/CSRF and retain a new 
     };
     const created = await original(`${origin}/v1/guardian/workspaces`, {
       method: "POST",
-      headers: { ...headers, "x-abi-supabase-token": "a".repeat(100) },
+      headers,
       body: JSON.stringify({ name: "Automatic wallet", idempotencyKey: crypto.randomUUID() }),
     });
     assert.equal(created.status, 201);
     const body = (await created.json()) as { workspace: { id: string; name: string } };
     assert.equal(body.workspace.name, "Automatic wallet");
-    assert.equal(providerCalls, 0);
+    assert.ok(providerCalls > 0);
     const retry = await original(`${origin}/v1/guardian/workspaces/${body.workspace.id}/wallet`, {
       method: "POST",
-      headers: { ...headers, "x-abi-supabase-token": "a".repeat(100) },
+      headers,
       body: "{}",
     });
     assert.equal(retry.status, 503);
     assert.ok(providerCalls > 0);
     const row = db()
-      .prepare("SELECT user_id,subject,wallet_id FROM abi_customer_wallets WHERE workspace_id=?")
-      .get(body.workspace.id) as { user_id: string; subject: string; wallet_id: null };
-    assert.equal(row.user_id, f.user.id);
-    assert.equal(row.subject, f.subject);
+      .prepare("SELECT org_id,wallet_id FROM abi_managed_wallets WHERE workspace_id=?")
+      .get(body.workspace.id) as { org_id: string; wallet_id: null };
+    assert.equal(row.org_id, f.org.id);
     assert.equal(row.wallet_id, null);
   } finally {
     globalThis.fetch = original;

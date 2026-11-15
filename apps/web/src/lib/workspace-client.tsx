@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ManagedWallet } from "./managed-wallet-client";
 export type Workspace = {
+  wallet?: ManagedWallet;
   id: string;
   orgId: string;
   name: string;
@@ -83,6 +85,13 @@ export function useWorkspaces(
       live = false;
     };
   }, [load, orgId]);
+  useEffect(() => {
+    const refresh = () => {
+      void load().catch((e) => setError(e.message));
+    };
+    window.addEventListener("abi:wallet-changed", refresh);
+    return () => window.removeEventListener("abi:wallet-changed", refresh);
+  }, [load]);
   const choose = useCallback((workspaceId: string) => {
     const w = itemsRef.current.find((item) => item.id === workspaceId);
     if (!w) return;

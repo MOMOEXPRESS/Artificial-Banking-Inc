@@ -197,6 +197,11 @@ function binding(workspaceId: string) {
     .prepare("SELECT * FROM abi_privy_test_wallets WHERE workspace_id=?")
     .get(workspaceId) as Binding | undefined;
 }
+function managedBinding(workspaceId: string) {
+  return commerceDatabase()
+    .prepare("SELECT * FROM abi_managed_wallets WHERE workspace_id=?")
+    .get(workspaceId) as Binding | undefined;
+}
 function checked(raw: unknown, externalId: string): Wallet {
   const value = walletSchema.safeParse(raw);
   if (
@@ -230,7 +235,7 @@ export function privyTrialStatus(orgId: string, workspaceId: string) {
     spendingEnabled: false,
     configured: !!(process.env.PRIVY_APP_ID?.trim() && process.env.PRIVY_APP_SECRET?.trim()),
     available: (process.env.CHAIN ?? "base-sepolia") === "base-sepolia",
-    wallet: view(binding(workspaceId)),
+    wallet: view(binding(workspaceId) ?? managedBinding(workspaceId)),
   };
 }
 export async function provisionPrivyTrial(
@@ -241,6 +246,23 @@ export async function provisionPrivyTrial(
   findWorkspace(orgId, workspaceId);
   const c = config(),
     appHash = hash(c.appId);
+  // An older console must not create a second address after managed-wallet rollout.
+  const managed = managedBinding(workspaceId);
+  if (managed && !binding(workspaceId)) {
+    if (managed.org_id !== orgId || managed.app_hash !== appHash)
+      throw new PrivyTrialError(
+        "PRIVY_APP_CHANGED",
+        "Restore this workspace wallet’s original Privy application.",
+        409,
+      );
+    if (!managed.verified_at)
+      throw new PrivyTrialError(
+        "PRIVY_WALLET_PENDING",
+        "Open Wallet in the current ABI console to finish this workspace’s wallet setup.",
+        409,
+      );
+    return privyTrialStatus(orgId, workspaceId);
+  }
   const externalId = `abi_trial_${hash(`${c.appId}|${orgId}|${workspaceId}`).slice(0, 48)}`;
   commerceDatabase()
     .prepare(
@@ -298,14 +320,14 @@ export async function verifyPrivyTrial(
   fetcher: typeof fetch = fetch,
 ) {
   findWorkspace(orgId, workspaceId);
-  if (!binding(workspaceId)?.wallet_id)
+  if (!(binding(workspaceId) ?? managedBinding(workspaceId))?.wallet_id)
     throw new PrivyTrialError(
       "PRIVY_WALLET_REQUIRED",
       "Create this workspace's test wallet before verifying its connection.",
       409,
     );
   await provisionPrivyTrial(orgId, workspaceId, fetcher);
-  const row = binding(workspaceId)!,
+  const row = (binding(workspaceId) ?? managedBinding(workspaceId))!,
     c = config();
   await new PrivyTrialClient(c.appId, c.secret, fetcher).prove(
     row.wallet_id!,
