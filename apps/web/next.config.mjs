@@ -11,6 +11,17 @@ const nextConfig = {
     "@policyvault/ledger",
     "@policyvault/custody",
   ],
+  async redirects() {
+    return [
+      "artificial-banking-inc-web-momoexpress-projects.vercel.app",
+      "artificial-banking-inc-web-git-main-momoexpress-projects.vercel.app",
+    ].map((host) => ({
+      source: "/:path*",
+      has: [{ type: "host", value: host }],
+      destination: "https://artificial-banking-inc-web.vercel.app/:path*",
+      permanent: true,
+    }));
+  },
   async headers() {
     // Free, static security headers for the console. No paid WAF required.
     const security = [
