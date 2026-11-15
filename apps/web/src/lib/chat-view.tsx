@@ -2,9 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowDown,
   ArrowUp,
   ArrowUpRight,
   Check,
+  Copy,
+  MessageSquare,
+  RefreshCw,
   FileText,
   ImageIcon,
   LoaderCircle,
@@ -14,21 +18,14 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import { readChatMessages, type ChatMessage as ChatMsg } from "./chat-conversation";
+import { ChatMessageBody } from "./chat-message-body";
 import { fmtUsd } from "./ui";
 import { viewLabel } from "./console-types";
 import { quickReplies } from "./chat-chips";
 import { readChatAttachment, type ChatAttachment } from "./chat-attachments";
 import { Button } from "@/components/ui/button";
 
-type ChatMsg = {
-  id: string;
-  role: "user" | "assistant" | "system";
-  kind: string;
-  body: string;
-  approvalId?: string;
-  meta?: Record<string, unknown>;
-  createdAt: string;
-};
 type Approval = {
   id: string;
   agentId: string;
@@ -45,6 +42,18 @@ type Ai = {
   egressHost: string | null;
   note?: string;
 };
+type SubmittedMessage = {
+  id: string;
+  text: string;
+  attachments: ChatAttachment[];
+  startedAt: string;
+};
+export type ChatDraft = {
+  text: string;
+  attachments: ChatAttachment[];
+  pending?: SubmittedMessage;
+  failed?: SubmittedMessage & { error: string };
+};
 type Props = {
   gFetch: (p: string, i?: RequestInit) => Promise<Response>;
   act: (label: string, fn: () => Promise<string | void>) => Promise<void>;
@@ -55,6 +64,8 @@ type Props = {
   readOnly?: boolean;
   compact?: boolean;
   canConfigure?: boolean;
+  workspaceName?: string;
+  composer?: { value: ChatDraft; onChange: (update: (current: ChatDraft) => ChatDraft) => void };
 };
 
 export function ChatView({
@@ -67,12 +78,22 @@ export function ChatView({
   readOnly = false,
   compact = false,
   canConfigure = false,
+  workspaceName,
+  composer,
 }: Props) {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
-  const [draft, setDraft] = useState("");
-  const [files, setFiles] = useState<ChatAttachment[]>([]);
+  const [localComposer, setLocalComposer] = useState<ChatDraft>({ text: "", attachments: [] });
+  const currentComposer = composer?.value ?? localComposer;
+  const updateComposer = composer?.onChange ?? setLocalComposer;
+  const { text: draft, attachments: files, pending: submitted, failed } = currentComposer;
+  const setDraft = (text: string) => updateComposer((current) => ({ ...current, text }));
+  const setFiles = (update: (files: ChatAttachment[]) => ChatAttachment[]) =>
+    updateComposer((current) => ({ ...current, attachments: update(current.attachments) }));
   const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
+  const sending = !!submitted;
+  const [configuring, setConfiguring] = useState(false);
+  const [showLatest, setShowLatest] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState("");
   const [ai, setAi] = useState<Ai | null>(null);
@@ -87,16 +108,30 @@ export function ChatView({
   const upload = useRef<HTMLInputElement>(null);
   const alive = useRef(true);
   const inFlight = useRef(false);
+  const preparingFiles = useRef(false);
   const nearBottom = useRef(true);
-  const locked = busy || readOnly || sending || preparing;
+  const revision = useRef(0);
+  const refreshVersion = useRef(0);
+  const locked = busy || readOnly || sending || preparing || configuring || loading;
 
   const refresh = useCallback(
     async (signal?: AbortSignal) => {
+      const startedAtRevision = revision.current;
+      const requestVersion = ++refreshVersion.current;
       const res = await gFetch("/v1/guardian/chat", { signal });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error?.message ?? "Couldn’t load your conversation.");
-      if (!alive.current || signal?.aborted) return;
-      setMessages(data.messages ?? []);
+      if (
+        !alive.current ||
+        signal?.aborted ||
+        inFlight.current ||
+        revision.current !== startedAtRevision ||
+        requestVersion !== refreshVersion.current
+      )
+        return;
+      const history = readChatMessages(data.messages);
+      setMessages(history);
+      setLoading(false);
       if (data.assistant) setAi(data.assistant);
     },
     [gFetch],
@@ -112,6 +147,10 @@ export function ChatView({
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
+    const updated = () => {
+      if (!inFlight.current) void refresh(controller.signal).catch(() => {});
+    };
+    window.addEventListener("abi:chat-updated", updated);
     const timer = setInterval(() => {
       if (!document.hidden && !inFlight.current) void refresh(controller.signal).catch(() => {});
     }, 15_000);
@@ -119,13 +158,21 @@ export function ChatView({
       alive.current = false;
       controller.abort();
       clearInterval(timer);
+      window.removeEventListener("abi:chat-updated", updated);
     };
   }, [refresh]);
 
   useEffect(() => {
     if (nearBottom.current && thread.current)
-      thread.current.scrollTop = thread.current.scrollHeight;
+      thread.current.scrollTop = messages.length || sending ? thread.current.scrollHeight : 0;
   }, [messages, sending]);
+
+  useEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
+  }, [draft]);
 
   useEffect(() => {
     if (compact) return;
@@ -134,9 +181,11 @@ export function ChatView({
       if (!el) return;
       const viewport = window.visualViewport;
       const bottom = viewport ? viewport.height + viewport.offsetTop : window.innerHeight;
+      const mobile = window.innerWidth <= 600;
+      const keyboardOpen = viewport && viewport.height < window.innerHeight * 0.75;
       el.style.setProperty(
         "--abi-chat-height",
-        `${Math.max(280, bottom - el.getBoundingClientRect().top - 115)}px`,
+        `${Math.max(160, bottom - el.getBoundingClientRect().top - (keyboardOpen ? 12 : mobile ? 96 : 32))}px`,
       );
     };
     const frame = requestAnimationFrame(resize);
@@ -151,34 +200,67 @@ export function ChatView({
 
   async function send(text: string) {
     if (locked || inFlight.current || !text.trim()) return;
+    const sent: SubmittedMessage = {
+      id: crypto.randomUUID(),
+      text: text.trim(),
+      attachments: files,
+      startedAt: new Date().toISOString(),
+    };
     inFlight.current = true;
-    setSending(true);
+    revision.current++;
+    updateComposer((current) => ({
+      ...current,
+      text: "",
+      attachments: [],
+      pending: sent,
+      failed: undefined,
+    }));
     setError("");
     nearBottom.current = true;
+    setShowLatest(false);
+    let failure: string | undefined;
     try {
       const res = await gFetch("/v1/guardian/chat", {
         method: "POST",
-        body: JSON.stringify({ message: text.trim(), attachments: files }),
+        body: JSON.stringify({ message: sent.text, attachments: sent.attachments }),
       });
       const data = await res.json();
-      if (!res.ok)
-        throw new Error(data.error?.message ?? "Your message couldn’t be sent. Please try again.");
-      if (!alive.current) return;
-      setMessages(data.messages ?? []);
-      setDraft("");
-      setFiles([]);
-      input.current?.focus();
+      if (!res.ok) throw new Error(data.error?.message ?? "Your reply couldn’t be confirmed.");
+      if (alive.current) setMessages(readChatMessages(data.messages));
     } catch (e) {
-      if (alive.current)
-        setError(e instanceof Error ? e.message : "Couldn’t send. Please try again.");
+      failure = e instanceof Error ? e.message : "Your reply couldn’t be confirmed.";
     } finally {
       inFlight.current = false;
-      if (alive.current) setSending(false);
+      updateComposer((current) =>
+        current.pending?.id === sent.id
+          ? {
+              ...current,
+              pending: undefined,
+              failed: failure ? { ...sent, error: failure } : undefined,
+            }
+          : current,
+      );
+      if (alive.current) input.current?.focus();
+      window.dispatchEvent(new Event("abi:chat-updated"));
+    }
+  }
+
+  function suggest(text: string) {
+    setDraft(text);
+    input.current?.focus();
+  }
+
+  async function copyMessage(message: ChatMsg) {
+    try {
+      await navigator.clipboard.writeText(message.body);
+      setCopied(message.id);
+    } catch {
+      setError("Copy is unavailable in this browser. Select the reply text to copy it.");
     }
   }
 
   async function addFiles(list: FileList | null) {
-    if (!list?.length || locked) return;
+    if (!list?.length || locked || preparingFiles.current) return;
     if (!ai?.modelEnabled) {
       setError("Enable a model in Assistant settings before adding attachments.");
       return;
@@ -187,6 +269,7 @@ export function ChatView({
       setError("Attach up to three files per message.");
       return;
     }
+    preparingFiles.current = true;
     setPreparing(true);
     setError("");
     try {
@@ -195,6 +278,7 @@ export function ChatView({
     } catch (e) {
       if (alive.current) setError(e instanceof Error ? e.message : "Couldn’t read that file.");
     } finally {
+      preparingFiles.current = false;
       if (alive.current) setPreparing(false);
       if (upload.current) upload.current.value = "";
     }
@@ -216,7 +300,7 @@ export function ChatView({
 
   async function configure(mode: "off" | "platform" | "byo") {
     if (locked || (mode !== "off" && !consent)) return;
-    setSending(true);
+    setConfiguring(true);
     setError("");
     try {
       const res = await gFetch("/v1/guardian/settings/ai", {
@@ -239,7 +323,7 @@ export function ChatView({
     } catch (e) {
       if (alive.current) setError((e as Error).message);
     } finally {
-      if (alive.current) setSending(false);
+      if (alive.current) setConfiguring(false);
     }
   }
 
@@ -267,11 +351,10 @@ export function ChatView({
     >
       <header className="abi-chat-header">
         <div>
-          <h2>ABI Assistant</h2>
+          <h2>{compact ? "Your workspace assistant" : "ABI Assistant"}</h2>
           <span>
-            {ai?.modelEnabled
-              ? `Connected to ${ai.egressHost ?? "your model"}`
-              : "Marketplace & spending · limited mode"}
+            {workspaceName ? `${workspaceName} workspace · ` : ""}
+            {ai?.modelEnabled ? "Ready to help" : "Account guidance"}
           </span>
         </div>
         <button
@@ -354,73 +437,152 @@ export function ChatView({
           )}
         </div>
       )}
-      <div
-        className="abi-chat-thread"
-        ref={thread}
-        onScroll={() => {
-          const el = thread.current;
-          if (el) nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-        }}
-        tabIndex={0}
-        aria-label="Conversation history"
-        aria-busy={loading}
-      >
-        {loading ? (
-          <p className="abi-chat-status">
-            <LoaderCircle size={16} className="abi-chat-spinner" /> Loading conversation…
-          </p>
-        ) : messages.length === 0 ? (
-          <div className="abi-chat-welcome">
-            <ShoppingBag size={30} strokeWidth={1.4} />
-            <h3>What are you looking for?</h3>
-            <p>Find something on the marketplace, compare your options or check your spending.</p>
-            <div className="abi-chat-starters">
-              <button disabled={locked} onClick={() => void send("Search marketplace products")}>
-                <ShoppingBag size={17} /> Browse the marketplace <ArrowUpRight size={15} />
-              </button>
-              <button
-                disabled={locked}
-                onClick={() => void send("Show my budget and available balance")}
-              >
-                <Wallet size={17} /> Check my budget <ArrowUpRight size={15} />
-              </button>
-            </div>
-          </div>
-        ) : (
-          messages.map((m) => (
-            <article key={m.id} className={`abi-chat-message abi-chat-${m.role}`}>
-              <span className="abi-chat-speaker">{m.role === "user" ? "You" : "ABI"}</span>
-              <div className="abi-chat-message-body">{m.body}</div>
-              {Array.isArray(m.meta?.attachments) && (
-                <div className="abi-chat-file-list">
-                  {(m.meta.attachments as { name: string; kind: string }[]).map((f, i) => (
-                    <span key={i}>
-                      <FileText size={13} />
-                      {f.name}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {m.role === "assistant" && m.meta?.via === "keywords" && (
-                <small>Local assistant</small>
-              )}
-              {typeof m.meta?.goto === "string" && m.meta.goto !== "chat" && (
-                <button className="abi-chat-link" onClick={() => onGoto(String(m.meta!.goto))}>
-                  Open {viewLabel(String(m.meta.goto))}
-                  <ArrowUpRight size={14} />
+      <div className="abi-chat-conversation">
+        <div
+          className="abi-chat-thread"
+          ref={thread}
+          onScroll={() => {
+            const el = thread.current;
+            if (el) {
+              nearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+              setShowLatest(!nearBottom.current);
+            }
+          }}
+          tabIndex={0}
+          aria-label="Conversation history"
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions"
+          aria-busy={loading}
+        >
+          {loading ? (
+            <p className="abi-chat-status">
+              <LoaderCircle size={16} className="abi-chat-spinner" /> Loading conversation…
+            </p>
+          ) : messages.length === 0 && !submitted ? (
+            <div className="abi-chat-welcome">
+              <span className="abi-chat-welcome-mark">
+                <MessageSquare size={27} strokeWidth={1.5} />
+              </span>
+              <span className="abi-chat-eyebrow">A little clarity, whenever you need it</span>
+              <h3>What can we help you understand?</h3>
+              <p>Make sense of your balances, review spending, or find what your agents need.</p>
+              <div className="abi-chat-starters">
+                <button
+                  disabled={locked}
+                  onClick={() => suggest("Help me find a product on the marketplace")}
+                >
+                  <ShoppingBag size={17} /> Find something on the marketplace{" "}
+                  <ArrowUpRight size={15} />
                 </button>
-              )}
-            </article>
-          ))
-        )}
-        {sending && (
-          <p className="abi-chat-status" role="status">
-            <LoaderCircle className="abi-chat-spinner" size={16} /> ABI is working…
-          </p>
+                <button
+                  disabled={locked}
+                  onClick={() => suggest("Explain my available balance and spending budget")}
+                >
+                  <Wallet size={17} /> Understand my balance <ArrowUpRight size={15} />
+                </button>
+                <button
+                  disabled={locked}
+                  onClick={() =>
+                    suggest("Summarize recent payments and anything that needs my attention")
+                  }
+                >
+                  <RefreshCw size={17} /> Review recent activity <ArrowUpRight size={15} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            messages.map((m) => (
+              <article key={m.id} className={`abi-chat-message abi-chat-${m.role}`}>
+                <span className="abi-chat-speaker">
+                  {m.role === "user" ? "You" : m.role === "system" ? "Activity" : "ABI Assistant"}
+                </span>
+                <div className="abi-chat-message-body">
+                  {m.role === "assistant" ? <ChatMessageBody text={m.body} /> : m.body}
+                </div>
+                {Array.isArray(m.meta?.attachments) && (
+                  <div className="abi-chat-file-list">
+                    {(m.meta.attachments as { name: string; kind: string }[]).map((f, i) => (
+                      <span key={i}>
+                        <FileText size={13} />
+                        {f.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="abi-chat-message-tools">
+                  <time dateTime={m.createdAt}>
+                    {Number.isNaN(Date.parse(m.createdAt))
+                      ? ""
+                      : new Date(m.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                  </time>
+                  {m.role === "assistant" && (
+                    <button
+                      type="button"
+                      className="abi-chat-icon"
+                      aria-label={copied === m.id ? "Reply copied" : "Copy reply"}
+                      onClick={() => void copyMessage(m)}
+                    >
+                      {copied === m.id ? <Check size={14} /> : <Copy size={14} />}
+                    </button>
+                  )}
+                </div>
+                {typeof m.meta?.goto === "string" && m.meta.goto !== "chat" && (
+                  <button className="abi-chat-link" onClick={() => onGoto(String(m.meta!.goto))}>
+                    Open {viewLabel(String(m.meta.goto))}
+                    <ArrowUpRight size={14} />
+                  </button>
+                )}
+              </article>
+            ))
+          )}
+          {submitted &&
+            !messages.some(
+              (m) =>
+                m.role === "user" &&
+                m.body === submitted.text &&
+                Date.parse(m.createdAt) >= Date.parse(submitted.startedAt) - 1000,
+            ) && (
+              <article className="abi-chat-message abi-chat-user">
+                <span className="abi-chat-speaker">You</span>
+                <div className="abi-chat-message-body">{submitted.text}</div>
+                {submitted.attachments.map((f, i) => (
+                  <small key={i}>
+                    <FileText size={12} /> {f.name}
+                  </small>
+                ))}
+                <small>Awaiting reply</small>
+              </article>
+            )}
+          {sending && (
+            <p className="abi-chat-status" role="status">
+              <LoaderCircle className="abi-chat-spinner" size={16} /> ABI is preparing a reply…
+            </p>
+          )}
+        </div>
+        {showLatest && (messages.length > 0 || submitted) && (
+          <button
+            type="button"
+            className="abi-chat-jump"
+            onClick={() => {
+              if (thread.current) thread.current.scrollTop = thread.current.scrollHeight;
+              nearBottom.current = true;
+              setShowLatest(false);
+            }}
+          >
+            <ArrowDown size={14} /> Latest messages
+          </button>
         )}
       </div>
       {pending.length > 0 && (
-        <div className="abi-chat-approvals" aria-label="Pending approvals">
+        <details className="abi-chat-approvals" aria-label="Pending approvals">
+          <summary>
+            {pending.length} {pending.length === 1 ? "approval needs" : "approvals need"} your
+            review
+          </summary>
           {pending.slice(0, 2).map((a) => (
             <div key={a.id}>
               <p>
@@ -448,18 +610,59 @@ export function ChatView({
               </div>
             </div>
           ))}
-        </div>
+        </details>
       )}
       <footer className="abi-chat-footer">
+        <span className="sr-only" role="status">
+          {copied ? "Reply copied to clipboard" : ""}
+        </span>
         {messages.length > 0 && (
           <div className="abi-chat-suggestions" aria-label="Suggested questions">
             {quickReplies(messages)
               .slice(0, 3)
               .map((s) => (
-                <button disabled={locked} key={s} onClick={() => void send(s)}>
+                <button disabled={locked} key={s} onClick={() => suggest(s)}>
                   {s}
                 </button>
               ))}
+          </div>
+        )}
+        {failed && (
+          <div className="abi-chat-error" role="alert">
+            <strong>Reply not confirmed</strong>
+            <p>
+              {failed.error} Your message may have reached ABI. Refresh the conversation before
+              sending it again.
+            </p>
+            <div>
+              <button
+                type="button"
+                onClick={() => void refresh().catch((e) => setError(e.message))}
+              >
+                Refresh conversation
+              </button>
+              <button
+                type="button"
+                disabled={!!draft.trim() || files.length > 0}
+                onClick={() => {
+                  updateComposer((current) => ({
+                    ...current,
+                    text: failed.text,
+                    attachments: failed.attachments,
+                    failed: undefined,
+                  }));
+                  input.current?.focus();
+                }}
+              >
+                Restore draft
+              </button>
+              <button
+                type="button"
+                onClick={() => updateComposer((current) => ({ ...current, failed: undefined }))}
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
         {error && (
@@ -509,8 +712,8 @@ export function ChatView({
           <textarea
             ref={input}
             aria-label="Message ABI"
-            placeholder="Ask ABI to find, compare or explain…"
-            rows={2}
+            placeholder={readOnly ? "You have read-only access" : "Ask about your workspace…"}
+            rows={1}
             maxLength={4000}
             value={draft}
             disabled={readOnly}
@@ -541,15 +744,26 @@ export function ChatView({
               <Paperclip size={19} />
             </button>
             <span>
-              {preparing ? "Preparing files…" : "Enter to send · Shift + Enter for a new line"}
+              {preparing
+                ? "Preparing files…"
+                : sending
+                  ? "You can draft your next message"
+                  : "Shift + Enter for a new line"}
             </span>
+            {draft.length > 3500 && (
+              <small className="abi-chat-character-count">{draft.length}/4000</small>
+            )}
             <button
               type="submit"
               className="abi-chat-send"
               disabled={locked || !draft.trim()}
               aria-label="Send message"
             >
-              <ArrowUp size={18} />
+              {sending ? (
+                <LoaderCircle size={18} className="abi-chat-spinner" />
+              ) : (
+                <ArrowUp size={18} />
+              )}
             </button>
           </div>
         </form>
@@ -558,7 +772,7 @@ export function ChatView({
             ? "Your role has read-only access."
             : files.length
               ? "Attachments go to your model. Text is saved; images are used for this message only."
-              : "Saved to this workspace. Checkout and spending rules apply to purchases."}
+              : "Conversations stay with this workspace. Purchases follow your spending controls."}
         </p>
       </footer>
     </section>
