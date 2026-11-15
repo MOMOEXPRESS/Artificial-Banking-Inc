@@ -8224,6 +8224,7 @@ export const store = {
       for (const table of [
         // Child rows first — several of these carry FKs onto orgs/agents.
         "abi_external_sessions",
+        "abi_customer_wallets",
         "abi_external_identities",
         "abi_key_wallet_grants",
         "abi_wallet_key_requests",

@@ -23,6 +23,13 @@ import {
   verifyPrivyTrial,
 } from "./privy-trial.js";
 import { parseCookies, PARTNER_SESSION_COOKIE } from "./auth/session.js";
+import {
+  CustomerWalletError,
+  queueCustomerWallet,
+  customerWalletStatus,
+  provisionCustomerWallet,
+} from "./customer-wallets.js";
+import { IdentityError } from "./auth/supabase.js";
 
 type GuardianRoute = (
   fn: (org: OrgRow, req: express.Request, res: express.Response) => unknown,
@@ -84,11 +91,39 @@ export function registerWorkspaceRoutes(
             return res.status(e.status).json({ error: { code: e.code, message: e.message } });
           if (e instanceof PrivyTrialError)
             return res.status(e.status).json({ error: { code: e.code, message: e.message } });
+          if (e instanceof CustomerWalletError || e instanceof IdentityError)
+            return res.status(e.status).json({ error: { code: e.code, message: e.message } });
           throw e;
         }
       },
       { ownerOnly: owner },
     );
+  app.get(
+    "/v1/guardian/workspaces/:workspaceId/wallet",
+    route((org, req, res) => {
+      const me = currentUser(req);
+      if (!me) return res.status(401).json({ error: { code: "HUMAN_SESSION_REQUIRED" } });
+      return res.json(customerWalletStatus(org.id, String(req.params.workspaceId), me.user.id));
+    }, true),
+  );
+  app.post(
+    "/v1/guardian/workspaces/:workspaceId/wallet",
+    route(async (org, req, res) => {
+      z.object({}).strict().parse(req.body);
+      const me = currentUser(req),
+        jwt = req.header("x-abi-supabase-token");
+      if (!me || !jwt)
+        return res.status(401).json({
+          error: {
+            code: "LINKED_IDENTITY_REQUIRED",
+            message: "Sign in with your linked Google or GitHub account to set up its wallet.",
+          },
+        });
+      return res.json(
+        await provisionCustomerWallet(org.id, String(req.params.workspaceId), me.user.id, jwt),
+      );
+    }, true),
+  );
   app.get(
     "/v1/guardian/workspaces/:workspaceId/privy",
     route(
@@ -132,12 +167,26 @@ export function registerWorkspaceRoutes(
   );
   app.post(
     "/v1/guardian/workspaces",
-    route((org, req, res) => {
+    route(async (org, req, res) => {
       const b = z
         .object({ name: z.string().trim().min(1).max(80), idempotencyKey: key })
         .strict()
         .parse(req.body);
-      return res.status(201).json({ workspace: createWorkspace(org.id, b.name, b.idempotencyKey) });
+      const workspace = createWorkspace(org.id, b.name, b.idempotencyKey);
+      const me = currentUser(req);
+      const identity = me
+        ? (commerceDatabase()
+            .prepare("SELECT subject FROM abi_external_identities WHERE user_id=?")
+            .get(me.user.id) as { subject: string } | undefined)
+        : undefined;
+      if (me && identity) {
+        try {
+          queueCustomerWallet(org.id, workspace.id, me.user.id, identity.subject);
+        } catch {
+          /* Workspace remains usable; Wallet exposes setup state. */
+        }
+      }
+      return res.status(201).json({ workspace });
     }, true),
   );
   app.get(

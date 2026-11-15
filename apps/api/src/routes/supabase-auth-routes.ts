@@ -15,6 +15,7 @@ import {
 } from "../auth/session.js";
 import { signupTokenProblem } from "../auth/signup-token.js";
 import { KYC_TERMS_VERSION } from "../kyc-kya.js";
+import { queueDefaultCustomerWallet } from "../customer-wallets.js";
 export function registerSupabaseAuth(app: express.Express, fetcher: typeof fetch = fetch) {
   app.post("/v1/auth/supabase/exchange", (req, res, next) => {
     void (async () => {
@@ -40,15 +41,13 @@ export function registerSupabaseAuth(app: express.Express, fetcher: typeof fetch
           const sessionCookie = parseCookies(req)[SESSION_COOKIE];
           const current = sessionCookie ? store.getUserBySessionToken(sessionCookie) : undefined;
           if (!body.linkExisting || !current || current.user.id !== found.user.id)
-            return res
-              .status(409)
-              .json({
-                error: {
-                  code: "ACCOUNT_LINK_REQUIRED",
-                  message:
-                    "Sign in to your existing ABI account in another tab, then explicitly link this sign-in. Your wallets stay with that account.",
-                },
-              });
+            return res.status(409).json({
+              error: {
+                code: "ACCOUNT_LINK_REQUIRED",
+                message:
+                  "Sign in to your existing ABI account in another tab, then explicitly link this sign-in. Your wallets stay with that account.",
+              },
+            });
           const csrf = csrfProblem(req);
           if (csrf) return res.status(403).json({ error: { code: "CSRF_FAILED", message: csrf } });
           if (
@@ -56,28 +55,24 @@ export function registerSupabaseAuth(app: express.Express, fetcher: typeof fetch
               .prepare("SELECT 1 FROM abi_external_identities WHERE user_id=?")
               .get(found.user.id)
           )
-            return res
-              .status(409)
-              .json({
-                error: {
-                  code: "IDENTITY_ALREADY_LINKED",
-                  message: "This account already has a different Supabase identity.",
-                },
-              });
+            return res.status(409).json({
+              error: {
+                code: "IDENTITY_ALREADY_LINKED",
+                message: "This account already has a different Supabase identity.",
+              },
+            });
           user = found.user;
         } else {
           const gate = signupTokenProblem(req);
           if (gate)
             return res.status(403).json({ error: { code: "SIGNUP_UNAVAILABLE", message: gate } });
           if (!body.acceptTerms)
-            return res
-              .status(400)
-              .json({
-                error: {
-                  code: "TERMS_REQUIRED",
-                  message: "Accept the Terms and Privacy Notice to create your ABI account.",
-                },
-              });
+            return res.status(400).json({
+              error: {
+                code: "TERMS_REQUIRED",
+                message: "Accept the Terms and Privacy Notice to create your ABI account.",
+              },
+            });
           const passwordHash = await hashPassword(randomBytes(32).toString("hex"));
           const result = commerceDatabase().transaction(() => {
             const created = store.createAccountWithOrg({
@@ -135,6 +130,8 @@ export function registerSupabaseAuth(app: express.Express, fetcher: typeof fetch
       })();
       store.markUserLogin(user.id);
       setSessionCookies(res, sessionToken, newToken());
+      const ownerOrg = store.listMembershipsForUser(user.id).find((m) => m.role === "owner");
+      if (ownerOrg) queueDefaultCustomerWallet(user.id, ownerOrg.orgId);
       return res.json({
         user: { id: user.id, email: user.email, name: user.name, emailVerified: true },
         orgs: store

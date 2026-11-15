@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { Button } from "@/components/ui/button";
 import { WalletLimitEditor } from "./wallet-limits";
 import { PrivyTrialPanel } from "./privy-trial-panel";
+import { CustomerWalletPanel } from "./customer-wallet-panel";
 import { LiquidWalletCard } from "./liquid-wallet-card";
 import { workspaceJson, type Workspace, type WorkspaceFetcher } from "./workspace-client";
 
@@ -148,6 +149,7 @@ export function WorkspaceFunds({
   onNavigate,
   readOnly,
 }: Props) {
+  const [currenciesOpen, setCurrenciesOpen] = useState(false);
   const [action, setAction] = useState<"allocate" | "limits" | null>(null),
     [to, setTo] = useState(""),
     [amount, setAmount] = useState(""),
@@ -191,7 +193,7 @@ export function WorkspaceFunds({
           name={w.name}
           network="Base Sepolia"
           onOpen={() => {
-            setAction("limits");
+            setCurrenciesOpen(true);
             setError("");
           }}
         />
@@ -254,7 +256,22 @@ export function WorkspaceFunds({
         Deposits use the account’s existing verified receiving route and arrive in General. Allocate
         settled funds here; a workspace card does not imply a separate deposit address.
       </p>
-      {!readOnly && <PrivyTrialPanel key={w.id} workspaceId={w.id} gFetch={gFetch} />}
+      {!readOnly && (
+        <CustomerWalletPanel
+          key={w.id}
+          workspaceId={w.id}
+          name={w.name}
+          gFetch={gFetch}
+          open={currenciesOpen}
+          onOpenChange={setCurrenciesOpen}
+        />
+      )}
+      {!readOnly && (
+        <details>
+          <summary>Testnet connection diagnostics</summary>
+          <PrivyTrialPanel key={w.id} workspaceId={w.id} gFetch={gFetch} />
+        </details>
+      )}
       {receipt && <p role="status">{receipt}</p>}
       {error && !action && <p role="alert">{error}</p>}
       <section className="minimal-section">

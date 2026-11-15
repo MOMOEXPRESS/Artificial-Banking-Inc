@@ -7,19 +7,21 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { SpendingLimits } from "./spending-limits";
 import { LiquidWalletCard } from "./liquid-wallet-card";
 import { AgentLogoCluster } from "./agent-logo-cluster";
+import { AutomaticCustomerWallet } from "./customer-wallet-panel";
 type Fetcher = (path: string, init?: RequestInit) => Promise<Response>;
 type Props = {
   org: OrgView | null | undefined;
   onNavigate: (view: View, tab?: string) => void;
   workspace?: import("./workspace-client").Workspace | null;
   walletPicker?: ReactNode;
+  gFetch?: Fetcher;
 };
 const usd = (cents: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 function usdc(value?: string) {
   return value ?? "0.00";
 }
-export function MinimalOverview({ org, onNavigate, workspace, walletPicker }: Props) {
+export function MinimalOverview({ org, onNavigate, workspace, walletPicker, gFetch }: Props) {
   const agents = workspace
       ? workspace.connections.map((c) => ({
           id: c.agentId,
@@ -104,6 +106,13 @@ export function MinimalOverview({ org, onNavigate, workspace, walletPicker }: Pr
               Wallet details <Icon name="arrowRight" size={15} />
             </button>
           </div>
+          {workspace && gFetch && (
+            <AutomaticCustomerWallet
+              key={workspace.id}
+              workspaceId={workspace.id}
+              gFetch={gFetch}
+            />
+          )}
         </section>
       </div>
       <section className="minimal-section">

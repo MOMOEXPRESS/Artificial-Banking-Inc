@@ -1586,6 +1586,7 @@ export default function Console() {
                 {view === "overview" && (
                   <MinimalOverview
                     org={org}
+                    gFetch={readOnly ? undefined : gFetch}
                     workspace={workspaceState.current}
                     walletPicker={
                       workspaceState.current ? (
