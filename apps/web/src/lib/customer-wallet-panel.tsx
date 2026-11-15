@@ -23,7 +23,8 @@ import {
 } from "@/components/ui/select";
 import { workspaceJson, type WorkspaceFetcher, type Workspace } from "./workspace-client";
 import {
-  managedWalletSchema,
+  parseManagedWallet,
+  managedWalletReady,
   walletChanged,
   walletAmount,
   type ManagedWallet,
@@ -92,7 +93,7 @@ export function CustomerWalletPanel({
         setError("");
       }
       try {
-        const value = managedWalletSchema.parse(
+        const value = parseManagedWallet(
           await workspaceJson(
             await gFetch(
               setup ? path : `${path}${query}`,
@@ -133,7 +134,7 @@ export function CustomerWalletPanel({
       setCopied(false);
       setDraft(null);
       try {
-        const value = managedWalletSchema.parse(
+        const value = parseManagedWallet(
           await workspaceJson(
             await gFetch(path, { method: "PATCH", body: JSON.stringify({ assetId }) }),
           ),
@@ -172,7 +173,11 @@ export function CustomerWalletPanel({
       });
     }
   }, [open, intent, load, changeAsset, recoveryAssetId]);
-  const ready = data?.status === "ready" && data.receiveEnabled && data.address;
+  const recovery =
+    recoveryAssetId && sourceAccount
+      ? { assetId: recoveryAssetId, accountSymbol: sourceAccount }
+      : undefined;
+  const ready = managedWalletReady(data, recovery);
   useEffect(() => {
     if (!open || !ready || busy || draft) return;
     const timer = setInterval(() => {
@@ -210,7 +215,7 @@ export function CustomerWalletPanel({
   }, [gFetch, path, ready, draft?.state]);
   const sending = intent === "send" || intent === "allocate";
   async function submit() {
-    if (!data || busy) return;
+    if (!data || busy || !managedWalletReady(data, recovery)) return;
     setBusy(true);
     setError("");
     try {
@@ -264,14 +269,14 @@ export function CustomerWalletPanel({
         )}
       </div>
       <p>
-        {ready
+        {ready && data
           ? `${data.asset.symbol} on ${data.asset.network} · ${walletAmount(data)} ${data.asset.symbol}`
           : "Setting up this workspace’s Privy wallet."}
       </p>
       <p className="abi-workspace-note">
         ABI manages this wallet through your account. Google or GitHub sign-in is optional.
       </p>
-      {!ready && (
+      {!ready && !(recoveryAssetId && data && !data.accountSymbol) && (
         <Button variant="ghost" disabled={busy} onClick={() => void load(true).then(() => load())}>
           <RefreshCw size={15} />
           {busy ? "Setting up wallet…" : "Retry wallet setup"}
@@ -439,14 +444,16 @@ export function CustomerWalletPanel({
                       : "Use the exact network above when sending funds."}
                   </p>
                   <p className="abi-workspace-note">
-                    Each asset has its own receiving address in this workspace. The same asset
-                    address works across the supported EVM networks; each network has a separate
-                    balance.
+                    {data.accountSymbol
+                      ? "Each asset has its own receiving address in this workspace. The same asset address works across the supported EVM networks; each network has a separate balance."
+                      : "This wallet currently uses one shared ETH and USDC address. Each network has a separate balance. Separate asset addresses are not available here yet."}
                     {data.asset.symbol === "USDC" &&
                       " Use native USDC, not bridged USDC or USDC.e."}{" "}
                     Bitcoin and other assets are not supported by this deposit route.
                     {data.asset.symbol === "USDC" &&
-                      " To send USDC later, this USDC address also needs ETH on the same network for fees. Your separate ETH address does not pay those fees."}
+                      (data.accountSymbol
+                        ? " To send USDC later, this USDC address also needs ETH on the same network for fees. Your separate ETH address does not pay those fees."
+                        : " To send USDC later, this receiving address also needs ETH on the same network for fees.")}
                   </p>
                   <p role="status" className="abi-workspace-note">
                     {data.balance.observedAt
@@ -479,8 +486,10 @@ export function CustomerWalletPanel({
                   }}
                 >
                   <p className="abi-workspace-note">
-                    Sending from the {sourceAccount ?? draft?.symbol ?? data.accountSymbol} asset
-                    wallet: <code>{draft?.source ?? data.address}</code>.
+                    {data.accountSymbol
+                      ? `Sending from the ${sourceAccount ?? draft?.symbol ?? data.accountSymbol} asset wallet`
+                      : "Sending from the workspace wallet"}
+                    : <code>{draft?.source ?? data.address}</code>.
                     {sourceAccount &&
                       " Recovery transfers use this address, even when the asset differs from the account label."}
                   </p>
@@ -530,7 +539,8 @@ export function CustomerWalletPanel({
                       </label>
                       <p className="abi-workspace-note">
                         ETH on {data.asset.network} at this sending address covers the network fee.
-                        ETH in your separate ETH asset wallet does not cover another address’s fees.
+                        {data.accountSymbol &&
+                          "ETH in your separate ETH asset wallet does not cover another address’s fees."}
                         A fee estimate appears before you confirm.
                       </p>
                     </>
@@ -626,7 +636,9 @@ export function CustomerWalletPanel({
             <p role="status">
               {busy
                 ? "Preparing and verifying this workspace wallet…"
-                : "A verified receiving address is not available yet. Close and retry wallet setup."}
+                : recoveryAssetId && data && !data.accountSymbol
+                  ? "Asset recovery is not available here yet. Your funds remain at their current address."
+                  : "A verified receiving address is not available yet. Close and retry wallet setup."}
             </p>
           )}
           {error && <p role="alert">{error}</p>}
@@ -673,7 +685,7 @@ export function AutomaticCustomerWallet({
           w.wallet?.status === "ready" ? undefined : { method: "POST", body: "{}" },
         );
         if (!response.ok) continue;
-        const value = managedWalletSchema.parse(await response.json());
+        const value = parseManagedWallet(await response.json());
         if (value.workspaceId !== w.id) throw Error();
         if (w.wallet?.status !== "ready") await gFetch(endpoint);
       }
