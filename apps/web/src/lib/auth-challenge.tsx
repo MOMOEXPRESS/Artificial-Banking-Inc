@@ -6,7 +6,6 @@ type Turnstile = {
   render: (el: HTMLElement, options: Record<string, unknown>) => string;
   remove: (id: string) => void;
   reset: (id: string) => void;
-  ready?: (fn: () => void) => void;
 };
 declare global {
   interface Window {
@@ -32,8 +31,9 @@ function loadScript() {
         clearTimeout(timer);
         resolve();
       };
-      if (window.turnstile?.ready) window.turnstile.ready(ready);
-      else if (window.turnstile) ready();
+      // Explicit rendering waits for script.onload. Turnstile.ready() rejects
+      // async/defer script tags, so it must not be combined with this loader.
+      if (window.turnstile) ready();
       else {
         clearTimeout(timer);
         script = undefined;
