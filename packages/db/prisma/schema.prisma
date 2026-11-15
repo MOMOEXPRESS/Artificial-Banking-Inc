@@ -89,6 +89,58 @@ model AbiKeyWalletGrants {
   @@map("abi_key_wallet_grants")
 }
 
+model AbiManagedBalances {
+  workspaceId String @map("workspace_id") // -> abi_workspaces.id
+  assetId String @map("asset_id")
+  address String
+  amount String
+  observedAt String @map("observed_at")
+  block String
+  gasEth String @map("gas_eth")
+  @@id([workspaceId, assetId])
+  @@unique([workspaceId, assetId])
+  @@map("abi_managed_balances")
+}
+
+model AbiManagedSends {
+  id String @id
+  workspaceId String @map("workspace_id") // -> abi_workspaces.id
+  orgId String @map("org_id")
+  userId String @map("user_id") // -> users.id
+  assetId String @map("asset_id")
+  chainId Int @map("chain_id")
+  address String
+  walletId String @map("wallet_id")
+  recipient String
+  amount String
+  txJson String @map("tx_json")
+  requestKey String @map("request_key")
+  state String
+  txHash String? @map("tx_hash")
+  createdAt String @map("created_at")
+  expiresAt String @map("expires_at")
+  @@unique([workspaceId, chainId])
+  @@unique([requestKey])
+  @@map("abi_managed_sends")
+}
+
+model AbiManagedWallets {
+  workspaceId String @id @map("workspace_id") // -> abi_workspaces.id
+  orgId String @map("org_id") // -> orgs.id
+  appHash String @map("app_hash")
+  externalId String @map("external_id")
+  requestKey String @map("request_key")
+  walletId String? @map("wallet_id")
+  address String?
+  verifiedAt String? @map("verified_at")
+  createdAt String @map("created_at")
+  selectedAssetId String @default("base:usdc") @map("selected_asset_id")
+  @@unique([address])
+  @@unique([walletId])
+  @@unique([externalId])
+  @@map("abi_managed_wallets")
+}
+
 model AbiMemories {
   id String @id
   orgId String @map("org_id") // -> orgs.id
@@ -123,6 +175,13 @@ model AbiWalletKeyRequests {
   @@unique([orgId, createKey])
   @@unique([sessionId])
   @@map("abi_wallet_key_requests")
+}
+
+model AbiWalletSetupAttempts {
+  workspaceId String @id @map("workspace_id") // -> abi_workspaces.id
+  lastAttemptAt String @map("last_attempt_at")
+  errorCode String? @map("error_code")
+  @@map("abi_wallet_setup_attempts")
 }
 
 model AbiWorkspaceAllocations {
