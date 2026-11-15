@@ -554,7 +554,7 @@ describe("buyer to seller through the hosted x402 route", () => {
 });
 
 describe("partner account security", () => {
-  it("enforces two-factor sign-in, rotates sessions on password change, and signs out everywhere", async () => {
+  it("allows password sign-in with an enrolled factor, rotates sessions, and signs out everywhere", async () => {
     const email = "secure@example.com";
     const s = await signup(email, "Secure Co");
     const enroll = (await (await call(s, "POST", "/v1/partner/auth/mfa/enroll")).json()) as {
@@ -569,19 +569,11 @@ describe("partner account security", () => {
     const { recoveryCodes } = (await confirm.json()) as { recoveryCodes: string[] };
     assert.equal(recoveryCodes.length, 10);
 
-    const noCode = await login(email);
-    assert.equal(noCode.status, 401);
-    assert.equal(((await noCode.json()) as { error: { code: string } }).error.code, "MFA_REQUIRED");
-    const wrong = await login(email, { code: "000000" });
-    assert.equal(wrong.status, 401);
-    const second = await login(email, { recoveryCode: recoveryCodes[0] });
-    assert.equal(second.status, 200);
+    const second = await login(email);
+    assert.equal(second.status, 200, "sign-in uses the verified password without a factor");
     const s2 = sessionFrom(second, s.orgId);
-    assert.equal(
-      (await login(email, { recoveryCode: recoveryCodes[0] })).status,
-      401,
-      "single use",
-    );
+    assert.equal((await login(email, {}, "wrong-password")).status, 401);
+    // Signing in must leave recovery codes available for explicit sensitive actions.
 
     const sessions = (await (await call(s, "GET", "/v1/partner/auth/sessions")).json()) as {
       sessions: { id: string; current: boolean }[];
@@ -610,7 +602,7 @@ describe("partner account security", () => {
       security: { mfaEnabled: boolean; recoveryCodesLeft: number };
     };
     assert.equal(account.security.mfaEnabled, true);
-    assert.equal(account.security.recoveryCodesLeft, 9);
+    assert.equal(account.security.recoveryCodesLeft, 10);
 
     const out = await call(s, "POST", "/v1/partner/auth/logout-all");
     assert.equal(out.status, 200);

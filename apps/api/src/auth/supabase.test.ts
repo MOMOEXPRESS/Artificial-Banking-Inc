@@ -15,7 +15,7 @@ const { registerSupabaseAuth } = await import("../routes/supabase-auth-routes.js
 const { externalSessionGuard, verifySupabaseIdentity, isExternalOnly } =
   await import("./supabase.js");
 const { ensureWorkspaces, viewWorkspace } = await import("../workspaces.js");
-const { generateSecret, currentCode } = await import("./totp.js");
+const { generateSecret } = await import("./totp.js");
 const identities = new Map<
   string,
   {
@@ -150,7 +150,7 @@ test("matching email cannot claim an existing funded account; linking requires b
   const w = ensureWorkspaces(org.id)[0]!;
   assert.equal(viewWorkspace(org.id, String(w.id)).balance.availableUsdc, "25");
 });
-test("linked account MFA cannot be bypassed through social sign-in", async () => {
+test("verified social sign-in does not require or consume an enrolled ABI authenticator", async () => {
   const e = external();
   await exchange(e.token, { acceptTerms: true });
   const mapping = commerceDatabase()
@@ -159,12 +159,11 @@ test("linked account MFA cannot be bypassed through social sign-in", async () =>
   const secret = generateSecret();
   store.startMfaEnrolment(mapping.user_id, secret);
   store.confirmMfa(mapping.user_id, 0);
-  const denied = await exchange(e.token, {});
-  assert.equal(denied.status, 403);
-  assert.equal(((await denied.json()) as { error: { code: string } }).error.code, "MFA_REQUIRED");
-  const valid = await exchange(e.token, { mfaCode: currentCode(secret) });
-  assert.equal(valid.status, 200);
-  assert.equal((await exchange(e.token, { mfaCode: currentCode(secret) })).status, 403);
+  const signedIn = await exchange(e.token, {});
+  assert.equal(signedIn.status, 200);
+  assert.equal(store.getMfa(mapping.user_id)?.confirmed, true);
+  assert.equal(store.getMfa(mapping.user_id)?.lastStep, 0, "login does not consume TOTP state");
+  assert.equal((await exchange("invalid-provider-token", {})).status, 401);
 });
 test("identity verification fails closed for invalid or malformed upstream results", async () => {
   await assert.rejects(() => verifySupabaseIdentity("invalid", provider));

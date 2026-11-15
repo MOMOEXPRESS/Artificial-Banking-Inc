@@ -224,6 +224,34 @@ describe("MFA enrolment", () => {
   });
 });
 
+describe("sign-in with an enrolled factor", () => {
+  it("accepts the verified password without an authenticator and preserves factor state", async () => {
+    const original = new Jar();
+    const account = await newAccount(original);
+    await enableMfa(original);
+    const before = store.getMfa(account.userId);
+    const fresh = new Jar();
+    const response = await call("/v1/auth/login", {
+      method: "POST",
+      jar: fresh,
+      body: { email: account.email, password: PASSWORD },
+    });
+    assert.equal(response.status, 200);
+    assert.ok(
+      response.headers
+        .getSetCookie()
+        .some((c) => c.startsWith("abi_session=") && c.includes("HttpOnly")),
+    );
+    assert.equal((await call("/v1/auth/me", { jar: fresh })).status, 200);
+    assert.deepEqual(store.getMfa(account.userId), before);
+    const wrong = await call("/v1/auth/login", {
+      method: "POST",
+      body: { email: account.email, password: "wrong-password" },
+    });
+    assert.equal(wrong.status, 401);
+  });
+});
+
 describe("step-up on high-value approvals", () => {
   const PAYEE = "0x1111111111111111111111111111111111111111";
 

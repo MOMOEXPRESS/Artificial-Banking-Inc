@@ -3,7 +3,6 @@ import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { commerceDatabase, store } from "../store.js";
 import { verifySupabaseIdentity, IdentityError } from "../auth/supabase.js";
-import { accountMfaProblem } from "../auth/mfa-check.js";
 import { hashPassword } from "../auth/password.js";
 import {
   csrfProblem,
@@ -105,8 +104,8 @@ export function registerSupabaseAuth(app: express.Express, fetcher: typeof fetch
       const credentials = store.findUserCredentialsByEmail(user.email);
       if (!credentials || credentials.disabled || !user.emailVerifiedAt)
         throw new IdentityError(401, "UNAUTHORIZED", "The ABI account is unavailable.");
-      const factor = accountMfaProblem(user.id, body.mfaCode);
-      if (factor) return res.status(403).json({ error: factor });
+      // The verified provider identity completes sign-in. Do not consume an
+      // enrolled ABI factor here or pretend the provider issued an AAL2 token.
       if (!linked && !newExternalOnly)
         commerceDatabase()
           .prepare(

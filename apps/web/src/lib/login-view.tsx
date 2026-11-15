@@ -117,8 +117,6 @@ export function Login({
   const [orgName, setOrgName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [mfaRequired, setMfaRequired] = useState(false),
-    [mfaCode, setMfaCode] = useState("");
   const [fullName, setFullName] = useState("");
   const [inviteToken, setInviteToken] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
@@ -300,15 +298,9 @@ export function Login({
         body: JSON.stringify({
           email: email.trim(),
           password,
-          mfaCode,
         }),
       });
       if (!res.ok) {
-        const details = await res
-          .clone()
-          .json()
-          .catch(() => null);
-        if (["MFA_REQUIRED", "MFA_INVALID"].includes(details?.error?.code)) setMfaRequired(true);
         throw new Error(await readApiError(res));
       }
       const d = (await res.json()) as {
@@ -643,18 +635,6 @@ export function Login({
             {(mode === "signin" || mode === "signup") && <SocialSignIn />}
             {mode === "signin" && (
               <>
-                {mfaRequired && (
-                  <div className="field">
-                    <label htmlFor="signin-mfa">Authenticator or recovery code</label>
-                    <input
-                      id="signin-mfa"
-                      autoComplete="one-time-code"
-                      value={mfaCode}
-                      onChange={(e) => setMfaCode(e.target.value)}
-                      maxLength={100}
-                    />
-                  </div>
-                )}
                 <div className="field">
                   <label>Email</label>
                   <input

@@ -58,9 +58,6 @@ export default function PartnerLoginPage() {
     devToken?: string;
   } | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [mfaStep, setMfaStep] = useState(false);
-  const [mfaCode, setMfaCode] = useState("");
-  const [useRecovery, setUseRecovery] = useState(false);
   const [forgot, setForgot] = useState(false);
   const [resetToken, setResetToken] = useState<string | null>(null);
 
@@ -177,11 +174,6 @@ export default function PartnerLoginPage() {
           ? await post("/v1/partner/auth/login", {
               email: email.trim(),
               password,
-              ...(mfaStep && mfaCode.trim()
-                ? useRecovery
-                  ? { recoveryCode: mfaCode.trim() }
-                  : { code: mfaCode.trim() }
-                : {}),
             })
           : await post("/v1/partner/auth/signup", {
               email: email.trim(),
@@ -193,11 +185,6 @@ export default function PartnerLoginPage() {
               payoutAddress: payoutAddress.trim(),
             });
       if (!result.ok) {
-        if (result.code === "MFA_REQUIRED") {
-          setMfaStep(true);
-          setInfo(result.error ?? "Enter the code from your authenticator app.");
-          return;
-        }
         if (result.code === "EMAIL_NOT_VERIFIED") setPendingVerify({ email: email.trim() });
         setError(
           result.code === "UNAUTHORIZED"
@@ -239,7 +226,7 @@ export default function PartnerLoginPage() {
     : forgot
       ? Boolean(email.trim())
       : mode === "signin"
-        ? Boolean(email.trim() && password && (!mfaStep || mfaCode.trim()))
+        ? Boolean(email.trim() && password)
         : Boolean(email.trim() && password && name.trim() && companyName.trim());
 
   return (
@@ -460,33 +447,6 @@ export default function PartnerLoginPage() {
                 )}
               </div>
 
-              {mode === "signin" && mfaStep && (
-                <div className="field" data-testid="partner-mfa">
-                  <label htmlFor="p-mfa">
-                    {useRecovery ? "Recovery code" : "Authenticator code"}
-                  </label>
-                  <input
-                    id="p-mfa"
-                    inputMode={useRecovery ? "text" : "numeric"}
-                    autoComplete="one-time-code"
-                    placeholder={useRecovery ? "xxxx-xxxx" : "123456"}
-                    value={mfaCode}
-                    onChange={(e) => setMfaCode(e.target.value)}
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    className="bare"
-                    style={{ fontSize: 12, marginTop: 6 }}
-                    onClick={() => {
-                      setUseRecovery((v) => !v);
-                      setMfaCode("");
-                    }}
-                  >
-                    {useRecovery ? "Use authenticator code" : "Use a recovery code"}
-                  </button>
-                </div>
-              )}
               {mode === "signin" && info && !pendingVerify && (
                 <p className="faint" style={{ fontSize: 12, margin: "0 0 10px" }}>
                   {info}
