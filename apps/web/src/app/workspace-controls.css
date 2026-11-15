@@ -535,3 +535,24 @@ label.abi-workspace-check {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+
+.abi-currency-dialog label.abi-funding-testnets {
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+}
+.abi-currency-dialog .abi-funding-testnets input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+  height: 18px;
+  flex: none;
+  accent-color: #246bc4;
+}
+
+.abi-asset-network-heading {
+  padding: 12px 8px 6px;
+  color: #626262;
+  font-size: 12px;
+  font-weight: 600;
+  border-top: 1px solid #e5e5e5;
+}

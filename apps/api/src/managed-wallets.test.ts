@@ -359,3 +359,157 @@ test("legacy trial clients reuse a managed workspace wallet instead of creating 
   assert.equal(legacy.wallet?.providerWalletId, view.providerWalletId);
   assert.equal(p.creates, 1);
 });
+
+test("asset accounts are distinct, durable across networks, preserve the original USDC address and fail closed before ETH setup", async () => {
+  const f = fixture(),
+    p = provider(),
+    id = String(f.w.id);
+  const usdc = await provision(f.org.id, id, f.user.id, p.p);
+  select(f.org.id, id, f.user.id, "base:eth");
+  assert.equal(summary(f.org.id, id).address, null);
+  assert.equal(summary(f.org.id, id).receiveEnabled, false);
+  const eth = await provision(f.org.id, id, f.user.id, p.p);
+  assert.notEqual(eth.address, usdc.address);
+  assert.equal(eth.accountSymbol, "ETH");
+  assert.equal(p.creates, 2);
+  for (const assetId of ["ethereum:eth", "base-sepolia:eth", "base:eth"]) {
+    select(f.org.id, id, f.user.id, assetId);
+    assert.equal((await provision(f.org.id, id, f.user.id, p.p)).address, eth.address);
+  }
+  select(f.org.id, id, f.user.id, "ethereum:usdc");
+  assert.equal(summary(f.org.id, id).address, usdc.address);
+  assert.equal(p.creates, 2);
+  assert.equal(
+    summary(f.org.id, id, { assetId: "base:eth", sourceAccount: "USDC" }).address,
+    usdc.address,
+  );
+  const other = fixture();
+  assert.throws(() => select(other.org.id, id, other.user.id, "base:eth"), /workspace|Workspace/);
+});
+
+test("ETH provisioning recovers response loss and rejects a provider reusing the USDC wallet", async () => {
+  const f = fixture(),
+    p = provider(),
+    id = String(f.w.id);
+  const usdc = await provision(f.org.id, id, f.user.id, p.p);
+  select(f.org.id, id, f.user.id, "base:eth");
+  const alias: ManagedProvider = {
+    ...p.p,
+    get: async () => null,
+    create: async (external) => ({
+      id: usdc.providerWalletId,
+      address: usdc.address,
+      external_id: external,
+      chain_type: "ethereum",
+      owner_id: null,
+    }),
+  };
+  await assert.rejects(provision(f.org.id, id, f.user.id, alias), /own wallet address/);
+  assert.equal(summary(f.org.id, id).address, null);
+  p.lost = true;
+  const eth = await provision(f.org.id, id, f.user.id, p.p);
+  assert.notEqual(eth.address, usdc.address);
+  assert.equal(p.creates, 2);
+  assert.equal((await provision(f.org.id, id, f.user.id, p.p)).address, eth.address);
+});
+
+test("native sends and workspace allocation resolve the asset account independently of the displayed asset", async () => {
+  const f = fixture(),
+    p = provider(),
+    id = String(f.w.id);
+  const usdc = await provision(f.org.id, id, f.user.id, p.p);
+  const eth = await provision(f.org.id, id, f.user.id, p.p, { assetId: "base:eth" });
+  const target = createWorkspace(f.org.id, "ETH destination", crypto.randomUUID());
+  await provision(f.org.id, String(target.id), f.user.id, p.p);
+  const destination = await provision(f.org.id, String(target.id), f.user.id, p.p, {
+    assetId: "base:eth",
+  });
+  const review = await prepare(
+    f.org.id,
+    id,
+    f.user.id,
+    { assetId: "base:eth", amount: "0.01", toWorkspaceId: String(target.id) },
+    client(),
+  );
+  assert.equal(review.source, eth.address);
+  assert.equal(review.recipient, destination.address);
+  assert.notEqual(review.source, usdc.address);
+  let sentWallet = "";
+  const signing: ManagedProvider = {
+    ...p.p,
+    send: async (wallet, ...args) => {
+      sentWallet = wallet;
+      return p.p.send(wallet, ...args);
+    },
+  };
+  await confirm(f.org.id, id, f.user.id, review.id, signing);
+  assert.equal(sentWallet, eth.providerWalletId);
+});
+
+test("owner recovery can spend historical ETH at the original USDC account without changing normal ETH routing", async () => {
+  const f = fixture(),
+    p = provider(),
+    id = String(f.w.id);
+  const old = await provision(f.org.id, id, f.user.id, p.p);
+  const eth = await provision(f.org.id, id, f.user.id, p.p, { assetId: "base:eth" });
+  const review = await prepare(
+    f.org.id,
+    id,
+    f.user.id,
+    { assetId: "base:eth", sourceAccount: "USDC", amount: "0.01", recipient: eth.address! },
+    client(),
+  );
+  assert.equal(review.source, old.address);
+  let wallet = "";
+  await confirm(f.org.id, id, f.user.id, review.id, {
+    ...p.p,
+    send: async (id, ...args) => {
+      wallet = id;
+      return p.p.send(id, ...args);
+    },
+  });
+  assert.equal(wallet, old.providerWalletId);
+  assert.equal(summary(f.org.id, id, { assetId: "base:eth" }).address, eth.address);
+  const stranger = fixture();
+  await assert.rejects(
+    prepare(
+      f.org.id,
+      id,
+      stranger.user.id,
+      { assetId: "base:eth", sourceAccount: "USDC", amount: "0.01", recipient: eth.address! },
+      client(),
+    ),
+    /Only an account owner/,
+  );
+});
+
+test("balance reads and caches are bound to the selected asset address, including historical recovery", async () => {
+  const f = fixture(),
+    p = provider(),
+    id = String(f.w.id);
+  const usdc = await provision(f.org.id, id, f.user.id, p.p);
+  const eth = await provision(f.org.id, id, f.user.id, p.p, { assetId: "base:eth" });
+  const reader: Parameters<typeof status>[3] = async (address) => ({
+    amount: address === eth.address ? "2" : "20",
+    units: "0",
+    gasEth: "0.01",
+    block: "500",
+    observedAt: new Date().toISOString(),
+    status: "available",
+  });
+  const recovery = await status(f.org.id, id, f.user.id, reader, {
+    assetId: "base:eth",
+    sourceAccount: "USDC",
+  });
+  assert.equal(recovery.address, usdc.address);
+  assert.equal(recovery.balance.amount, "20");
+  const regular = await status(f.org.id, id, f.user.id, reader, { assetId: "base:eth" });
+  assert.equal(regular.address, eth.address);
+  assert.equal(regular.balance.amount, "2");
+  const recoveryAgain = await status(f.org.id, id, f.user.id, reader, {
+    assetId: "base:eth",
+    sourceAccount: "USDC",
+  });
+  assert.equal(recoveryAgain.balance.amount, "20");
+  assert.equal(summary(f.org.id, id).selectedAssetId, "base:usdc");
+});

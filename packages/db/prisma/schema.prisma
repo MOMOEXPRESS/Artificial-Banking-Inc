@@ -1319,3 +1319,18 @@ model X401Challenges {
   @@index([expiresAt])
   @@map("x401_challenges")
 }
+
+model AbiManagedAssetWallets {
+  workspaceId String @map("workspace_id")
+  orgId String @map("org_id")
+  symbol String
+  appHash String @map("app_hash")
+  externalId String @unique @map("external_id")
+  requestKey String @map("request_key")
+  walletId String? @unique @map("wallet_id")
+  address String? @unique
+  verifiedAt String? @map("verified_at")
+  createdAt String @map("created_at")
+  @@id([workspaceId, symbol])
+  @@map("abi_managed_asset_wallets")
+}

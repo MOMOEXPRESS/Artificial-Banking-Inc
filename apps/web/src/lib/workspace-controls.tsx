@@ -11,8 +11,6 @@ import {
   RefreshCw,
   ArrowDownLeft,
   ArrowUpRight,
-  Check,
-  Wallet,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -227,8 +225,8 @@ export function WorkspaceFunds({
             </div>
           </dl>
           <p>
-            All {w.connections.length} connected agents share these funds. USD card credits remain
-            separate from USDC.
+            This workspace owns its on-chain funds. Its {w.connections.length} connected agents
+            currently spend from the separate testnet allowance. USD card credits are separate.
           </p>
           <div className="abi-workspace-actions">
             <Button
@@ -240,7 +238,7 @@ export function WorkspaceFunds({
               }}
             >
               <ArrowDownLeft size={16} />
-              Receive
+              Add money
             </Button>
             <Button
               variant="ghost"
@@ -298,14 +296,6 @@ export function WorkspaceFunds({
       )}
       {receipt && <p role="status">{receipt}</p>}
       {error && !action && <p role="alert">{error}</p>}
-      <details className="abi-legacy-wallet">
-        <summary>Earlier account receiving address</summary>
-        <p>
-          Funds sent to the earlier account wallet stay there. They are separate from this
-          workspace’s Privy wallet.
-        </p>
-        <WorkspaceReceive gFetch={gFetch} />
-      </details>
       <section className="minimal-section">
         <h2>Card controls</h2>
         <p>
@@ -791,98 +781,134 @@ function WorkspaceKeyList({
   );
 }
 
-function WorkspaceReceive({ gFetch }: { gFetch: WorkspaceFetcher }) {
-  const [open, setOpen] = useState(false),
-    [profile, setProfile] = useState<import("./wallet-profile").WalletProfile | null>(null),
-    [copied, setCopied] = useState(false),
+/** Historical address inspection lives in Settings, outside the deposit flow. */
+export function LegacyWalletRecovery({ gFetch }: { gFetch: WorkspaceFetcher }) {
+  const [profile, setProfile] = useState<import("./wallet-profile").WalletProfile | null>(null);
+  const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  async function show() {
-    setOpen(true);
-    setCopied(false);
-    setProfile(null);
+  async function inspect() {
+    setBusy(true);
     setError("");
+    setProfile(null);
     try {
       const value = await workspaceJson(await gFetch("/v1/guardian/wallet"));
       const { hasReceivingDetails } = await import("./wallet-receive-validation");
       if (!hasReceivingDetails(value) || !value.addressVerified)
-        throw new Error("No verified receiving address is currently available.");
+        throw new Error("No verified historical wallet address is available.");
       setProfile(value);
     } catch (e) {
-      setProfile(null);
       setError((e as Error).message);
+    } finally {
+      setBusy(false);
     }
   }
-  const address = profile?.addressVerified
-    ? profile.assets.find((a) => a.assetId === "asset_usdc")?.receiveAddress
-    : null;
   return (
-    <>
-      <Button variant="ghost" onClick={() => void show()}>
-        <ArrowDownLeft size={16} aria-hidden="true" />
-        Receive to General
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="reference-dialog abi-workspace-dialog abi-wallet-action-dialog">
-          <span className="abi-dialog-symbol" aria-hidden="true">
-            <ArrowDownLeft size={22} />
-          </span>
-          <DialogTitle>Receive funds into General</DialogTitle>
-          <DialogDescription>
-            Use only the supported network below. Funds arrive in this account’s General workspace;
-            allocate them to another workspace afterwards.
-          </DialogDescription>
-          {error ? (
-            <p role="alert">{error}</p>
-          ) : !profile ? (
-            <p role="status">Verifying receiving details…</p>
-          ) : (
-            <>
-              <div className="abi-receive-network">
-                <Wallet size={22} aria-hidden="true" />
-                <div>
-                  <strong>USDC</strong>
-                  <span>{profile.network.name}</span>
-                </div>
-              </div>
-              {address ? (
-                <>
-                  <div className="abi-receive-address">
-                    <span>Receiving address</span>
-                    <code>{address}</code>
-                  </div>
-                  <Button
-                    className="abi-receive-copy"
-                    onClick={() =>
-                      void navigator.clipboard
-                        .writeText(address)
-                        .then(() => setCopied(true))
-                        .catch(() =>
-                          setError("Clipboard unavailable. Select and copy the address manually."),
-                        )
-                    }
-                  >
-                    {copied ? (
-                      <Check size={16} aria-hidden="true" />
-                    ) : (
-                      <Copy size={16} aria-hidden="true" />
-                    )}
-                    {copied ? "Address copied" : "Copy address"}
-                  </Button>
-                  <p className="abi-receive-instruction">
-                    Send only USDC on {profile.network.name} to this address. Transfers on a
-                    different network won’t appear in this balance.
-                  </p>
-                  <span role="status" className="sr-only">
-                    {copied ? "Receiving address copied to clipboard" : ""}
-                  </span>
-                </>
-              ) : (
-                <p>A verified USDC receiving address is unavailable.</p>
-              )}
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-    </>
+    <section className="minimal-section">
+      <details className="abi-legacy-wallet">
+        <summary>Historical wallet recovery</summary>
+        <p>
+          If you previously sent funds to the older account address, inspect it here. Existing funds
+          remain at that address. New deposits use your workspace’s Add money action.
+        </p>
+        <Button variant="ghost" disabled={busy} onClick={() => void inspect()}>
+          {busy ? "Checking…" : "Inspect historical wallet"}
+        </Button>
+        {error && <p role="alert">{error}</p>}
+        {profile && (
+          <dl className="abi-send-review">
+            <div>
+              <dt>Network</dt>
+              <dd>
+                {profile.network.name}
+                {profile.network.testnet ? " · Testnet" : " · Mainnet"}
+              </dd>
+            </div>
+            <div>
+              <dt>Historical address</dt>
+              <dd>
+                <code>
+                  {profile.address ??
+                    profile.assets.find((a) => a.assetId === "asset_usdc")?.receiveAddress}
+                </code>
+              </dd>
+            </div>
+            <div>
+              <dt>On-chain USDC</dt>
+              <dd>{profile.usdc.onchainUsdc ?? "Unavailable"}</dd>
+            </div>
+            <div>
+              <dt>ETH for network fees</dt>
+              <dd>{profile.gas.balanceEth ?? "Unavailable"}</dd>
+            </div>
+          </dl>
+        )}
+      </details>
+    </section>
+  );
+}
+
+/** Owner recovery for assets received at a different asset account before separation. */
+export function WorkspaceAssetRecovery({
+  workspace,
+  gFetch,
+}: {
+  workspace: Workspace;
+  gFetch: WorkspaceFetcher;
+}) {
+  const [open, setOpen] = useState(false);
+  const [sourceAccount, setSourceAccount] = useState<"USDC" | "ETH">("USDC");
+  const [assetId, setAssetId] = useState("base:eth");
+  return (
+    <section className="minimal-section">
+      <details>
+        <summary>Recover assets at an earlier workspace address</summary>
+        <p>
+          Existing funds have not moved. If ETH was sent to this workspace’s original shared
+          address, choose the USDC account below. Recovery uses the same reviewed transfer and
+          security checks as Send.
+        </p>
+        <label>
+          Account holding the funds
+          <select
+            aria-label="Recovery source account"
+            value={sourceAccount}
+            onChange={(e) => setSourceAccount(e.target.value as "USDC" | "ETH")}
+          >
+            <option value="USDC">USDC account · original workspace address</option>
+            <option value="ETH">ETH account</option>
+          </select>
+        </label>
+        <label>
+          Asset and network to recover
+          <select
+            aria-label="Recovery asset and network"
+            value={assetId}
+            onChange={(e) => setAssetId(e.target.value)}
+          >
+            {workspace.wallet?.assets.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.symbol} · {a.network} {a.testnet ? "Testnet" : "Mainnet"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button variant="ghost" onClick={() => setOpen(true)}>
+          Review recovery transfer
+        </Button>
+        {open && (
+          <CustomerWalletPanel
+            key={`${workspace.id}:${sourceAccount}:${assetId}`}
+            workspaceId={workspace.id}
+            name={workspace.name}
+            gFetch={gFetch}
+            open={open}
+            onOpenChange={setOpen}
+            intent="send"
+            sourceAccount={sourceAccount}
+            recoveryAssetId={assetId}
+          />
+        )}
+      </details>
+    </section>
   );
 }

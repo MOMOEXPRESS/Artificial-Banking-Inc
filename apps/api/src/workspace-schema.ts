@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS abi_managed_wallets (
  wallet_id TEXT UNIQUE,address TEXT COLLATE NOCASE UNIQUE,verified_at TEXT,created_at TEXT NOT NULL,
  selected_asset_id TEXT NOT NULL DEFAULT 'base:usdc'
 );
+CREATE TABLE IF NOT EXISTS abi_managed_asset_wallets (
+ workspace_id TEXT NOT NULL REFERENCES abi_workspaces(id),org_id TEXT NOT NULL REFERENCES orgs(id),
+ symbol TEXT NOT NULL CHECK(symbol IN ('ETH')),
+ app_hash TEXT NOT NULL,external_id TEXT NOT NULL UNIQUE,request_key TEXT NOT NULL,
+ wallet_id TEXT UNIQUE,address TEXT COLLATE NOCASE UNIQUE,verified_at TEXT,created_at TEXT NOT NULL,
+ PRIMARY KEY(workspace_id,symbol)
+);
 CREATE TABLE IF NOT EXISTS abi_wallet_setup_attempts (
  workspace_id TEXT PRIMARY KEY REFERENCES abi_workspaces(id),last_attempt_at TEXT NOT NULL,error_code TEXT
 );

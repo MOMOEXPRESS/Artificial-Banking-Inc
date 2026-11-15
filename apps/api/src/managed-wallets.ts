@@ -39,7 +39,7 @@ function config() {
     );
   return { appId, appSecret };
 }
-function owned(orgId: string, workspaceId: string, userId: string) {
+export function assertManagedWalletOwner(orgId: string, workspaceId: string, userId: string) {
   findWorkspace(orgId, workspaceId);
   if (
     !db()
@@ -54,10 +54,22 @@ function owned(orgId: string, workspaceId: string, userId: string) {
       403,
     );
 }
-function binding(orgId: string, workspaceId: string) {
+export type WalletAccount = "USDC" | "ETH";
+type WalletViewOptions = { assetId?: string; sourceAccount?: WalletAccount };
+function walletStorage(workspaceId: string, symbol: WalletAccount) {
+  return symbol === "USDC"
+    ? { table: "abi_managed_wallets", where: "workspace_id=?", params: [workspaceId] }
+    : {
+        table: "abi_managed_asset_wallets",
+        where: "workspace_id=? AND symbol=?",
+        params: [workspaceId, symbol],
+      };
+}
+function binding(orgId: string, workspaceId: string, symbol: WalletAccount = "USDC") {
+  const storage = walletStorage(workspaceId, symbol);
   const r = db()
-    .prepare("SELECT * FROM abi_managed_wallets WHERE workspace_id=? AND org_id=?")
-    .get(workspaceId, orgId) as Row | undefined;
+    .prepare(`SELECT * FROM ${storage.table} WHERE ${storage.where} AND org_id=?`)
+    .get(...storage.params, orgId) as Row | undefined;
   if (r && r.app_hash !== hash(config().appId))
     throw new ManagedWalletError(
       "PRIVY_APP_CHANGED",
@@ -88,11 +100,15 @@ export function managedProvider() {
         throw e;
       }
     },
-    async create(externalId: string, key: string): Promise<unknown> {
+    async create(
+      externalId: string,
+      key: string,
+      symbol: WalletAccount = "USDC",
+    ): Promise<unknown> {
       return client.wallets().create({
         chain_type: "ethereum",
         external_id: externalId,
-        display_name: "ABI workspace wallet",
+        display_name: `ABI ${symbol} workspace wallet`,
         idempotency_key: key,
       });
     },
@@ -158,10 +174,16 @@ const providerWallet = z.object({
   owner_id: z.null().optional(),
   archived_at: z.null().optional(),
 });
-export function managedWalletSummary(orgId: string, workspaceId: string) {
+export function managedWalletSummary(
+  orgId: string,
+  workspaceId: string,
+  options: WalletViewOptions = {},
+) {
   findWorkspace(orgId, workspaceId);
-  const row = binding(orgId, workspaceId),
-    asset = walletAsset(row?.selected_asset_id ?? "base:usdc");
+  const selection = binding(orgId, workspaceId);
+  const asset = walletAsset(options.assetId ?? selection?.selected_asset_id ?? "base:usdc");
+  const account = options.sourceAccount ?? asset.symbol;
+  const row = binding(orgId, workspaceId, account);
   const balance = row?.address
     ? (db()
         .prepare(
@@ -181,6 +203,7 @@ export function managedWalletSummary(orgId: string, workspaceId: string) {
     receiveEnabled: !!row?.verified_at,
     withdrawalEnabled: !!row?.verified_at,
     spendingEnabled: false,
+    accountSymbol: account,
     selectedAssetId: asset.id,
     asset,
     assets: WALLET_ASSETS,
@@ -199,8 +222,9 @@ export async function provisionManagedWallet(
   workspaceId: string,
   userId: string,
   provider?: ManagedProvider,
+  options: WalletViewOptions = {},
 ) {
-  owned(orgId, workspaceId, userId);
+  assertManagedWalletOwner(orgId, workspaceId, userId);
   const { appId } = config(),
     appHash = hash(appId);
   const old = db()
@@ -228,8 +252,21 @@ export async function provisionManagedWallet(
       old?.address ?? null,
       new Date().toISOString(),
     );
-  const row = binding(orgId, workspaceId)!;
-  if (row.verified_at) return managedWalletSummary(orgId, workspaceId);
+  const asset = walletAsset(
+    options.assetId ?? binding(orgId, workspaceId)?.selected_asset_id ?? "base:usdc",
+  );
+  const symbol = options.sourceAccount ?? asset.symbol;
+  if (symbol !== "USDC") {
+    const external = `abi_asset_${hash(`${appId}|${orgId}|${workspaceId}|${symbol}`).slice(0, 48)}`;
+    db()
+      .prepare(
+        "INSERT OR IGNORE INTO abi_managed_asset_wallets(workspace_id,org_id,symbol,app_hash,external_id,request_key,created_at) VALUES (?,?,?,?,?,?,?)",
+      )
+      .run(workspaceId, orgId, symbol, appHash, external, randomUUID(), new Date().toISOString());
+  }
+  const storage = walletStorage(workspaceId, symbol);
+  const row = binding(orgId, workspaceId, symbol)!;
+  if (row.verified_at) return managedWalletSummary(orgId, workspaceId, options);
   const p = provider ?? managedProvider();
   try {
     let raw = await p.get(row.external_id);
@@ -241,7 +278,7 @@ export async function provisionManagedWallet(
           409,
         );
       try {
-        raw = await p.create(row.external_id, row.request_key);
+        raw = await p.create(row.external_id, row.request_key, symbol);
       } catch (e) {
         raw = await p.get(row.external_id);
         if (raw === null) throw e;
@@ -259,11 +296,25 @@ export async function provisionManagedWallet(
         "The provider wallet does not match this workspace. No address was replaced.",
         409,
       );
-    const saved = db()
-      .prepare(
-        "UPDATE abi_managed_wallets SET wallet_id=?,address=? WHERE workspace_id=? AND (wallet_id IS NULL OR (wallet_id=? AND lower(address)=lower(?)))",
+    const saved = db().transaction(() => {
+      // Unique constraints cover each table; also prohibit reuse across the primary and asset tables.
+      const other = symbol === "USDC" ? "abi_managed_asset_wallets" : "abi_managed_wallets";
+      if (
+        db()
+          .prepare(`SELECT 1 FROM ${other} WHERE wallet_id=? OR lower(address)=lower(?)`)
+          .get(wallet.id, wallet.address)
       )
-      .run(wallet.id, wallet.address, workspaceId, wallet.id, wallet.address);
+        throw new ManagedWalletError(
+          "PRIVY_WALLET_MISMATCH",
+          "Each asset must have its own wallet address. No address was replaced.",
+          409,
+        );
+      return db()
+        .prepare(
+          `UPDATE ${storage.table} SET wallet_id=?,address=? WHERE ${storage.where} AND (wallet_id IS NULL OR (wallet_id=? AND lower(address)=lower(?)))`,
+        )
+        .run(wallet.id, wallet.address, ...storage.params, wallet.id, wallet.address);
+    })();
     if (!saved.changes)
       throw new ManagedWalletError(
         "PRIVY_WALLET_MISMATCH",
@@ -278,9 +329,9 @@ export async function provisionManagedWallet(
         "Wallet control could not be verified. Retry this workspace.",
       );
     db()
-      .prepare("UPDATE abi_managed_wallets SET verified_at=? WHERE workspace_id=? AND wallet_id=?")
-      .run(new Date().toISOString(), workspaceId, wallet.id);
-    return managedWalletSummary(orgId, workspaceId);
+      .prepare(`UPDATE ${storage.table} SET verified_at=? WHERE ${storage.where} AND wallet_id=?`)
+      .run(new Date().toISOString(), ...storage.params, wallet.id);
+    return managedWalletSummary(orgId, workspaceId, options);
   } catch (e) {
     if (e instanceof ManagedWalletError) throw e;
     if (e instanceof APIError && (e.status === 401 || e.status === 403))
@@ -304,9 +355,10 @@ export async function managedWalletStatus(
   workspaceId: string,
   userId: string,
   reader = readAssetBalance,
+  options: WalletViewOptions = {},
 ) {
-  owned(orgId, workspaceId, userId);
-  const view = managedWalletSummary(orgId, workspaceId);
+  assertManagedWalletOwner(orgId, workspaceId, userId);
+  const view = managedWalletSummary(orgId, workspaceId, options);
   if (!view.address) return view;
   if (
     view.balance.status === "available" &&
@@ -328,7 +380,7 @@ export async function managedWalletStatus(
         balance.block,
         balance.gasEth,
       );
-    return managedWalletSummary(orgId, workspaceId);
+    return managedWalletSummary(orgId, workspaceId, options);
   } catch {
     db()
       .prepare(
@@ -348,7 +400,7 @@ export function selectManagedAsset(
   userId: string,
   assetId: string,
 ) {
-  owned(orgId, workspaceId, userId);
+  assertManagedWalletOwner(orgId, workspaceId, userId);
   walletAsset(assetId);
   if (!binding(orgId, workspaceId))
     throw new ManagedWalletError("WALLET_NOT_READY", "Set up this workspace wallet first.", 409);
@@ -362,9 +414,14 @@ export function readyManagedWallet(
   workspaceId: string,
   userId: string,
   requireActive = true,
+  assetId?: string,
+  sourceAccount?: WalletAccount,
 ) {
-  owned(orgId, workspaceId, userId);
-  const row = binding(orgId, workspaceId);
+  assertManagedWalletOwner(orgId, workspaceId, userId);
+  const asset = walletAsset(
+    assetId ?? binding(orgId, workspaceId)?.selected_asset_id ?? "base:usdc",
+  );
+  const row = binding(orgId, workspaceId, sourceAccount ?? asset.symbol);
   if (!row?.verified_at || !row.address || !row.wallet_id)
     throw new ManagedWalletError("WALLET_NOT_READY", "Set up and verify this wallet first.", 409);
   if (requireActive && findWorkspace(orgId, workspaceId).card_status !== "active")
@@ -419,4 +476,23 @@ export async function backfillManagedWallets(provisioner = provisionManagedWalle
       .run(code, row.id);
     console.warn(JSON.stringify({ type: "abi.wallet.provision", status: "pending", code }));
   }
+}
+
+/** Resolve persisted reviews, including ETH formerly held at the original USDC address. */
+export function managedSendAccount(
+  orgId: string,
+  workspaceId: string,
+  userId: string,
+  walletId: string,
+): WalletAccount {
+  assertManagedWalletOwner(orgId, workspaceId, userId);
+  for (const symbol of ["USDC", "ETH"] as const) {
+    const row = binding(orgId, workspaceId, symbol);
+    if (row?.wallet_id === walletId) return symbol;
+  }
+  throw new ManagedWalletError(
+    "WALLET_MISMATCH",
+    "The sending wallet does not belong to this workspace.",
+    409,
+  );
 }

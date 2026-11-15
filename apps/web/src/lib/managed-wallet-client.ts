@@ -11,6 +11,7 @@ export const managedWalletSchema = z.object({
   receiveEnabled: z.boolean(),
   withdrawalEnabled: z.boolean(),
   spendingEnabled: z.literal(false),
+  accountSymbol: z.enum(["USDC", "ETH"]).optional(),
   selectedAssetId: z.string(),
   asset: z.object({
     id: z.string(),
@@ -42,4 +43,24 @@ export type ManagedWallet = z.infer<typeof managedWalletSchema>;
 export const walletChanged = () => window.dispatchEvent(new Event("abi:wallet-changed"));
 export function walletAmount(wallet: ManagedWallet | undefined) {
   return wallet?.balance.status === "available" ? wallet.balance.amount : "—";
+}
+
+/** Older deployed APIs omit accountSymbol. Never invent a separate asset binding. */
+export function parseManagedWallet(value: unknown): ManagedWallet {
+  const result = managedWalletSchema.safeParse(value);
+  if (!result.success)
+    throw new Error("Wallet details could not be loaded. Please refresh and try again.");
+  return result.data;
+}
+export function managedWalletReady(
+  wallet: ManagedWallet | null | undefined,
+  recovery?: { accountSymbol: "USDC" | "ETH"; assetId: string },
+): boolean {
+  if (!wallet || wallet.status !== "ready" || !wallet.receiveEnabled || !wallet.address)
+    return false;
+  if (recovery)
+    return (
+      wallet.accountSymbol === recovery.accountSymbol && wallet.selectedAssetId === recovery.assetId
+    );
+  return !wallet.accountSymbol || wallet.accountSymbol === wallet.asset.symbol;
 }

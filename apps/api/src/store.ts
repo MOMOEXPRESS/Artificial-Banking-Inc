@@ -8226,6 +8226,7 @@ export const store = {
         "abi_external_sessions",
         "abi_managed_sends",
         "abi_managed_balances",
+        "abi_managed_asset_wallets",
         "abi_managed_wallets",
         "abi_wallet_setup_attempts",
         "abi_customer_wallets",
