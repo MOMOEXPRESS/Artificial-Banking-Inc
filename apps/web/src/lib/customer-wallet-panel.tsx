@@ -454,7 +454,7 @@ export function CustomerWalletPanel({
                           </dd>
                         </div>
                         <div>
-                          <dt>Maximum network fee</dt>
+                          <dt>Execution fee estimate</dt>
                           <dd>{draft.maxNetworkFeeEth} ETH</dd>
                         </div>
                         <div>
@@ -462,6 +462,12 @@ export function CustomerWalletPanel({
                           <dd>{draft.state}</dd>
                         </div>
                       </dl>
+                      {draft.network.startsWith("Base") && (
+                        <p className="abi-workspace-note">
+                          Base also charges an L1 data fee, which is not included in this
+                          execution-fee estimate. Keep extra ETH for gas.
+                        </p>
+                      )}
                       {draft.state === "prepared" && factor && (
                         <label>
                           Authenticator or recovery code
