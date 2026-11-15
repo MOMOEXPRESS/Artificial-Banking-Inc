@@ -19,11 +19,20 @@ describe("applyWorkerEnv", () => {
     process.env.SMTP_URL = "smtp://leak";
     applyWorkerEnv({
       ABI_GIT_COMMIT: "a".repeat(40),
-      TURNSTILE_ADDITIONAL_HOSTNAMES: "approved.example.invalid",
     } as unknown as Env);
     expect(process.env.ABI_GIT_COMMIT).toBe("a".repeat(40));
     expect(process.env.SMTP_URL).toBeUndefined();
-    expect(process.env.TURNSTILE_ADDITIONAL_HOSTNAMES).toBe("approved.example.invalid");
+  });
+
+  it("does not forward inactive CAPTCHA credentials", () => {
+    process.env.TURNSTILE_SECRET = "inactive-fixture";
+    process.env.TURNSTILE_SITEKEY = "inactive-fixture";
+    applyWorkerEnv({
+      TURNSTILE_SECRET: "inactive-fixture",
+      TURNSTILE_SITEKEY: "inactive-fixture",
+    } as unknown as Env);
+    expect(process.env.TURNSTILE_SECRET).toBeUndefined();
+    expect(process.env.TURNSTILE_SITEKEY).toBeUndefined();
   });
 
   it("does not forward Telegram bindings", () => {
