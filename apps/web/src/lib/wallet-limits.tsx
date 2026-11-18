@@ -38,7 +38,10 @@ export function WalletSpendingLimits(props: Props) {
       <div className="minimal-section-heading">
         <div>
           <h2>Spending limits</h2>
-          <p>One shared limit per wallet. All of its agents use the same cap.</p>
+          <p>
+            Agent limits · Base Sepolia. Workspace caps apply to all connected agents together.
+            Mainnet owner transfers use separate treasury withdrawal controls.
+          </p>
         </div>
         <Button
           disabled={props.readOnly}
@@ -76,6 +79,15 @@ export function WalletSpendingLimits(props: Props) {
                   : `${w.card.services.length} enabled ${w.card.services.length === 1 ? "tool" : "tools"}`}{" "}
                 · {w.card.spentUsdc} spent · {w.card.pendingUsdc} reserved
               </small>
+              {Object.entries(w.card.periodLimits ?? {}).map(
+                ([period, cap]) =>
+                  cap && (
+                    <small key={period}>
+                      {period}: {cap.spentUsdc} spent + {cap.pendingUsdc} reserved / {cap.limitUsdc}{" "}
+                      USDC
+                    </small>
+                  ),
+              )}
             </div>
             <button
               disabled={props.readOnly}
@@ -131,6 +143,14 @@ export function WalletLimitEditor({
   const [walletId, setWalletId] = useState(initial.id),
     [amount, setAmount] = useState(initial.card.limitUsdc ?? "0"),
     [period, setPeriod] = useState(initial.card.period),
+    [periodLimits, setPeriodLimits] = useState<Record<string, string>>(
+      Object.fromEntries(
+        ["day", "week", "month"].map((p) => [
+          p,
+          initial.card.periodLimits?.[p as "day"]?.limitUsdc ?? "",
+        ]),
+      ),
+    ),
     [recurring, setRecurring] = useState(initial.card.allowRecurring),
     [allowed, setAllowed] = useState<string[] | null>(initial.card.services ?? null),
     [busy, setBusy] = useState(false),
@@ -141,6 +161,14 @@ export function WalletLimitEditor({
     setWalletId(id);
     setAmount(w.card.limitUsdc ?? "0");
     setPeriod(w.card.period);
+    setPeriodLimits(
+      Object.fromEntries(
+        ["day", "week", "month"].map((p) => [
+          p,
+          w.card.periodLimits?.[p as "day"]?.limitUsdc ?? "",
+        ]),
+      ),
+    );
     setRecurring(w.card.allowRecurring);
     setAllowed(w.card.services ?? null);
     setError("");
@@ -157,6 +185,9 @@ export function WalletLimitEditor({
             limitUsdc: amount,
             period,
             allowRecurring: recurring,
+            periodLimits: Object.fromEntries(
+              Object.entries(periodLimits).map(([p, v]) => [p, v.trim() || null]),
+            ),
             services: allowed,
           }),
         }),
@@ -225,6 +256,27 @@ export function WalletLimitEditor({
           </Select>
         </label>
       </div>
+      <fieldset className="abi-period-limits">
+        <legend>Additional shared limits · USDC</legend>
+        <p className="minimal-note">
+          All configured limits apply together. Leave a field empty to remove that additional cap.
+          Zero prevents spending.
+        </p>
+        <div className="abi-form-columns">
+          {(["day", "week", "month"] as const).map((p) => (
+            <label key={p}>
+              {p === "day" ? "Daily" : p === "week" ? "Weekly" : "Monthly"}
+              <input
+                aria-label={`${p} shared limit`}
+                inputMode="decimal"
+                pattern="[0-9]+(\.[0-9]{1,6})?"
+                value={periodLimits[p]}
+                onChange={(e) => setPeriodLimits({ ...periodLimits, [p]: e.target.value })}
+              />
+            </label>
+          ))}
+        </div>
+      </fieldset>
       <div className="abi-form-field">
         <span>Services</span>
         <ServiceChooser value={allowed} onChange={setAllowed} gFetch={gFetch} />
@@ -240,7 +292,8 @@ export function WalletLimitEditor({
         />
       </label>
       <p className="minimal-note">
-        Periods reset in UTC. Changing a total limit preserves its original start date.
+        Calendar periods reset in UTC; weeks start Monday. Pending authorizations continue to
+        reserve capacity across resets. Changing a total limit preserves its original start date.
         Connected-service data changes are not supported.
       </p>
       {error && <p role="alert">{error}</p>}

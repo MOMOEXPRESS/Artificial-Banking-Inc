@@ -1,0 +1,190 @@
+/* Extend ABI's existing chrome; working content remains opaque. */
+.studio-workspace-nav {
+  border-radius: 999px !important;
+  background: rgb(250 250 250 / 76%) !important;
+  backdrop-filter: blur(24px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(150%) !important;
+}
+.studio-workspace-nav .studio-workspace-links button,
+.minimal-dock button {
+  border-radius: 999px !important;
+}
+.minimal-dock {
+  border-radius: 999px !important;
+  background: rgb(250 250 250 / 88%) !important;
+  backdrop-filter: blur(24px) saturate(150%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(150%) !important;
+}
+.reference-billing-tabs {
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  gap: 16px;
+  scrollbar-width: thin;
+}
+.reference-billing-tabs button {
+  flex-shrink: 0;
+  min-height: 44px;
+  white-space: nowrap;
+}
+.abi-period-limits {
+  border: 0;
+  padding: 0;
+  margin: 12px 0;
+  min-width: 0;
+}
+.abi-period-limits legend {
+  font-size: 14px;
+  font-weight: 500;
+}
+.abi-workspace-team label,
+.abi-account-treasury label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+.abi-team-rows form {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(160px, 1fr) repeat(2, minmax(120px, 1fr));
+  align-items: end;
+  padding: 24px 0;
+  border-bottom: 1px solid #e5e5e5;
+}
+.abi-team-rows small,
+.abi-vendor-rows small,
+.abi-financial-activity small {
+  display: block;
+  color: #525252;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.abi-team-rows form .minimal-checkbox {
+  display: flex;
+  align-items: center;
+}
+.abi-team-rows input,
+.abi-team-rows select,
+.abi-treasury-allocation input,
+.abi-treasury-allocation select {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+}
+.abi-treasury-allocation {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: end;
+  gap: 16px;
+  margin: 16px 0;
+}
+.abi-account-treasury details {
+  margin-top: 20px;
+}
+.abi-account-treasury summary,
+.abi-financial-activity summary {
+  cursor: pointer;
+  min-height: 44px;
+  padding-block: 12px;
+}
+.abi-vendor-rows article {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid #e5e5e5;
+}
+.abi-vendor-rows article > div {
+  margin-right: auto;
+}
+.abi-financial-activity article {
+  padding: 20px 0;
+  border-bottom: 1px solid #e5e5e5;
+}
+.abi-financial-activity details p {
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.abi-financial-activity code {
+  overflow-wrap: anywhere;
+}
+.abi-wallet-limits .abi-key-list small {
+  display: block;
+}
+@media (max-width: 640px) {
+  .abi-team-rows form,
+  .abi-treasury-allocation {
+    grid-template-columns: 1fr;
+  }
+  .abi-vendor-rows article {
+    flex-wrap: wrap;
+  }
+  .abi-vendor-rows article > div {
+    flex-basis: 100%;
+  }
+  .minimal-dock {
+    padding: 6px !important;
+  }
+  .abi-preferred-vendors .minimal-section-heading,
+  .abi-workspace-team .minimal-section-heading,
+  .abi-account-treasury .minimal-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 16px;
+  }
+}
+.abi-account-allocations {
+  margin-top: 28px;
+}
+.abi-pool-balances {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  padding: 20px 0;
+}
+.abi-pool-balances dt {
+  color: #525252;
+  font-size: 13px;
+}
+.abi-pool-balances dd {
+  margin: 8px 0 0;
+  font-size: 20px;
+}
+.studio-console .main,
+.studio-console .view,
+.studio-console .minimal-page {
+  min-width: 0;
+}
+.studio-console .view,
+.studio-console .minimal-page {
+  width: 100%;
+}
+.studio-console .reference-billing-tabs {
+  width: 100%;
+  max-width: 100%;
+}
+.reference-dialog.abi-wallet-action-dialog {
+  background: #fafafa !important;
+}
+.abi-period-limits legend {
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.abi-period-limits > p.minimal-note {
+  margin: 0 0 18px;
+  line-height: 1.55;
+}
+.abi-period-limits label {
+  line-height: 1.5;
+}
+@media (max-width: 640px) {
+  .studio-console .view {
+    padding-bottom: calc(120px + env(safe-area-inset-bottom));
+  }
+  .abi-workspace-team p,
+  .abi-account-treasury p {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+}

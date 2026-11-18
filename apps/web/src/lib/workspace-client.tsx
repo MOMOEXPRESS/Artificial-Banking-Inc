@@ -9,6 +9,7 @@ export type Workspace = {
   isDefault: boolean;
   sellerEnabled: boolean;
   role?: string;
+  accountAllocations?: { assetId: string; amountUsdc: string }[];
   balance: { availableUsdc: string; heldUsdc: string };
   card: {
     id: string;
@@ -21,6 +22,12 @@ export type Workspace = {
     remainingUsdc: string;
     inheritedLimits: boolean;
     services?: string[] | null;
+    periodLimits?: Partial<
+      Record<
+        "day" | "week" | "month",
+        { limitUsdc: string; spentUsdc: string; pendingUsdc: string; remainingUsdc: string }
+      >
+    >;
   };
   connections: {
     id: string;

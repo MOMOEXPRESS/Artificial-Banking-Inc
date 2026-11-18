@@ -120,7 +120,7 @@ function client(chain = 8453) {
     readContract: async () => 100_000_000n,
     estimateFeesPerGas: async () => ({ maxFeePerGas: 2n, maxPriorityFeePerGas: 1n }),
     estimateGas: async () => 21000n,
-  } as unknown as Parameters<typeof prepare>[4];
+  } as unknown as NonNullable<Parameters<typeof prepare>[4]>;
 }
 test("three password-account workspaces have distinct idempotent app-controlled wallets without social identities", async () => {
   const f = fixture(),
@@ -330,7 +330,7 @@ test("a failed refresh invalidates a cached balance across Overview and Wallet",
   assert.equal(summary(f.org.id, String(f.w.id)).balance.status, "unavailable");
 });
 
-test("background rollout provisions verified customer workspaces only, without creating accounts", async () => {
+test("background rollout provisions only the account treasury by default, without creating accounts", async () => {
   const { backfillManagedWallets } = await import("./managed-wallets.js");
   db().prepare("UPDATE users SET email_verified_at=NULL").run();
   const f = fixture(),
@@ -343,7 +343,7 @@ test("background rollout provisions verified customer workspaces only, without c
   const count = (db().prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n;
   for (let n = 0; n < 3; n++)
     await backfillManagedWallets((org, w, user) => provision(org, w, user, p.p));
-  assert.equal(p.creates, 3);
+  assert.equal(p.creates, 1);
   assert.equal((db().prepare("SELECT COUNT(*) AS n FROM users").get() as { n: number }).n, count);
 });
 
@@ -512,4 +512,207 @@ test("balance reads and caches are bound to the selected asset address, includin
   });
   assert.equal(recoveryAgain.balance.amount, "20");
   assert.equal(summary(f.org.id, id).selectedAssetId, "base:usdc");
+});
+
+test("account allocations reserve confirmed USDC once, preserve addresses and prevent treasury double spending", async () => {
+  const { allocateAccountTreasury, accountTreasuryView, assertTreasurySendCapacity } =
+    await import("./account-treasury.js");
+  const { setCard } = await import("./workspaces.js");
+  const f = fixture(),
+    p = provider(),
+    w = createWorkspace(f.org.id, "Allocated", crypto.randomUUID());
+  await provision(f.org.id, String(f.w.id), f.user.id, p.p);
+  const address = summary(f.org.id, String(f.w.id)).address;
+  const key = crypto.randomUUID(),
+    input = {
+      workspaceId: w.id,
+      assetId: "base:usdc",
+      amountUsdc: "60",
+      direction: "allocate" as const,
+      idempotencyKey: key,
+    };
+  await allocateAccountTreasury(f.org.id, f.user.id, input, client());
+  await allocateAccountTreasury(f.org.id, f.user.id, input, client());
+  let view = await accountTreasuryView(f.org.id, f.user.id, "base:usdc", client());
+  assert.equal(view.allocatedUsdc, "60");
+  assert.equal(view.unallocatedUsdc, "40");
+  assert.equal(summary(f.org.id, String(f.w.id)).address, address);
+  assert.equal(p.sends, 0);
+  assert.throws(
+    () =>
+      assertTreasurySendCapacity(f.org.id, String(f.w.id), "base:usdc", 41_000_000n, 100_000_000n),
+    /allocated/,
+  );
+  await assert.rejects(
+    () =>
+      allocateAccountTreasury(
+        f.org.id,
+        f.user.id,
+        { ...input, amountUsdc: "41", idempotencyKey: crypto.randomUUID() },
+        client(),
+      ),
+    /Not enough/,
+  );
+  await assert.rejects(
+    () => allocateAccountTreasury(f.org.id, f.user.id, { ...input, amountUsdc: "61" }, client()),
+    /different details/,
+  );
+  await allocateAccountTreasury(
+    f.org.id,
+    f.user.id,
+    { ...input, direction: "return", amountUsdc: "10", idempotencyKey: crypto.randomUUID() },
+    client(),
+  );
+  view = await accountTreasuryView(f.org.id, f.user.id, "base:usdc", client());
+  assert.equal(view.allocatedUsdc, "50");
+  assert.equal(view.unallocatedUsdc, "50");
+  const lower = { ...client(), readContract: async () => 49_000_000n };
+  assert.equal(
+    (await accountTreasuryView(f.org.id, f.user.id, "base:usdc", lower)).reconciliationRequired,
+    true,
+  );
+  await assert.rejects(
+    () =>
+      allocateAccountTreasury(
+        f.org.id,
+        f.user.id,
+        { ...input, amountUsdc: "1", idempotencyKey: crypto.randomUUID() },
+        lower,
+      ),
+    /reconciliation/,
+  );
+  setCard(f.org.id, w.id, { status: "frozen" });
+  await assert.rejects(
+    () =>
+      allocateAccountTreasury(
+        f.org.id,
+        f.user.id,
+        { ...input, amountUsdc: "1", idempotencyKey: crypto.randomUUID() },
+        client(),
+      ),
+    /Unfreeze/,
+  );
+});
+test("treasury allocation rejects pending transfers and uses the lower of confirmed and latest balances", async () => {
+  const { allocateAccountTreasury, accountTreasuryView } = await import("./account-treasury.js");
+  const f = fixture(),
+    p = provider(),
+    w = createWorkspace(f.org.id, "Pending", crypto.randomUUID());
+  await provision(f.org.id, String(f.w.id), f.user.id, p.p);
+  const rpc = {
+    ...client(),
+    readContract: async (a: { blockNumber?: bigint }) =>
+      a.blockNumber === 120n ? 100_000_000n : 20_000_000n,
+  };
+  assert.equal(
+    (await accountTreasuryView(f.org.id, f.user.id, "base:usdc", rpc)).unallocatedUsdc,
+    "20",
+  );
+  await prepare(
+    f.org.id,
+    String(f.w.id),
+    f.user.id,
+    { assetId: "base:usdc", amount: "1", recipient: "0x1111111111111111111111111111111111111111" },
+    client(),
+  );
+  await assert.rejects(
+    () =>
+      allocateAccountTreasury(
+        f.org.id,
+        f.user.id,
+        {
+          workspaceId: w.id,
+          assetId: "base:usdc",
+          amountUsdc: "1",
+          direction: "allocate",
+          idempotencyKey: crypto.randomUUID(),
+        },
+        client(),
+      ),
+    /prepared transfer/,
+  );
+});
+
+test("parallel account allocations cannot over-assign the same chain balance and duplicate logs never duplicate history", async () => {
+  const { allocateAccountTreasury, accountTreasuryView } = await import("./account-treasury.js");
+  const f = fixture(),
+    p = provider(),
+    a = createWorkspace(f.org.id, "A", crypto.randomUUID()),
+    b = createWorkspace(f.org.id, "B", crypto.randomUUID());
+  await provision(f.org.id, String(f.w.id), f.user.id, p.p);
+  const address = summary(f.org.id, String(f.w.id)).address!;
+  const rpc = {
+    ...client(),
+    getLogs: async () => [
+      {
+        transactionHash: `0x${"a".repeat(64)}` as `0x${string}`,
+        logIndex: 0,
+        blockNumber: 100n,
+        args: {
+          from: "0x1111111111111111111111111111111111111111" as const,
+          to: address as `0x${string}`,
+          value: 100_000_000n,
+        },
+      },
+    ],
+  };
+  const attempts = await Promise.allSettled(
+    [a, b].map((w) =>
+      allocateAccountTreasury(
+        f.org.id,
+        f.user.id,
+        {
+          workspaceId: w.id,
+          assetId: "base:usdc",
+          amountUsdc: "60",
+          direction: "allocate",
+          idempotencyKey: crypto.randomUUID(),
+        },
+        rpc,
+      ),
+    ),
+  );
+  assert.equal(attempts.filter((r) => r.status === "fulfilled").length, 1);
+  let view = await accountTreasuryView(f.org.id, f.user.id, "base:usdc", rpc);
+  assert.equal(view.allocatedUsdc, "60");
+  assert.equal(view.activity.length, 1);
+  assert.equal(view.activity[0]?.direction, "deposit");
+  view = await accountTreasuryView(f.org.id, f.user.id, "base:usdc", rpc);
+  assert.equal(view.activity.length, 1);
+  assert.equal(view.confirmedUsdc, "100");
+});
+test("review preparation cannot spend treasury USDC already allocated to a workspace", async () => {
+  const { allocateAccountTreasury } = await import("./account-treasury.js");
+  const f = fixture(),
+    p = provider(),
+    w = createWorkspace(f.org.id, "Protected", crypto.randomUUID());
+  await provision(f.org.id, String(f.w.id), f.user.id, p.p);
+  await allocateAccountTreasury(
+    f.org.id,
+    f.user.id,
+    {
+      workspaceId: w.id,
+      assetId: "base:usdc",
+      amountUsdc: "99",
+      direction: "allocate",
+      idempotencyKey: crypto.randomUUID(),
+    },
+    client(),
+  );
+  await assert.rejects(
+    () =>
+      prepare(
+        f.org.id,
+        String(f.w.id),
+        f.user.id,
+        {
+          assetId: "base:usdc",
+          amount: "2",
+          recipient: "0x1111111111111111111111111111111111111111",
+        },
+        client(),
+      ),
+    /allocated/,
+  );
+  assert.equal(p.sends, 0);
 });

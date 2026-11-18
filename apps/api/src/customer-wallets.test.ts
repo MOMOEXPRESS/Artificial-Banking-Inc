@@ -304,14 +304,18 @@ test("HTTP managed-wallet routes accept ABI sessions, reject API keys/CSRF and r
     assert.equal(created.status, 201);
     const body = (await created.json()) as { workspace: { id: string; name: string } };
     assert.equal(body.workspace.name, "Automatic wallet");
-    assert.ok(providerCalls > 0);
+    assert.equal(
+      providerCalls,
+      0,
+      "new workspaces use the account treasury until a separate wallet is explicitly requested",
+    );
     const retry = await original(`${origin}/v1/guardian/workspaces/${body.workspace.id}/wallet`, {
       method: "POST",
       headers,
       body: "{}",
     });
     assert.equal(retry.status, 503);
-    assert.ok(providerCalls > 0);
+    assert.ok(providerCalls > 0, "explicit separate-wallet setup contacts the provider");
     const row = db()
       .prepare("SELECT org_id,wallet_id FROM abi_managed_wallets WHERE workspace_id=?")
       .get(body.workspace.id) as { org_id: string; wallet_id: null };

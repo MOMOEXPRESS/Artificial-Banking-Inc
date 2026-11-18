@@ -445,3 +445,77 @@ test("external-only sellers require enrolled MFA for payout changes and reject c
     403,
   );
 });
+
+test("workspace governance and saved vendor writes require the account owner and preserve workspace isolation", async () => {
+  const owner = identity(),
+    viewer = identity("viewer", owner.org.id),
+    approver = identity("approver", owner.org.id);
+  const w = createWorkspace(owner.org.id, "Shared controls", crypto.randomUUID());
+  const path = `/v1/guardian/workspaces/${w.id}`;
+  assert.equal((await request(`${path}/governance`, viewer.headers)).status, 403);
+  assert.equal(
+    (await request(`${path}/governance`, approver.headers, { approvalQuorum: 1 }, "PUT")).status,
+    403,
+  );
+  assert.equal((await request(`${path}/governance`, owner.headers)).status, 200);
+  assert.equal(
+    (
+      await request(`${path}/members`, owner.headers, {
+        userId: approver.user.id,
+        enabled: true,
+        role: "approver",
+        maxApproveUsdc: "25",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await request(`${path}/governance`, owner.headers, { approvalQuorum: 2 }, "PUT")).status,
+    200,
+  );
+  assert.equal(
+    (await request(`${path}/members`, owner.headers, { userId: approver.user.id, enabled: false }))
+      .status,
+    400,
+  );
+  assert.equal(
+    (
+      await request(
+        `${path}/card`,
+        owner.headers,
+        { periodLimits: { day: "10", week: "30", month: "50" } },
+        "PATCH",
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await request(
+        `${path}/saved-vendors`,
+        owner.headers,
+        { id: "vendor_example", name: "Example vendor", category: "Software", saved: true },
+        "PUT",
+      )
+    ).status,
+    200,
+  );
+  const cross = identity();
+  assert.equal((await request(`${path}/saved-vendors`, cross.headers)).status, 404);
+  assert.equal(
+    (await request(`/v1/guardian/account/treasury?assetId=base:usdc`, viewer.headers)).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request(`/v1/guardian/account/treasury/allocations`, approver.headers, {
+        assetId: "base:usdc",
+        workspaceId: w.id,
+        amountUsdc: "1",
+        direction: "allocate",
+        idempotencyKey: crypto.randomUUID(),
+      })
+    ).status,
+    403,
+  );
+});

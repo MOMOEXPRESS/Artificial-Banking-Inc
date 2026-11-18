@@ -31,6 +31,7 @@ export type Policy = {
   hitlCategories: string[];
   quietHours?: { startHour: number; endHour: number; action: "review" | "deny" } | null;
   approvalQuorum?: number;
+  quietHoursTimezone?: string;
   /** Per-category ceilings (P6-T3), keyed by lowercase category. */
   categoryCaps?: Record<
     string,
@@ -562,7 +563,8 @@ export function PolicyView({
                   Total one agent can spend in any rolling 24 hours. Must be at least the ceiling.
                 </p>
                 <p className="faint" data-testid="monthly-derived">
-                  Monthly limit: {fmtUsd(monthlyFromDaily(daily))} (30 × daily, set automatically)
+                  Rolling 30-day agent limit: {fmtUsd(monthlyFromDaily(daily))} (30 × daily). Shared
+                  workspace calendar caps apply separately.
                 </p>
               </div>
             </div>
@@ -780,7 +782,7 @@ export function PolicyView({
             {quietOn && (
               <div className="row" style={{ gap: 14, flexWrap: "wrap", marginTop: 14 }}>
                 <div className="field" style={{ margin: 0 }}>
-                  <label>From (UTC)</label>
+                  <label>From ({policy.quietHoursTimezone ?? "UTC"})</label>
                   <select
                     style={{ width: 110 }}
                     value={quiet.startHour}
@@ -797,7 +799,7 @@ export function PolicyView({
                   </select>
                 </div>
                 <div className="field" style={{ margin: 0 }}>
-                  <label>Until (UTC)</label>
+                  <label>Until ({policy.quietHoursTimezone ?? "UTC"})</label>
                   <select
                     style={{ width: 110 }}
                     value={quiet.endHour}

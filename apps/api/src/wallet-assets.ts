@@ -1,5 +1,5 @@
 /** Supported networks are explicit: equal EVM addresses do not imply equal balances. */
-import { createPublicClient, http, formatUnits, type Address, type Hex } from "viem";
+import { createPublicClient, http, formatUnits, type Address, type Hex, parseAbiItem } from "viem";
 import { base, mainnet, baseSepolia } from "viem/chains";
 export const WALLET_ASSETS = [
   {
@@ -63,7 +63,24 @@ export function walletAsset(id: string): WalletAsset {
   if (!asset) throw new Error("Choose a supported currency and network.");
   return asset;
 }
+export const tokenTransferEvent = parseAbiItem(
+  "event Transfer(address indexed from, address indexed to, uint256 value)",
+);
 export interface WalletChainClient {
+  getLogs?(args: {
+    address: Address;
+    event: typeof tokenTransferEvent;
+    args: { from?: Address; to?: Address };
+    fromBlock: bigint;
+    toBlock: bigint;
+  }): Promise<
+    {
+      transactionHash: Hex | null;
+      logIndex: number | null;
+      blockNumber: bigint | null;
+      args: { from?: Address; to?: Address; value?: bigint };
+    }[]
+  >;
   getChainId(): Promise<number>;
   getBlockNumber(): Promise<bigint>;
   getBalance(args: { address: Address; blockNumber?: bigint }): Promise<bigint>;

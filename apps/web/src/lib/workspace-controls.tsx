@@ -1,4 +1,5 @@
 "use client";
+import { AccountTreasury } from "./account-treasury";
 import { useState, useEffect } from "react";
 import {
   KeyRound,
@@ -25,7 +26,7 @@ type Props = {
   workspaces: Workspace[];
   gFetch: WorkspaceFetcher;
   onChanged: () => Promise<void>;
-  onNavigate: (v: string) => void;
+  onNavigate: (v: string, tab?: string) => void;
   readOnly: boolean;
 };
 export function WorkspaceSwitcher({
@@ -192,12 +193,36 @@ export function WorkspaceFunds({
         <h1>{w.name} wallet</h1>
         <p>Funds, card controls and connections for this workspace.</p>
       </header>
+      <AccountTreasury
+        workspaces={workspaces.filter((x) => x.orgId === w.orgId)}
+        gFetch={gFetch}
+        onChanged={onChanged}
+        readOnly={readOnly}
+      />
+      {!!w.accountAllocations?.length && (
+        <section className="minimal-section">
+          <h2>Allocated from account</h2>
+          {w.accountAllocations.map((a) => (
+            <p key={a.assetId}>
+              {a.amountUsdc} USDC · {a.assetId.startsWith("base:") ? "Base" : "Ethereum"} mainnet
+            </p>
+          ))}
+          <p className="minimal-note">
+            Held at the account treasury, separately from this workspace’s existing on-chain wallet
+            and agent allowance. Mainnet agent purchases are not enabled.
+          </p>
+        </section>
+      )}
       <div className="abi-workspace-funds-grid">
         <LiquidWalletCard
           name={w.name}
-          network={w.wallet?.asset.network ?? "Wallet setup"}
+          network={w.wallet?.asset.network ?? "Account treasury"}
           currency={w.wallet?.asset.symbol ?? "USDC"}
           onOpen={() => {
+            if (!w.wallet?.receiveEnabled) {
+              onNavigate("billing", "treasury");
+              return;
+            }
             setWalletIntent("currencies");
             setCurrenciesOpen(true);
             setError("");
@@ -238,7 +263,7 @@ export function WorkspaceFunds({
               }}
             >
               <ArrowDownLeft size={16} />
-              Add money
+              Existing receiving address
             </Button>
             <Button
               variant="ghost"
@@ -282,7 +307,7 @@ export function WorkspaceFunds({
         Your Privy wallet receives funds directly on the selected network. Agent payments still use
         the separate Base Sepolia allowance; mainnet deposits do not increase that allowance.
       </p>
-      {!readOnly && (
+      {!readOnly && (w.wallet?.receiveEnabled || currenciesOpen) && (
         <CustomerWalletPanel
           key={w.id}
           workspaceId={w.id}
@@ -293,6 +318,24 @@ export function WorkspaceFunds({
           intent={walletIntent}
           workspaces={workspaces.filter((x) => x.orgId === w.orgId)}
         />
+      )}
+      {!readOnly && !w.isDefault && !w.wallet?.receiveEnabled && (
+        <details>
+          <summary>Separate on-chain wallet · optional</summary>
+          <p>
+            Most workspaces can use account allocations. Set up a separate receiving wallet only if
+            this workspace needs its own on-chain custody. Transfers to it require network fees.
+          </p>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setWalletIntent("currencies");
+              setCurrenciesOpen(true);
+            }}
+          >
+            Set up separate wallet
+          </Button>
+        </details>
       )}
       {receipt && <p role="status">{receipt}</p>}
       {error && !action && <p role="alert">{error}</p>}
@@ -341,7 +384,7 @@ export function WorkspaceFunds({
           </span>
           <DialogTitle>Card spending limits</DialogTitle>
           <DialogDescription>
-            One shared cap applies to every agent using this workspace card.
+            Every configured cap applies to every agent using this workspace card.
           </DialogDescription>
           <WalletLimitEditor
             workspace={w}

@@ -23,6 +23,12 @@ import {
 } from "../../lib/workspace-controls";
 import { WalletPicker } from "../../lib/wallet-picker";
 import { WalletConnect } from "../../lib/wallet-connect";
+import { WorkspaceVendors } from "../../lib/workspace-vendors";
+import { AccountTreasury } from "../../lib/account-treasury";
+import { WorkspaceGovernance } from "../../lib/workspace-governance";
+import { FinancialActivity } from "../../lib/financial-activity";
+import { Approvals } from "../../lib/approvals-view";
+import { InvoicesView } from "../../lib/views";
 import { WalletSpendingLimits } from "../../lib/wallet-limits";
 import { StudioNav } from "../../lib/studio-nav";
 import { MarketplaceBuyer } from "../../lib/marketplace-buyer";
@@ -1593,6 +1599,14 @@ export default function Console() {
                       view={view === "invoices" || view === "escrows" ? "payments" : view}
                     />
                   )}
+                {view === "marketplace" && workspaceState.current && (
+                  <WorkspaceVendors
+                    key={workspaceState.current.id}
+                    workspace={workspaceState.current}
+                    gFetch={gFetch}
+                    readOnly={readOnly || org?.actor?.role !== "owner"}
+                  />
+                )}
                 {view === "marketplace" && (
                   <MarketplaceBuyer
                     session={session}
@@ -1649,7 +1663,7 @@ export default function Console() {
                     gFetch={gFetch}
                     onChanged={workspaceState.load}
                     readOnly={readOnly}
-                    onNavigate={(v) => setView(v as View)}
+                    onNavigate={(v, t) => setView(v as View, t)}
                   />
                 )}
                 {view === "connect" && !workspaceState.current && (
@@ -1657,6 +1671,66 @@ export default function Console() {
                 )}
                 {view === "billing" && (
                   <MinimalBilling
+                    sections={{
+                      transactions: <FinancialActivity journals={journals} />,
+                      invoices: (
+                        <InvoicesView
+                          invoices={invoices}
+                          stats={invStats}
+                          busy={busy}
+                          act={act}
+                          gFetch={gFetch}
+                          readOnly={readOnly}
+                        />
+                      ),
+                      approvals: (
+                        <Approvals
+                          {...shared}
+                          approvals={approvals}
+                          pending={pending}
+                          agentName={agentName}
+                        />
+                      ),
+                      advanced: (
+                        <section className="minimal-section">
+                          <h2>Account policies</h2>
+                          <p>
+                            These controls apply across this account. Workspace caps and approval
+                            requirements also apply; policies do not grant extra funds. Quiet hours,
+                            allowlists, category rules and simulation use the existing enforcement
+                            engine.
+                          </p>
+                          {policy ? (
+                            <PolicyView {...shared} policy={policy} />
+                          ) : (
+                            <PolicyLoader gFetch={gFetch} onLoaded={setPolicy} />
+                          )}
+                        </section>
+                      ),
+                      ...((org?.actor?.role === "owner" || session.guardianKey) &&
+                      workspaceState.current
+                        ? {
+                            team: (
+                              <WorkspaceGovernance
+                                key={workspaceState.current.id}
+                                workspace={workspaceState.current}
+                                gFetch={gFetch}
+                                onInvite={() => setView("settings", "team")}
+                              />
+                            ),
+                            treasury: (
+                              <AccountTreasury
+                                workspaces={workspaceState.items.filter(
+                                  (w) => w.orgId === session.orgId,
+                                )}
+                                gFetch={gFetch}
+                                onChanged={workspaceState.load}
+                                readOnly={readOnly}
+                              />
+                            ),
+                          }
+                        : {}),
+                    }}
                     limitsContent={
                       workspaceState.current ? (
                         <WalletSpendingLimits

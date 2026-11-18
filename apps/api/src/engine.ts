@@ -1,3 +1,8 @@
+import {
+  workspaceVoteGate,
+  workspaceApprovalQuorum,
+  workspaceGovernance,
+} from "./workspace-governance.js";
 /**
  * Money engine: policy-gated intent execution, escrow settlement, approval
  * resolution, and background sweeps. Pure of HTTP — driven by the REST routes
@@ -1433,6 +1438,13 @@ export async function resolveApproval(
     return { kind: "refused", ruleCode: self.ruleCode, message: self.message, approval };
   }
 
+  const workspaceGate = workspaceVoteGate(
+    orgId,
+    approval.agentId,
+    guardianId,
+    approval.amountMicro,
+  );
+  if (!workspaceGate.ok) return { kind: "forbidden", message: workspaceGate.message!, approval };
   const gate = guardianApproveGate(orgId, guardianId, approve, approval);
   if (!gate.ok) {
     return { kind: "forbidden", message: gate.message, approval };
@@ -1441,7 +1453,7 @@ export async function resolveApproval(
   // Always record the vote for audit attribution — including quorum=1 solo
   // approves. Quorum only gates *proceeding*; the ledger must still know who
   // decided. A deny from anyone still kills immediately once claimed below.
-  const quorum = Math.max(1, store.getPolicyTemplate(orgId).approvalQuorum ?? 1);
+  const quorum = Math.max(1, workspaceApprovalQuorum(orgId, approval.agentId));
   store.recordVote({
     approvalId: approval.id,
     guardianId,
@@ -1450,7 +1462,17 @@ export async function resolveApproval(
     at: new Date().toISOString(),
   });
   const votes = store.listVotes(approval.id);
-  const approvals = votes.filter((v) => v.approve).length;
+  const rootOwner = store.listMembersOfOrg(orgId).find((m) => m.role === "owner")?.userId;
+  const approvals = new Set(
+    votes
+      .filter(
+        (v) =>
+          v.approve &&
+          guardianApproveGate(orgId, v.guardianId, true, approval).ok &&
+          workspaceVoteGate(orgId, approval.agentId, v.guardianId, approval.amountMicro).ok,
+      )
+      .map((v) => (v.guardianId === "owner" && rootOwner ? `user:${rootOwner}` : v.guardianId)),
+  ).size;
   if (approve && approvals < quorum) {
     return {
       kind: "pending_quorum",
@@ -1601,7 +1623,12 @@ export async function resolveApproval(
     },
     // The guardian is the human-in-the-loop, so ignore the rules that exist
     // purely to summon one. Every hard limit still applies.
-    { ...rules, hitlAboveMicro: approval.amountMicro, hitlCategories: [], quietHours: undefined },
+    {
+      ...rules,
+      hitlAboveMicro: approval.amountMicro,
+      hitlCategories: [],
+      quietHours: rules.quietHours?.action === "deny" ? rules.quietHours : undefined,
+    },
   );
   if (recheck.outcome === "deny") {
     const recheckDecision = recordDecision({
@@ -1825,7 +1852,30 @@ export function approvalBindingHash(agentId: string, orgId: string, sessionId?: 
   const sessionBudgetMicro = sessionId ? store.sessionX402BudgetMicro(sessionId) : undefined;
   return (
     BINDING_HASH_PREFIX +
-    sha256Hex(canonicalJson({ rules: effective, sessionBudgetMicro: sessionBudgetMicro ?? null }))
+    sha256Hex(
+      canonicalJson({
+        rules: effective,
+        sessionBudgetMicro: sessionBudgetMicro ?? null,
+        ...(() => {
+          const w = workspaceForAgent(agentId);
+          if (!w) return {};
+          const g = workspaceGovernance(orgId, String(w.id));
+          return g.configured
+            ? {
+                workspaceGovernance: {
+                  quorum: g.effectiveQuorum,
+                  members: g.members.map((m) => ({
+                    id: m.userId,
+                    enabled: m.enabled,
+                    role: m.role,
+                    max: m.maxApproveUsdc,
+                  })),
+                },
+              }
+            : {};
+        })(),
+      }),
+    )
   );
 }
 

@@ -24,6 +24,7 @@ import "./workspace-controls.css";
 import "./wallet-access.css";
 import "./identity.css";
 import "./marketing-navigation.css";
+import "./workspace-governance.css";
 
 // Self-hosted Inter (SIL OFL; fonts/OFL-Inter.txt) matches the supplied reference.
 const interSans = localFont({

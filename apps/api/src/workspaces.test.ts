@@ -242,3 +242,90 @@ test("scoped conversation and durable notes never cross workspaces", () => {
     assert.equal(store.listAbiMemories(org.id).length, 1),
   );
 });
+
+test("independent calendar caps apply together, include in-flight amounts, and can be removed without resetting spend", () => {
+  const { org, general } = setup();
+  setCard(org.id, general.id, {
+    limitUsdc: "100",
+    periodLimits: { day: "6", week: "8", month: "10" },
+  });
+  const a = connectAgent(org.id, general.id, {
+    name: "Caps",
+    pay: true,
+    ttlHours: 24,
+    key: crypto.randomUUID(),
+  });
+  reserveCard(a.agentId, "calendar-first", 5_000_000n, "pay");
+  assert.throws(() => reserveCard(a.agentId, "calendar-day", 2_000_000n, "pay"), /day limit/);
+  setCard(org.id, general.id, { periodLimits: { day: "100", week: "6" } });
+  assert.throws(() => reserveCard(a.agentId, "calendar-week", 2_000_000n, "pay"), /week limit/);
+  setCard(org.id, general.id, { periodLimits: { week: "100", month: "6" } });
+  assert.throws(() => reserveCard(a.agentId, "calendar-month", 2_000_000n, "pay"), /month limit/);
+  setCard(org.id, general.id, { periodLimits: { month: null } });
+  assert.equal(viewWorkspace(org.id, general.id).card.pendingUsdc, "5");
+  assert.equal(viewWorkspace(org.id, general.id).card.periodLimits.month, undefined);
+  reserveCard(a.agentId, "calendar-second", 2_000_000n, "pay");
+  assert.equal(viewWorkspace(org.id, general.id).card.pendingUsdc, "7");
+});
+test("an unresolved authorization continues reserving capacity after calendar reset", () => {
+  const { org, general } = setup();
+  setCard(org.id, general.id, { limitUsdc: "100", period: "day", periodLimits: { day: "10" } });
+  const a = connectAgent(org.id, general.id, {
+    name: "Overnight",
+    pay: true,
+    ttlHours: 24,
+    key: crypto.randomUUID(),
+  });
+  reserveCard(a.agentId, "overnight-hold", 9_000_000n, "pay");
+  commerceDatabase()
+    .prepare("UPDATE abi_card_reservations SET created_at=? WHERE intent_id=?")
+    .run("2000-01-01T00:00:00.000Z", "overnight-hold");
+  assert.equal(viewWorkspace(org.id, general.id).card.periodLimits.day?.pendingUsdc, "9");
+  assert.throws(() => reserveCard(a.agentId, "overnight-next", 2_000_000n, "pay"), /day limit/);
+  finishCardReservation("overnight-hold", "released");
+  reserveCard(a.agentId, "overnight-next", 2_000_000n, "pay");
+});
+test("workspace governance enforces sharing, approval ceilings, quorum and durable member removal", async () => {
+  const { workspaceGovernance, saveWorkspaceGovernance, setWorkspaceMember, workspaceVoteGate } =
+    await import("./workspace-governance.js");
+  const { canUseWorkspace } = await import("./workspaces.js");
+  const { org, general, travel } = setup();
+  const owner = store.createUser({
+    email: `${crypto.randomUUID()}@test.invalid`,
+    name: "Owner",
+    passwordHash: "x",
+  });
+  const approver = store.createUser({
+    email: `${crypto.randomUUID()}@test.invalid`,
+    name: "Approver",
+    passwordHash: "x",
+  });
+  if ("conflict" in owner || "conflict" in approver) throw Error("duplicate fixture");
+  store.addMembership(owner.id, org.id, "owner");
+  store.addMembership(approver.id, org.id, "approver");
+  const a = connectAgent(org.id, travel.id, {
+    name: "Governed",
+    pay: true,
+    ttlHours: 24,
+    key: crypto.randomUUID(),
+  });
+  assert.equal(workspaceVoteGate(org.id, a.agentId, `user:${approver.id}`, 1n).ok, false);
+  setWorkspaceMember(org.id, travel.id, {
+    userId: approver.id,
+    enabled: true,
+    role: "approver",
+    maxApproveUsdc: "5",
+  });
+  assert.equal(workspaceVoteGate(org.id, a.agentId, `user:${approver.id}`, 5_000_000n).ok, true);
+  assert.equal(workspaceVoteGate(org.id, a.agentId, `user:${approver.id}`, 5_000_001n).ok, false);
+  saveWorkspaceGovernance(org.id, travel.id, 2);
+  assert.throws(
+    () => setWorkspaceMember(org.id, travel.id, { userId: approver.id, enabled: false }),
+    /Lower the required/,
+  );
+  assert.equal(workspaceGovernance(org.id, travel.id).effectiveQuorum, 2);
+  saveWorkspaceGovernance(org.id, travel.id, 1);
+  setWorkspaceMember(org.id, general.id, { userId: approver.id, enabled: false });
+  ensureWorkspaces(org.id);
+  assert.equal(canUseWorkspace(org.id, general.id, "approver", approver.id), false);
+});

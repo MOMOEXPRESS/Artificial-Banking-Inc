@@ -444,7 +444,7 @@ export async function backfillManagedWallets(provisioner = provisionManagedWalle
     JOIN orgs o ON o.id=w.org_id
     LEFT JOIN abi_managed_wallets p ON p.workspace_id=w.id
     LEFT JOIN abi_wallet_setup_attempts a ON a.workspace_id=w.id
-    WHERE p.verified_at IS NULL AND o.status!='frozen' AND (a.last_attempt_at IS NULL OR a.last_attempt_at<?)
+    WHERE (w.is_default=1 OR p.workspace_id IS NOT NULL) AND p.verified_at IS NULL AND o.status!='frozen' AND (a.last_attempt_at IS NULL OR a.last_attempt_at<?)
     GROUP BY w.id ORDER BY COALESCE(a.last_attempt_at,''),w.created_at LIMIT 1`,
     )
     .get(new Date(Date.now() - 10 * 60000).toISOString()) as

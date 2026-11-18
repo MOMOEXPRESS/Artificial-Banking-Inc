@@ -23,6 +23,38 @@ CREATE TABLE IF NOT EXISTS abi_workspace_cards (
  limit_micro TEXT, period TEXT NOT NULL DEFAULT 'month' CHECK(period IN ('day','week','month','total')),
  starts_at TEXT NOT NULL, allow_recurring INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS abi_account_token_activity (
+ org_id TEXT NOT NULL REFERENCES orgs(id),asset_id TEXT NOT NULL,address TEXT NOT NULL,
+ tx_hash TEXT NOT NULL,log_index INTEGER NOT NULL,block_number TEXT NOT NULL,
+ direction TEXT NOT NULL,amount_micro TEXT NOT NULL,counterparty TEXT NOT NULL,
+ PRIMARY KEY(org_id,asset_id,address,tx_hash,log_index)
+);
+CREATE TABLE IF NOT EXISTS abi_account_workspace_funds (
+ org_id TEXT NOT NULL REFERENCES orgs(id),workspace_id TEXT NOT NULL REFERENCES abi_workspaces(id),
+ asset_id TEXT NOT NULL,amount_micro TEXT NOT NULL,PRIMARY KEY(org_id,workspace_id,asset_id)
+);
+CREATE TABLE IF NOT EXISTS abi_account_allocation_events (
+ id TEXT PRIMARY KEY,org_id TEXT NOT NULL REFERENCES orgs(id),workspace_id TEXT NOT NULL REFERENCES abi_workspaces(id),
+ asset_id TEXT NOT NULL,amount_micro TEXT NOT NULL,direction TEXT NOT NULL,create_key TEXT NOT NULL,
+ created_at TEXT NOT NULL,UNIQUE(org_id,create_key)
+);
+CREATE TABLE IF NOT EXISTS abi_card_period_limits (
+ card_id TEXT NOT NULL REFERENCES abi_workspace_cards(id), period TEXT NOT NULL CHECK(period IN ('day','week','month')),
+ limit_micro TEXT NOT NULL, PRIMARY KEY(card_id,period)
+);
+CREATE TABLE IF NOT EXISTS abi_workspace_governance (
+ workspace_id TEXT PRIMARY KEY REFERENCES abi_workspaces(id), approval_quorum INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS abi_workspace_member_controls (
+ workspace_id TEXT NOT NULL REFERENCES abi_workspaces(id), user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ role TEXT NOT NULL CHECK(role IN ('approver','viewer')), max_approve_micro TEXT,
+ PRIMARY KEY(workspace_id,user_id)
+);
+CREATE TABLE IF NOT EXISTS abi_workspace_saved_vendors (
+ workspace_id TEXT NOT NULL REFERENCES abi_workspaces(id), vendor_id TEXT NOT NULL,
+ name TEXT NOT NULL, category TEXT NOT NULL, created_at TEXT NOT NULL,
+ PRIMARY KEY(workspace_id,vendor_id)
+);
 CREATE TABLE IF NOT EXISTS abi_privy_test_wallets (
  workspace_id TEXT PRIMARY KEY REFERENCES abi_workspaces(id), org_id TEXT NOT NULL REFERENCES orgs(id),
  app_hash TEXT NOT NULL, external_id TEXT NOT NULL UNIQUE, request_key TEXT NOT NULL,

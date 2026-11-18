@@ -157,7 +157,7 @@ export function ensureWorkspaces(orgId: string) {
     }
     db()
       .prepare(
-        "INSERT OR IGNORE INTO abi_workspace_members(workspace_id,user_id) SELECT w.id,m.user_id FROM abi_workspaces w JOIN memberships m ON m.org_id=w.org_id WHERE w.org_id=? AND w.create_key IS NULL",
+        "INSERT OR IGNORE INTO abi_workspace_members(workspace_id,user_id) SELECT w.id,m.user_id FROM abi_workspaces w JOIN memberships m ON m.org_id=w.org_id WHERE w.org_id=? AND w.create_key IS NULL AND NOT EXISTS (SELECT 1 FROM abi_workspace_member_controls c WHERE c.workspace_id=w.id AND c.user_id=m.user_id)",
       )
       .run(orgId);
     return db()
@@ -194,14 +194,17 @@ function periodStart(w: Row) {
   return w.period === "total" ? String(w.starts_at) : date.toISOString();
 }
 export function cardUsage(w: Row) {
+  const start = periodStart(w);
   const rows = db()
-    .prepare("SELECT * FROM abi_card_reservations WHERE card_id=? AND created_at>=?")
-    .all(w.card_id, periodStart(w)) as Row[];
+    .prepare(
+      "SELECT * FROM abi_card_reservations WHERE card_id=? AND (created_at>=? OR state='pending')",
+    )
+    .all(w.card_id, start) as Row[];
   const oldEvents = db()
     .prepare(
       "SELECT e.amount_micro FROM pay_events e JOIN abi_workspace_connections x ON x.agent_id=e.agent_id WHERE x.workspace_id=? AND e.at_ms>=? AND e.at_ms<?",
     )
-    .all(w.id, Date.parse(periodStart(w)), Date.parse(String(w.starts_at))) as Row[];
+    .all(w.id, Date.parse(start), Date.parse(String(w.starts_at))) as Row[];
   let spent = oldEvents.reduce((sum, r) => sum + BigInt(String(r.amount_micro)), 0n),
     committed = spent,
     pending = 0n;
@@ -222,9 +225,22 @@ export function cardUsage(w: Row) {
     } else if (r.state === "settled" || escrow?.state === "released") spent += amount;
     else if (escrow?.state === "refunded" || escrow?.state === "timeout_refunded") amount = 0n;
     else pending += amount;
+    // Unresolved authorizations survive calendar resets; old settlements do not.
+    if (
+      String(r.created_at) < start &&
+      (settlement?.state === "settled" || r.state === "settled" || escrow?.state === "released")
+    ) {
+      spent -= amount;
+      amount = 0n;
+    }
     committed += amount;
   }
   return { committed, spent, pending };
+}
+export function periodLimits(w: Row) {
+  return db()
+    .prepare("SELECT period,limit_micro FROM abi_card_period_limits WHERE card_id=?")
+    .all(w.card_id) as Row[];
 }
 export function viewWorkspace(orgId: string, workspaceId: string) {
   const w = findWorkspace(orgId, workspaceId),
@@ -234,8 +250,14 @@ export function viewWorkspace(orgId: string, workspaceId: string) {
   const available = map.get(accounts.availableId)?.balanceMicro ?? 0n,
     held = map.get(accounts.heldId)?.balanceMicro ?? 0n;
   const limit = w.limit_micro === null ? null : BigInt(String(w.limit_micro));
-  const remaining =
+  let remaining =
     limit === null ? available : limit > usage.committed ? limit - usage.committed : 0n;
+  for (const row of periodLimits(w)) {
+    const used = cardUsage({ ...w, period: row.period }).committed;
+    const cap = BigInt(String(row.limit_micro));
+    const capacity = cap > used ? cap - used : 0n;
+    if (capacity < remaining) remaining = capacity;
+  }
   return {
     id: String(w.id),
     orgId,
@@ -243,6 +265,16 @@ export function viewWorkspace(orgId: string, workspaceId: string) {
     isDefault: !!w.is_default,
     sellerEnabled: !!w.seller_org_id,
     createdAt: w.created_at,
+    accountAllocations: (
+      db()
+        .prepare(
+          "SELECT asset_id,amount_micro FROM abi_account_workspace_funds WHERE org_id=? AND workspace_id=?",
+        )
+        .all(orgId, workspaceId) as Row[]
+    ).map((r) => ({
+      assetId: String(r.asset_id),
+      amountUsdc: formatMicroToUsdc(BigInt(String(r.amount_micro))),
+    })),
     balance: { availableUsdc: formatMicroToUsdc(available), heldUsdc: formatMicroToUsdc(held) },
     card: {
       id: String(w.card_id),
@@ -255,6 +287,21 @@ export function viewWorkspace(orgId: string, workspaceId: string) {
       remainingUsdc: formatMicroToUsdc(remaining < available ? remaining : available),
       inheritedLimits: limit === null,
       services: cardServices(String(w.card_id)),
+      periodLimits: Object.fromEntries(
+        periodLimits(w).map((r) => {
+          const usage = cardUsage({ ...w, period: r.period });
+          const cap = BigInt(String(r.limit_micro));
+          return [
+            String(r.period),
+            {
+              limitUsdc: formatMicroToUsdc(cap),
+              spentUsdc: formatMicroToUsdc(usage.spent),
+              pendingUsdc: formatMicroToUsdc(usage.pending),
+              remainingUsdc: formatMicroToUsdc(cap > usage.committed ? cap - usage.committed : 0n),
+            },
+          ];
+        }),
+      ),
     },
     connections: db()
       .prepare(
@@ -271,11 +318,28 @@ export function setCard(
     limitUsdc?: string;
     period?: "day" | "week" | "month" | "total";
     allowRecurring?: boolean;
+    periodLimits?: Partial<Record<"day" | "week" | "month", string | null>>;
     services?: string[] | null;
   },
 ) {
   return db().transaction(() => {
     const w = findWorkspace(orgId, workspaceId);
+    if (input.periodLimits !== undefined) {
+      for (const period of ["day", "week", "month"] as const) {
+        const value = input.periodLimits[period];
+        if (value === undefined) continue;
+        if (value === null)
+          db()
+            .prepare("DELETE FROM abi_card_period_limits WHERE card_id=? AND period=?")
+            .run(w.card_id, period);
+        else
+          db()
+            .prepare(
+              "INSERT INTO abi_card_period_limits(card_id,period,limit_micro) VALUES (?,?,?) ON CONFLICT(card_id,period) DO UPDATE SET limit_micro=excluded.limit_micro",
+            )
+            .run(w.card_id, period, parseUsdcToMicro(value).toString());
+      }
+    }
     if (input.services !== undefined) {
       const available = new Set(
         sellerStore.listDirectoryOffers().map((o) => normalizeService(o.endpointUrl)),
@@ -509,7 +573,18 @@ export function reserveCard(
         "CARD_LIMIT_EXCEEDED",
         "All agents on this card share its spending limit.",
       );
-    if (tool === "escrow_lock" && limit !== null)
+    const extraLimits = periodLimits(w);
+    for (const row of extraLimits) {
+      if (
+        cardUsage({ ...w, period: row.period }).committed + amount >
+        BigInt(String(row.limit_micro))
+      )
+        throw new WorkspaceError(
+          "CARD_PERIOD_LIMIT_EXCEEDED",
+          `This payment exceeds the shared workspace ${row.period} limit, including reserved payments.`,
+        );
+    }
+    if (tool === "escrow_lock" && (limit !== null || extraLimits.length > 0))
       throw new WorkspaceError(
         "UNSUPPORTED_CARD_ACTION",
         "Card connections currently support direct purchases; escrow requires the existing reviewed workflow.",

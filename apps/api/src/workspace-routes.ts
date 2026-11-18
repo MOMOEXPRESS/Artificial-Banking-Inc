@@ -1,3 +1,9 @@
+import { accountTreasuryView, allocateAccountTreasury } from "./account-treasury.js";
+import {
+  workspaceGovernance,
+  saveWorkspaceGovernance,
+  setWorkspaceMember,
+} from "./workspace-governance.js";
 import type express from "express";
 import { z } from "zod";
 import { commerceDatabase, store, sellerStore, type OrgRow } from "./store.js";
@@ -270,14 +276,6 @@ export function registerWorkspaceRoutes(
         .strict()
         .parse(req.body);
       const workspace = createWorkspace(org.id, b.name, b.idempotencyKey);
-      const me = currentUser(req);
-      if (me) {
-        try {
-          await provisionManagedWallet(org.id, workspace.id, me.user.id);
-        } catch {
-          /* Creation succeeds; Wallet offers an idempotent retry without a new address. */
-        }
-      }
       return res.status(201).json({ workspace });
     }, true),
   );
@@ -296,6 +294,14 @@ export function registerWorkspaceRoutes(
           limitUsdc: amount.optional(),
           period: z.enum(["day", "week", "month", "total"]).optional(),
           allowRecurring: z.boolean().optional(),
+          periodLimits: z
+            .object({
+              day: amount.nullable().optional(),
+              week: amount.nullable().optional(),
+              month: amount.nullable().optional(),
+            })
+            .strict()
+            .optional(),
           services: z.array(z.string().url().max(2048)).max(500).nullable().optional(),
         })
         .strict()
@@ -455,25 +461,102 @@ export function registerWorkspaceRoutes(
     "/v1/guardian/workspaces/:workspaceId/members",
     route((org, req, res) => {
       const b = z
-        .object({ userId: z.string().min(1).max(100), enabled: z.boolean() })
+        .object({
+          userId: z.string().min(1).max(100),
+          enabled: z.boolean(),
+          role: z.enum(["approver", "viewer"]).optional(),
+          maxApproveUsdc: amount.nullable().optional(),
+        })
+        .strict()
+        .parse(req.body);
+      res.json(setWorkspaceMember(org.id, String(req.params.workspaceId), b));
+    }, true),
+  );
+  app.get(
+    "/v1/guardian/workspaces/:workspaceId/governance",
+    route(
+      (org, req, res) => res.json(workspaceGovernance(org.id, String(req.params.workspaceId))),
+      true,
+    ),
+  );
+  app.put(
+    "/v1/guardian/workspaces/:workspaceId/governance",
+    route((org, req, res) => {
+      const b = z
+        .object({ approvalQuorum: z.number().int().min(1).max(5) })
+        .strict()
+        .parse(req.body);
+      res.json(saveWorkspaceGovernance(org.id, String(req.params.workspaceId), b.approvalQuorum));
+    }, true),
+  );
+  app.get(
+    "/v1/guardian/workspaces/:workspaceId/saved-vendors",
+    route((org, req, res) => {
+      findWorkspace(org.id, String(req.params.workspaceId));
+      res.json({
+        vendors: commerceDatabase()
+          .prepare(
+            "SELECT vendor_id AS id,name,category FROM abi_workspace_saved_vendors WHERE workspace_id=? ORDER BY name",
+          )
+          .all(String(req.params.workspaceId)),
+      });
+    }),
+  );
+  app.put(
+    "/v1/guardian/workspaces/:workspaceId/saved-vendors",
+    route((org, req, res) => {
+      const b = z
+        .object({
+          id: z.string().min(1).max(100),
+          name: z.string().min(1).max(200),
+          category: z.string().max(100),
+          saved: z.boolean(),
+        })
         .strict()
         .parse(req.body);
       const w = findWorkspace(org.id, String(req.params.workspaceId));
-      if (!store.getMembership(b.userId, org.id))
-        throw new WorkspaceError(
-          "MEMBERSHIP_REQUIRED",
-          "Invite this person to the account before sharing its workspace.",
-          400,
-        );
-      if (b.enabled)
+      if (b.saved)
         commerceDatabase()
-          .prepare("INSERT OR IGNORE INTO abi_workspace_members(workspace_id,user_id) VALUES (?,?)")
-          .run(w.id, b.userId);
+          .prepare(
+            "INSERT INTO abi_workspace_saved_vendors(workspace_id,vendor_id,name,category,created_at) VALUES (?,?,?,?,?) ON CONFLICT(workspace_id,vendor_id) DO UPDATE SET name=excluded.name,category=excluded.category",
+          )
+          .run(w.id, b.id, b.name, b.category, new Date().toISOString());
       else
         commerceDatabase()
-          .prepare("DELETE FROM abi_workspace_members WHERE workspace_id=? AND user_id=?")
-          .run(w.id, b.userId);
+          .prepare("DELETE FROM abi_workspace_saved_vendors WHERE workspace_id=? AND vendor_id=?")
+          .run(w.id, b.id);
       res.json({ ok: true });
+    }, true),
+  );
+  app.get(
+    "/v1/guardian/account/treasury",
+    route(async (org, req, res) => {
+      const me = currentUser(req);
+      if (!me) return res.status(401).json({ error: { code: "HUMAN_SESSION_REQUIRED" } });
+      const q = z
+        .object({ assetId: z.enum(["base:usdc", "ethereum:usdc"]) })
+        .strict()
+        .parse(req.query);
+      res.setHeader("Cache-Control", "no-store");
+      res.json(await accountTreasuryView(org.id, me.user.id, q.assetId));
+    }, true),
+  );
+  app.post(
+    "/v1/guardian/account/treasury/allocations",
+    route(async (org, req, res) => {
+      const me = currentUser(req);
+      if (!me) return res.status(401).json({ error: { code: "HUMAN_SESSION_REQUIRED" } });
+      const b = z
+        .object({
+          assetId: z.enum(["base:usdc", "ethereum:usdc"]),
+          workspaceId: z.string().min(1).max(100),
+          amountUsdc: amount,
+          direction: z.enum(["allocate", "return"]),
+          idempotencyKey: key,
+        })
+        .strict()
+        .parse(req.body);
+      res.json(await allocateAccountTreasury(org.id, me.user.id, b));
     }, true),
   );
   app.get("/v1/agent/context", (req, res) => {

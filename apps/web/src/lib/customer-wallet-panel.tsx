@@ -343,7 +343,7 @@ export function CustomerWalletPanel({
           <DialogDescription>
             {sending
               ? "Transfers move funds on-chain. Check the currency, network and destination before confirming."
-              : "Choose an asset under the network you will send it on. Funds go directly to this workspace wallet."}
+              : "Choose an asset under the network you will send it on. Funds go to the displayed wallet on the selected network. Mainnet deposits do not become an agent allowance."}
           </DialogDescription>
           {data && (
             <>

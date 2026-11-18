@@ -1,3 +1,6 @@
+import { WorkspaceError } from "./workspaces.js";
+import { workspaceGovernance } from "./workspace-governance.js";
+import { assertTreasurySendCapacity } from "./account-treasury.js";
 /** Human-reviewed native/USDC sends. Prepared payloads cannot be edited at confirmation. */
 import { randomUUID } from "node:crypto";
 import {
@@ -160,7 +163,7 @@ export async function prepareManagedSend(
       client ?? assetClient(walletAsset(input.assetId)),
     );
   } catch (e) {
-    if (e instanceof ManagedWalletError) throw e;
+    if (e instanceof ManagedWalletError || e instanceof WorkspaceError) throw e;
     throw new ManagedWalletError(
       "NETWORK_UNAVAILABLE",
       "The balance or network fee could not be verified. Check your funds and ETH for gas, then retry. Nothing was submitted.",
@@ -180,6 +183,12 @@ async function prepareManagedSendUnsafe(
   },
   client = assetClient(walletAsset(input.assetId)),
 ) {
+  if (workspaceGovernance(orgId, workspaceId).effectiveQuorum > 1)
+    throw new ManagedWalletError(
+      "GUARDIAN_REVIEW_REQUIRED",
+      "This workspace requires multiple approvers. Mainnet transfers with workspace quorum are not enabled; nothing was submitted.",
+      409,
+    );
   const row = readyManagedWallet(
       orgId,
       workspaceId,
@@ -279,6 +288,14 @@ async function prepareManagedSendUnsafe(
     max_fee_per_gas: toHex(maxFee),
     max_priority_fee_per_gas: toHex(priority),
   });
+  assertTreasurySendCapacity(
+    orgId,
+    workspaceId,
+    asset.id,
+    units,
+    tokenBalance ?? gasBalance,
+    row.address,
+  );
   const id = `send_${randomUUID()}`,
     created = new Date().toISOString(),
     expires = new Date(Date.now() + 5 * 60000).toISOString();
@@ -344,6 +361,12 @@ export async function confirmManagedSend(
   const p = provider ?? managedProvider(); // Validate configuration before acquiring the durable lock.
   try {
     const locked = db().transaction(() => {
+      if (workspaceGovernance(orgId, workspaceId).effectiveQuorum > 1)
+        throw new ManagedWalletError(
+          "GUARDIAN_REVIEW_REQUIRED",
+          "This workspace now requires multiple approvers. Nothing was submitted.",
+          409,
+        );
       checkPolicy(orgId, userId, row.asset_id, row.amount, row.recipient);
       return db()
         .prepare("UPDATE abi_managed_sends SET state='submitting' WHERE id=? AND state='prepared'")
@@ -354,7 +377,7 @@ export async function confirmManagedSend(
         db().prepare("SELECT * FROM abi_managed_sends WHERE id=?").get(sendId) as SendRow,
       );
   } catch (e) {
-    if (e instanceof ManagedWalletError) throw e;
+    if (e instanceof ManagedWalletError || e instanceof WorkspaceError) throw e;
     throw new ManagedWalletError(
       "SEND_IN_PROGRESS",
       "Another transfer on this network is pending. Wait for its confirmation.",

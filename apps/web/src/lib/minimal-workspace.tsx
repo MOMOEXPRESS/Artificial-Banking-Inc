@@ -97,7 +97,7 @@ export function MinimalOverview({ org, onNavigate, workspace, walletPicker, gFet
           )}
           <LiquidWalletCard
             name={workspace?.name ?? org?.org.name}
-            network={workspace?.wallet?.asset.network ?? "Wallet setup"}
+            network={workspace?.wallet?.asset.network ?? "Account treasury"}
             currency={workspace?.wallet?.asset.symbol ?? "USDC"}
             onOpen={() => onNavigate("treasury")}
           />
@@ -107,7 +107,7 @@ export function MinimalOverview({ org, onNavigate, workspace, walletPicker, gFet
               Wallet details <Icon name="arrowRight" size={15} />
             </button>
           </div>
-          {workspace && gFetch && (
+          {workspace?.isDefault && gFetch && (
             <AutomaticCustomerWallet
               key={workspace.id}
               workspaceId={workspace.id}
@@ -516,13 +516,38 @@ export function MinimalBilling({
   onNavigate,
   initialTab,
   limitsContent,
+  sections,
 }: Props & {
   gFetch: Fetcher;
   readOnly: boolean;
   initialTab?: string | null;
   limitsContent?: ReactNode;
+  sections?: Record<string, ReactNode>;
 }) {
-  const [tab, setTab] = useState(initialTab === "limits" ? "limits" : "overview");
+  const [tab, setTab] = useState(
+    initialTab &&
+      ["limits", "transactions", "invoices", "approvals", "advanced", "team", "treasury"].includes(
+        initialTab,
+      )
+      ? initialTab
+      : "overview",
+  );
+  useEffect(() => {
+    if (
+      initialTab &&
+      [
+        "overview",
+        "limits",
+        "transactions",
+        "invoices",
+        "approvals",
+        "advanced",
+        "team",
+        "treasury",
+      ].includes(initialTab)
+    )
+      setTab(initialTab);
+  }, [initialTab]);
   const [data, setData] = useState<Billing | null>(null),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -616,7 +641,22 @@ export function MinimalBilling({
         <button aria-pressed={tab === "limits"} onClick={() => setTab("limits")}>
           Spending limits
         </button>
+        {Object.keys(sections ?? {}).map((key) => (
+          <button key={key} aria-pressed={tab === key} onClick={() => setTab(key)}>
+            {(
+              {
+                transactions: "Transactions",
+                invoices: "Invoices",
+                approvals: "Approvals",
+                advanced: "Advanced policies",
+                team: "Workspace team",
+                treasury: "Account treasury",
+              } as Record<string, string>
+            )[key] ?? key}
+          </button>
+        ))}
       </div>
+      {sections?.[tab]}
       {tab === "limits" &&
         (limitsContent ?? (
           <SpendingLimits gFetch={gFetch} readOnly={readOnly || org?.actor?.role === "approver"} />
