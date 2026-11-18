@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ABLockup, ABWordmark } from "./brand";
 import { Icon } from "./ui";
 
@@ -78,10 +78,23 @@ export function CookieNotice() {
   );
 }
 
+const MARKETING_LINKS = [
+  { label: "Home", href: "/", key: "home" },
+  { label: "Marketplace", href: "/directory", key: "marketplace" },
+  { label: "Login", href: "/console", key: "console" },
+  { label: "About", href: "/about", key: "about" },
+  { label: "Docs", href: "/docs", key: "docs" },
+  { label: "GitHub", href: "https://github.com/MOMOEXPRESS/Artificial-Banking-Inc", key: "github" },
+  { label: "Partnership", href: "/partnerships", key: "partnerships" },
+  { label: "Join waitlist", href: WAITLIST_HREF, key: "waitlist" },
+] as const;
+
 export function MarketingNav({ active }: { active?: MarketingNavKey }) {
   const current = active === "landing" ? "home" : active;
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -91,104 +104,83 @@ export function MarketingNav({ active }: { active?: MarketingNavKey }) {
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        toggleRef.current?.focus();
+      }
+    };
+    const onPointer = (e: PointerEvent) => {
+      if (e.target instanceof Node && !headerRef.current?.contains(e.target)) setMenuOpen(false);
+    };
+    const desktop = window.matchMedia("(min-width: 1081px)");
+    const onResize = () => {
+      if (desktop.matches) setMenuOpen(false);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer);
+    desktop.addEventListener("change", onResize);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+      desktop.removeEventListener("change", onResize);
+    };
   }, [menuOpen]);
   const close = () => setMenuOpen(false);
   return (
     <header
+      ref={headerRef}
       className={`marketing-nav ${scrolled ? "on-scroll" : ""} ${menuOpen ? "menu-open" : ""}`}
     >
       <div className="marketing-nav-inner">
-        <Link href="/" aria-label="Artificial Banking Incorporated home" onClick={close}>
+        <Link
+          className="marketing-nav-brand"
+          href="/"
+          aria-label="Artificial Banking Incorporated home"
+          onClick={close}
+        >
           <ABWordmark size={26} tone="#0a0a0c" />
         </Link>
-        <nav className="marketing-links" aria-label="Main navigation">
-          <Link
-            href="/directory"
-            className={current === "marketplace" ? "is-active" : undefined}
-            onClick={close}
-          >
-            Marketplace
-          </Link>
-          <Link href="/" className={current === "home" ? "is-active" : undefined} onClick={close}>
-            Home
-          </Link>
-          <Link
-            href="/console"
-            className={current === "console" ? "is-active" : undefined}
-            onClick={close}
-          >
-            Console
-          </Link>
-          <Link
-            href="/docs"
-            className={current === "docs" ? "is-active" : undefined}
-            onClick={close}
-          >
-            Docs
-          </Link>
-          <Link
-            href="/pricing"
-            className={current === "pricing" ? "is-active" : undefined}
-            onClick={close}
-          >
-            Pricing
-          </Link>
-          <Link
-            href="/partnerships"
-            className={current === "partnerships" ? "is-active" : undefined}
-            onClick={close}
-          >
-            Partnerships
-          </Link>
-          <Link
-            href="/about"
-            className={current === "about" ? "is-active" : undefined}
-            onClick={close}
-          >
-            About
-          </Link>
-          {/* Mobile menu only: on desktop the same link sits beside "Open console". */}
-          <Link
-            href={WAITLIST_HREF}
-            className={`marketing-links-waitlist${current === "waitlist" ? " is-active" : ""}`}
-            onClick={close}
-          >
-            Join waitlist
-          </Link>
-          <a
-            href="https://github.com/MOMOEXPRESS/Artificial-Banking-Inc"
-            target="_blank"
-            rel="noreferrer"
-          >
-            GitHub
-          </a>
+        <button
+          ref={toggleRef}
+          type="button"
+          className="marketing-burger"
+          aria-label={menuOpen ? "Close menu" : "Open menu"}
+          aria-expanded={menuOpen}
+          aria-controls="marketing-navigation"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <span>{menuOpen ? "Close" : "Menu"}</span>
+          <span className="marketing-menu-icon" aria-hidden="true">
+            <span />
+            <span />
+          </span>
+        </button>
+        <nav
+          id="marketing-navigation"
+          className="marketing-links"
+          aria-label="Main navigation"
+          onBlur={(e) => {
+            if (e.relatedTarget instanceof Node && !headerRef.current?.contains(e.relatedTarget))
+              close();
+          }}
+        >
+          {MARKETING_LINKS.map((item) => (
+            <Link
+              key={item.key}
+              href={item.href}
+              className={
+                `${current === item.key ? "is-active " : ""}${item.key === "waitlist" ? "marketing-links-waitlist" : ""}`.trim() ||
+                undefined
+              }
+              aria-current={current === item.key ? "page" : undefined}
+              target={item.key === "github" ? "_blank" : undefined}
+              rel={item.key === "github" ? "noopener noreferrer" : undefined}
+              onClick={close}
+            >
+              {item.label}
+            </Link>
+          ))}
         </nav>
-        <div className="marketing-nav-cta">
-          <Link
-            className="btn-ghost-line marketing-nav-waitlist"
-            href={WAITLIST_HREF}
-            aria-current={current === "waitlist" ? "page" : undefined}
-            onClick={close}
-          >
-            Join waitlist
-          </Link>
-          <Link className="btn-primary-line" href="/console" onClick={close}>
-            Open console
-          </Link>
-          <button
-            type="button"
-            className="marketing-burger"
-            aria-label={menuOpen ? "Close menu" : "Open menu"}
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((v) => !v)}
-          >
-            <Icon name="list" size={18} />
-          </button>
-        </div>
       </div>
     </header>
   );
@@ -222,7 +214,6 @@ export function MarketingFooter() {
             title="Company"
             links={[
               ["About", "/about"],
-              ["Pricing", "/pricing"],
               ["Docs", "/docs"],
               ["GitHub", "https://github.com/MOMOEXPRESS/Artificial-Banking-Inc"],
             ]}
