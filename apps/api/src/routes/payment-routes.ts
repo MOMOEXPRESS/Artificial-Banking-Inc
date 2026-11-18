@@ -6,6 +6,7 @@
 import { formatMicroToUsdc, parseUsdcToMicro } from "@policyvault/common";
 import type express from "express";
 import { z } from "zod";
+import { workspaceRequest, workspaceAuthorization } from "../workspace-context.js";
 import { id } from "../engine.js";
 import { scopedStore, store, type OrgRow } from "../store.js";
 
@@ -76,10 +77,14 @@ export function registerPaymentRoutes(
     guardianRoute((org, req, res) => {
       const limit = Math.min(Number(req.query.limit ?? 50), 200);
       const agents = new Map(store.listAgents(org.id).map((a) => [a.id, a.name]));
+      const scope = workspaceRequest.getStore(),
+        authorization = workspaceAuthorization.getStore();
       const rows = store
         .listDecisions(org.id, 500)
         .filter(
           (d) =>
+            (!scope?.agentIds || scope.agentIds.has(d.agentId)) &&
+            (!authorization?.allowedAgentIds || authorization.allowedAgentIds.has(d.agentId)) &&
             d.outcome === "allow" &&
             (d.tool === "pay" || d.tool === "pay_api" || d.tool === "escrow_lock"),
         )

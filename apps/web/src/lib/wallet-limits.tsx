@@ -137,7 +137,8 @@ export function WalletLimitEditor({
   readOnly,
   initialWalletId,
   onSaved,
-}: { initialWalletId?: string; onSaved: () => void } & Props) {
+  cardOnly = false,
+}: { initialWalletId?: string; onSaved: () => void; cardOnly?: boolean } & Props) {
   const items = workspaces.filter((w) => w.orgId === workspace.orgId);
   const initial = items.find((w) => w.id === initialWalletId) ?? workspace;
   const [walletId, setWalletId] = useState(initial.id),
@@ -208,22 +209,24 @@ export function WalletLimitEditor({
         void save();
       }}
     >
-      <label>
-        Wallet
-        <Select value={walletId} onValueChange={choose}>
-          <SelectTrigger aria-label="Wallet">
-            <Wallet size={17} />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="abi-access-select">
-            {items.map((w) => (
-              <SelectItem key={w.id} value={w.id}>
-                {w.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </label>
+      {!cardOnly && (
+        <label>
+          Wallet
+          <Select value={walletId} onValueChange={choose}>
+            <SelectTrigger aria-label="Wallet">
+              <Wallet size={17} />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="abi-access-select">
+              {items.map((w) => (
+                <SelectItem key={w.id} value={w.id}>
+                  {w.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+      )}
       <div className="abi-form-columns">
         <label>
           Limit in USDC
@@ -281,6 +284,7 @@ export function WalletLimitEditor({
         <span>Services</span>
         <ServiceChooser value={allowed} onChange={setAllowed} gFetch={gFetch} />
       </div>
+      <h3>Purchase controls</h3>
       <label className="abi-permission-row">
         <span>
           Allow recurring purchases<small>Account controls and approvals still apply.</small>

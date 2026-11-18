@@ -4,10 +4,8 @@ import type { AgentKey, OrgView, View } from "./console-types";
 import { marketplaceJson } from "./marketplace-catalog";
 import { Icon } from "./ui";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { SpendingLimits } from "./spending-limits";
 import { LiquidWalletCard } from "./liquid-wallet-card";
 import { AgentLogoCluster } from "./agent-logo-cluster";
-import { AutomaticCustomerWallet } from "./customer-wallet-panel";
 type Fetcher = (path: string, init?: RequestInit) => Promise<Response>;
 type Props = {
   org: OrgView | null | undefined;
@@ -21,7 +19,7 @@ const usd = (cents: number) =>
 function usdc(value?: string) {
   return value ?? "0.00";
 }
-export function MinimalOverview({ org, onNavigate, workspace, walletPicker, gFetch }: Props) {
+export function MinimalOverview({ org, onNavigate, workspace, walletPicker }: Props) {
   const agents = workspace
       ? workspace.connections.map((c) => ({
           id: c.agentId,
@@ -78,7 +76,10 @@ export function MinimalOverview({ org, onNavigate, workspace, walletPicker, gFet
                 <button
                   className={view === "connect" ? "agent-connect-action" : undefined}
                   onClick={() =>
-                    onNavigate(view as View, view === "billing" ? "limits" : undefined)
+                    onNavigate(
+                      view === "billing" ? "treasury" : (view as View),
+                      view === "billing" ? "settings" : undefined,
+                    )
                   }
                 >
                   {action}
@@ -107,19 +108,12 @@ export function MinimalOverview({ org, onNavigate, workspace, walletPicker, gFet
               Wallet details <Icon name="arrowRight" size={15} />
             </button>
           </div>
-          {workspace?.isDefault && gFetch && (
-            <AutomaticCustomerWallet
-              key={workspace.id}
-              workspaceId={workspace.id}
-              gFetch={gFetch}
-            />
-          )}
         </section>
       </div>
       <section className="minimal-section">
         <div className="minimal-section-heading">
           <h2>Connected agents</h2>
-          <button onClick={() => onNavigate("billing", "limits")}>Manage limits</button>
+          <button onClick={() => onNavigate("treasury", "settings")}>Manage limits</button>
         </div>
         {agents.length ? (
           <div className="reference-agent-rows">
@@ -513,40 +507,21 @@ export function MinimalBilling({
   org,
   gFetch,
   readOnly,
-  onNavigate,
   initialTab,
-  limitsContent,
   sections,
+  fundingContent,
 }: Props & {
   gFetch: Fetcher;
   readOnly: boolean;
   initialTab?: string | null;
-  limitsContent?: ReactNode;
   sections?: Record<string, ReactNode>;
+  fundingContent?: ReactNode;
 }) {
   const [tab, setTab] = useState(
-    initialTab &&
-      ["limits", "transactions", "invoices", "approvals", "advanced", "team", "treasury"].includes(
-        initialTab,
-      )
-      ? initialTab
-      : "overview",
+    initialTab && ["transactions", "team"].includes(initialTab) ? initialTab : "overview",
   );
   useEffect(() => {
-    if (
-      initialTab &&
-      [
-        "overview",
-        "limits",
-        "transactions",
-        "invoices",
-        "approvals",
-        "advanced",
-        "team",
-        "treasury",
-      ].includes(initialTab)
-    )
-      setTab(initialTab);
+    setTab(initialTab && ["transactions", "team"].includes(initialTab) ? initialTab : "overview");
   }, [initialTab]);
   const [data, setData] = useState<Billing | null>(null),
     [error, setError] = useState(""),
@@ -638,30 +613,20 @@ export function MinimalBilling({
         <button aria-pressed={tab === "overview"} onClick={() => setTab("overview")}>
           Overview
         </button>
-        <button aria-pressed={tab === "limits"} onClick={() => setTab("limits")}>
-          Spending limits
-        </button>
         {Object.keys(sections ?? {}).map((key) => (
           <button key={key} aria-pressed={tab === key} onClick={() => setTab(key)}>
             {(
               {
                 transactions: "Transactions",
-                invoices: "Invoices",
-                approvals: "Approvals",
-                advanced: "Advanced policies",
                 team: "Workspace team",
-                treasury: "Account treasury",
               } as Record<string, string>
             )[key] ?? key}
           </button>
         ))}
       </div>
       {sections?.[tab]}
-      {tab === "limits" &&
-        (limitsContent ?? (
-          <SpendingLimits gFetch={gFetch} readOnly={readOnly || org?.actor?.role === "approver"} />
-        ))}
       <div hidden={tab !== "overview"}>
+        {tab === "overview" && fundingContent}
         {error && (
           <p role="alert" className="minimal-error">
             {error}
@@ -669,7 +634,7 @@ export function MinimalBilling({
         )}
         {notice && <p role="status">{notice}</p>}
         {!data && !error && <p role="status">Loading billing…</p>}
-        {data && (
+        {data && (data.cardFundingAvailable || data.creditCents > 0 || data.debtCents > 0) && (
           <>
             {!data.cardFundingAvailable && (
               <p className="minimal-notice">
@@ -689,7 +654,6 @@ export function MinimalBilling({
               <div>
                 <p>Settlement funds · USDC</p>
                 <strong>{usdc(org?.balances.find((b) => b.kind === "org_available")?.usdc)}</strong>
-                <button onClick={() => onNavigate("treasury")}>Manage USDC wallet</button>
               </div>
             </section>
             <section className="minimal-section">

@@ -519,3 +519,49 @@ test("workspace governance and saved vendor writes require the account owner and
     403,
   );
 });
+
+test("recent payments respect the selected workspace before applying the result limit", async () => {
+  const owner = identity();
+  const a = createWorkspace(owner.org.id, "Activity A", crypto.randomUUID());
+  const b = createWorkspace(owner.org.id, "Activity B", crypto.randomUUID());
+  const { connectAgent } = await import("./workspaces.js");
+  for (const workspace of [a, b]) {
+    connectAgent(owner.org.id, workspace.id, {
+      name: workspace.name,
+      pay: false,
+      ttlHours: 24,
+      key: crypto.randomUUID(),
+    });
+    const agentId = (
+      viewWorkspace(owner.org.id, workspace.id).connections[0] as { agentId: string }
+    ).agentId;
+    store.addDecision({
+      intentId: crypto.randomUUID(),
+      orgId: owner.org.id,
+      agentId,
+      outcome: "allow",
+      ruleIds: [],
+      reasons: [],
+      tool: "pay",
+      amountUsdc: "1",
+      destination: workspace.name,
+      at: new Date().toISOString(),
+    });
+  }
+  const response = await fetch(`${base}/v1/guardian/payments/recent`, {
+    headers: { ...owner.headers, "x-abi-workspace": a.id },
+  });
+  assert.equal(response.status, 200);
+  const scoped = (await response.json()) as { payments: { destination: string }[] };
+  assert.deepEqual(
+    scoped.payments.map((p) => p.destination),
+    ["Activity A"],
+  );
+  const account = await fetch(`${base}/v1/guardian/payments/recent`, { headers: owner.headers });
+  assert.equal(account.status, 200);
+  const all = (await account.json()) as { payments: { destination: string }[] };
+  assert.deepEqual(
+    new Set(all.payments.map((p) => p.destination)),
+    new Set(["Activity A", "Activity B"]),
+  );
+});

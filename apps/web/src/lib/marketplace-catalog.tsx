@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { MarketplaceImage } from "./marketplace-image";
 import { useEffect, useState, type FormEvent } from "react";
 import { Icon } from "./ui";
 import { browserApiBase } from "./browser-api";
@@ -344,12 +345,9 @@ export function MarketplaceCatalog({
             <article key={p.id} className="market-product">
               <Link className="market-product-image" href={`/products/${encodeURIComponent(p.id)}`}>
                 {p.images.length ? (
-                  <img
+                  <MarketplaceImage
                     src={`${API}/v1/marketplace/products/${encodeURIComponent(p.id)}/images/0`}
                     alt={p.name}
-                    loading="lazy"
-                    width="600"
-                    height="450"
                   />
                 ) : (
                   <span>Image not supplied</span>
@@ -434,12 +432,10 @@ export function MarketplaceProductDetail({ id }: { id: string }) {
       <div className="market-detail-images">
         {p.images.length ? (
           p.images.map((_image, i) => (
-            <img
+            <MarketplaceImage
               key={i}
               src={`${API}/v1/marketplace/products/${encodeURIComponent(id)}/images/${i}`}
               alt={`${p.name}, view ${i + 1}`}
-              width="800"
-              height="600"
               loading={i ? "lazy" : "eager"}
             />
           ))

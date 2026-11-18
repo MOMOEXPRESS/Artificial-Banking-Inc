@@ -39,7 +39,7 @@ Changed configured governance invalidates bound pending approvals. Hard limits a
 
 ## Navigation and vendor organization
 
-Billing exposes Transactions, Invoices, Approvals, Spending limits and Advanced policies, with owner-only Account treasury and Workspace team sections. Transactions show posted double-entry ledger movements for the caller’s existing access scope. The account treasury displays network-specific on-chain USDC history and allocation history. No real invoices or transactions are synthesized.
+Billing exposes Overview with account treasury and allocations, Transactions and owner-only Workspace team. Workspace-card Settings holds the existing spending controls; Access keys and Activity are separate card tabs. The added full policy editor, invoice/approval tabs, saved-vendor strip and recovery panels are removed from this UI; backend enforcement, recovery and existing funds are preserved. Transactions show posted double-entry ledger movements for the caller’s existing access scope. The account treasury displays network-specific on-chain USDC history and allocation history. No real invoices or transactions are synthesized.
 
 Workspace vendors can be filtered by industry and saved server-side per workspace. A saved vendor is an organizational preference; it is not an allowlist entry, an approved partnership, or permission to purchase. Existing provider readiness remains authoritative.
 

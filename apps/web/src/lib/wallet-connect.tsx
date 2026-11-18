@@ -49,6 +49,7 @@ export function WalletConnect({
   readOnly,
   initialTab,
   onTabChange,
+  cardOnly = false,
 }: {
   workspace: Workspace;
   workspaces: Workspace[];
@@ -56,6 +57,7 @@ export function WalletConnect({
   onChanged: () => Promise<void>;
   readOnly: boolean;
   initialTab?: string;
+  cardOnly?: boolean;
   onTabChange: (v: string) => void;
 }) {
   const [tab, setTab] = useState(initialTab === "keys" ? "keys" : "setup"),
@@ -72,11 +74,11 @@ export function WalletConnect({
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [requestKey, setRequestKey] = useState("");
-  const items = workspaces.filter((x) => x.orgId === w.orgId);
+  const items = workspaces.filter((x) => x.orgId === w.orgId && (!cardOnly || x.id === w.id));
   const load = useCallback(async () => {
     const d = await workspaceJson(await gFetch("/v1/guardian/wallet-keys"));
-    setKeys(d.keys);
-  }, [gFetch]);
+    setKeys(cardOnly ? d.keys.filter((k: KeyRow) => k.workspaceIds.includes(w.id)) : d.keys);
+  }, [gFetch, cardOnly, w.id]);
   useEffect(() => {
     void load().catch((e) => setError(e.message));
   }, [load]);
@@ -151,17 +153,21 @@ export function WalletConnect({
   const prompt = `Connect to ABI using ${base}/mcp with Authorization: Bearer <owner-issued API key>. Store the key in your secret manager, never in a URL or chat. Use GET ${base}/v1/agent/wallets to discover the wallets granted to this key, then set x-abi-workspace to the chosen wallet ID. A multi-wallet key only accesses the wallets selected by its owner; do not infer access to other wallets. Verify with GET ${base}/v1/agent/context before using tools. Search the marketplace and inspect offers before requesting purchases. Payments require explicit permission, available funds, shared wallet limits and account approvals. Never raise limits or retry an uncertain payment without checking its result. Hosted MCP is testnet-only.`;
   return (
     <section className="minimal-page abi-connect-page">
-      <header className="minimal-page-heading">
-        <h1>Connect</h1>
-        <p>Your agent. Your wallets. Your controls.</p>
-      </header>
-      <div className="minimal-tabs" role="group" aria-label="Connection views">
-        {["setup", "keys"].map((v) => (
-          <button key={v} aria-pressed={tab === v} onClick={() => navigate(v)}>
-            {v === "setup" ? "Setup" : "API keys"}
-          </button>
-        ))}
-      </div>
+      {!cardOnly && (
+        <>
+          <header className="minimal-page-heading">
+            <h1>Connect</h1>
+            <p>Your agent. Your wallets. Your controls.</p>
+          </header>
+          <div className="minimal-tabs" role="group" aria-label="Connection views">
+            {["setup", "keys"].map((v) => (
+              <button key={v} aria-pressed={tab === v} onClick={() => navigate(v)}>
+                {v === "setup" ? "Setup" : "API keys"}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       {error && !open && (
         <p role="alert" className="minimal-error">
           {error}
@@ -174,7 +180,7 @@ export function WalletConnect({
           {notice}
         </p>
       )}
-      {tab === "setup" ? (
+      {!cardOnly && tab === "setup" ? (
         <>
           <section className="abi-connect-quick">
             <button className="minimal-primary abi-setup-copy" onClick={() => void copy(prompt)}>
@@ -241,8 +247,12 @@ export function WalletConnect({
         <>
           <div className="minimal-section-heading abi-key-heading">
             <div>
-              <h2>API keys</h2>
-              <p>Give each agent its own key and access to the wallets it needs.</p>
+              <h2>{cardOnly ? "Access keys" : "API keys"}</h2>
+              <p>
+                {cardOnly
+                  ? "Keys connected to this workspace card. Key values are shown only at creation."
+                  : "Give each agent its own key and access to the wallets it needs."}
+              </p>
             </div>
             <Button
               disabled={readOnly || busy}
@@ -297,7 +307,7 @@ export function WalletConnect({
                       <h3>{k.label ?? "Agent key"}</h3>
                       <p>
                         {k.workspaceIds
-                          .map((id) => items.find((x) => x.id === id)?.name ?? "Legacy wallet")
+                          .map((id) => workspaces.find((x) => x.id === id)?.name ?? "Wallet")
                           .join(" · ") || "Legacy account key"}
                       </p>
                       <details className="abi-key-wallet-ids">

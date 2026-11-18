@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AllocationSelect } from "./allocation-select";
 import { Button } from "@/components/ui/button";
 import { workspaceJson, type Workspace, type WorkspaceFetcher } from "./workspace-client";
 export type Treasury = {
@@ -116,20 +117,19 @@ export function AccountAllocations({
         allocated funds do not increase the separate testnet allowance.
       </p>
       <div className="minimal-actions">
-        <label>
-          Network
-          <select
-            value={assetId}
-            disabled={busy}
-            onChange={(e) => {
-              setAssetId(e.target.value);
-              setNotice("");
-            }}
-          >
-            <option value="base:usdc">Base · USDC</option>
-            <option value="ethereum:usdc">Ethereum · USDC</option>
-          </select>
-        </label>
+        <AllocationSelect
+          label="Network"
+          value={assetId}
+          onChange={(v) => {
+            setAssetId(v);
+            setNotice("");
+          }}
+          disabled={busy}
+          options={[
+            { value: "base:usdc", label: "Base · USDC" },
+            { value: "ethereum:usdc", label: "Ethereum · USDC" },
+          ]}
+        />
         <Button
           variant="ghost"
           disabled={busy}
@@ -173,24 +173,16 @@ export function AccountAllocations({
               void submit();
             }}
           >
-            <label>
-              Workspace
-              <select
-                required
-                disabled={busy}
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-              >
-                <option value="">Choose workspace</option>
-                {workspaces
-                  .filter((w) => !w.isDefault)
-                  .map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
+            <AllocationSelect
+              label="Workspace"
+              value={target}
+              onChange={setTarget}
+              disabled={busy}
+              placeholder="Choose workspace"
+              options={workspaces
+                .filter((w) => !w.isDefault)
+                .map((w) => ({ value: w.id, label: w.name }))}
+            />
             <label>
               USDC
               <input
@@ -202,17 +194,16 @@ export function AccountAllocations({
                 onChange={(e) => setAmount(e.target.value)}
               />
             </label>
-            <label>
-              Action
-              <select
-                value={direction}
-                disabled={busy}
-                onChange={(e) => setDirection(e.target.value as "allocate" | "return")}
-              >
-                <option value="allocate">Allocate to workspace</option>
-                <option value="return">Return to account</option>
-              </select>
-            </label>
+            <AllocationSelect
+              label="Action"
+              value={direction}
+              onChange={(v) => setDirection(v as "allocate" | "return")}
+              disabled={busy}
+              options={[
+                { value: "allocate", label: "Allocate to workspace" },
+                { value: "return", label: "Return to account" },
+              ]}
+            />
             <Button
               disabled={busy || !target || data.reconciliationRequired || data.pendingTransfer}
               type="submit"

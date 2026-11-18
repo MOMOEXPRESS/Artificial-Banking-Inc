@@ -16,20 +16,12 @@ import { Icon, fmtUsd, relTime } from "../../lib/ui";
 import { InsightsView } from "../../lib/analytics";
 import { MinimalOverview, MinimalBilling } from "../../lib/minimal-workspace";
 import { useWorkspaces } from "../../lib/workspace-client";
-import {
-  WorkspaceFunds,
-  LegacyWalletRecovery,
-  WorkspaceAssetRecovery,
-} from "../../lib/workspace-controls";
+import { WorkspaceFunds } from "../../lib/workspace-controls";
 import { WalletPicker } from "../../lib/wallet-picker";
 import { WalletConnect } from "../../lib/wallet-connect";
-import { WorkspaceVendors } from "../../lib/workspace-vendors";
 import { AccountTreasury } from "../../lib/account-treasury";
 import { WorkspaceGovernance } from "../../lib/workspace-governance";
 import { FinancialActivity } from "../../lib/financial-activity";
-import { Approvals } from "../../lib/approvals-view";
-import { InvoicesView } from "../../lib/views";
-import { WalletSpendingLimits } from "../../lib/wallet-limits";
 import { StudioNav } from "../../lib/studio-nav";
 import { MarketplaceBuyer } from "../../lib/marketplace-buyer";
 import { AssistantDock } from "../../lib/assistant-dock";
@@ -269,7 +261,7 @@ const ALL_VIEWS = new Set<View>([
   "waitlist",
 ]);
 
-const TREASURY_TAB_SET = new Set(["fund", "wallets", "move", "analytics", "recovery"]);
+const TREASURY_TAB_SET = new Set(["keys", "settings", "activity"]);
 const PAYMENTS_TAB_SET = new Set([
   "approvals",
   "recent",
@@ -1599,14 +1591,6 @@ export default function Console() {
                       view={view === "invoices" || view === "escrows" ? "payments" : view}
                     />
                   )}
-                {view === "marketplace" && workspaceState.current && (
-                  <WorkspaceVendors
-                    key={workspaceState.current.id}
-                    workspace={workspaceState.current}
-                    gFetch={gFetch}
-                    readOnly={readOnly || org?.actor?.role !== "owner"}
-                  />
-                )}
                 {view === "marketplace" && (
                   <MarketplaceBuyer
                     session={session}
@@ -1660,6 +1644,7 @@ export default function Console() {
                 {view === "treasury" && workspaceState.current && (
                   <WorkspaceFunds
                     key={workspaceState.current.id}
+                    initialTab={tabHint ?? undefined}
                     workspace={workspaceState.current}
                     workspaces={workspaceState.items}
                     gFetch={gFetch}
@@ -1675,40 +1660,6 @@ export default function Console() {
                   <MinimalBilling
                     sections={{
                       transactions: <FinancialActivity journals={journals} />,
-                      invoices: (
-                        <InvoicesView
-                          invoices={invoices}
-                          stats={invStats}
-                          busy={busy}
-                          act={act}
-                          gFetch={gFetch}
-                          readOnly={readOnly}
-                        />
-                      ),
-                      approvals: (
-                        <Approvals
-                          {...shared}
-                          approvals={approvals}
-                          pending={pending}
-                          agentName={agentName}
-                        />
-                      ),
-                      advanced: (
-                        <section className="minimal-section">
-                          <h2>Account policies</h2>
-                          <p>
-                            These controls apply across this account. Workspace caps and approval
-                            requirements also apply; policies do not grant extra funds. Quiet hours,
-                            allowlists, category rules and simulation use the existing enforcement
-                            engine.
-                          </p>
-                          {policy ? (
-                            <PolicyView {...shared} policy={policy} />
-                          ) : (
-                            <PolicyLoader gFetch={gFetch} onLoaded={setPolicy} />
-                          )}
-                        </section>
-                      ),
                       ...((org?.actor?.role === "owner" || session.guardianKey) &&
                       workspaceState.current
                         ? {
@@ -1720,30 +1671,21 @@ export default function Console() {
                                 onInvite={() => setView("settings", "team")}
                               />
                             ),
-                            treasury: (
-                              <AccountTreasury
-                                workspaces={workspaceState.items.filter(
-                                  (w) => w.orgId === session.orgId,
-                                )}
-                                gFetch={gFetch}
-                                onChanged={workspaceState.load}
-                                readOnly={readOnly}
-                              />
-                            ),
                           }
                         : {}),
                     }}
-                    limitsContent={
-                      workspaceState.current ? (
-                        <WalletSpendingLimits
+                    fundingContent={
+                      org?.actor?.role === "owner" || session.guardianKey ? (
+                        <AccountTreasury
                           key={session.orgId}
-                          workspace={workspaceState.current}
-                          workspaces={workspaceState.items}
+                          workspaces={workspaceState.items.filter((w) => w.orgId === session.orgId)}
                           gFetch={gFetch}
                           onChanged={workspaceState.load}
-                          readOnly={readOnly || org?.actor?.role === "approver"}
+                          readOnly={readOnly}
                         />
-                      ) : undefined
+                      ) : (
+                        <p>Account funding is managed by the account owner.</p>
+                      )
                     }
                     initialTab={tabHint}
                     org={org}
@@ -1926,18 +1868,6 @@ export default function Console() {
                       onGoto={(v) => setView(v as View)}
                       onSignOut={(everywhere) => void signOut(everywhere)}
                     />
-                    {!readOnly && org?.actor?.role === "owner" && (
-                      <>
-                        <LegacyWalletRecovery key={session.orgId} gFetch={gFetch} />
-                        {workspaceState.current && (
-                          <WorkspaceAssetRecovery
-                            key={workspaceState.current.id}
-                            workspace={workspaceState.current}
-                            gFetch={gFetch}
-                          />
-                        )}
-                      </>
-                    )}
                   </>
                 )}
               </div>

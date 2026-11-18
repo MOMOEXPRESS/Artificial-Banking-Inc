@@ -1,4 +1,5 @@
 "use client";
+import { AllocationSelect } from "./allocation-select";
 import { AccountAllocations } from "./account-allocations";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ export function AccountTreasury({
   const inFlight = useRef(false);
   const treasury = workspaces.find((w) => w.isDefault),
     targets = workspaces.filter((w) => !w.isDefault);
+  const [transferSource, setTransferSource] = useState("");
   const [open, setOpen] = useState(false),
     [intent, setIntent] = useState<"receive" | "allocate">("receive"),
     [target, setTarget] = useState(""),
@@ -89,6 +91,14 @@ export function AccountTreasury({
           for funds that should stay in the account.
         </p>
         <div className="minimal-actions">
+          <AllocationSelect
+            label="From wallet"
+            value={transferSource || treasury.id}
+            onChange={setTransferSource}
+            options={workspaces
+              .filter((w) => w.isDefault || w.wallet?.receiveEnabled)
+              .map((w) => ({ value: w.id, label: w.isDefault ? "Account treasury" : w.name }))}
+          />
           <Button
             variant="ghost"
             disabled={!targets.length}
@@ -115,22 +125,14 @@ export function AccountTreasury({
             void allocate();
           }}
         >
-          <label>
-            Workspace
-            <select
-              required
-              value={target}
-              disabled={busy}
-              onChange={(e) => setTarget(e.target.value)}
-            >
-              <option value="">Choose workspace</option>
-              {targets.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <AllocationSelect
+            label="Workspace"
+            value={target}
+            onChange={setTarget}
+            disabled={busy}
+            placeholder="Choose workspace"
+            options={targets.map((w) => ({ value: w.id, label: w.name }))}
+          />
           <label>
             USDC
             <input
@@ -151,8 +153,13 @@ export function AccountTreasury({
       {notice && <p role="status">{notice}</p>}
       {open && (
         <CustomerWalletPanel
-          workspaceId={treasury.id}
-          name="Account treasury"
+          workspaceId={intent === "allocate" ? transferSource || treasury.id : treasury.id}
+          name={
+            intent === "allocate"
+              ? (workspaces.find((w) => w.id === (transferSource || treasury.id))?.name ??
+                "Account treasury")
+              : "Account treasury"
+          }
           gFetch={gFetch}
           open={open}
           onOpenChange={setOpen}

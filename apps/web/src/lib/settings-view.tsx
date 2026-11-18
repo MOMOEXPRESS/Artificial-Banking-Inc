@@ -1,5 +1,6 @@
 "use client";
 
+import { SettingsSectionNav } from "./settings-section-nav";
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "./ui";
 import { CompliancePanel } from "./compliance-panel";
@@ -116,8 +117,6 @@ const SECTIONS = [
       "Know your customer and know your agent: internal, self-attested checks that set starter limits.",
   },
 ] as const;
-
-const SETTINGS_GROUPS = ["Workspace", "Finance", "People & access", "Connections"] as const;
 
 type Section = (typeof SECTIONS)[number]["key"];
 
@@ -418,42 +417,20 @@ export function SettingsView({
           </span>
           <span>{profile.displayName || org?.org?.name || "Your organization"}</span>
         </div>
-        <select
-          className="settings-mobile-picker"
-          aria-label="Choose settings section"
+        <SettingsSectionNav
+          items={SECTIONS}
           value={section}
-          onChange={(event) => go(event.target.value as Section)}
-        >
-          {SETTINGS_GROUPS.map((group) => (
-            <optgroup key={group} label={group}>
-              {SECTIONS.filter((item) => item.group === group).map((item) => (
-                <option key={item.key} value={item.key}>
-                  {item.label}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-        {SETTINGS_GROUPS.map((group) => (
-          <div className="set-nav-group" key={group}>
-            <span className="set-nav-label">{group}</span>
-            {SECTIONS.filter((item) => item.group === group).map((s) => (
-              <button
-                key={s.key}
-                className={section === s.key ? "on" : ""}
-                aria-current={section === s.key ? "page" : undefined}
-                onClick={() => go(s.key)}
-              >
-                <Icon name={s.icon} />
-                <span>{s.label}</span>
-                {section === s.key && <Icon name="arrowRight" size={12} />}
-              </button>
-            ))}
-          </div>
-        ))}
+          onChange={(key) => go(key as Section)}
+        />
       </nav>
 
-      <section className="settings-content" aria-label="Settings details">
+      <section
+        id="settings-panel"
+        role="tabpanel"
+        aria-labelledby={`settings-tab-${section}`}
+        className="settings-content abi-settings-panel"
+        key={section}
+      >
         <section className="settings-section-summary">
           <div>
             <h1>{activeSection.label}</h1>

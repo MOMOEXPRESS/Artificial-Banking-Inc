@@ -1,22 +1,11 @@
 "use client";
-import { AccountTreasury } from "./account-treasury";
+import { WalletConnect } from "./wallet-connect";
+import { CardActivity } from "./workspace-card-activity";
 import { useState, useEffect } from "react";
-import {
-  KeyRound,
-  Plus,
-  Snowflake,
-  ArrowRightLeft,
-  ShieldCheck,
-  Copy,
-  Store,
-  RefreshCw,
-  ArrowDownLeft,
-  ArrowUpRight,
-} from "lucide-react";
+import { KeyRound, Plus, Copy, Store, RefreshCw } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { WalletLimitEditor } from "./wallet-limits";
-import { walletAmount } from "./managed-wallet-client";
 import { CustomerWalletPanel } from "./customer-wallet-panel";
 import { LiquidWalletCard } from "./liquid-wallet-card";
 import { workspaceJson, type Workspace, type WorkspaceFetcher } from "./workspace-client";
@@ -28,6 +17,7 @@ type Props = {
   onChanged: () => Promise<void>;
   onNavigate: (v: string, tab?: string) => void;
   readOnly: boolean;
+  initialTab?: string;
 };
 export function WorkspaceSwitcher({
   items,
@@ -152,367 +142,156 @@ export function WorkspaceFunds({
   workspaces,
   gFetch,
   onChanged,
-  onNavigate,
   readOnly,
+  initialTab,
 }: Props) {
-  const [currenciesOpen, setCurrenciesOpen] = useState(false);
-  const [walletIntent, setWalletIntent] = useState<"currencies" | "receive" | "send" | "allocate">(
-    "currencies",
+  const [tab, setTab] = useState(
+    initialTab === "settings" ? "settings" : initialTab === "activity" ? "activity" : "keys",
   );
-  const [action, setAction] = useState<"limits" | null>(null),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
-    [receipt, setReceipt] = useState("");
-  async function mutate(path: string, body: unknown, method = "POST") {
+  useEffect(() => {
+    setTab(
+      initialTab === "settings" ? "settings" : initialTab === "activity" ? "activity" : "keys",
+    );
+  }, [initialTab]);
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  async function toggleFreeze() {
     setBusy(true);
     setError("");
     try {
-      const data = await workspaceJson(await gFetch(path, { method, body: JSON.stringify(body) }));
-      await onChanged();
-      setAction(null);
-      setReceipt(
-        data.allocation?.status === "pending"
-          ? "Allocation is awaiting treasury approval. Funds have not moved."
-          : data.allocation
-            ? "Allocation completed. Both workspaces share the same receipt."
-            : "Card controls saved.",
+      await workspaceJson(
+        await gFetch(`/v1/guardian/workspaces/${w.id}/card`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: w.card.status === "active" ? "frozen" : "active" }),
+        }),
       );
-      return true;
+      await onChanged();
     } catch (e) {
       setError((e as Error).message);
-      return false;
     } finally {
       setBusy(false);
     }
   }
-  const prefix = `/v1/guardian/workspaces/${w.id}`;
-  const destinations = workspaces.filter((x) => x.orgId === w.orgId && x.id !== w.id);
   return (
-    <section className="minimal-page abi-workspace-funds">
-      <header className="minimal-page-heading">
-        <h1>{w.name} wallet</h1>
-        <p>Funds, card controls and connections for this workspace.</p>
-      </header>
-      <AccountTreasury
-        workspaces={workspaces.filter((x) => x.orgId === w.orgId)}
-        gFetch={gFetch}
-        onChanged={onChanged}
-        readOnly={readOnly}
-      />
-      {!!w.accountAllocations?.length && (
-        <section className="minimal-section">
-          <h2>Allocated from account</h2>
-          {w.accountAllocations.map((a) => (
-            <p key={a.assetId}>
-              {a.amountUsdc} USDC · {a.assetId.startsWith("base:") ? "Base" : "Ethereum"} mainnet
+    <section className="minimal-page abi-card-detail">
+      <div className="abi-card-overview">
+        <LiquidWalletCard name={w.name} network="Workspace allocation" currency="USDC" />
+        <header className="abi-card-summary">
+          <h1>{w.name} card</h1>
+          <strong>
+            {w.card.remainingUsdc} <span>USDC available for agents</span>
+          </strong>
+          <p>
+            {w.card.spentUsdc} spent · {w.card.pendingUsdc} reserved · {w.card.status}
+          </p>
+          {!!w.accountAllocations?.length && (
+            <p className="minimal-note">
+              {w.accountAllocations
+                .map(
+                  (a) =>
+                    `${a.amountUsdc} USDC on ${a.assetId.startsWith("base:") ? "Base" : "Ethereum"}`,
+                )
+                .join(" · ")}{" "}
+              allocated at the account. Mainnet agent purchases are not enabled.
             </p>
-          ))}
+          )}
           <p className="minimal-note">
-            Held at the account treasury, separately from this workspace’s existing on-chain wallet
-            and agent allowance. Mainnet agent purchases are not enabled.
+            Agent spending currently uses the Base Sepolia allowance. Manage account funding and
+            allocations in Billing.
           </p>
-        </section>
-      )}
-      <div className="abi-workspace-funds-grid">
-        <LiquidWalletCard
-          name={w.name}
-          network={w.wallet?.asset.network ?? "Account treasury"}
-          currency={w.wallet?.asset.symbol ?? "USDC"}
-          onOpen={() => {
-            if (!w.wallet?.receiveEnabled) {
-              onNavigate("billing", "treasury");
-              return;
-            }
-            setWalletIntent("currencies");
-            setCurrenciesOpen(true);
-            setError("");
-          }}
-        />
-        <div className="abi-workspace-balances">
-          <dl>
-            <div>
-              <dt>On-chain balance · {w.wallet?.asset.network ?? "Wallet setup"}</dt>
-              <dd>
-                {walletAmount(w.wallet)} {w.wallet?.asset.symbol ?? "USDC"}
-              </dd>
-            </div>
-            <div>
-              <dt>Agent allowance · Base Sepolia</dt>
-              <dd>{w.balance.availableUsdc} USDC</dd>
-            </div>
-            <div>
-              <dt>Card capacity remaining</dt>
-              <dd>{w.card.remainingUsdc} USDC</dd>
-            </div>
-            <div>
-              <dt>Card status</dt>
-              <dd>{w.card.status}</dd>
-            </div>
-          </dl>
-          <p>
-            This workspace owns its on-chain funds. Its {w.connections.length} connected agents
-            currently spend from the separate testnet allowance. USD card credits are separate.
-          </p>
-          <div className="abi-workspace-actions">
-            <Button
-              variant="ghost"
-              disabled={readOnly || !w.wallet?.receiveEnabled}
-              onClick={() => {
-                setWalletIntent("receive");
-                setCurrenciesOpen(true);
-              }}
-            >
-              <ArrowDownLeft size={16} />
-              Existing receiving address
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={readOnly || !w.wallet?.withdrawalEnabled}
-              onClick={() => {
-                setWalletIntent("send");
-                setCurrenciesOpen(true);
-              }}
-            >
-              <ArrowUpRight size={16} />
-              Send
-            </Button>
-            <Button
-              disabled={readOnly || busy || !w.wallet?.withdrawalEnabled || !destinations.length}
-              onClick={() => {
-                setWalletIntent("allocate");
-                setCurrenciesOpen(true);
-              }}
-            >
-              <ArrowRightLeft size={16} />
-              Allocate
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setAction("limits");
-                setError("");
-              }}
-            >
-              <ShieldCheck size={16} />
-              Spending limits
-            </Button>
-            <Button variant="ghost" onClick={() => onNavigate("connect")}>
-              <KeyRound size={16} />
-              Connections
-            </Button>
-          </div>
-        </div>
+        </header>
       </div>
-      <p className="abi-workspace-note">
-        Your Privy wallet receives funds directly on the selected network. Agent payments still use
-        the separate Base Sepolia allowance; mainnet deposits do not increase that allowance.
-      </p>
-      {!readOnly && (w.wallet?.receiveEnabled || currenciesOpen) && (
-        <CustomerWalletPanel
-          key={w.id}
-          workspaceId={w.id}
-          name={w.name}
-          gFetch={gFetch}
-          open={currenciesOpen}
-          onOpenChange={setCurrenciesOpen}
-          intent={walletIntent}
-          workspaces={workspaces.filter((x) => x.orgId === w.orgId)}
-        />
-      )}
-      {!readOnly && !w.isDefault && !w.wallet?.receiveEnabled && (
-        <details>
-          <summary>Separate on-chain wallet · optional</summary>
-          <p>
-            Most workspaces can use account allocations. Set up a separate receiving wallet only if
-            this workspace needs its own on-chain custody. Transfers to it require network fees.
-          </p>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setWalletIntent("currencies");
-              setCurrenciesOpen(true);
+      <div className="abi-card-tabs" role="tablist" aria-label="Card details">
+        {[
+          ["keys", "Access keys"],
+          ["settings", "Settings"],
+          ["activity", "Activity"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            id={`card-tab-${key}`}
+            role="tab"
+            type="button"
+            aria-selected={tab === key}
+            aria-controls="card-panel"
+            tabIndex={tab === key ? 0 : -1}
+            onClick={() => setTab(key)}
+            onKeyDown={(e) => {
+              const keys = ["keys", "settings", "activity"];
+              const i = keys.indexOf(tab);
+              const next =
+                e.key === "ArrowRight"
+                  ? keys[(i + 1) % 3]
+                  : e.key === "ArrowLeft"
+                    ? keys[(i + 2) % 3]
+                    : e.key === "Home"
+                      ? keys[0]
+                      : e.key === "End"
+                        ? keys[2]
+                        : null;
+              if (next) {
+                e.preventDefault();
+                setTab(next);
+                document.getElementById(`card-tab-${next}`)?.focus();
+              }
             }}
           >
-            Set up separate wallet
-          </Button>
-        </details>
-      )}
-      {receipt && <p role="status">{receipt}</p>}
-      {error && !action && <p role="alert">{error}</p>}
-      <section className="minimal-section">
-        <h2>Card controls</h2>
-        <p>
-          {w.card.limitUsdc === null
-            ? "Existing account and agent limits apply."
-            : `${w.card.limitUsdc} USDC per ${w.card.period}, shared across every connection.`}{" "}
-          {w.card.spentUsdc} spent · {w.card.pendingUsdc} reserved.
-        </p>
-        <Button
-          variant="ghost"
-          disabled={readOnly || busy}
-          onClick={() =>
-            void mutate(
-              `${prefix}/card`,
-              { status: w.card.status === "active" ? "frozen" : "active" },
-              "PATCH",
-            )
-          }
-        >
-          <Snowflake size={16} />
-          {w.card.status === "active" ? "Freeze card" : "Unfreeze card"}
-        </Button>
-        <p>
-          Freezing stops new spending across all keys. Existing holds, settlement and refunds retain
-          their original accounts.
-        </p>
-      </section>
-      <WorkspaceAllocationHistory
-        workspace={w}
-        gFetch={gFetch}
-        readOnly={readOnly}
-        onChanged={onChanged}
-      />
-      <Dialog
-        open={action !== null}
-        onOpenChange={(open) => {
-          if (!open && !busy) setAction(null);
-        }}
+            {label}
+          </button>
+        ))}
+      </div>
+      <div
+        id="card-panel"
+        role="tabpanel"
+        aria-labelledby={`card-tab-${tab}`}
+        className="abi-card-panel"
+        key={tab}
       >
-        <DialogContent className="reference-dialog abi-workspace-dialog abi-wallet-action-dialog">
-          <span className="abi-dialog-symbol" aria-hidden="true">
-            <ShieldCheck size={22} />
-          </span>
-          <DialogTitle>Card spending limits</DialogTitle>
-          <DialogDescription>
-            Every configured cap applies to every agent using this workspace card.
-          </DialogDescription>
-          <WalletLimitEditor
+        {tab === "keys" && (
+          <WalletConnect
             workspace={w}
             workspaces={workspaces}
             gFetch={gFetch}
             onChanged={onChanged}
             readOnly={readOnly}
-            onSaved={() => {
-              setAction(null);
-              setReceipt("Spending limit saved.");
-            }}
+            initialTab="keys"
+            onTabChange={() => {}}
+            cardOnly
           />
-        </DialogContent>
-      </Dialog>
-    </section>
-  );
-}
-function WorkspaceAllocationHistory({
-  workspace,
-  gFetch,
-  readOnly,
-  onChanged,
-}: {
-  workspace: Workspace;
-  gFetch: WorkspaceFetcher;
-  readOnly: boolean;
-  onChanged: () => Promise<void>;
-}) {
-  const [rows, setRows] = useState<
-      {
-        id: string;
-        from_id: string;
-        to_id: string;
-        amount_micro: string;
-        created_at: string;
-        amountUsdc?: string;
-        status?: string;
-      }[]
-    >([]),
-    [error, setError] = useState(""),
-    [resolving, setResolving] = useState<string | null>(null),
-    [notice, setNotice] = useState("");
-  useEffect(() => {
-    let live = true;
-    workspaceJsonPromise();
-    async function workspaceJsonPromise() {
-      try {
-        const d = await workspaceJson(
-          await gFetch(`/v1/guardian/workspaces/${workspace.id}/allocations`),
-        );
-        if (live) setRows(d.allocations);
-      } catch {
-        if (live) setError("Allocation history couldn’t load.");
-      }
-    }
-    return () => {
-      live = false;
-    };
-  }, [workspace, gFetch]);
-  async function resolve(id: string, approve: boolean) {
-    setResolving(id);
-    setError("");
-    try {
-      const result = await workspaceJson(
-        await gFetch(`/v1/guardian/treasury/moves/${id}/resolve`, {
-          method: "POST",
-          body: JSON.stringify({ approve }),
-        }),
-      );
-      await onChanged();
-      setNotice(
-        result.outcome === "review"
-          ? "Vote recorded. More approvals are required."
-          : approve
-            ? "Allocation approved."
-            : "Allocation declined.",
-      );
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setResolving(null);
-    }
-  }
-
-  return (
-    <section className="minimal-section">
-      <h2>Agent allowance allocations</h2>
-      <p>Earlier internal USDC allocations on Base Sepolia. On-chain transfers appear above.</p>
-      {notice && <p role="status">{notice}</p>}
-      {error ? (
-        <p role="alert">{error}</p>
-      ) : rows.length ? (
-        <ul className="abi-workspace-history">
-          {rows.map((r) => (
-            <li key={r.id}>
-              <ArrowRightLeft size={16} />
-              <span>
-                {r.from_id === workspace.id ? "Sent" : "Received"} ·{" "}
-                {r.amountUsdc ?? r.amount_micro} USDC
-                <small>
-                  {r.status ?? "executed"} · {new Date(r.created_at).toLocaleString()} · {r.id}
-                </small>
-              </span>
-              {r.status === "pending" && (
-                <div>
-                  <Button
-                    size="sm"
-                    disabled={readOnly || resolving !== null}
-                    onClick={() => void resolve(r.id, true)}
-                  >
-                    Approve allocation
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={readOnly || resolving !== null}
-                    onClick={() => void resolve(r.id, false)}
-                  >
-                    Decline
-                  </Button>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p>No workspace allocations yet.</p>
-      )}
+        )}
+        {tab === "settings" && (
+          <section className="minimal-section abi-card-settings">
+            <h2>Spending limits</h2>
+            <WalletLimitEditor
+              workspace={w}
+              workspaces={[w]}
+              gFetch={gFetch}
+              onChanged={onChanged}
+              readOnly={readOnly}
+              onSaved={() => {}}
+              cardOnly
+            />
+            <div className="abi-card-freeze">
+              <div>
+                <h3>Card status</h3>
+                <p>
+                  Freezing stops new spending. Existing holds and refunds retain their original
+                  accounts.
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                disabled={readOnly || busy}
+                onClick={() => void toggleFreeze()}
+              >
+                {w.card.status === "active" ? "Freeze card" : "Unfreeze card"}
+              </Button>
+            </div>
+            {error && <p role="alert">{error}</p>}
+          </section>
+        )}
+        {tab === "activity" && <CardActivity workspace={w} gFetch={gFetch} />}
+      </div>
     </section>
   );
 }
