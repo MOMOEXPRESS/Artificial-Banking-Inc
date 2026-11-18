@@ -1624,7 +1624,9 @@ export default function Console() {
                 {view === "overview" && (
                   <MinimalOverview
                     org={org}
-                    gFetch={readOnly ? undefined : gFetch}
+                    gFetch={
+                      org?.actor?.role === "owner" || session.guardianKey ? gFetch : undefined
+                    }
                     workspace={workspaceState.current}
                     walletPicker={
                       workspaceState.current ? (
@@ -1662,7 +1664,7 @@ export default function Console() {
                     workspaces={workspaceState.items}
                     gFetch={gFetch}
                     onChanged={workspaceState.load}
-                    readOnly={readOnly}
+                    readOnly={readOnly || org?.actor?.role === "approver"}
                     onNavigate={(v, t) => setView(v as View, t)}
                   />
                 )}
