@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useEffect } from "react";
 import { Icon } from "./ui";
 import { AgentLogoCluster } from "./agent-logo-cluster";
 export function StudioNav({
@@ -11,6 +12,11 @@ export function StudioNav({
   active: string;
   onNavigate: (view: string, tab?: string) => void;
 }) {
+  useEffect(() => {
+    document
+      .querySelector<HTMLElement>(".studio-console .scroll")
+      ?.scrollTo({ top: 0, behavior: "instant" });
+  }, [active]);
   const links = seller
     ? [
         ["overview", "Overview", "home"],

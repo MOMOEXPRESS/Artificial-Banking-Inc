@@ -1,0 +1,308 @@
+/* ABI silver glass: a warm optical layer over the existing console geometry. */
+.studio-console {
+  --abi-pearl: #f5f4f1;
+  --abi-ink: #292b2d;
+  --abi-secondary: #555854;
+  --abi-metal: #796a50;
+  --abi-glass: rgb(255 255 255 / 64%);
+  --abi-glass-solid: #f8f8f6;
+  --abi-glass-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 95%), inset 0 -1px 0 rgb(115 119 116 / 9%),
+    0 8px 24px -18px rgb(49 54 53 / 28%);
+  --color-canvas: var(--abi-pearl);
+  --color-ink: var(--abi-ink);
+  --color-fg: var(--abi-ink);
+  --color-fg-muted: var(--abi-secondary);
+  --color-ink-muted: var(--abi-secondary);
+  --color-surface-2: #f6f6f3;
+  --color-surface-3: #eaece8;
+  --color-border: #dcdfd9;
+  --color-ring: #2878c9;
+  color: var(--abi-ink);
+  background: var(--abi-pearl);
+}
+.studio-console .main {
+  background:
+    radial-gradient(ellipse at 90% 8%, rgb(192 178 147 / 16%), transparent 48%),
+    radial-gradient(ellipse at 12% 80%, rgb(182 201 208 / 17%), transparent 55%), var(--abi-pearl);
+}
+.studio-console .view {
+  color: var(--abi-ink);
+}
+.studio-console :is(h1, h2, h3) {
+  text-wrap: balance;
+}
+.studio-console :is(p, label, dt, dd, strong, small, input, [role="combobox"]) {
+  font-variant-numeric: tabular-nums;
+}
+.studio-console h1 {
+  font-weight: 550;
+}
+.studio-console .minimal-page-heading > div > p {
+  color: var(--abi-secondary);
+}
+/* Separate the workspace control from the card, including when a picker replaces the default row. */
+.studio-console .reference-vault {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+.studio-console .reference-vault .reference-workspace-row {
+  margin-bottom: 0;
+}
+.studio-console .reference-vault .abi-wallet-trigger {
+  padding: 14px 16px;
+}
+.studio-console .reference-vault .reference-card-caption {
+  margin-top: -8px;
+}
+.studio-console .reference-vault .abi-wallet-mark {
+  color: var(--abi-metal);
+  background: rgb(216 209 192 / 40%);
+  box-shadow: inset 0 1px 0 #fff;
+}
+.studio-console
+  :is(
+    .reference-start .minimal-checklist li,
+    .reference-workspace-row,
+    .reference-vault .abi-wallet-trigger,
+    .minimal-notice,
+    .minimal-empty,
+    .reference-agent-rows article,
+    .abi-card-panel .abi-key-list article,
+    .abi-treasury-allocation,
+    .abi-financial-activity article,
+    .settings-page .settings-content .card,
+    .settings-page .set-nav-org,
+    .market-product,
+    .abi-chat-composer
+  ) {
+  background: var(--abi-glass);
+  box-shadow: var(--abi-glass-shadow);
+  border: 0;
+  border-radius: 14px;
+  backdrop-filter: blur(20px) saturate(110%);
+  -webkit-backdrop-filter: blur(20px) saturate(110%);
+}
+.studio-console .reference-start .reference-step-icon {
+  color: var(--abi-metal);
+}
+.studio-console .reference-start .minimal-checklist li {
+  min-height: 88px;
+}
+.studio-console .reference-start li > div > span {
+  color: var(--abi-secondary);
+}
+.studio-console .minimal-balances > div {
+  background: transparent;
+}
+.studio-console
+  .minimal-page
+  :is(input:not([type="checkbox"]):not([type="radio"]), textarea, select),
+.studio-console .abi-allocation-field [role="combobox"],
+.studio-console
+  .settings-page
+  .settings-content
+  :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  color: var(--abi-ink);
+  background: rgb(224 228 222 / 65%);
+  box-shadow:
+    inset 0 1px 2px rgb(46 58 50 / 6%),
+    0 1px 0 rgb(255 255 255 / 80%);
+  border-color: transparent;
+}
+.studio-console :is(input, textarea)::placeholder {
+  color: #636963;
+  opacity: 1;
+}
+.studio-console :is(input, textarea) {
+  caret-color: #2878c9;
+}
+.studio-console ::selection {
+  color: #222b30;
+  background: #ccdce2;
+}
+.studio-console :is(button, a, input, select, textarea, [role="combobox"], summary):focus-visible {
+  outline: 2px solid #2878c9;
+  outline-offset: 3px;
+}
+.studio-console :is(.abi-card-tabs, .reference-billing-tabs, .abi-settings-tabs) {
+  background: rgb(227 230 224 / 58%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 80%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.studio-console .abi-settings-tabs {
+  padding: 5px;
+  border-radius: 12px;
+}
+.studio-console .abi-settings-tabs button[aria-selected="true"] {
+  color: #50452f;
+}
+.studio-console .abi-settings-marker {
+  background: rgb(255 255 255 / 88%);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 3px 8px -5px #383e3740;
+}
+.studio-console .reference-billing-tabs button[aria-pressed="true"],
+.studio-console .abi-card-tabs button[aria-selected="true"] {
+  background: rgb(255 255 255 / 90%);
+  color: #292b2d;
+}
+.studio-console .studio-workspace-nav,
+.studio-console .minimal-dock {
+  background: rgb(250 250 247 / 62%);
+  backdrop-filter: blur(28px) saturate(125%);
+  -webkit-backdrop-filter: blur(28px) saturate(125%);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 8px 28px -22px #343f3b55;
+}
+.studio-console .minimal-dock button[aria-current],
+.studio-console .studio-workspace-links button[aria-current] {
+  background: rgb(215 211 199 / 40%);
+}
+.studio-console .liquid-card-material {
+  background:
+    radial-gradient(ellipse at 0% 100%, #b8cfd93b, transparent 58%),
+    radial-gradient(ellipse at 100% 0%, #e2d6b847, transparent 60%);
+}
+.studio-console .abi-crypto-deposits {
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 1px solid #d8ddd5;
+  scroll-margin-top: 24px;
+}
+.studio-console .abi-crypto-deposits > .minimal-section {
+  margin-top: 0;
+}
+.studio-console .minimal-activity > div {
+  padding-block: 16px;
+}
+.studio-console .abi-pool-balances dd {
+  font-weight: 500;
+}
+/* Keep the public vendor directory neutral while sharing the same glass material. */
+.studio-console .market-workspace .vendor-dir :is(button.vendor-row, button.vendor-listing) {
+  background: var(--abi-glass) !important;
+  box-shadow: var(--abi-glass-shadow);
+  backdrop-filter: blur(16px);
+}
+body:has(.studio-console)
+  :is([data-motion="popover"], [data-motion="dropdown"], [data-motion="select"]) {
+  background: rgb(250 250 247 / 92%) !important;
+  color: #292b2d;
+  backdrop-filter: blur(24px) saturate(115%);
+  -webkit-backdrop-filter: blur(24px) saturate(115%);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 14px 40px -12px #2a383333 !important;
+  border-color: rgb(255 255 255 / 85%);
+}
+body:has(.studio-console) [data-motion="dialog"] {
+  background: rgb(250 250 247 / 96%);
+  backdrop-filter: blur(26px) saturate(110%);
+  -webkit-backdrop-filter: blur(26px) saturate(110%);
+}
+body:has(.studio-console) [data-slot="dialog-overlay"] {
+  background: rgb(34 41 39 / 28%);
+}
+[data-motion="select"] {
+  transform-origin: var(--radix-select-content-transform-origin);
+}
+@media (hover: hover) {
+  .studio-console .reference-start .minimal-checklist li:hover,
+  .studio-console .abi-key-list article:hover {
+    background: rgb(255 255 255 / 82%);
+  }
+  .studio-console .abi-wallet-trigger:hover {
+    background: rgb(255 255 255 / 84%);
+  }
+  .studio-console .minimal-tabs button:not([aria-pressed="true"]):hover {
+    background: rgb(255 255 255 / 48%);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .studio-console
+    :is(.abi-wallet-trigger, .reference-start .minimal-checklist li, .abi-key-list article) {
+    transition:
+      background-color 180ms var(--abi-enter),
+      box-shadow 180ms var(--abi-enter);
+  }
+  [data-motion="select"][data-state="open"] {
+    animation: abi-surface-in 200ms var(--abi-enter);
+  }
+  [data-motion="select"][data-state="closed"] {
+    animation: abi-surface-out 160ms ease-in;
+  }
+  .studio-console .abi-settings-panel {
+    animation: abi-content-settle 200ms var(--abi-enter);
+  }
+}
+@keyframes abi-content-settle {
+  from {
+    opacity: 0.65;
+    translate: 0 4px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@media (max-width: 760px) {
+  .studio-console .reference-vault {
+    gap: 22px;
+  }
+  .studio-console .reference-vault .abi-wallet-trigger {
+    padding: 12px;
+  }
+  .studio-console .reference-start .minimal-checklist li {
+    min-height: 76px;
+  }
+  .studio-console .abi-crypto-deposits {
+    margin-top: 32px;
+    padding-top: 24px;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .studio-console {
+    --abi-glass: var(--abi-glass-solid);
+  }
+  .studio-console .main {
+    background: var(--abi-pearl);
+  }
+  .studio-console
+    :is(
+      .studio-workspace-nav,
+      .minimal-dock,
+      .abi-card-tabs,
+      .reference-billing-tabs,
+      .abi-settings-tabs
+    ),
+  body:has(.studio-console)
+    :is(
+      [data-motion="popover"],
+      [data-motion="dropdown"],
+      [data-motion="select"],
+      [data-motion="dialog"]
+    ) {
+    background: #f8f8f6 !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-console *,
+  body:has(.studio-console) [data-motion] {
+    animation: none !important;
+    transition-duration: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Destinations render immediately; motion is reserved for changes within the task. */
+.studio-console .view > * {
+  animation: none;
+}

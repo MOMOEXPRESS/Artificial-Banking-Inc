@@ -66,7 +66,7 @@ export function AccountTreasury({
     <section className="minimal-section abi-account-treasury">
       <div className="minimal-section-heading">
         <div>
-          <h2>Account treasury</h2>
+          <h2>Crypto deposits</h2>
           <p>Top up your account, then distribute funds to workspaces.</p>
         </div>
         <Button

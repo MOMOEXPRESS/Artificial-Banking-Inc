@@ -626,7 +626,6 @@ export function MinimalBilling({
       </div>
       {sections?.[tab]}
       <div hidden={tab !== "overview"}>
-        {tab === "overview" && fundingContent}
         {error && (
           <p role="alert" className="minimal-error">
             {error}
@@ -634,7 +633,7 @@ export function MinimalBilling({
         )}
         {notice && <p role="status">{notice}</p>}
         {!data && !error && <p role="status">Loading billing…</p>}
-        {data && (data.cardFundingAvailable || data.creditCents > 0 || data.debtCents > 0) && (
+        {data && (
           <>
             {!data.cardFundingAvailable && (
               <p className="minimal-notice">
@@ -654,6 +653,20 @@ export function MinimalBilling({
               <div>
                 <p>Settlement funds · USDC</p>
                 <strong>{usdc(org?.balances.find((b) => b.kind === "org_available")?.usdc)}</strong>
+                <button
+                  onClick={() =>
+                    document
+                      .getElementById("billing-crypto-deposits")
+                      ?.scrollIntoView({
+                        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                          ? "instant"
+                          : "smooth",
+                        block: "start",
+                      })
+                  }
+                >
+                  Manage USDC wallet
+                </button>
               </div>
             </section>
             <section className="minimal-section">
@@ -790,6 +803,11 @@ export function MinimalBilling({
               </p>
             </section>
           </>
+        )}
+        {tab === "overview" && fundingContent && (
+          <div id="billing-crypto-deposits" className="abi-crypto-deposits">
+            {fundingContent}
+          </div>
         )}
       </div>
     </section>

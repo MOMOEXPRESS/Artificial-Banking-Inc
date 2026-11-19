@@ -1,10 +1,10 @@
 ---
 name: ABI liquid wallet and o11 console
-description: Actual ABI identity with clear liquid-glass wallet, Inter typography and opaque neutral working content.
+description: Actual ABI identity with clear liquid-glass surfaces, Inter typography and warm silver neutrals.
 colors:
-  canvas: "#fafafa"
-  ink: "#262626"
-  ink-secondary: "#525252"
+  canvas: "#f5f4f1"
+  ink: "#292b2d"
+  ink-secondary: "#555854"
   surface: "#f4f4f4"
   field: "#e5e5e5"
   accent: "#2878c9"
@@ -97,7 +97,7 @@ Overview uses two equal desktop columns with a 30px gap: setup checklist on the 
 
 Wallet uses a 1fr / 1.06fr summary grid with a 34px gap: card left, real balance rows and Receive/Allocate/Move actions right. Allocations and actual activity follow below. At 760px it stacks with a 30px gap; the three balance metrics share one opaque gray strip. Allocation/activity rows wrap, preserving usable controls and readable amounts.
 
-Content, provider rows, seller forms and spending controls are opaque. Glass is reserved for navigation, account menus and the vault card. Header glass uses #fafafad9 with 24px blur; the dock uses #fafafaa6 with 28px blur, white inset highlights and a subtle shadow. Account menus use #fafafae6 and 28px blur. Reduced-transparency preferences make the designated navigation surfaces opaque. Dialogs use opaque #fafafa, bounded viewport height, internal scrolling and an overlay; they are not glass content cards.
+Content, provider rows, seller forms and spending controls are opaque. The current console material refinement extends restrained glass to checklist rows, task panels, fields and popovers while retaining the layout. Header glass uses #fafafad9 with 24px blur; the dock uses #fafafaa6 with 28px blur, white inset highlights and a subtle shadow. Account menus use #fafafae6 and 28px blur. Reduced-transparency preferences make the designated navigation surfaces opaque. Dialogs use opaque #fafafa, bounded viewport height, internal scrolling and an overlay; they are not glass content cards.
 
 The seller listing editor is a focused page within Inventory, up to 860px wide. Detail fields use two columns on desktop and one on mobile; repeated endpoint groups use the opaque surface-2 token. Secondary actions are neutral with dark text, and Save is the primary blue action. Form/abi.yaml are adjacent format choices; code stays monospace. Controls have 44px minimum targets, required markers stay grouped with labels, validation focuses an alert summary, and errors retain entered data. The listing file describes a service; it does not visually imply that authentication credentials or monthly billing have been configured.
 
@@ -160,3 +160,11 @@ Preserve the existing Inter, #fafafa canvas, opaque neutral working surfaces and
 ## Card experience refinement — 19 November 2026
 
 The workspace card opens Access keys, Settings and Activity using the existing ABI material, typography and palette. Settings contains the existing enforced spending limits, services, recurring permission and freeze control; the previous full policy editor is no longer exposed in Billing. Billing is the only funding surface and retains Overview (account treasury and allocations), Transactions and owner-only Workspace team. Allocation fields use the shared accessible custom select. Settings navigation uses a moving selection marker, keyboard navigation and reduced-motion support. Mobile keeps navigation scrollable within its own bounds. Remove the added saved-vendor strip and historical recovery panels from the public console; preserve underlying addresses, assets and enforcement. Product image errors render a neutral fallback; vendor tiles retain neutral surfaces.
+
+## Warm silver console refinement — 19 November 2026
+
+This user-directed refinement supersedes the earlier opaque-only content restriction for authenticated buyer and seller consoles. Retain Inter, the ABI card, existing page geometry and blue primary actions. Use pearl #f5f4f1, charcoal #292b2d, secondary #555854 and muted champagne-grey #796a50 for small neutral symbols and settings selection. White glass working surfaces use 64% white, 20px backdrop blur, an inset optical highlight and soft offset shadow over a static, low-contrast silver/champagne ground. Financial dialogs remain 96% opaque; readable fields and text take precedence over translucency. No new red or purple palette is introduced. Scope the material to .studio-console; preserve public landing-page design.
+
+Overview separates the real workspace picker from the card by 24px desktop / 22px mobile. Billing Overview restores its original balances, Add credits, Auto top-up, Payment method and Funding activity order even when card funding is unavailable; disabled actions and actual capability notices remain. Crypto deposits and existing allocations are appended as an additional section. Settings removes Private files and Merchants; underlying storage and seller services remain untouched.
+
+Shared navigation resets the content scroll on a destination change. Remove the old 520ms whole-page entrance; keep 200ms trigger-origin dropdown entrances, 160ms exits, the settings selection marker and brief content-state transitions. Reduced motion disables motion, and reduced transparency makes glass surfaces opaque. Source: app/console-material.css, lib/studio-nav.tsx and the existing card-experience / interaction-motion layers.

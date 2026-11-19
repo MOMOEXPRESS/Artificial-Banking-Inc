@@ -34,6 +34,7 @@ const SelectContent = React.forwardRef<
 >(({ className, children, position = "popper", ...props }, ref) => (
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
+      data-motion="select"
       ref={ref}
       className={cn(
         "z-[90] max-h-72 min-w-[8rem] overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-fg)] shadow-[var(--shadow)]",
