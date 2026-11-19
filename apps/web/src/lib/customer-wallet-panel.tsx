@@ -1,4 +1,5 @@
 "use client";
+import { CryptoDeposit } from "./crypto-deposit";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Wallet,
@@ -315,7 +316,9 @@ export function CustomerWalletPanel({
           if (!busy) onOpenChange(v);
         }}
       >
-        <DialogContent className="reference-dialog abi-workspace-dialog abi-wallet-action-dialog abi-currency-dialog">
+        <DialogContent
+          className={`reference-dialog abi-workspace-dialog abi-wallet-action-dialog abi-currency-dialog ${intent === "receive" ? "abi-deposit-dialog" : ""}`}
+        >
           <span className="abi-dialog-symbol" aria-hidden="true">
             {intent === "receive" ? (
               <ArrowDownLeft size={22} />
@@ -337,15 +340,27 @@ export function CustomerWalletPanel({
                   ? "Allocate between wallets"
                   : `Send from ${name}`
               : intent === "receive"
-                ? `Add money to ${name}`
+                ? "Deposit crypto"
                 : `${name} · currencies`}
           </DialogTitle>
           <DialogDescription>
             {sending
               ? "Transfers move funds on-chain. Check the currency, network and destination before confirming."
-              : "Choose an asset under the network you will send it on. Funds go to the displayed wallet on the selected network. Mainnet deposits do not become an agent allowance."}
+              : intent === "receive"
+                ? "Choose the asset and network, then send crypto from your wallet to your ABI account."
+                : "Choose an asset under the network you will send it on. Funds go to the displayed wallet on the selected network. Mainnet deposits do not become an agent allowance."}
           </DialogDescription>
-          {data && (
+          {data && intent === "receive" && (
+            <CryptoDeposit
+              key={data.selectedAssetId}
+              data={data}
+              busy={busy}
+              error={error}
+              onAssetChange={(id) => void changeAsset(id)}
+              onRefresh={() => void load().then(() => walletChanged())}
+            />
+          )}
+          {data && intent !== "receive" && (
             <>
               <label>
                 Assets
@@ -632,7 +647,7 @@ export function CustomerWalletPanel({
               )}
             </>
           )}
-          {!ready && (
+          {!ready && (intent !== "receive" || !data) && (
             <p role="status">
               {busy
                 ? "Preparing and verifying this workspace wallet…"

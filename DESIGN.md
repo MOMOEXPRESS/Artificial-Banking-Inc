@@ -168,3 +168,11 @@ This user-directed refinement supersedes the earlier opaque-only content restric
 Overview separates the real workspace picker from the card by 24px desktop / 22px mobile. Billing Overview restores its original balances, Add credits, Auto top-up, Payment method and Funding activity order even when card funding is unavailable; disabled actions and actual capability notices remain. Crypto deposits and existing allocations are appended as an additional section. Settings removes Private files and Merchants; underlying storage and seller services remain untouched.
 
 Shared navigation resets the content scroll on a destination change. Remove the old 520ms whole-page entrance; keep 200ms trigger-origin dropdown entrances, 160ms exits, the settings selection marker and brief content-state transitions. Reduced motion disables motion, and reduced transparency makes glass surfaces opaque. Source: app/console-material.css, lib/studio-nav.tsx and the existing card-experience / interaction-motion layers.
+
+## Deposit and Settings reference refinement — 19 November 2026
+
+Billing's compact Overview / Transactions / Workspace team strip now sizes to its buttons, including 320px mobile widths. Activity and transaction entries are continuous transparent rows with separators, Inter labels and explicit spacing; remove the former glass treatment from these entries to prevent split-looking white panels. Transaction search has a 26px separation from results.
+
+Settings now follows the user's o11 screenshot layout: Account / Team tabs at the top, a compact account-section navigation row, then unboxed forms with clear section rules. This supersedes the earlier Settings sidebar. Retain ABI's real account, profile, security, compliance and approval capabilities and the current font family; do not invent notification preferences or editable user fields. Tab changes reset the section scroll after rendering.
+
+Crypto receiving follows the official Kraken / Crypto.com asset → network → address/QR pattern with ABI's current palette. See docs/deposit-ui-references.md for the inspected sources and exact verification limits. QR pixels are generated locally from the current verified address; loading and failed selection changes hide both QR and copy controls. Financial transfer behavior is unchanged.

@@ -158,6 +158,12 @@ export function AccountAccessPanel({
         </div>
       </div>
 
+      {isSessionUser && email && (
+        <div className="abi-account-email">
+          <span>Email</span>
+          <p>{email}</p>
+        </div>
+      )}
       <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
         <Button type="button" size="sm" disabled={locked} onClick={() => onSignOut(false)}>
           Log out

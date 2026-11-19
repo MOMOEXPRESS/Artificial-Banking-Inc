@@ -39,14 +39,14 @@ type Guardian = { id: string; name: string; role: string; createdAt: string; rev
 const SECTIONS = [
   {
     key: "profile",
-    label: "Workspace profile",
+    label: "Account details",
     icon: "shield",
     group: "Workspace",
     description: "Identity, location, how this workspace uses ABI, and signing in or out.",
   },
   {
     key: "team",
-    label: "Team & quorum",
+    label: "People and approvals",
     icon: "check",
     group: "People & access",
     description: "People, roles and the number of approvals required for a payment.",
@@ -113,6 +113,11 @@ export function SettingsView({
 }) {
   const readOnly = actorRole === "viewer";
   const [section, setSection] = useState<Section>("profile");
+  useEffect(() => {
+    document
+      .querySelector<HTMLElement>(".studio-console .scroll")
+      ?.scrollTo({ top: 0, behavior: "instant" });
+  }, [section]);
   // Deep links such as /console?view=settings&section=compliance.
   useEffect(() => {
     const wanted = new URLSearchParams(window.location.search).get("section") ?? initialSection;
@@ -245,9 +250,6 @@ export function SettingsView({
       return;
     }
     setSection(next);
-    document
-      .querySelector<HTMLElement>(".studio-console .scroll")
-      ?.scrollTo({ top: 0, behavior: "instant" });
     const url = new URL(window.location.href);
     url.searchParams.set("section", next);
     window.history.replaceState(null, "", url);
@@ -314,32 +316,58 @@ export function SettingsView({
     });
 
   return (
-    <div className="set-grid console-page settings-page">
-      <nav className="set-nav" aria-label="Settings sections">
-        <div className="set-nav-head">
-          <span>Settings</span>
-          <small>{actorRole}</small>
-        </div>
-        <div
-          className="set-nav-org"
-          title={profile.displayName || org?.org?.name || "Organization"}
-        >
-          <span className="set-nav-org-mark" aria-hidden>
-            {(profile.displayName || org?.org?.name || "O").trim().slice(0, 1).toUpperCase()}
-          </span>
-          <span>{profile.displayName || org?.org?.name || "Your organization"}</span>
-        </div>
-        <SettingsSectionNav
-          items={SECTIONS}
-          value={section}
-          onChange={(key) => go(key as Section)}
-        />
-      </nav>
+    <div className="set-grid console-page settings-page abi-settings-reference">
+      <header className="abi-settings-heading">
+        <h1>Settings</h1>
+      </header>
+      <div className="abi-settings-primary" role="tablist" aria-label="Settings">
+        {[
+          ["account", "Account"],
+          ["team", "Team"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            id={`settings-primary-${key}`}
+            aria-controls="settings-panel"
+            aria-selected={key === "team" ? section === "team" : section !== "team"}
+            tabIndex={(key === "team" ? section === "team" : section !== "team") ? 0 : -1}
+            onClick={() => go(key === "team" ? "team" : "profile")}
+            onKeyDown={(event) => {
+              if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+                event.preventDefault();
+                const next =
+                  event.key === "Home"
+                    ? "account"
+                    : event.key === "End"
+                      ? "team"
+                      : section === "team"
+                        ? "account"
+                        : "team";
+                go(next === "team" ? "team" : "profile");
+                document.getElementById(`settings-primary-${next}`)?.focus();
+              }
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {section !== "team" && (
+        <nav className="abi-settings-account-nav" aria-label="Account sections">
+          <SettingsSectionNav
+            items={SECTIONS.filter((item) => item.key !== "team")}
+            value={section}
+            onChange={(key) => go(key as Section)}
+          />
+        </nav>
+      )}
 
       <section
         id="settings-panel"
         role="tabpanel"
-        aria-labelledby={`settings-tab-${section}`}
+        aria-labelledby={section === "team" ? "settings-primary-team" : `settings-tab-${section}`}
         className="settings-content abi-settings-panel"
         key={section}
       >

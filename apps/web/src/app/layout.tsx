@@ -27,6 +27,7 @@ import "./marketing-navigation.css";
 import "./workspace-governance.css";
 import "./card-experience.css";
 import "./console-material.css";
+import "./deposit-settings.css";
 
 // Self-hosted Inter (SIL OFL; fonts/OFL-Inter.txt) matches the supplied reference.
 const interSans = localFont({

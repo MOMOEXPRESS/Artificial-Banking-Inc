@@ -1,0 +1,428 @@
+/* Receive, activity and settings share the console's quiet, continuous surface. */
+.studio-console .reference-billing-tabs {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-self: flex-start;
+  gap: 4px;
+}
+.studio-console .reference-billing-tabs button {
+  padding-inline: 16px;
+}
+.studio-console .abi-transaction-page {
+  margin-top: 28px;
+}
+.studio-console .abi-transaction-page > p {
+  max-width: 74ch;
+  margin-top: 12px;
+}
+.studio-console .abi-transaction-search {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 560px;
+  margin: 28px 0 26px;
+}
+.studio-console .abi-transaction-search input {
+  width: 100%;
+  padding: 12px 14px;
+  min-height: 44px;
+}
+.studio-console .abi-financial-activity {
+  width: 100%;
+  min-width: 0;
+}
+.studio-console .abi-financial-activity article {
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: 0;
+  padding: 24px 0;
+  border-bottom: 1px solid #dce0da;
+  min-width: 0;
+}
+.studio-console .abi-financial-activity :is(strong, p, small, span, summary) {
+  font-family: var(--font-sans), Inter, sans-serif;
+}
+.studio-console .abi-financial-activity strong {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.studio-console .abi-financial-activity small {
+  font-size: 12px;
+  margin-top: 8px;
+  color: #555854;
+}
+.studio-console .abi-financial-activity p {
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.studio-console .abi-financial-activity details {
+  margin-top: 12px;
+}
+.studio-console .abi-financial-activity summary {
+  font-size: 13px;
+  color: #525854;
+}
+.studio-console .abi-activity-reference {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #626862;
+  overflow-wrap: anywhere;
+}
+.studio-console .abi-activity-row-heading {
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.studio-console .abi-activity-row-heading > span {
+  font-size: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.studio-console .abi-card-activity .abi-activity-destination {
+  color: #555854;
+  font-size: 13px;
+}
+.studio-console .abi-card-empty {
+  padding: 44px 20px;
+  background: transparent;
+  box-shadow: none;
+}
+/* The supplied Account / Team reference: a compact rail, unboxed forms and ruled sections. */
+.studio-console .settings-page.abi-settings-reference {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 900px;
+}
+.studio-console .abi-settings-heading h1 {
+  margin: 0 0 6px;
+}
+.studio-console .abi-settings-primary {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 9px;
+  background: #eceeeb;
+  align-self: flex-start;
+}
+.studio-console .abi-settings-primary button {
+  min-height: 40px;
+  padding: 8px 18px;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  color: #454a46;
+  font-size: 15px;
+}
+.studio-console .abi-settings-primary button[aria-selected="true"] {
+  background: #fff;
+  color: #292b2d;
+  box-shadow: 0 2px 5px #31383116;
+}
+.studio-console .abi-settings-account-nav {
+  width: 100%;
+  min-width: 0;
+}
+.studio-console .abi-settings-account-nav .abi-settings-tabs {
+  display: flex;
+  flex-direction: row;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  gap: 20px;
+  max-height: none;
+  overflow-x: auto;
+}
+.studio-console .abi-settings-account-nav .abi-settings-tabs button {
+  padding: 8px 0;
+  min-height: 40px;
+  border-radius: 0;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.studio-console .abi-settings-account-nav .abi-settings-tabs button small,
+.studio-console .abi-settings-account-nav .abi-settings-tabs button svg,
+.studio-console .abi-settings-account-nav .abi-settings-marker {
+  display: none;
+}
+.studio-console .abi-settings-account-nav .abi-settings-tabs button[aria-selected="true"] {
+  color: #292b2d;
+  box-shadow: inset 0 -2px 0 #71634b;
+}
+.studio-console .abi-settings-reference .settings-content {
+  width: 100%;
+  gap: 30px;
+}
+.studio-console .abi-settings-reference .settings-section-summary h1 {
+  font-size: 23px !important;
+}
+.studio-console .abi-settings-reference .settings-section-summary p {
+  font-size: 14px;
+  max-width: 68ch;
+}
+.studio-console .abi-settings-reference .settings-content .card {
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid #d9ddd7;
+  padding: 28px 0 0;
+}
+.studio-console .abi-settings-reference .settings-content .card:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.studio-console .abi-settings-reference .settings-profile-identity {
+  padding-bottom: 28px;
+}
+.studio-console .abi-settings-reference .settings-profile-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  font-size: 24px;
+  background: #e2e5df;
+}
+.studio-console .abi-settings-reference .settings-profile-meta {
+  margin-top: 16px;
+}
+.studio-console .abi-settings-reference .settings-profile-details {
+  margin-block: 24px;
+}
+.studio-console .abi-settings-reference .settings-content label {
+  font-size: 14px;
+  gap: 10px;
+}
+.studio-console
+  .abi-settings-reference
+  .settings-content
+  :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  font-size: 16px;
+  min-height: 44px;
+  padding: 10px 14px;
+}
+.studio-console .abi-settings-reference .settings-profile-columns {
+  gap: 24px;
+}
+.studio-console .abi-settings-reference .settings-profile-form {
+  gap: 28px;
+}
+.studio-console .abi-settings-reference .settings-content .kv {
+  padding-block: 18px;
+}
+.studio-console .abi-settings-reference .settings-content .card-head {
+  margin-bottom: 24px;
+}
+/* Asset, network, then address: inspired by Kraken and Crypto.com receiving flows. */
+.reference-dialog.abi-deposit-dialog {
+  max-width: 600px;
+  font-family: var(--font-sans), Inter, sans-serif;
+}
+.abi-deposit-flow {
+  margin-top: 24px;
+}
+.abi-deposit-choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.abi-deposit-choices label {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  color: #525854;
+}
+.abi-deposit-choices [role="combobox"] {
+  width: 100%;
+  min-height: 48px;
+  justify-content: space-between;
+  background: #e9ece6;
+  color: #292b2d;
+  border: 0;
+  border-radius: 8px;
+  font-size: 15px;
+}
+.abi-deposit-network-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 16px;
+  background: #eef1ed;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 20px 0;
+  color: #454e47;
+}
+.abi-deposit-network-note svg {
+  flex: none;
+  margin-top: 2px;
+}
+.abi-deposit-network-note strong {
+  font-weight: 550;
+}
+.abi-deposit-destination {
+  display: grid;
+  grid-template-columns: 184px 1fr;
+  gap: 24px;
+  align-items: center;
+  padding: 24px 0;
+  border-block: 1px solid #dde1da;
+}
+.abi-deposit-qr {
+  background: #fff;
+  border-radius: 10px;
+  padding: 0;
+  width: 184px;
+  height: 184px;
+}
+.abi-deposit-address {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+.abi-deposit-address > span {
+  font-size: 13px;
+  color: #555854;
+}
+.abi-deposit-address code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+  font-size: 13px;
+  color: #292b2d;
+  background: transparent;
+  padding: 0;
+}
+.abi-deposit-address button {
+  min-height: 44px;
+  justify-content: center;
+}
+.abi-deposit-address p {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #555854;
+  margin: 0;
+}
+.abi-deposit-verifying {
+  grid-column: 1/-1;
+  min-height: 184px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  text-align: center;
+}
+.abi-deposit-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.abi-deposit-footer a {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.abi-deposit-caption {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #555854;
+  margin-top: 18px;
+}
+.abi-deposit-details {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid #dde1da;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #555854;
+}
+.abi-deposit-details summary {
+  cursor: pointer;
+  min-height: 32px;
+}
+.abi-deposit-testnet {
+  display: flex !important;
+  gap: 8px;
+  align-items: center;
+  margin-top: 16px;
+}
+@media (max-width: 640px) {
+  .studio-console .reference-billing-tabs {
+    gap: 2px;
+  }
+  .studio-console .reference-billing-tabs button {
+    padding-inline: 12px;
+  }
+  .studio-console .abi-activity-row-heading {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .studio-console .settings-page.abi-settings-reference {
+    gap: 20px;
+  }
+  .abi-deposit-destination {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 22px;
+    padding-block: 22px;
+  }
+  .abi-deposit-address {
+    width: 100%;
+  }
+  .abi-deposit-choices {
+    gap: 12px;
+  }
+  .abi-deposit-choices [role="combobox"] {
+    font-size: 14px;
+  }
+}
+.studio-console .reference-billing-tabs button[aria-pressed="false"] {
+  background: transparent;
+  box-shadow: none;
+}
+.studio-console .reference-billing-tabs button[aria-pressed="true"] {
+  background: #ffffffeb;
+  box-shadow: 0 1px 4px #292f2914;
+}
+.studio-console .settings-page.abi-settings-reference {
+  overflow-anchor: none;
+}
+.studio-console .abi-account-email {
+  margin: 0 0 26px;
+}
+.studio-console .abi-account-email > span {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+.studio-console .abi-account-email p {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.abi-deposit-address code {
+  font-size: 12px;
+}
+@media (max-width: 360px) {
+  .studio-console .reference-billing-tabs button {
+    font-size: 12px;
+    padding-inline: 8px;
+  }
+}

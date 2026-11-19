@@ -48,7 +48,7 @@ export function CardActivity({
     };
   }, [gFetch, workspace.id, workspace.connections, revision]);
   return (
-    <section className="minimal-section">
+    <section className="minimal-section abi-card-activity">
       <div className="minimal-section-heading">
         <div>
           <h2>Activity</h2>
@@ -69,10 +69,11 @@ export function CardActivity({
       <div className="abi-financial-activity">
         {rows.map((r, i) => (
           <article key={`${r.at}:${i}`}>
-            <strong>
-              {r.amountUsdc} USDC · {r.agentName}
-            </strong>
-            <p>{r.destination}</p>
+            <div className="abi-activity-row-heading">
+              <strong>{r.agentName}</strong>
+              <span>{r.amountUsdc} USDC</span>
+            </div>
+            <p className="abi-activity-destination">{r.destination}</p>
             <small>
               {new Date(r.at).toLocaleString()} · {r.settlementState ?? r.outcome} · {r.tool}
             </small>

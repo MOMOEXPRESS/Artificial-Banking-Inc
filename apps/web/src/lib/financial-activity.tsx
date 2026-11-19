@@ -10,14 +10,14 @@ export function FinancialActivity({ journals }: { journals: Journal[] }) {
       .includes(query.toLowerCase()),
   );
   return (
-    <section className="minimal-section">
+    <section className="minimal-section abi-transaction-page">
       <h2>Transactions</h2>
       <p>
         Posted ledger movements for the current access scope: funding, allocations, holds, releases
         and payments. Internal allocations are not new income. Mainnet wallet transfers appear in
         the wallet’s on-chain activity.
       </p>
-      <label>
+      <label className="abi-transaction-search">
         Search transactions
         <input
           value={query}
@@ -30,9 +30,8 @@ export function FinancialActivity({ journals }: { journals: Journal[] }) {
           <article key={j.id}>
             <div>
               <strong>{j.memo || "Ledger movement"}</strong>
-              <small>
-                {new Date(j.createdAt).toLocaleString()} · {j.id}
-              </small>
+              <small>{new Date(j.createdAt).toLocaleString()}</small>
+              <span className="abi-activity-reference">{j.id}</span>
             </div>
             <details>
               <summary>View balanced entries</summary>
