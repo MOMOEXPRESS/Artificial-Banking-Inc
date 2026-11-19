@@ -9170,7 +9170,22 @@ export const sellerStore = {
   resolveOfferForPay(destination: string): OfferRow | undefined {
     const rank = (o: OfferRow) =>
       (o.status === "published" ? 4 : o.status === "verified" ? 2 : 0) + (o.deprecatedAt ? 0 : 1);
-    return this.findOffersByEndpoint(destination)
+    let offers = this.findOffersByEndpoint(destination);
+    if (!offers.length) {
+      try {
+        const url = new URL(destination),
+          match = url.pathname.match(/^\/v1\/mpp\/offers\/([A-Za-z0-9_-]+)\/?$/);
+        if (match) {
+          url.pathname = `/v1/x402/offers/${match[1]}`;
+          offers = this.findOffersByEndpoint(url.toString()).filter(
+            (o) => o.hosted && o.id === match[1],
+          );
+        }
+      } catch {
+        /* Non-URL destinations retain the original lookup. */
+      }
+    }
+    return offers
       .filter((o) => !o.archivedAt)
       .sort((a, b) => rank(b) - rank(a) || b.createdAt.localeCompare(a.createdAt))[0];
   },

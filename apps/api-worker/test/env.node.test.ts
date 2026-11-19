@@ -7,6 +7,13 @@ afterEach(() => {
 });
 
 describe("applyWorkerEnv", () => {
+  it("forwards the preview restriction to the API runtime", () => {
+    delete process.env.ABI_PREVIEW_TESTNET;
+    applyWorkerEnv({ CHAIN: "base-sepolia", ABI_PREVIEW_TESTNET: "1" } as unknown as Env);
+    expect(process.env.ABI_PREVIEW_TESTNET).toBe("1");
+    expect(process.env.CHAIN).toBe("base-sepolia");
+  });
+
   it("forces production so the API's production guards apply on Workers", () => {
     process.env.NODE_ENV = "development";
     applyWorkerEnv({ POLICYVAULT_ALLOW_BOOTSTRAP: "0" } as unknown as Env);

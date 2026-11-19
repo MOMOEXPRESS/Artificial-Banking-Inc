@@ -1,4 +1,6 @@
 /** x402 V2 buyer rail. ABI authorizes; the SDK constructs the payment payload. */
+import { previewTestnetEnabled, assertPreviewChain } from "../preview-testnet.js";
+import { parseMppChallenge, signMpp, readMppReceipt } from "./mpp-wire.js";
 import { getCustodyProvider } from "@policyvault/custody";
 import type { MicroUsdc } from "@policyvault/common";
 import { x402Client, x402HTTPClient } from "@x402/core/client";
@@ -30,6 +32,8 @@ type X402Network = keyof typeof ALL_NETWORKS;
  * deployment cannot accidentally pay a mainnet seller requirement.
  */
 export function allowedX402Networks(): Set<X402Network> {
+  assertPreviewChain();
+  if (previewTestnetEnabled()) return new Set(["eip155:84532"]);
   const raw = process.env.ABI_X402_NETWORKS?.trim();
   if (raw) {
     const out = new Set<X402Network>();
@@ -354,6 +358,7 @@ export async function payViaX402(args: {
       payTo: string;
       asset: string;
       network: string;
+      protocol?: "mpp";
     },
   ) => void;
   /**
@@ -366,7 +371,12 @@ export async function payViaX402(args: {
     asset: `0x${string}`;
     network: X402Network;
   }) => Promise<bigint | null>;
-}): Promise<{ receipt: X402Receipt; resource: unknown; contentType: string | null }> {
+}): Promise<{
+  receipt: X402Receipt;
+  resource: unknown;
+  contentType: string | null;
+  protocol?: "mpp";
+}> {
   const problem = outboundUrlProblem(args.url, "Payment destination");
   if (problem) throw new X402Error("INVALID_DESTINATION", problem);
 
@@ -392,6 +402,11 @@ export async function payViaX402(args: {
     throw new X402Error("RAIL_FAILED", `Seller returned HTTP ${first.status}`);
   }
 
+  const mppHeader = !first.headers.get("payment-required")
+    ? first.headers.get("www-authenticate")
+    : null;
+  if (mppHeader && Buffer.byteLength(mppHeader) > MAX_X402_HEADER_BYTES)
+    throw new X402Error("CHALLENGE_TOO_LARGE", "MPP challenge exceeds the header limit.");
   const challengeHeader =
     first.headers.get("PAYMENT-REQUIRED") ?? first.headers.get("payment-required") ?? "";
   if (Buffer.byteLength(challengeHeader) > MAX_X402_HEADER_BYTES) {
@@ -403,10 +418,12 @@ export async function payViaX402(args: {
   const challengeBody = await readBody(first);
   let paymentRequired: PaymentRequired;
   try {
-    paymentRequired = new x402HTTPClient(new x402Client()).getPaymentRequiredResponse(
-      (name) => first.headers.get(name),
-      challengeBody,
-    );
+    paymentRequired = mppHeader
+      ? parseMppChallenge(mppHeader, args.url).required
+      : new x402HTTPClient(new x402Client()).getPaymentRequiredResponse(
+          (name) => first.headers.get(name),
+          challengeBody,
+        );
   } catch (error) {
     throw new X402Error(
       "SELLER_REJECTED",
@@ -450,10 +467,13 @@ export async function payViaX402(args: {
       ],
     });
   const http = new x402HTTPClient(core);
-  const payload = await http.createPaymentPayload({
-    ...paymentRequired,
-    accepts: [selected.requirement],
-  });
+  const mpp = mppHeader ? await signMpp(mppHeader, args.url, signer, args.authorizedMicro) : null;
+  const payload =
+    mpp?.payload ??
+    (await http.createPaymentPayload({
+      ...paymentRequired,
+      accepts: [selected.requirement],
+    }));
   // Verify what was actually signed before it can leave the process.
   assertSignedPayloadMatches(payload, {
     payTo: selected.requirement.payTo,
@@ -462,7 +482,9 @@ export async function payViaX402(args: {
     asset: selected.requirement.asset,
     from: wallet.address,
   });
-  const signatureHeaders = http.encodePaymentSignatureHeader(payload);
+  const signatureHeaders = mpp
+    ? { [mpp.headerName]: mpp.header }
+    : http.encodePaymentSignatureHeader(payload);
   if (headerBytes(signatureHeaders) > MAX_X402_HEADER_BYTES) {
     throw new X402Error(
       "CHALLENGE_TOO_LARGE",
@@ -491,6 +513,7 @@ export async function payViaX402(args: {
     payTo: selected.requirement.payTo,
     asset: selected.requirement.asset,
     network: selected.network,
+    ...(mpp ? { protocol: "mpp" as const } : {}),
   });
   const paid = await noRedirect(
     () =>
@@ -509,7 +532,9 @@ export async function payViaX402(args: {
 
   let settlement;
   try {
-    settlement = http.getPaymentSettleResponse((name) => paid.headers.get(name));
+    settlement = mpp
+      ? readMppReceipt(paid.headers.get("payment-receipt") ?? "")
+      : http.getPaymentSettleResponse((name) => paid.headers.get(name));
   } catch (error) {
     throw new X402Error(
       "RAIL_FAILED",
@@ -534,6 +559,7 @@ export async function payViaX402(args: {
   const contentType = paid.headers.get("content-type");
   const resource = await readBody(paid);
   return {
+    ...(mpp ? { protocol: "mpp" as const } : {}),
     receipt: {
       amountMicro: chargedMicro,
       network: selected.network,
@@ -632,14 +658,15 @@ export class X402Rail implements PaymentRail {
               }
             : undefined,
         );
-        ctx.onBroadcast?.(this.name, marker);
+        ctx.onBroadcast?.(details.protocol === "mpp" ? "mpp-evm" : this.name, marker);
       },
     });
     // Upgrade the broadcast marker to the real facilitator transaction hash.
-    ctx.onBroadcast?.(this.name, paid.receipt.txHash);
+    const railName = paid.protocol === "mpp" ? "mpp-evm" : this.name;
+    ctx.onBroadcast?.(railName, paid.receipt.txHash);
     return {
       chargedMicro: paid.receipt.amountMicro,
-      rail: this.name,
+      rail: railName,
       txHash: paid.receipt.txHash,
       resource: paid.resource,
       contentType: paid.contentType,

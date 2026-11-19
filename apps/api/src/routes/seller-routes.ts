@@ -11,7 +11,8 @@
 import type express from "express";
 import { isAddress } from "viem";
 import { z } from "zod";
-import { decodePaymentRequiredHeader } from "@x402/core/http";
+import { parseMppChallenge } from "../rails/mpp-wire.js";
+import { decodePaymentRequiredHeader, encodePaymentRequiredHeader } from "@x402/core/http";
 import { parseUsdcToMicro, formatMicroToUsdc } from "@policyvault/common";
 import { isExternalOnly } from "../auth/supabase.js";
 import { verifyPassword } from "../auth/password.js";
@@ -487,7 +488,11 @@ async function probeOffer(
   } catch {
     body = "";
   }
-  return { status: response.status, header: response.headers.get("payment-required"), body };
+  const mpp = response.headers.get("www-authenticate");
+  const header =
+    response.headers.get("payment-required") ??
+    (mpp ? encodePaymentRequiredHeader(parseMppChallenge(mpp, offer.endpointUrl).required) : null);
+  return { status: response.status, header, body };
 }
 
 function notifyConnectedBuyers(
@@ -560,15 +565,13 @@ export function registerSellerRoutes(app: express.Express): void {
           : partnerStore.passwordHash(account.id);
         if (unifiedUser && isExternalOnly(unifiedUser.id)) {
           if (!store.getMfa(unifiedUser.id)?.confirmed)
-            return res
-              .status(403)
-              .json({
-                error: {
-                  code: "MFA_ENROLLMENT_REQUIRED",
-                  message:
-                    "Enable an authenticator in Console Settings before changing your payout wallet.",
-                },
-              });
+            return res.status(403).json({
+              error: {
+                code: "MFA_ENROLLMENT_REQUIRED",
+                message:
+                  "Enable an authenticator in Console Settings before changing your payout wallet.",
+              },
+            });
         } else if (
           !body.currentPassword ||
           !hash ||

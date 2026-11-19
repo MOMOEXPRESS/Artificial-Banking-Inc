@@ -1,6 +1,7 @@
 interface Env {
   ABI: DurableObjectNamespace;
   CHAIN: string;
+  ABI_PREVIEW_TESTNET?: string;
   ABI_CONSOLE_URL: string;
   ABI_PUBLIC_API_URL: string;
   ABI_CORS_ORIGINS: string;

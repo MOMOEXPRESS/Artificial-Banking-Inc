@@ -29,6 +29,7 @@ const envSchema = z.object({
   RATE_LIMIT_READ_PER_MIN: z.coerce.number().int().positive().optional(),
   APPROVAL_TTL_MINUTES: z.coerce.number().int().positive().default(10),
   CHAIN: z.string().default("base-sepolia"),
+  ABI_PREVIEW_TESTNET: bool01,
   CHAIN_RPC_URL: z.string().optional(),
   ABI_ONCHAIN_ENABLED: bool01,
   ABI_X402_NETWORKS: z.string().optional(),
@@ -110,6 +111,8 @@ function parseEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     (!isProduction && e.POLICYVAULT_ALLOW_PUBLIC_ORG_CREATE !== "0");
   const mockTransfer = e.POLICYVAULT_MOCK_TRANSFER === "1";
 
+  if (e.ABI_PREVIEW_TESTNET && e.CHAIN !== "base-sepolia")
+    throw new ConfigError("Testnet preview requires CHAIN=base-sepolia.");
   if (isProduction && !unsafeOk) {
     const problems: string[] = [];
     if (!keyPepperConfigured) {

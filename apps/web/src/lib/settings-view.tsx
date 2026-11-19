@@ -11,6 +11,7 @@ import { okJson } from "./api-response";
 import { TreasuryView } from "./treasury-view";
 
 export type Setup = {
+  previewTestnet?: boolean;
   custody: string;
   network: string;
   settlement: string;

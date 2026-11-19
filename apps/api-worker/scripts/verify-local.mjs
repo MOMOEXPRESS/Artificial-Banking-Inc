@@ -142,7 +142,13 @@ async function main() {
     results.steps.push({ name: "signup", status: signup.status, body: signupBody });
 
     // Assertions
-    if (health.status !== 200 || healthBody.ok !== true) results.ok = false;
+    if (
+      health.status !== 200 ||
+      healthBody.ok !== true ||
+      healthBody.previewTestnet !== true ||
+      !healthBody.paymentProtocols?.includes("mpp-evm")
+    )
+      results.ok = false;
     if (
       scrypt.status !== 200 ||
       !scryptBody.exceedsPlainWorkerLimit ||

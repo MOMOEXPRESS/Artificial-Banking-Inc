@@ -26,6 +26,53 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model AbiAccountAllocationEvents {
+  id String @id
+  orgId String @map("org_id") // -> orgs.id
+  workspaceId String @map("workspace_id") // -> abi_workspaces.id
+  assetId String @map("asset_id")
+  amountMicro BigInt @map("amount_micro")
+  direction String
+  createKey String @map("create_key")
+  createdAt String @map("created_at")
+  @@unique([orgId, createKey])
+  @@map("abi_account_allocation_events")
+}
+
+model AbiAccountTokenActivity {
+  orgId String @map("org_id") // -> orgs.id
+  assetId String @map("asset_id")
+  address String
+  txHash String @map("tx_hash")
+  logIndex Int @map("log_index")
+  blockNumber String @map("block_number")
+  direction String
+  amountMicro BigInt @map("amount_micro")
+  counterparty String
+  @@id([orgId, assetId, address, txHash, logIndex])
+  @@unique([orgId, assetId, address, txHash, logIndex])
+  @@map("abi_account_token_activity")
+}
+
+model AbiAccountWorkspaceFunds {
+  orgId String @map("org_id") // -> orgs.id
+  workspaceId String @map("workspace_id") // -> abi_workspaces.id
+  assetId String @map("asset_id")
+  amountMicro BigInt @map("amount_micro")
+  @@id([orgId, workspaceId, assetId])
+  @@unique([orgId, workspaceId, assetId])
+  @@map("abi_account_workspace_funds")
+}
+
+model AbiCardPeriodLimits {
+  cardId String @map("card_id") // -> abi_workspace_cards.id
+  period String
+  limitMicro BigInt @map("limit_micro")
+  @@id([cardId, period])
+  @@unique([cardId, period])
+  @@map("abi_card_period_limits")
+}
+
 model AbiCardReservations {
   intentId String @id @map("intent_id")
   cardId String @map("card_id") // -> abi_workspace_cards.id
@@ -87,6 +134,25 @@ model AbiKeyWalletGrants {
   @@unique([parentSessionId, workspaceId])
   @@unique([sessionId])
   @@map("abi_key_wallet_grants")
+}
+
+model AbiManagedAssetWallets {
+  workspaceId String @map("workspace_id") // -> abi_workspaces.id
+  orgId String @map("org_id") // -> orgs.id
+  symbol String
+  appHash String @map("app_hash")
+  externalId String @map("external_id")
+  requestKey String @map("request_key")
+  walletId String? @map("wallet_id")
+  address String?
+  verifiedAt String? @map("verified_at")
+  createdAt String @map("created_at")
+  @@id([workspaceId, symbol])
+  @@unique([workspaceId, symbol])
+  @@unique([address])
+  @@unique([walletId])
+  @@unique([externalId])
+  @@map("abi_managed_asset_wallets")
 }
 
 model AbiManagedBalances {
@@ -234,12 +300,39 @@ model AbiWorkspaceCredentials {
   @@map("abi_workspace_credentials")
 }
 
+model AbiWorkspaceGovernance {
+  workspaceId String @id @map("workspace_id") // -> abi_workspaces.id
+  approvalQuorum Int @default(1) @map("approval_quorum")
+  @@map("abi_workspace_governance")
+}
+
+model AbiWorkspaceMemberControls {
+  workspaceId String @map("workspace_id") // -> abi_workspaces.id
+  userId String @map("user_id") // -> users.id
+  role String
+  maxApproveMicro BigInt? @map("max_approve_micro")
+  @@id([workspaceId, userId])
+  @@unique([workspaceId, userId])
+  @@map("abi_workspace_member_controls")
+}
+
 model AbiWorkspaceMembers {
   workspaceId String @map("workspace_id") // -> abi_workspaces.id
   userId String @map("user_id") // -> users.id
   @@id([workspaceId, userId])
   @@unique([workspaceId, userId])
   @@map("abi_workspace_members")
+}
+
+model AbiWorkspaceSavedVendors {
+  workspaceId String @map("workspace_id") // -> abi_workspaces.id
+  vendorId String @map("vendor_id")
+  name String
+  category String
+  createdAt String @map("created_at")
+  @@id([workspaceId, vendorId])
+  @@unique([workspaceId, vendorId])
+  @@map("abi_workspace_saved_vendors")
 }
 
 model AbiWorkspaces {
@@ -1318,19 +1411,4 @@ model X401Challenges {
   consumedAt String? @map("consumed_at")
   @@index([expiresAt])
   @@map("x401_challenges")
-}
-
-model AbiManagedAssetWallets {
-  workspaceId String @map("workspace_id")
-  orgId String @map("org_id")
-  symbol String
-  appHash String @map("app_hash")
-  externalId String @unique @map("external_id")
-  requestKey String @map("request_key")
-  walletId String? @unique @map("wallet_id")
-  address String? @unique
-  verifiedAt String? @map("verified_at")
-  createdAt String @map("created_at")
-  @@id([workspaceId, symbol])
-  @@map("abi_managed_asset_wallets")
 }

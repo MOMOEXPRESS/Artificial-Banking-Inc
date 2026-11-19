@@ -120,6 +120,7 @@ export type Metrics = {
   balancesUsdc: Record<string, string>;
 };
 export type Setup = {
+  previewTestnet?: boolean;
   custody: string;
   network: string;
   settlement: string;

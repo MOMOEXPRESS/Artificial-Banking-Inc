@@ -15,13 +15,29 @@
  * Non-EVM assets (BTC, SOL) need a different client entirely and are out of
  * scope here — they stay manual, and say so.
  */
-import { createPublicClient, erc20Abi, http, type Address, type PublicClient } from "viem";
+import {
+  createPublicClient,
+  erc20Abi,
+  http,
+  type Address,
+  type PublicClient,
+  type Chain,
+} from "viem";
 import { base, baseSepolia, mainnet } from "viem/chains";
 import type { AssetRecord } from "@policyvault/common";
 import { activeChain, rpcUrl } from "./network.js";
 
 /** EVM chains an asset may be pinned to. Extend with the chain and its RPC env. */
-const EVM_CHAINS = {
+const EVM_CHAINS: Record<
+  "base-sepolia" | "base" | "ethereum",
+  {
+    chain: Chain;
+    name: string;
+    rpcEnv: readonly string[];
+    defaultRpc: string | null;
+    explorerAddress: (a: string) => string;
+  }
+> = {
   "base-sepolia": {
     chain: baseSepolia,
     name: "Base Sepolia",

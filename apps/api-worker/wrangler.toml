@@ -24,6 +24,7 @@ enabled = true
 SUPABASE_URL = "https://ijrjcpegrghlgcnouvbc.supabase.co"
 SUPABASE_PUBLISHABLE_KEY = "sb_publishable_M7JmK6U55VBg1Loh9KT7UA_4fdsCeZJ"
 CHAIN = "base-sepolia"
+ABI_PREVIEW_TESTNET = "1"
 ABI_CONSOLE_URL = "https://artificial-banking-inc-web.vercel.app"
 ABI_PUBLIC_API_URL = "https://abi-api.momomaurice20006.workers.dev"
 ABI_CORS_ORIGINS = "https://artificial-banking-inc-web.vercel.app"

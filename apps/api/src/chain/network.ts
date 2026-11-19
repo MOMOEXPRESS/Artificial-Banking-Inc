@@ -1,6 +1,7 @@
 /**
  * Chain config for vault deposit detection (Base / Base Sepolia USDC).
  */
+import { assertPreviewChain } from "../preview-testnet.js";
 export type AbiChain = "base" | "base-sepolia";
 
 export type ChainConfig = {
@@ -35,6 +36,7 @@ const CHAINS: Record<AbiChain, ChainConfig> = {
 };
 
 export function activeChain(): ChainConfig {
+  assertPreviewChain();
   const id = process.env.CHAIN === "base" ? "base" : "base-sepolia";
   return CHAINS[id];
 }

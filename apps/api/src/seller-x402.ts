@@ -8,6 +8,8 @@
  * facilitator before returning the offer's content with PAYMENT-RESPONSE.
  * USDC moves buyer vault → seller wallet on-chain; ABI never holds it.
  */
+import { previewTestnetEnabled } from "./preview-testnet.js";
+import { mppChallenge, mppCredentialToX402, mppReceipt } from "./rails/mpp-wire.js";
 import type express from "express";
 import {
   HTTPFacilitatorClient,
@@ -78,8 +80,9 @@ export function hostedOfferIdFromUrl(url: string): string | undefined {
     const u = new URL(url);
     const base = new URL(publicApiBase());
     if (u.host.toLowerCase() !== base.host.toLowerCase()) return undefined;
-    if (!u.pathname.startsWith(HOSTED_PATH_PREFIX)) return undefined;
-    const rest = u.pathname.slice(HOSTED_PATH_PREFIX.length).replace(/\/+$/, "");
+    const prefix = [HOSTED_PATH_PREFIX, "/v1/mpp/offers/"].find((p) => u.pathname.startsWith(p));
+    if (!prefix) return undefined;
+    const rest = u.pathname.slice(prefix.length).replace(/\/+$/, "");
     return /^[A-Za-z0-9_-]+$/.test(rest) ? rest : undefined;
   } catch {
     return undefined;
@@ -203,9 +206,36 @@ export async function handleHostedOffer(
   if (!payTo) {
     return err(503, "SELLER_NOT_READY", "The seller has not set a payout address yet.");
   }
+  if (previewTestnetEnabled() && offer.network !== "base-sepolia")
+    return err(409, "TESTNET_ONLY", "The preview only accepts Base Sepolia test USDC.");
   const requirement = requirementFor(offer, payTo);
   const sellerName = profile?.displayName || "Seller";
-  const signature = getHeader("payment-signature") ?? getHeader("x-payment");
+  let signature = getHeader("payment-signature") ?? getHeader("x-payment");
+  const mppHeader = getHeader("payment-authorization") ?? getHeader("authorization");
+  const mppOnly = new URL(requestUrl).pathname.startsWith("/v1/mpp/offers/");
+  let mpp = false;
+  if (mppHeader?.startsWith("Payment ")) {
+    try {
+      signature = Buffer.from(
+        JSON.stringify(mppCredentialToX402(mppHeader, requirement, requestUrl)),
+      ).toString("base64");
+      mpp = true;
+    } catch {
+      const challenge = mppChallenge(requirement, requestUrl);
+      return {
+        ...err(
+          402,
+          "INVALID_MPP_CREDENTIAL",
+          "MPP credential was not accepted. No payment was submitted.",
+        ),
+        headers: {
+          "content-type": "application/json",
+          "cache-control": "no-store",
+          ...(challenge ? { "WWW-Authenticate": challenge } : {}),
+        },
+      };
+    }
+  }
 
   // Refuse a paused or retired offer before issuing a challenge, so no buyer
   // signs an authorization the seller will not honour.
@@ -253,11 +283,15 @@ export async function handleHostedOffer(
       },
       accepts: [requirement],
     };
+    const mppOffer = mppChallenge(requirement, requestUrl);
+    if (mppOnly && !mppOffer)
+      return err(503, "MPP_UNAVAILABLE", "MPP Base Sepolia settlement is not configured.");
     return {
       status: 402,
       headers: {
         "content-type": "application/json",
-        "PAYMENT-REQUIRED": encodePaymentRequiredHeader(required),
+        ...(!mppOnly ? { "PAYMENT-REQUIRED": encodePaymentRequiredHeader(required) } : {}),
+        ...(mppOffer ? { "WWW-Authenticate": mppOffer } : {}),
         "cache-control": "no-store",
       },
       body: required,
@@ -349,6 +383,7 @@ export async function handleHostedOffer(
     status: 200,
     headers: {
       "content-type": "application/json",
+      ...(mpp ? { "Payment-Receipt": mppReceipt(settled.transaction) } : {}),
       "PAYMENT-RESPONSE": encodePaymentResponseHeader({
         ...settled,
         network: requirement.network,
@@ -404,11 +439,11 @@ export function hostedFetch(caller: HostedCaller): typeof fetch {
 
 export function registerHostedX402Routes(app: express.Express): void {
   // Express would run the GET handler for HEAD; a paid path answers GET only.
-  app.head(`${HOSTED_PATH_PREFIX}:offerId`, (_req, res) => {
+  app.head([`${HOSTED_PATH_PREFIX}:offerId`, "/v1/mpp/offers/:offerId"], (_req, res) => {
     res.setHeader("allow", "GET");
     res.status(405).end();
   });
-  app.get(`${HOSTED_PATH_PREFIX}:offerId`, async (req, res) => {
+  app.get([`${HOSTED_PATH_PREFIX}:offerId`, "/v1/mpp/offers/:offerId"], async (req, res) => {
     try {
       const result = await handleHostedOffer(
         req.params.offerId,
@@ -423,7 +458,12 @@ export function registerHostedX402Routes(app: express.Express): void {
       res.status(result.status).json(result.body);
     } catch (error) {
       console.error("hosted x402 offer failed:", error);
-      const signed = Boolean(req.headers["payment-signature"] ?? req.headers["x-payment"]);
+      const signed = Boolean(
+        req.headers["payment-signature"] ??
+        req.headers["x-payment"] ??
+        req.headers["payment-authorization"] ??
+        req.headers["authorization"]?.startsWith("Payment "),
+      );
       res.status(502).json({
         error: signed
           ? {
@@ -435,7 +475,7 @@ export function registerHostedX402Routes(app: express.Express): void {
       });
     }
   });
-  app.all(`${HOSTED_PATH_PREFIX}:offerId`, (req, res) => {
+  app.all([`${HOSTED_PATH_PREFIX}:offerId`, "/v1/mpp/offers/:offerId"], (req, res) => {
     res.setHeader("allow", "GET");
     res.status(405).json({
       error: { code: "METHOD_NOT_ALLOWED", message: `${req.method} is not paid. Use GET.` },

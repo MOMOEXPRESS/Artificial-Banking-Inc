@@ -49,6 +49,9 @@
     },
     "@cloudflare/vitest-pool-workers": {
       "zod": "4.6.7"
+    },
+    "mppx": {
+      "express": "^4.22.3"
     }
   },
   "packageManager": "npm@10",

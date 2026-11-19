@@ -1,7 +1,12 @@
 "use client";
 import { AllocationSelect } from "./allocation-select";
 import { AccountAllocations } from "./account-allocations";
-import { useRef, useState } from "react";
+import {
+  PreviewTestTreasury,
+  previewTreasurySchema,
+  type PreviewTreasuryProfile,
+} from "./preview-test-treasury";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { CustomerWalletPanel } from "./customer-wallet-panel";
 import { workspaceJson, type Workspace, type WorkspaceFetcher } from "./workspace-client";
@@ -30,7 +35,43 @@ export function AccountTreasury({
   const [attempt, setAttempt] = useState<{ target: string; amount: string; key: string } | null>(
     null,
   );
+  const [preview, setPreview] = useState<PreviewTreasuryProfile | null | false>(null),
+    [previewError, setPreviewError] = useState("");
+  const loadPreview = useCallback(async () => {
+    const response = await gFetch("/v1/guardian/preview/treasury");
+    if (response.status === 404) {
+      setPreview(false);
+      return;
+    }
+    const value = previewTreasurySchema.parse(await workspaceJson(response));
+    setPreview(value);
+    setPreviewError("");
+  }, [gFetch]);
+  useEffect(() => {
+    void loadPreview().catch((e) => setPreviewError(e.message));
+  }, [loadPreview]);
   if (!treasury || readOnly) return null;
+  if (previewError)
+    return (
+      <section className="minimal-section">
+        <p role="alert">{previewError}</p>
+        <Button onClick={() => void loadPreview().catch((e) => setPreviewError(e.message))}>
+          Retry treasury
+        </Button>
+      </section>
+    );
+  if (preview === null) return <p role="status">Checking account treasury…</p>;
+  if (preview)
+    return (
+      <PreviewTestTreasury
+        profile={preview}
+        workspaces={workspaces}
+        gFetch={gFetch}
+        onChanged={onChanged}
+        onRefresh={loadPreview}
+      />
+    );
+
   async function allocate() {
     if (!treasury || inFlight.current) return;
     inFlight.current = true;

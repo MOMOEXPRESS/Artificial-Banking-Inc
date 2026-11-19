@@ -13,6 +13,7 @@ export function WalletPicker({
   gFetch,
   onChanged,
   readOnly,
+  testnetPreview = false,
 }: {
   items: Workspace[];
   current: Workspace;
@@ -20,6 +21,7 @@ export function WalletPicker({
   gFetch: WorkspaceFetcher;
   onChanged: () => Promise<void>;
   readOnly: boolean;
+  testnetPreview?: boolean;
 }) {
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState(""),
@@ -75,11 +77,14 @@ export function WalletPicker({
             </span>
             <span className="abi-wallet-available">
               <strong>
-                {walletAmount(current.wallet)}{" "}
-                <small>{current.wallet?.asset.symbol ?? "USDC"}</small>
+                {testnetPreview ? current.balance.availableUsdc : walletAmount(current.wallet)}{" "}
+                <small>{testnetPreview ? "USDC" : (current.wallet?.asset.symbol ?? "USDC")}</small>
               </strong>
               <small>
-                {current.wallet?.asset.network ?? "Wallet setup"} <ArrowUpRight size={14} />
+                {testnetPreview
+                  ? "Base Sepolia"
+                  : (current.wallet?.asset.network ?? "Wallet setup")}{" "}
+                <ArrowUpRight size={14} />
               </small>
             </span>
           </button>
@@ -148,8 +153,9 @@ export function WalletPicker({
                   <strong>{w.name}</strong>
                   <small>
                     {w.orgId === current.orgId ? "Workspace wallet" : "Another account"} ·{" "}
-                    {walletAmount(w.wallet)} {w.wallet?.asset.symbol ?? "USDC"} ·{" "}
-                    {w.wallet?.asset.network ?? "Setting up"}
+                    {testnetPreview ? w.balance.availableUsdc : walletAmount(w.wallet)}{" "}
+                    {testnetPreview ? "USDC" : (w.wallet?.asset.symbol ?? "USDC")} ·{" "}
+                    {testnetPreview ? "Base Sepolia" : (w.wallet?.asset.network ?? "Setting up")}
                   </small>
                 </span>
                 {w.id === current.id && (

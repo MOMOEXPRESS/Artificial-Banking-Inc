@@ -71,6 +71,8 @@ import {
   type RunRow,
 } from "./store.js";
 import { isTestnetChain } from "./chain/asset-adapters.js";
+import { parseMppChallenge } from "./rails/mpp-wire.js";
+import { previewTestnetEnabled } from "./preview-testnet.js";
 import { activeChain } from "./chain/network.js";
 import { reconcileOrgOnchain } from "./treasury-backing.js";
 import {
@@ -155,6 +157,7 @@ app.use(
   cors({
     origin: config.corsOrigins.length ? config.corsOrigins : false,
     credentials: config.corsOrigins.length > 0,
+    exposedHeaders: ["PAYMENT-REQUIRED", "PAYMENT-RESPONSE", "WWW-Authenticate", "Payment-Receipt"],
   }),
 );
 // Behind the Next proxy / a load balancer, so req.ip must come from
@@ -869,6 +872,49 @@ registerAuthRoutes(app);
 registerWorkspaceRoutes(app, { guardianRoute, authAgent });
 registerMfaRoutes(app);
 registerTreasuryRoutes(app, { guardianRoute, guardianIdentity });
+app.get(
+  "/v1/guardian/preview/treasury",
+  guardianRoute(
+    async (org, _req, res) => {
+      if (!previewTestnetEnabled())
+        return res.status(404).json({ error: { code: "PREVIEW_DISABLED" } });
+      const chain = activeChain(),
+        wallet = await getCustodyProvider().getAddress(org.id);
+      if (
+        !wallet ||
+        wallet.network !== "base-sepolia" ||
+        wallet.address.toLowerCase() !== store.getVaultAddress(org.id)?.toLowerCase()
+      )
+        return res.status(409).json({
+          error: {
+            code: "TREASURY_UNAVAILABLE",
+            message: "The execution treasury could not be verified. No deposit address is offered.",
+          },
+        });
+      res.json({
+        preview: true,
+        network: chain.name,
+        chainId: chain.chainId,
+        address: wallet.address,
+        provider: wallet.provider,
+        asset: {
+          id: "base-sepolia:usdc",
+          symbol: "USDC",
+          network: chain.name,
+          chainId: chain.chainId,
+          testnet: true,
+        },
+        explorerAddress: chain.explorerAddress(wallet.address),
+        protocols: ["x402-v2", "mpp-evm"],
+        availableUsdc: formatMicroToUsdc(
+          store.getAccountMap(org.id).get(`org:${org.id}:available`)?.balanceMicro ?? 0n,
+        ),
+      });
+    },
+    { ownerOnly: true },
+  ),
+);
+
 registerAgentRoutes(app, { guardianRoute });
 registerNotificationRoutes(app, { guardianRoute });
 registerWaitlistRoutes(app, { guardianRoute });
@@ -1345,6 +1391,8 @@ app.get("/health", (_req, res) => {
   res.json({
     ok: true,
     service: "abi-api",
+    previewTestnet: previewTestnetEnabled(),
+    paymentProtocols: ["x402-v2", "mpp-evm"],
     // Set at deploy time (`wrangler deploy --var ABI_GIT_COMMIT:<sha>`) so the
     // console proxy's upstream can be matched to a commit.
     revision: /^[a-f0-9]{40}$/i.test(revision) ? revision : null,
@@ -1897,9 +1945,13 @@ app.post(
         const responseBody = contentType.includes("application/json")
           ? await response.json()
           : await response.text();
-        const required: PaymentRequired = new x402HTTPClient(
-          new x402Client(),
-        ).getPaymentRequiredResponse((name) => response.headers.get(name), responseBody);
+        const required: PaymentRequired =
+          !response.headers.get("payment-required") && response.headers.get("www-authenticate")
+            ? parseMppChallenge(response.headers.get("www-authenticate")!, endpoint).required
+            : new x402HTTPClient(new x402Client()).getPaymentRequiredResponse(
+                (name) => response.headers.get(name),
+                responseBody,
+              );
         const match = required.accepts.find(
           (accept) =>
             required.x402Version === 2 &&
@@ -1968,9 +2020,12 @@ app.get(
       amountUsdc: formatMicroToUsdc(row.chargedMicro ?? row.amountMicro),
       chargedUsdc: row.chargedMicro === undefined ? null : formatMicroToUsdc(row.chargedMicro),
       rail: row.rail ?? null,
-      txHash: row.rail === "x402-v2" && row.state === "settled" ? (row.txHash ?? null) : null,
+      txHash:
+        ["x402-v2", "mpp-evm"].includes(row.rail ?? "") && row.state === "settled"
+          ? (row.txHash ?? null)
+          : null,
       explorerUrl:
-        row.rail === "x402-v2" && row.state === "settled" && row.txHash
+        ["x402-v2", "mpp-evm"].includes(row.rail ?? "") && row.state === "settled" && row.txHash
           ? `${explorer}${row.txHash}`
           : null,
       createdAt: row.createdAt,
@@ -2615,6 +2670,7 @@ app.get(
     const onchainMode = onchainSignerConfigured();
     res.json({
       setup: {
+        previewTestnet: previewTestnetEnabled(),
         custody: custodyName,
         // Every provider shipped today holds the key in this application.
         custodyModel: "self-custody",

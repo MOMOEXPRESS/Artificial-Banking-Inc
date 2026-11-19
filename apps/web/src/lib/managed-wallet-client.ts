@@ -53,7 +53,13 @@ export function parseManagedWallet(value: unknown): ManagedWallet {
   return result.data;
 }
 export function managedWalletReady(
-  wallet: ManagedWallet | null | undefined,
+  wallet:
+    | Pick<
+        ManagedWallet,
+        "status" | "receiveEnabled" | "address" | "accountSymbol" | "asset" | "selectedAssetId"
+      >
+    | null
+    | undefined,
   recovery?: { accountSymbol: "USDC" | "ETH"; assetId: string },
 ): boolean {
   if (!wallet || wallet.status !== "ready" || !wallet.receiveEnabled || !wallet.address)

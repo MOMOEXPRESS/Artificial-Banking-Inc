@@ -1607,6 +1607,7 @@ export default function Console() {
                 )}
                 {view === "overview" && (
                   <MinimalOverview
+                    testnetPreview={setup?.previewTestnet === true}
                     org={org}
                     gFetch={
                       org?.actor?.role === "owner" || session.guardianKey ? gFetch : undefined
@@ -1615,6 +1616,7 @@ export default function Console() {
                     walletPicker={
                       workspaceState.current ? (
                         <WalletPicker
+                          testnetPreview={setup?.previewTestnet === true}
                           items={workspaceState.items}
                           current={workspaceState.current}
                           onSelect={workspaceState.choose}
@@ -1643,6 +1645,7 @@ export default function Console() {
                 )}
                 {view === "treasury" && workspaceState.current && (
                   <WorkspaceFunds
+                    testnetPreview={setup?.previewTestnet === true}
                     key={workspaceState.current.id}
                     initialTab={tabHint ?? undefined}
                     workspace={workspaceState.current}
@@ -1658,6 +1661,7 @@ export default function Console() {
                 )}
                 {view === "billing" && (
                   <MinimalBilling
+                    testnetPreview={setup?.previewTestnet === true}
                     sections={{
                       transactions: <FinancialActivity journals={journals} />,
                       ...((org?.actor?.role === "owner" || session.guardianKey) &&

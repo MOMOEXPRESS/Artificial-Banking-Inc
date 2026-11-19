@@ -13,13 +13,20 @@ type Props = {
   workspace?: import("./workspace-client").Workspace | null;
   walletPicker?: ReactNode;
   gFetch?: Fetcher;
+  testnetPreview?: boolean;
 };
 const usd = (cents: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 function usdc(value?: string) {
   return value ?? "0.00";
 }
-export function MinimalOverview({ org, onNavigate, workspace, walletPicker }: Props) {
+export function MinimalOverview({
+  org,
+  onNavigate,
+  workspace,
+  walletPicker,
+  testnetPreview = false,
+}: Props) {
   const agents = workspace
       ? workspace.connections.map((c) => ({
           id: c.agentId,
@@ -37,6 +44,7 @@ export function MinimalOverview({ org, onNavigate, workspace, walletPicker }: Pr
     <section className="minimal-page reference-overview">
       <header className="minimal-page-heading">
         <h1>Overview</h1>
+        {testnetPreview && <p>Preview · Base Sepolia · Test funds only.</p>}
       </header>
       <div className="reference-overview-grid">
         <section className="reference-start">
@@ -98,8 +106,12 @@ export function MinimalOverview({ org, onNavigate, workspace, walletPicker }: Pr
           )}
           <LiquidWalletCard
             name={workspace?.name ?? org?.org.name}
-            network={workspace?.wallet?.asset.network ?? "Account treasury"}
-            currency={workspace?.wallet?.asset.symbol ?? "USDC"}
+            network={
+              testnetPreview
+                ? "Base Sepolia testnet"
+                : (workspace?.wallet?.asset.network ?? "Account treasury")
+            }
+            currency={testnetPreview ? "USDC" : (workspace?.wallet?.asset.symbol ?? "USDC")}
             onOpen={() => onNavigate("treasury")}
           />
           <div className="reference-card-caption">
@@ -510,12 +522,14 @@ export function MinimalBilling({
   initialTab,
   sections,
   fundingContent,
+  testnetPreview = false,
 }: Props & {
   gFetch: Fetcher;
   readOnly: boolean;
   initialTab?: string | null;
   sections?: Record<string, ReactNode>;
   fundingContent?: ReactNode;
+  testnetPreview?: boolean;
 }) {
   const [tab, setTab] = useState(
     initialTab && ["transactions", "team"].includes(initialTab) ? initialTab : "overview",
@@ -633,7 +647,7 @@ export function MinimalBilling({
         )}
         {notice && <p role="status">{notice}</p>}
         {!data && !error && <p role="status">Loading billing…</p>}
-        {data && (
+        {data && !testnetPreview && (
           <>
             {!data.cardFundingAvailable && (
               <p className="minimal-notice">
@@ -655,14 +669,12 @@ export function MinimalBilling({
                 <strong>{usdc(org?.balances.find((b) => b.kind === "org_available")?.usdc)}</strong>
                 <button
                   onClick={() =>
-                    document
-                      .getElementById("billing-crypto-deposits")
-                      ?.scrollIntoView({
-                        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-                          ? "instant"
-                          : "smooth",
-                        block: "start",
-                      })
+                    document.getElementById("billing-crypto-deposits")?.scrollIntoView({
+                      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                        ? "instant"
+                        : "smooth",
+                      block: "start",
+                    })
                   }
                 >
                   Manage USDC wallet
@@ -805,7 +817,10 @@ export function MinimalBilling({
           </>
         )}
         {tab === "overview" && fundingContent && (
-          <div id="billing-crypto-deposits" className="abi-crypto-deposits">
+          <div
+            id="billing-crypto-deposits"
+            className={testnetPreview ? "abi-preview-deposits" : "abi-crypto-deposits"}
+          >
             {fundingContent}
           </div>
         )}

@@ -52,7 +52,10 @@ intended payout wallet. An unpaid `GET /report` must return HTTP 402 with a
 
 ## Register and verify the merchant
 
-In Console → Settings → Merchants:
+The historical proof used Console → Settings → Merchants. That settings section
+has since been removed. Use the current seller Inventory/offer verification
+flow; see [the current preview runbook](testnet-agentic-preview.md). The steps
+below describe the historical merchant verification inputs:
 
 1. Enter the seller name and public `/report` endpoint.
 2. Enter the same payout wallet and `0.01` USDC price.

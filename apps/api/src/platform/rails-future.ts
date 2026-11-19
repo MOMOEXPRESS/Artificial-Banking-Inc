@@ -1,7 +1,7 @@
 /**
  * Free stubs for future payment rails and agent-identity protocols.
  *
- * These exist so product recommendations (AP2 mandates, Stripe SPT/MPP,
+ * These exist so product recommendations (AP2 mandates, Stripe SPT,
  * Circle nanopayments, L402, Visa Trusted Agent) have an in-repo seam without
  * pulling paid SDKs or requiring API keys. Implementations should replace the
  * throw paths when a free test environment is available.
@@ -55,8 +55,8 @@ export class StripeSptRailStub implements PaymentRail {
   readonly name = "stripe-spt-stub";
   async settle(_ctx: PaymentRailContext): Promise<PaymentRailResult> {
     throw new Error(
-      "Stripe SPT/MPP rail is not configured. Free path: keep x402/Base Sepolia; " +
-        "add Stripe test keys later (no live charges until then).",
+      "Stripe SPT rail is not configured. Free path: keep x402/Base Sepolia; " +
+        "MPP EVM charge is implemented separately; Stripe still requires test keys.",
     );
   }
 }

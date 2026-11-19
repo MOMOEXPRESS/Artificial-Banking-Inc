@@ -20,7 +20,17 @@ export function CryptoDeposit({
   onAssetChange,
   onRefresh,
 }: {
-  data: ManagedWallet;
+  data: Pick<
+    ManagedWallet,
+    | "status"
+    | "receiveEnabled"
+    | "address"
+    | "accountSymbol"
+    | "asset"
+    | "selectedAssetId"
+    | "assets"
+    | "explorerAddress"
+  >;
   busy: boolean;
   error: string;
   onAssetChange: (id: string) => void;
@@ -145,8 +155,9 @@ export function CryptoDeposit({
         )}
       </div>
       <p className="abi-deposit-caption">
-        Your account balance updates after the deposit is confirmed on-chain. Mainnet deposits and
-        the testnet agent allowance remain separate.
+        {data.asset.testnet
+          ? "Test funds have no monetary value. Refresh after the deposit confirms to update the account ledger."
+          : "Your account balance updates after the deposit is confirmed on-chain. Mainnet deposits and the testnet agent allowance remain separate."}
       </p>
       <details className="abi-deposit-details">
         <summary>Deposit details</summary>
@@ -165,22 +176,26 @@ export function CryptoDeposit({
           Only the assets and networks listed here are supported. Bitcoin and other assets cannot be
           deposited through this address.
         </p>
-        <label className="abi-deposit-testnet">
-          <input
-            type="checkbox"
-            checked={testnets}
-            disabled={busy}
-            onChange={(e) => {
-              const show = e.target.checked;
-              setTestnets(show);
-              if (!show && data.asset.testnet) {
-                const next = data.assets.find((a) => !a.testnet && a.symbol === data.asset.symbol);
-                if (next) onAssetChange(next.id);
-              }
-            }}
-          />{" "}
-          Show test networks
-        </label>
+        {data.assets.some((a) => !a.testnet) && (
+          <label className="abi-deposit-testnet">
+            <input
+              type="checkbox"
+              checked={testnets}
+              disabled={busy}
+              onChange={(e) => {
+                const show = e.target.checked;
+                setTestnets(show);
+                if (!show && data.asset.testnet) {
+                  const next = data.assets.find(
+                    (a) => !a.testnet && a.symbol === data.asset.symbol,
+                  );
+                  if (next) onAssetChange(next.id);
+                }
+              }}
+            />{" "}
+            Show test networks
+          </label>
+        )}
       </details>
     </div>
   );

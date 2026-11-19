@@ -18,6 +18,7 @@ type Props = {
   onNavigate: (v: string, tab?: string) => void;
   readOnly: boolean;
   initialTab?: string;
+  testnetPreview?: boolean;
 };
 export function WorkspaceSwitcher({
   items,
@@ -144,6 +145,7 @@ export function WorkspaceFunds({
   onChanged,
   readOnly,
   initialTab,
+  testnetPreview = false,
 }: Props) {
   const [tab, setTab] = useState(
     initialTab === "settings" ? "settings" : initialTab === "activity" ? "activity" : "keys",
@@ -184,7 +186,7 @@ export function WorkspaceFunds({
           <p>
             {w.card.spentUsdc} spent · {w.card.pendingUsdc} reserved · {w.card.status}
           </p>
-          {!!w.accountAllocations?.length && (
+          {!testnetPreview && !!w.accountAllocations?.length && (
             <p className="minimal-note">
               {w.accountAllocations
                 .map(
