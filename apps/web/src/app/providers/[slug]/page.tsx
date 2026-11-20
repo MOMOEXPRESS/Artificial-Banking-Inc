@@ -28,7 +28,9 @@ export default async function ProviderPage({ params }: { params: Promise<{ slug:
   if (!provider) notFound();
   return (
     <MarketingShell active="marketplace">
-      <div className="market-home vendor-page">
+      <div
+        className={`market-home vendor-page${provider.slug === "rh-amar" ? " vendor-page-food" : ""}`}
+      >
         <ProviderDetail provider={provider} />
       </div>
     </MarketingShell>

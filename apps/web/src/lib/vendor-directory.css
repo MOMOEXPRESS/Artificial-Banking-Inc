@@ -571,3 +571,317 @@
     transition: none;
   }
 }
+/* Food catalogue: familiar provider chrome, real product photography and a quiet category rail. */
+.vendor-page.vendor-page-food {
+  max-width: 1220px;
+}
+.vendor-detail.is-food-catalog {
+  max-width: none;
+}
+.vendor-detail.is-food-catalog .vendor-logo.is-large {
+  width: 130px;
+  height: 64px;
+  background: #fff;
+}
+.vendor-detail.is-food-catalog .vendor-logo.is-large img {
+  max-width: 118px;
+  width: 118px;
+  height: auto;
+}
+.abi-food-catalog {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 32px;
+  margin-top: 28px;
+}
+.abi-food-categories h3,
+.abi-food-toolbar h3 {
+  font-size: 18px;
+  font-weight: 500;
+  margin: 0 0 18px;
+}
+.abi-food-categories nav {
+  display: grid;
+  gap: 4px;
+  max-height: 720px;
+  overflow-y: auto;
+  scrollbar-color: #b8bcb5 transparent;
+  scrollbar-width: thin;
+}
+.vendor-detail .abi-food-categories button,
+.studio-console .market-workspace .vendor-detail .abi-food-categories button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 10px;
+  margin: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #424641 !important;
+  font: inherit;
+  font-size: 13px;
+  box-shadow: none;
+  min-height: 48px;
+}
+.vendor-detail .abi-food-categories button:hover,
+.studio-console .market-workspace .vendor-detail .abi-food-categories button:hover:not(:disabled) {
+  background: #eceee8;
+}
+.vendor-detail .abi-food-categories button[aria-current="true"],
+.studio-console .market-workspace .vendor-detail .abi-food-categories button[aria-current="true"] {
+  background: #e5e9e0;
+  color: #252b24 !important;
+}
+.abi-food-categories button img {
+  width: 30px;
+  height: 34px;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+  flex: none;
+}
+.abi-food-categories button > span:not(.abi-market-image-fallback) {
+  flex: 1;
+}
+.abi-food-categories button small {
+  font-size: 11px;
+  color: #62685f;
+}
+.abi-food-mobile-category {
+  display: none;
+}
+.abi-food-results {
+  min-width: 0;
+}
+.abi-food-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.abi-food-toolbar h3 {
+  margin-bottom: 5px;
+}
+.abi-food-toolbar p {
+  margin: 0;
+  font-size: 13px;
+  color: #62685f;
+}
+.abi-food-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: #edefeb;
+  padding: 0 12px;
+  border-radius: 8px;
+  min-height: 42px;
+  max-width: 100%;
+}
+.abi-food-search input {
+  width: 215px;
+  min-width: 0;
+  max-width: 100%;
+  background: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  font: inherit;
+  font-size: 13px;
+  padding: 10px 0;
+  outline-offset: 4px;
+}
+.abi-food-grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 30px 20px;
+}
+.abi-food-grid > li {
+  min-width: 0;
+  scroll-margin-top: 120px;
+}
+.abi-food-product-image {
+  display: grid;
+  place-items: center;
+  background: rgb(255 255 255 / 78%);
+  border-radius: 12px;
+  aspect-ratio: 1;
+  padding: 18px;
+}
+.abi-food-product-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+}
+.abi-food-product-copy {
+  padding: 14px 2px 0;
+}
+.abi-food-product-copy > p {
+  font-size: 12px;
+  color: #62685f;
+  margin: 0 0 5px;
+}
+.abi-food-product-copy h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.abi-food-product-copy small {
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
+  color: #62685f;
+}
+.abi-food-product-copy a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 13px;
+  color: #285f91;
+  font-size: 12px;
+  text-decoration: none;
+}
+.abi-food-product-copy a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.abi-food-pagination {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 32px;
+  font-size: 13px;
+}
+.vendor-detail .abi-food-pagination button,
+.vendor-dir .abi-food-pagination button,
+.studio-console .market-workspace .vendor-detail .abi-food-pagination button,
+.studio-console .market-workspace .vendor-dir .abi-food-pagination button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #eceee8;
+  color: #30372e !important;
+  padding: 10px 12px;
+  border-radius: 7px;
+  border: 0;
+  box-shadow: none;
+  font: inherit;
+  font-size: 13px;
+}
+.abi-food-pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.abi-food-empty {
+  padding-block: 30px;
+  font-size: 14px;
+  color: #62685f;
+}
+.vendor-listing-product-image {
+  display: block;
+  height: 140px;
+}
+.vendor-listing-product-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.vendor-dir .vendor-row .vendor-logo:has(img[src*="rh-amar"]) {
+  width: 66px;
+}
+.vendor-dir .vendor-row img[src*="rh-amar"] {
+  max-width: 58px;
+  height: auto;
+}
+@media (max-width: 1000px) {
+  .abi-food-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .abi-food-catalog {
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 22px;
+  }
+}
+@media (max-width: 650px) {
+  .abi-food-catalog {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+  .abi-food-categories > h3,
+  .abi-food-categories nav {
+    display: none;
+  }
+  .abi-food-mobile-category {
+    display: grid;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .abi-food-mobile-category select {
+    width: 100%;
+    max-width: 100%;
+    font: inherit;
+    padding: 12px;
+    background: #e9ece5;
+    color: #30372e !important;
+    border-radius: 8px;
+    border: 0;
+  }
+  .abi-food-toolbar {
+    display: grid;
+  }
+  .abi-food-search input {
+    width: 100%;
+  }
+  .abi-food-grid {
+    gap: 24px 14px;
+  }
+  .abi-food-product-image {
+    padding: 10px;
+  }
+  .vendor-detail.is-food-catalog .vendor-detail-head {
+    flex-wrap: wrap;
+  }
+  .vendor-detail.is-food-catalog .vendor-logo.is-large {
+    width: 110px;
+  }
+  .vendor-detail.is-food-catalog .vendor-detail-head > div {
+    flex-basis: 100%;
+    order: 2;
+  }
+  .abi-food-pagination {
+    gap: 12px;
+  }
+}
+.abi-food-categories .abi-market-image-fallback {
+  width: 30px;
+  height: 34px;
+  flex: none;
+  overflow: hidden;
+}
+.abi-food-categories .abi-market-image-fallback > span {
+  display: none;
+}
+.abi-food-product-image .abi-market-image-fallback {
+  font-size: 12px;
+  color: #62685f;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+}
+@media (max-width: 650px) {
+  .vendor-detail.is-food-catalog .vendor-logo.is-large img {
+    max-width: 100px;
+    width: 100px;
+  }
+}

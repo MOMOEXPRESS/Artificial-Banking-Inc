@@ -9,6 +9,7 @@ import {
   matchProviders,
   type IntegratedProvider,
 } from "./vendor-directory-data";
+import { ProviderFoodCatalog } from "./provider-food-catalog";
 import { ListingCarousel, ListingGrid } from "./vendor-listings";
 import "./vendor-directory.css";
 
@@ -77,7 +78,7 @@ export function ProviderDirectory({
   if (selected)
     return (
       <div className="vendor-dir">
-        <ProviderDetail provider={selected} onBack={() => setOpen(null)} />
+        <ProviderDetail key={selected.slug} provider={selected} onBack={() => setOpen(null)} />
       </div>
     );
   if (providers.length === 0 && listings.length === 0) return null;
@@ -87,9 +88,14 @@ export function ProviderDirectory({
         {listings.length} {listings.length === 1 ? "listing" : "listings"}
       </h3>
       {view === "listings" ? (
-        <ListingGrid listings={listings} onOpen={onOpen} />
+        <ListingGrid key={`${query}/${kind}`} listings={listings} onOpen={onOpen} />
       ) : (
-        <ListingCarousel listings={listings} onOpen={onOpen} />
+        <ListingCarousel
+          listings={providers.flatMap((p) =>
+            listings.filter((l) => l.provider.slug === p.slug).slice(0, 4),
+          )}
+          onOpen={onOpen}
+        />
       )}
     </section>
   );
@@ -132,7 +138,7 @@ export function ProviderDetail({
   onBack?: () => void;
 }) {
   return (
-    <article className="vendor-detail">
+    <article className={`vendor-detail${provider.slug === "rh-amar" ? " is-food-catalog" : ""}`}>
       {onBack ? (
         <button type="button" className="vendor-back" onClick={onBack}>
           ← All providers
@@ -152,26 +158,40 @@ export function ProviderDetail({
           {provider.status.label}
         </span>
       </header>
-      <h3 className="vendor-actions-title">
-        {provider.actions.length} {provider.actionNoun}
-      </h3>
-      <ul className="vendor-actions">
-        {provider.actions.map((action) => (
-          <li key={action.id} id={action.id} className="vendor-action">
-            <span className="vendor-action-name">{action.name}</span>
-            <span className="vendor-action-price">
-              <strong>{action.unitPrice}</strong>
-              {action.unitNote && <small>{action.unitNote}</small>}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {provider.slug === "rh-amar" ? (
+        <ProviderFoodCatalog provider={provider} />
+      ) : (
+        <>
+          <h3 className="vendor-actions-title">
+            {provider.actions.length} {provider.actionNoun}
+          </h3>
+          <ul className="vendor-actions">
+            {provider.actions.map((action) => (
+              <li key={action.id} id={action.id} className="vendor-action">
+                <span className="vendor-action-name">{action.name}</span>
+                <span className="vendor-action-price">
+                  <strong>{action.unitPrice}</strong>
+                  {action.unitNote && <small>{action.unitNote}</small>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       <footer className="vendor-sources">
         <p>
           {provider.pricingNote} {provider.status.detail}
         </p>
         <p>
-          Checked {verifiedLabel} on{" "}
+          Checked{" "}
+          {provider.verifiedOn
+            ? new Date(`${provider.verifiedOn}T12:00:00Z`).toLocaleDateString("en-GB", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })
+            : verifiedLabel}{" "}
+          on{" "}
           {provider.sources.map((s, i) => (
             <span key={s.url}>
               {i > 0 && ", "}

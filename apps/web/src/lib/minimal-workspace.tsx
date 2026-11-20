@@ -1,4 +1,5 @@
 "use client";
+import { CreditCard } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { AgentKey, OrgView, View } from "./console-types";
 import { marketplaceJson } from "./marketplace-catalog";
@@ -647,6 +648,74 @@ export function MinimalBilling({
         )}
         {notice && <p role="status">{notice}</p>}
         {!data && !error && <p role="status">Loading billing…</p>}
+        {tab === "overview" && fundingContent && (
+          <div
+            id="billing-crypto-deposits"
+            className={testnetPreview ? "abi-preview-deposits" : "abi-crypto-deposits"}
+          >
+            {fundingContent}
+          </div>
+        )}
+        {data && testnetPreview && (
+          <section
+            id="billing-card-payment"
+            className="abi-card-funding"
+            aria-label="Stripe card payments"
+          >
+            <header className="abi-funding-heading">
+              <CreditCard size={22} />
+              <div>
+                <h2>Pay by card</h2>
+                <p>Secure card payments through Stripe.</p>
+              </div>
+            </header>
+            <div className="abi-card-funding-body">
+              <div>
+                <p>USD credit balance</p>
+                <strong>{usd(data.creditCents)}</strong>
+                {data.debtCents > 0 && <p>Amount to resolve: {usd(data.debtCents)}</p>}
+                <div className="minimal-actions">
+                  <label>
+                    Amount (USD)
+                    <input
+                      inputMode="decimal"
+                      aria-label="Card credit amount"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      disabled={busy || readOnly || !data.cardFundingAvailable}
+                    />
+                  </label>
+                  <button
+                    className="minimal-primary"
+                    disabled={busy || readOnly || !data.cardFundingAvailable}
+                    onClick={() => void checkout(false)}
+                  >
+                    Add USD credits
+                  </button>
+                </div>
+                <p className="minimal-note">
+                  USD credits are separate from test USDC. Card payments do not convert into crypto
+                  or fund agent allowances.
+                </p>
+              </div>
+              <div>
+                <p>Payment method</p>
+                <p>{data.method?.label ?? "No saved card"}</p>
+                <button
+                  disabled={busy || readOnly || !data.cardFundingAvailable}
+                  onClick={() => void checkout(true)}
+                >
+                  {data.method ? "Replace card" : "Add card"}
+                </button>
+                {!data.cardFundingAvailable && (
+                  <p className="minimal-note">
+                    Card payments are not enabled for this deployment yet.
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
         {data && !testnetPreview && (
           <>
             {!data.cardFundingAvailable && (
@@ -815,14 +884,6 @@ export function MinimalBilling({
               </p>
             </section>
           </>
-        )}
-        {tab === "overview" && fundingContent && (
-          <div
-            id="billing-crypto-deposits"
-            className={testnetPreview ? "abi-preview-deposits" : "abi-crypto-deposits"}
-          >
-            {fundingContent}
-          </div>
         )}
       </div>
     </section>

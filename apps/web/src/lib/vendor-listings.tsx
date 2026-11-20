@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { MarketplaceImage } from "./marketplace-image";
 import type { IntegratedListing } from "./vendor-directory-data";
 
 /** How long each listing stays in place before the carousel moves on. */
@@ -33,11 +34,22 @@ function ListingCard({
         <span>{provider.name}</span>
         <span className="vendor-listing-pill">{provider.status.label}</span>
       </span>
+      {action.image && (
+        <span className="vendor-listing-product-image">
+          <MarketplaceImage src={action.image} alt={action.name} />
+        </span>
+      )}
       <strong className="vendor-listing-title">{action.listingTitle}</strong>
       <span className="vendor-listing-desc">{action.description}</span>
       <span className="vendor-listing-price">
         <strong>{action.unitPrice}</strong>
-        <small>{action.unitNote ? `${action.unitNote} · vendor price` : "Vendor price"}</small>
+        <small>
+          {provider.slug === "rh-amar"
+            ? "Browse only"
+            : action.unitNote
+              ? `${action.unitNote} · vendor price`
+              : "Vendor price"}
+        </small>
       </span>
     </>
   );
@@ -193,14 +205,34 @@ export function ListingGrid({
   listings: IntegratedListing[];
   onOpen?: (slug: string) => void;
 }) {
+  const [page, setPage] = useState(0);
+  const count = 24;
   if (listings.length === 0) return null;
   return (
-    <ul className="vendor-listing-grid">
-      {listings.map((listing) => (
-        <li key={`${listing.provider.slug}/${listing.action.id}`}>
-          <ListingCard listing={listing} onOpen={onOpen} />
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="vendor-listing-grid">
+        {listings.slice(page * count, (page + 1) * count).map((listing) => (
+          <li key={`${listing.provider.slug}/${listing.action.id}`}>
+            <ListingCard listing={listing} onOpen={onOpen} />
+          </li>
+        ))}
+      </ul>
+      {listings.length > count && (
+        <nav className="abi-food-pagination" aria-label="Listing pages">
+          <button disabled={!page} onClick={() => setPage((p) => p - 1)}>
+            Previous
+          </button>
+          <span>
+            Page {page + 1} of {Math.ceil(listings.length / count)}
+          </span>
+          <button
+            disabled={(page + 1) * count >= listings.length}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Next
+          </button>
+        </nav>
+      )}
+    </>
   );
 }

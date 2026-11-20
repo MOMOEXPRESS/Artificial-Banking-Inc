@@ -1,0 +1,17 @@
+# RH Amar display catalogue and treasury layout
+
+RH Amar is a display-only Physical goods provider, as requested. Public discovery, the landing-page provider section, `/providers/rh-amar` and the signed-in Marketplace use the shared provider dataset. No RH Amar API credentials, stock integration, payment, order submission or fulfillment is enabled.
+
+The 19 November 2026 public catalogue snapshot contains **934 unique SKUs** across these 16 categories: Baby Food; Home Baking & Desserts; Canned Fruit, Veg & Pulses; Drinks; Antipasti; Snacking; Pasta, Grains & Rice; Herbs, Spices & Seasonings; Breakfast; Meat & Fish Products; Oils & Fats; Pickled Goods; Dressings, Sauces & Condiments; Tomatoes; Vinegars; World Cuisine.
+
+Sources are https://rhamaronline.com/ and its publicly accessible category/product pages and catalogue responses. The actual RH Amar logo is copied from the trade site. Each record in `apps/web/src/catalog/rhamar-catalog.json` retains its SKU, source URL, brand, category memberships and original image URL. Some SKUs have different IDs on separate category pages; these are merged by SKU, retaining their category memberships and additional source URLs. The provider and overall listing counts count each SKU once. Source stock/price fields are deliberately omitted; a public response's zero price must not become a free product.
+
+All 934 matching product images are cached as bounded 360px WebP assets in `apps/web/public/vendors/rh-amar/products`. Images are lazy loaded, and products are paginated in groups of 24. Category navigation uses the same memberships, with a labelled selector on mobile. The catalogue is a curated snapshot, not an automatic stock or price feed. Future updates should be a deliberate source refresh and SKU reconciliation; do not import category totals as unique product counts or enable ordering from a copied catalogue.
+
+The empty marketplace shortlist is hidden. The existing quote/purchase review still appears after an actual orderable seller product is added; display catalogue products cannot enter that cart.
+
+Billing's testnet overview now shows available treasury funds, workspace allocations and reserved amounts, followed by always-visible receiving details and an allocation composer. The QR and copy address still use the API's verified Base Sepolia execution treasury. Allocation review precedes the unchanged idempotent allocation POST; existing approval/limit rules apply. Failed allocation and deposit checks have separate error states. No money is moved by viewing the page.
+
+The separate Stripe card-payment section and saved-card flow remain available in the interface. It uses the existing server availability flag, hosted checkout/setup and verified payment handling. When card funding is not configured, its actions remain disabled. USD credits do not become USDC, and card payments do not fund the testnet ledger.
+
+Validation: 181 frontend tests pass, including SKU uniqueness/category search and existing payment controls. Batched desktop/mobile browser checks exercise inline provider navigation, category/SKU search, all 24 visible-page product images, QR decoding, allocation review/confirmation and disabled unconfigured Stripe actions. These use isolated UI fixtures for signed-in account data; they are not live deposits, RH Amar orders or Stripe charges. Production smoke checks are separate from these fixture checks.

@@ -214,108 +214,110 @@ function LiveMarketplaceBuyer({
             setQuote(null);
           }}
         />
-        <section className="market-shortlist">
-          <h2>Your shortlist</h2>
-          <label>
-            Shopping agent
-            <select
-              value={agent}
-              onChange={(e) => {
-                setAgent(e.target.value);
-                setQuote(null);
-              }}
-            >
-              <option value="">Choose a connected agent</option>
-              {session.agentKeys.map((k) => (
-                <option key={k.agentId} value={k.agentId}>
-                  {k.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {shortlist.length ? (
-            <>
-              <ul>
-                {shortlist.map((p) => (
-                  <li key={p.id}>
-                    {p.name} · {marketPrice(p.priceMicro)}{" "}
-                    <button
-                      disabled={busy}
-                      onClick={() => {
-                        setShortlist((v) => v.filter((i) => i.id !== p.id));
-                        setQuote(null);
-                      }}
-                    >
-                      Remove
-                    </button>
-                  </li>
+        {shortlist.length > 0 && (
+          <section className="market-shortlist">
+            <h2>Your shortlist</h2>
+            <label>
+              Shopping agent
+              <select
+                value={agent}
+                onChange={(e) => {
+                  setAgent(e.target.value);
+                  setQuote(null);
+                }}
+              >
+                <option value="">Choose a connected agent</option>
+                {session.agentKeys.map((k) => (
+                  <option key={k.agentId} value={k.agentId}>
+                    {k.name}
+                  </option>
                 ))}
-              </ul>
-              {shortlist.some((p) => p.kind === "physical") && (
-                <div className="market-form">
-                  {[
-                    ["name", "Recipient name"],
-                    ["line1", "Street address"],
-                    ["city", "City"],
-                    ["postalCode", "Postal code"],
-                    ["country", "Country (two-letter ISO code)"],
-                  ].map(([key, label]) => (
-                    <label key={key}>
-                      {label}
-                      <input
-                        value={shippingAddress[key as keyof typeof shippingAddress]}
-                        maxLength={key === "country" ? 2 : 200}
-                        onChange={(e) => {
-                          setShippingAddress((v) => ({
-                            ...v,
-                            [key]:
-                              key === "country" ? e.target.value.toUpperCase() : e.target.value,
-                          }));
+              </select>
+            </label>
+
+            {shortlist.length ? (
+              <>
+                <ul>
+                  {shortlist.map((p) => (
+                    <li key={p.id}>
+                      {p.name} · {marketPrice(p.priceMicro)}{" "}
+                      <button
+                        disabled={busy}
+                        onClick={() => {
+                          setShortlist((v) => v.filter((i) => i.id !== p.id));
                           setQuote(null);
                         }}
-                      />
-                    </label>
+                      >
+                        Remove
+                      </button>
+                    </li>
                   ))}
-                </div>
-              )}
-              <button disabled={busy || !agent} onClick={() => void act(prepare)}>
-                Prepare a quote
-              </button>
-            </>
-          ) : (
-            <p>Add products from the catalog to compare a purchase before any payment.</p>
-          )}
-          {quote && (
-            <div className="market-review">
-              <h3>Review purchase</h3>
-              <ul>
-                {quote.items.map((i) => (
-                  <li key={i.id}>
-                    <strong>{i.name}</strong> · {i.quantity} × {marketPrice(i.priceMicro)} · line
-                    total {marketPrice(i.lineTotalMicro)} · seller {i.sellerName ?? i.vendorId}
-                  </li>
-                ))}
-              </ul>
-              <p>
-                {quote.items.length} items · <strong>{marketPrice(quote.totalMicro)}</strong>
-              </p>
-              <p>
-                Quote expires {new Date(quote.expiresAt).toLocaleTimeString()}.{" "}
-                {quote.shippingAndTax}
-              </p>
-              <button
-                disabled={busy || Date.parse(quote.expiresAt) < Date.now()}
-                onClick={() => void act(purchase)}
-              >
-                Confirm and request payment
-              </button>
-              <button disabled={busy} onClick={() => setQuote(null)}>
-                Keep browsing
-              </button>
-            </div>
-          )}
-        </section>
+                </ul>
+                {shortlist.some((p) => p.kind === "physical") && (
+                  <div className="market-form">
+                    {[
+                      ["name", "Recipient name"],
+                      ["line1", "Street address"],
+                      ["city", "City"],
+                      ["postalCode", "Postal code"],
+                      ["country", "Country (two-letter ISO code)"],
+                    ].map(([key, label]) => (
+                      <label key={key}>
+                        {label}
+                        <input
+                          value={shippingAddress[key as keyof typeof shippingAddress]}
+                          maxLength={key === "country" ? 2 : 200}
+                          onChange={(e) => {
+                            setShippingAddress((v) => ({
+                              ...v,
+                              [key]:
+                                key === "country" ? e.target.value.toUpperCase() : e.target.value,
+                            }));
+                            setQuote(null);
+                          }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <button disabled={busy || !agent} onClick={() => void act(prepare)}>
+                  Prepare a quote
+                </button>
+              </>
+            ) : (
+              <p>Add products from the catalog to compare a purchase before any payment.</p>
+            )}
+            {quote && (
+              <div className="market-review">
+                <h3>Review purchase</h3>
+                <ul>
+                  {quote.items.map((i) => (
+                    <li key={i.id}>
+                      <strong>{i.name}</strong> · {i.quantity} × {marketPrice(i.priceMicro)} · line
+                      total {marketPrice(i.lineTotalMicro)} · seller {i.sellerName ?? i.vendorId}
+                    </li>
+                  ))}
+                </ul>
+                <p>
+                  {quote.items.length} items · <strong>{marketPrice(quote.totalMicro)}</strong>
+                </p>
+                <p>
+                  Quote expires {new Date(quote.expiresAt).toLocaleTimeString()}.{" "}
+                  {quote.shippingAndTax}
+                </p>
+                <button
+                  disabled={busy || Date.parse(quote.expiresAt) < Date.now()}
+                  onClick={() => void act(purchase)}
+                >
+                  Confirm and request payment
+                </button>
+                <button disabled={busy} onClick={() => setQuote(null)}>
+                  Keep browsing
+                </button>
+              </div>
+            )}
+          </section>
+        )}
       </div>
       {tab === "resources" && (
         <MarketplaceResources

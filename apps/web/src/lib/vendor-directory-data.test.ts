@@ -11,10 +11,10 @@ import {
   matchProviders,
 } from "./vendor-directory-data";
 
-test("only the two real integrated vendors are listed", () => {
+test("the two existing providers and RH Amar display catalogue are listed", () => {
   assert.deepEqual(
     INTEGRATED_PROVIDERS.map((p) => p.slug),
-    ["prodigi", "scrapingant"],
+    ["prodigi", "scrapingant", "rh-amar"],
   );
   for (const p of INTEGRATED_PROVIDERS) {
     assert.ok(p.actions.length > 0);
@@ -60,7 +60,7 @@ test("every action has a short price for the action list", () => {
 test("catalog search and kind tabs filter providers", () => {
   assert.deepEqual(
     matchProviders("", "physical").map((p) => p.slug),
-    ["prodigi"],
+    ["prodigi", "rh-amar"],
   );
   assert.deepEqual(
     matchProviders("", "service").map((p) => p.slug),
@@ -75,30 +75,57 @@ test("catalog search and kind tabs filter providers", () => {
     matchProviders("lead scraping", "").map((p) => p.slug),
     ["scrapingant"],
   );
-  assert.equal(matchProviders("", "").length, 2);
+  assert.equal(matchProviders("", "").length, 3);
 });
 
 test("every vendor product and action is one listing, with its provider", () => {
   const counts = Object.fromEntries(INTEGRATED_PROVIDERS.map((p) => [p.slug, p.actions.length]));
-  assert.deepEqual(counts, { prodigi: 4, scrapingant: 6 });
-  assert.equal(INTEGRATED_LISTINGS.length, 10);
+  assert.equal(counts.prodigi, 4);
+  assert.equal(counts.scrapingant, 6);
+  assert.equal(counts["rh-amar"], 934);
+  assert.equal(INTEGRATED_LISTINGS.length, 944);
   for (const { provider, action } of INTEGRATED_LISTINGS) {
     assert.ok(provider.actions.includes(action));
     assert.ok(action.listingTitle.trim().length > 3, action.id);
     assert.ok(action.unitPrice.trim().length > 0, action.id);
   }
-  const titles = INTEGRATED_LISTINGS.map((l) => l.action.listingTitle);
+  const titles = INTEGRATED_LISTINGS.filter((l) => l.provider.slug !== "rh-amar").map(
+    (l) => l.action.listingTitle,
+  );
   assert.equal(new Set(titles).size, titles.length);
 });
 
 test("listings follow the catalog search and kind tab", () => {
-  assert.equal(matchListings("", "").length, 10);
+  assert.equal(matchListings("", "").length, 944);
   assert.equal(matchListings("prodigi", "").length, 4);
   assert.equal(matchListings("", "service").length, 6);
-  assert.equal(matchListings("", "physical").length, 4);
+  assert.equal(matchListings("", "physical").length, 938);
   assert.deepEqual(
     matchListings("markdown", "").map((l) => l.action.id),
     ["page-markdown"],
   );
   assert.equal(matchListings("no such thing", "").length, 0);
+});
+
+test("RH Amar counts unique SKUs across its 16 source categories without inventing commerce data", () => {
+  const rh = findProvider("rh-amar")!;
+  assert.equal(rh.categories.length, 16);
+  assert.equal(new Set(rh.actions.map((a) => a.reference)).size, rh.actions.length);
+  assert.ok(
+    rh.actions.every(
+      (a) => a.categories?.length && a.categories.every((c) => rh.categories.includes(c)),
+    ),
+  );
+  assert.ok(rh.actions.every((a) => a.sourceUrl?.startsWith("https://rhamaronline.com/products/")));
+  assert.ok(
+    rh.actions.every((a) => !Object.hasOwn(a, "stockLevel") && a.unitPrice === "Trade pricing"),
+  );
+  const categoryResults = matchListings("Baby Food", "physical");
+  assert.ok(categoryResults.length > 0 && categoryResults.length < rh.actions.length);
+  assert.ok(
+    categoryResults
+      .filter((l) => l.provider.slug === "rh-amar")
+      .every((l) => l.action.categories?.includes("Baby Food")),
+  );
+  assert.equal(matchListings("EK013", "physical").length, 1);
 });

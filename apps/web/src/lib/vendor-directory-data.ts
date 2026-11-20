@@ -1,11 +1,11 @@
+import rhamarCatalog from "../catalog/rhamar-catalog.json";
 /**
  * Integrated vendors shown in the ABI marketplace (public homepage, /directory,
  * /providers/[slug] and the logged-in Marketplace all read this one list).
  *
- * Every number here was read from the vendor's own public page on
- * VERIFIED_ON. They are the vendor's prices to ABI, not ABI's prices to an
- * agent: ABI's retail pricing for these vendors is not set yet, so the UI
- * labels them as vendor costs and purchases stay closed until it is.
+ * Provider sources and checked dates describe the display snapshot. Published
+ * vendor prices are not ABI retail prices. RH Amar prices and stock are omitted;
+ * its public catalogue is browse-only. No dataset entry enables a purchase.
  */
 export const VERIFIED_ON = "2026-11-11";
 
@@ -29,6 +29,10 @@ export type ProviderAction = {
   unitNote?: string;
   facts: string[];
   examples?: string[];
+  image?: string;
+  categories?: string[];
+  sourceUrl?: string;
+  brand?: string;
 };
 
 export type ProviderSource = { label: string; url: string };
@@ -54,6 +58,7 @@ export type IntegratedProvider = {
   };
   actions: ProviderAction[];
   sources: ProviderSource[];
+  verifiedOn?: string;
 };
 
 /** ScrapingAnt plans, from scrapingant.com (monthly price in USD, credits/month). */
@@ -320,6 +325,46 @@ export const INTEGRATED_PROVIDERS: IntegratedProvider[] = [
       },
     ],
   },
+  {
+    slug: "rh-amar",
+    name: "RH Amar",
+    monogram: "RH",
+    logo: { src: "/vendors/rh-amar.png", width: 640, height: 245 },
+    website: "https://rhamaronline.com",
+    kind: "physical",
+    kindLabel: "Physical goods",
+    categories: rhamarCatalog.categories.map((c) => c.name),
+    tagline: "Food and drink from established grocery brands, organised by category.",
+    description:
+      "Explore RH Amar’s public trade catalogue, including baby food, pantry ingredients, drinks and snacks.",
+    actionNoun: "products",
+    pricingSummary: "Trade catalogue",
+    pricingNote: "Display-only catalogue. Trade prices and live availability are not shown on ABI.",
+    status: {
+      label: "Browse only",
+      detail: "Ordering through ABI is not enabled for this catalogue.",
+    },
+    verifiedOn: rhamarCatalog.observedOn,
+    actions: rhamarCatalog.products.map((p) => ({
+      id: `rh-amar-${p.id}`,
+      name: p.name,
+      listingTitle: p.name,
+      description: `${p.brand} · ${p.sku}${p.pack ? ` · ${p.pack}` : ""}`,
+      reference: p.sku,
+      price: "Trade pricing",
+      priceDetail: "Prices require a trade account with RH Amar.",
+      unitPrice: "Trade pricing",
+      facts: [p.brand, p.sku, p.pack].filter(Boolean),
+      image: p.image,
+      categories: p.categories,
+      sourceUrl: p.url,
+      brand: p.brand,
+    })),
+    sources: [
+      { label: "RH Amar trade catalogue", url: "https://rhamaronline.com/products" },
+      { label: "RH Amar", url: "https://rhamar.com/" },
+    ],
+  },
 ];
 
 export function findProvider(slug: string) {
@@ -364,11 +409,16 @@ export function matchListings(query: string, kind: string) {
   return INTEGRATED_LISTINGS.filter(({ provider, action }) => {
     if (kind && provider.kind !== kind) return false;
     if (words.length === 0) return true;
+    const category = provider.categories.find(
+      (c) => c.toLowerCase() === query.trim().toLowerCase(),
+    );
+    if (category && action.categories) return action.categories.includes(category);
     const haystack = [
       provider.name,
       provider.tagline,
       provider.kindLabel,
-      ...provider.categories,
+      ...(action.categories ?? provider.categories),
+      ...(action.brand ? [action.brand] : []),
       action.name,
       action.listingTitle,
       action.description,

@@ -125,8 +125,8 @@ export function MarketplaceCatalog({
         <div>
           <h2>{compact ? "Explore the marketplace" : "Browse products and services"}</h2>
           <p>
-            Live seller listings. Stock is reserved at checkout; feedback comes from actual
-            purchases.
+            Browse provider catalogues and published seller listings. Availability and ordering
+            depend on the provider.
           </p>
         </div>
         {compact && <Link href="/directory">View all products</Link>}
